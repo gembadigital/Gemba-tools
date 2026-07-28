@@ -1,0 +1,6 @@
+{
+  "name": "GembaLens OpEx Analyzer",
+  "description": "An interactive Operational Excellence and Lean Management platform for shop-floor data analysis, Gantt master plans, spaghetti diagrams, and AI-enabled Gemba audits.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

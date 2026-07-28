@@ -1,0 +1,2422 @@
+import React, { useState, useEffect, useMemo } from "react";
+import { GanttActivity } from "../types";
+import * as XLSX from "xlsx";
+import { 
+  Calendar, List, KanbanSquare, Clock, Plus, Trash2, Edit3, 
+  CheckCircle2, AlertTriangle, Play, HelpCircle, ArrowRight, User,
+  Settings, Award, FileSpreadsheet, BrainCircuit, RefreshCw, Layers,
+  ChevronUp, ChevronDown, Check, Zap, Info, ShieldCheck, Download, Upload, Maximize2, Minimize2, X, TrendingUp
+} from "lucide-react";
+
+interface MasterPlanGanttProps {
+  activities: GanttActivity[];
+  kaizens?: any[];
+  audits5S?: any[];
+  processes?: any[];
+  onAddActivity: (activity: any) => void;
+  onUpdateActivity: (activity: any) => void;
+  onDeleteActivity: (id: string) => void;
+  activeCustomerId?: string;
+}
+
+type ViewType = "timeline" | "table" | "kanban";
+
+interface SiteVisit {
+  id: string;
+  date: string;
+  consultant: string;
+  duration: number; // in Man-Days, e.g. 1
+  activitiesPerformed: string[]; // activity IDs
+  participants: string;
+  notes: string;
+  deliverables: string;
+}
+
+interface ContractPackage {
+  id: string;
+  name: string;
+  value: number; // Man-Days per week
+}
+
+export default function MasterPlanGantt({
+  activities,
+  kaizens = [],
+  audits5S = [],
+  processes = [],
+  onAddActivity,
+  onUpdateActivity,
+  onDeleteActivity,
+  activeCustomerId: propActiveCustomerId
+}: MasterPlanGanttProps) {
+  const [activeView, setActiveView] = useState<ViewType>("timeline");
+  const [isAdding, setIsAdding] = useState(false);
+  const [editingActivity, setEditingActivity] = useState<any>(null);
+
+  // State for plan delete confirmation dialog
+  const [planToDelete, setPlanToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [formActualWeeksStr, setFormActualWeeksStr] = useState("");
+
+  // Helper to convert array of active week numbers into contiguous blocks
+  const getWeekBlocks = (weeks: number[]) => {
+    if (!weeks || weeks.length === 0) return [];
+    const sorted = Array.from(new Set(weeks)).sort((a, b) => a - b);
+    const blocks: { start: number; finish: number }[] = [];
+    let currentStart = sorted[0];
+    let currentPrev = sorted[0];
+
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i] === currentPrev + 1) {
+        currentPrev = sorted[i];
+      } else {
+        blocks.push({ start: currentStart, finish: currentPrev });
+        currentStart = sorted[i];
+        currentPrev = sorted[i];
+      }
+    }
+    blocks.push({ start: currentStart, finish: currentPrev });
+    return blocks;
+  };
+
+  // States for creating a custom project plan name
+  const [isCreatingPlan, setIsCreatingPlan] = useState(false);
+  const [newPlanInputName, setNewPlanInputName] = useState("");
+
+  // Active Customer ID/Key for Local Storage isolation
+  const activeCustomerId = propActiveCustomerId || localStorage.getItem("gemba_active_factory_id_usr_arcelik_admin") || "arcelik_bolu";
+
+  // Load Proje Takip Raporu (PTR) records for syncing actual weeks
+  const [ptrRecords, setPtrRecords] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadPtr = () => {
+      try {
+        const saved = localStorage.getItem(`gemba_ptr_records_${activeCustomerId}`);
+        if (saved) {
+          setPtrRecords(JSON.parse(saved));
+        } else {
+          setPtrRecords([]);
+        }
+      } catch (e) {
+        setPtrRecords([]);
+      }
+    };
+    loadPtr();
+    window.addEventListener("storage", loadPtr);
+    return () => window.removeEventListener("storage", loadPtr);
+  }, [activeCustomerId]);
+
+  // Top Tabbed Navigation State
+  const [currentTopTab, setCurrentTopTab] = useState<string>("master");
+
+  // Separate Dynamic Project Plans State
+  const [customPlans, setCustomPlans] = useState<{ id: string; name: string; activities: any[] }[]>(() => {
+    const saved = localStorage.getItem(`gemba_custom_project_plans_${activeCustomerId}`);
+    if (saved) return JSON.parse(saved);
+    return [];
+  });
+
+  // Automatically persist custom project plans
+  useEffect(() => {
+    localStorage.setItem(`gemba_custom_project_plans_${activeCustomerId}`, JSON.stringify(customPlans));
+  }, [customPlans, activeCustomerId]);
+
+  // Listen for external custom plans changes (e.g. from trash restoration in system settings)
+  useEffect(() => {
+    const handlePlansChange = () => {
+      const saved = localStorage.getItem(`gemba_custom_project_plans_${activeCustomerId}`);
+      if (saved) {
+        setCustomPlans(JSON.parse(saved));
+      } else {
+        setCustomPlans([]);
+      }
+    };
+
+    window.addEventListener("CustomPlansChanged", handlePlansChange);
+    return () => {
+      window.removeEventListener("CustomPlansChanged", handlePlansChange);
+    };
+  }, [activeCustomerId]);
+
+  // Dynamic selector for current active activities list
+  const activeCustomPlan = customPlans.find(p => p.id === currentTopTab);
+  const currentActivities = currentTopTab === "master" ? activities : (activeCustomPlan ? activeCustomPlan.activities : []);
+
+  // Trigger naming modal
+  const handleCreateProjectPlan = () => {
+    setNewPlanInputName(`Proje Planı ${customPlans.length + 1}`);
+    setIsCreatingPlan(true);
+  };
+
+  // Creator function that clones the current master plan activities as a starting template with selected name
+  const handleCreateProjectPlanSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedName = newPlanInputName.trim() || `Proje Planı ${customPlans.length + 1}`;
+    const newPlanId = "plan_" + Math.random().toString(36).substring(2, 9);
+    
+    // Copy current master plan's activities to act as a template copy
+    const clonedActivities = activities.map(act => ({
+      ...act,
+      id: "act_" + Math.random().toString(36).substring(2, 9) // avoid id collision
+    }));
+
+    const newPlan = {
+      id: newPlanId,
+      name: trimmedName,
+      activities: clonedActivities
+    };
+
+    setCustomPlans(prev => [...prev, newPlan]);
+    setCurrentTopTab(newPlanId);
+    setIsCreatingPlan(false);
+    setNewPlanInputName("");
+  };
+
+  // Wrapper mutation handlers that direct to either master props or local state
+  const onAddActivityLocal = (act: any) => {
+    if (currentTopTab === "master") {
+      onAddActivity(act);
+    } else {
+      setCustomPlans(prev => prev.map(p => {
+        if (p.id === currentTopTab) {
+          return { ...p, activities: [...p.activities, act] };
+        }
+        return p;
+      }));
+    }
+  };
+
+  const onUpdateActivityLocal = (act: any) => {
+    if (currentTopTab === "master") {
+      onUpdateActivity(act);
+    } else {
+      setCustomPlans(prev => prev.map(p => {
+        if (p.id === currentTopTab) {
+          return { ...p, activities: p.activities.map(item => item.id === act.id ? act : item) };
+        }
+        return p;
+      }));
+    }
+  };
+
+  const onDeleteActivityLocal = (id: string) => {
+    if (currentTopTab === "master") {
+      onDeleteActivity(id);
+    } else {
+      setCustomPlans(prev => prev.map(p => {
+        if (p.id === currentTopTab) {
+          return { ...p, activities: p.activities.filter(item => item.id !== id) };
+        }
+        return p;
+      }));
+    }
+  };
+
+  // Settings: Project Weeks Range (e.g. Week 24 to Week 39)
+  const [startWeek, setStartWeek] = useState(24);
+  const [endWeek, setEndWeek] = useState(39);
+  const totalWeeks = endWeek - startWeek + 1;
+
+  // 1. Consulting Package Contract State
+  const packages: ContractPackage[] = [
+    { id: "pkg_1", name: "Haftalık 1 Adam-Gün (Weekly 1 Man-Day)", value: 1 },
+    { id: "pkg_2", name: "Haftalık 2 Adam-Gün (Weekly 2 Man-Days)", value: 2 },
+    { id: "pkg_3", name: "Haftalık 3 Adam-Gün (Weekly 3 Man-Days)", value: 3 },
+    { id: "pkg_5", name: "Haftalık 5 Adam-Gün (Weekly 5 Man-Days)", value: 5 },
+    { id: "pkg_custom", name: "Özel Paket (Custom)", value: 4 }
+  ];
+  
+  const [selectedPackageId, setSelectedPackageId] = useState<string>(() => {
+    return localStorage.getItem(`gemba_contract_pkg_${activeCustomerId}`) || "pkg_2";
+  });
+  const [customCapacity, setCustomCapacity] = useState<number>(4);
+
+  const activePackage = packages.find(p => p.id === selectedPackageId) || packages[1];
+  const weeklyCapacity = selectedPackageId === "pkg_custom" ? customCapacity : activePackage.value;
+
+  // Save Package selection
+  useEffect(() => {
+    localStorage.setItem(`gemba_contract_pkg_${activeCustomerId}`, selectedPackageId);
+  }, [selectedPackageId]);
+
+  // 2. Site Visits State
+  const [visits, setVisits] = useState<SiteVisit[]>(() => {
+    const saved = localStorage.getItem(`gemba_visits_${activeCustomerId}`);
+    if (saved) return JSON.parse(saved);
+    // Initial Seed Visits
+    return [
+      {
+        id: "v_1",
+        date: "2026-06-15",
+        consultant: "Ahmet Yılmaz (Yalın Danışman)",
+        duration: 1,
+        activitiesPerformed: ["act_1"],
+        participants: "Barış Gökdemir, Mehmet Soyer",
+        notes: "Pres sahanlığında 5S kırmızı etiket (Red Tag) sehpası kuruldu ve temizlik sorumluluk matrisi paylaşıldı.",
+        deliverables: "Temizlik talimatnamesi ve ilk denetim fotoğrafları"
+      },
+      {
+        id: "v_2",
+        date: "2026-07-02",
+        consultant: "Zeynep Kaya (Kıdemli Danışman)",
+        duration: 1,
+        activitiesPerformed: ["act_2"],
+        participants: "Barış Gökdemir, Kemal Usta",
+        notes: "Montaj istasyonunda video analizi yapıldı. Operatörün parça almak için yürüdüğü 4 metrelik israf tescil edildi.",
+        deliverables: "ECRS analiz şablonu ve çevrim süreleri listesi"
+      }
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem(`gemba_visits_${activeCustomerId}`, JSON.stringify(visits));
+  }, [visits]);
+
+  // Save new Site Visit
+  const [visitDate, setVisitDate] = useState("2026-07-06");
+  const [visitConsultant, setVisitConsultant] = useState("Ahmet Yılmaz");
+  const [visitDuration, setVisitDuration] = useState(1);
+  const [visitActivities, setVisitActivities] = useState<string[]>([]);
+  const [visitParticipants, setVisitParticipants] = useState("");
+  const [visitNotes, setVisitNotes] = useState("");
+  const [visitDeliverables, setVisitDeliverables] = useState("");
+  const [showVisitForm, setShowVisitForm] = useState(false);
+
+  const handleAddVisit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const newVisit: SiteVisit = {
+      id: "v_" + Math.random().toString(36).substring(2, 9),
+      date: visitDate,
+      consultant: visitConsultant,
+      duration: Number(visitDuration),
+      activitiesPerformed: visitActivities,
+      participants: visitParticipants,
+      notes: visitNotes,
+      deliverables: visitDeliverables
+    };
+
+    setVisits([...visits, newVisit]);
+    
+    // Automatically update consumed man-days in linked activities
+    visitActivities.forEach(actId => {
+      const act = currentActivities.find(a => a.id === actId);
+      if (act) {
+        const currentConsumed = (act as any).consumedManDays || 0;
+        const currentProgress = act.progressPercent;
+        // Auto boost progress slightly upon visit logging
+        const nextProgress = Math.min(100, currentProgress + 15);
+        const nextStatus = nextProgress === 100 ? "Completed" : "In Progress";
+        
+        onUpdateActivityLocal({
+          ...act,
+          consumedManDays: currentConsumed + Number(visitDuration),
+          progressPercent: nextProgress,
+          status: nextStatus
+        });
+      }
+    });
+
+    // Reset Form
+    setVisitActivities([]);
+    setVisitParticipants("");
+    setVisitNotes("");
+    setVisitDeliverables("");
+    setShowVisitForm(false);
+  };
+
+  // 3. Screen Expansion State
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  // AI Assistant Copilot State (unused)
+  const [aiReport, setAiReport] = useState<string | null>(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [showAiPanel, setShowAiPanel] = useState(false);
+
+  const handleGenerateAiSummary = async () => {
+    setIsAiLoading(true);
+    setAiError(null);
+    try {
+      const response = await fetch("/api/gemini/masterplan-analyze", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("gemba_token") || "usr_arcelik_admin"}`
+        },
+        body: JSON.stringify({
+          activities: currentActivities.map((a, index) => ({
+            ...a,
+            activityNo: (a as any).activityNo || String(index + 1).padStart(2, "0"),
+            category: (a as any).category || "Yalın Danışmanlık",
+            plannedStartWeek: (a as any).plannedStartWeek || 24,
+            plannedFinishWeek: (a as any).plannedFinishWeek || 28,
+            actualStartWeek: (a as any).actualStartWeek || 24,
+            actualFinishWeek: (a as any).actualFinishWeek || 29,
+            responsibleConsultant: (a as any).responsibleConsultant || "OpEx Team",
+          })),
+          visits: visits,
+          contractPackage: {
+            name: activePackage.name,
+            value: weeklyCapacity
+          },
+          stats: {
+            totalPlannedManDays: kpis.totalPlannedManDays,
+            consumedManDays: kpis.consumedManDays,
+            remainingManDays: kpis.remainingManDays
+          },
+          language: "tr"
+        })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setAiReport(data.report);
+      } else {
+        setAiError(data.error || "Gemini analysis failed.");
+      }
+    } catch (e: any) {
+      setAiError(e.message || "Network error requesting Gemini analysis.");
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  // 4. Form States for Add/Edit Activity
+  const [formName, setFormName] = useState("");
+  const [formOwner, setFormOwner] = useState("Yalın Koordinatör");
+  const [formCategory, setFormCategory] = useState("5S Audit");
+  const [formPriority, setFormPriority] = useState<"High" | "Medium" | "Low">("Medium");
+  const [formStatus, setFormStatus] = useState<any>("Planned");
+  const [formProgress, setFormProgress] = useState(0);
+  const [formNotes, setFormNotes] = useState("");
+  const [formPlannedStartWeek, setFormPlannedStartWeek] = useState(24);
+  const [formPlannedFinishWeek, setFormPlannedFinishWeek] = useState(28);
+  const [formActualStartWeek, setFormActualStartWeek] = useState(24);
+  const [formActualFinishWeek, setFormActualFinishWeek] = useState(28);
+  const [formPlannedManDays, setFormPlannedManDays] = useState(5);
+  const [formConsultant, setFormConsultant] = useState("Ahmet Yılmaz");
+  const [formMilestone, setFormMilestone] = useState(false);
+  const [formDependencies, setFormDependencies] = useState<string>("");
+  const [formRelatedModule, setFormRelatedModule] = useState("");
+  const [formLinkedItemId, setFormLinkedItemId] = useState("");
+
+  // Filters State
+  const [filterConsultant, setFilterConsultant] = useState("");
+  const [filterCategory, setFilterCategory] = useState("");
+  const [filterPriority, setFilterPriority] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+
+  // Auto-upgrade activities structure from standard database items & sync PTR actual weeks
+  const upgradedActivities = currentActivities.map((act, index) => {
+    // Determine weeks based on startDate/endDate month strings if missing
+    let pStart = (act as any).plannedStartWeek;
+    let pFinish = (act as any).plannedFinishWeek;
+    if (!pStart || !pFinish) {
+      const sDate = act.startDate || "2026-06";
+      const eDate = act.endDate || "2026-08";
+      if (sDate.includes("-06")) pStart = 24;
+      else if (sDate.includes("-07")) pStart = 28;
+      else if (sDate.includes("-08")) pStart = 32;
+      else pStart = 24;
+
+      if (eDate.includes("-06")) pFinish = 27;
+      else if (eDate.includes("-07")) pFinish = 31;
+      else if (eDate.includes("-08")) pFinish = 35;
+      else pFinish = 32;
+    }
+
+    const actNo = (act as any).activityNo || String(index + 1).padStart(2, "0");
+    const category = (act as any).category || (act.name.toLowerCase().includes("5s") ? "5S Audit" : act.name.toLowerCase().includes("smed") ? "SMED" : "Kaizen");
+
+    // Collect actual active weeks from PTR records if available
+    let rawActualWeeks: number[] = (act as any).actualWeeks || [];
+    if (ptrRecords && ptrRecords.length > 0) {
+      const actNameUpper = act.name.toUpperCase().trim();
+      const actCatUpper = category.toUpperCase().trim();
+      const matchedPtr = ptrRecords.filter(r => {
+        const subjUpper = (r.activitySubject || "").toUpperCase().trim();
+        const workUpper = (r.workDone || "").toUpperCase().trim();
+        return (
+          (subjUpper && (actNameUpper.includes(subjUpper) || subjUpper.includes(actNameUpper) || actCatUpper.includes(subjUpper))) ||
+          (workUpper && (workUpper.includes(actNameUpper) || actNameUpper.includes(workUpper)))
+        );
+      });
+      if (matchedPtr.length > 0) {
+        const ptrWeeks = Array.from(new Set(matchedPtr.map(r => parseInt(r.visitedWeek, 10)).filter(w => !isNaN(w)))).sort((a, b) => a - b);
+        rawActualWeeks = Array.from(new Set([...rawActualWeeks, ...ptrWeeks])).sort((a, b) => a - b);
+      }
+    }
+
+    if (rawActualWeeks.length === 0 && (act as any).actualStartWeek && (act as any).actualFinishWeek) {
+      for (let w = (act as any).actualStartWeek; w <= (act as any).actualFinishWeek; w++) {
+        rawActualWeeks.push(w);
+      }
+    }
+
+    const resolvedActualStart = rawActualWeeks.length > 0 ? Math.min(...rawActualWeeks) : ((act as any).actualStartWeek || pStart);
+    const resolvedActualFinish = rawActualWeeks.length > 0 ? Math.max(...rawActualWeeks) : ((act as any).actualFinishWeek || (act.status === "Delayed" ? pFinish + 2 : pFinish));
+
+    return {
+      ...act,
+      activityNo: actNo,
+      category: category,
+      plannedStartWeek: pStart,
+      plannedFinishWeek: pFinish,
+      actualStartWeek: resolvedActualStart,
+      actualFinishWeek: resolvedActualFinish,
+      actualWeeks: rawActualWeeks,
+      plannedManDays: (act as any).plannedManDays || 5,
+      consumedManDays: (act as any).consumedManDays || 0,
+      responsibleConsultant: (act as any).responsibleConsultant || "Ahmet Yılmaz",
+      customerOwner: (act as any).customerOwner || act.owner,
+      milestone: (act as any).milestone || false,
+      dependencies: (act as any).dependencies || [],
+      relatedModule: (act as any).relatedModule || "",
+      linkedItemId: (act as any).linkedItemId || ""
+    };
+  });
+
+  // Schedule Deviation calculation
+  const devStats = useMemo(() => {
+    let totalDeviatedTasks = 0;
+    let maxDelayWeeks = 0;
+    let totalDelayWeeks = 0;
+
+    upgradedActivities.forEach(act => {
+      const maxActual = act.actualWeeks && act.actualWeeks.length > 0 ? Math.max(...act.actualWeeks) : act.actualFinishWeek;
+      const diff = maxActual - act.plannedFinishWeek;
+      if (diff > 0) {
+        totalDeviatedTasks++;
+        totalDelayWeeks += diff;
+        if (diff > maxDelayWeeks) maxDelayWeeks = diff;
+      }
+    });
+
+    return { totalDeviatedTasks, maxDelayWeeks, totalDelayWeeks };
+  }, [upgradedActivities]);
+
+  // Calculate KPIs
+  const totalPlannedManDays = upgradedActivities.reduce((acc, a) => acc + (a.plannedManDays || 0), 0);
+  const consumedManDays = visits.reduce((acc, v) => acc + v.duration, 0);
+  const remainingManDays = Math.max(0, totalPlannedManDays - consumedManDays);
+  
+  // Consulting Package calculations
+  const totalContractWeeks = endWeek - startWeek + 1;
+  const totalConsultingCapacity = totalContractWeeks * weeklyCapacity;
+  const unusedCapacity = Math.max(0, totalConsultingCapacity - consumedManDays);
+  const capacityOverrun = consumedManDays > totalConsultingCapacity;
+
+  // Status counts
+  const totalActivities = upgradedActivities.length;
+  const completedActivities = upgradedActivities.filter(a => a.status === "Completed").length;
+  const inProgressActivities = upgradedActivities.filter(a => a.status === "In Progress").length;
+  const openActivities = upgradedActivities.filter(a => a.status === "Planned").length;
+  const delayedActivities = upgradedActivities.filter(a => a.status === "Delayed").length;
+
+  const projectProgressPercent = totalActivities > 0 
+    ? Math.round(upgradedActivities.reduce((acc, a) => acc + a.progressPercent, 0) / totalActivities)
+    : 0;
+
+  // Completion forecast & Health
+  const projectHealth = delayedActivities > 0 ? "Yellow" : completedActivities > 0.5 * totalActivities ? "Green" : "Green";
+  const projectCompletionForecast = projectProgressPercent === 100 ? "Tamamlandı" : `Hafta ${endWeek + (delayedActivities > 0 ? 2 : 0)}`;
+
+  const kpis = {
+    progress: projectProgressPercent,
+    completed: completedActivities,
+    inProgress: inProgressActivities,
+    open: openActivities,
+    delayed: delayedActivities,
+    total: totalActivities,
+    totalPlannedManDays,
+    consumedManDays,
+    remainingManDays,
+    forecast: projectCompletionForecast,
+    health: projectHealth
+  };
+
+  // 5. Automatic Integration Sync logic
+  useEffect(() => {
+    let changed = false;
+    const syncedList = upgradedActivities.map(act => {
+      if (!act.relatedModule || !act.linkedItemId) return act;
+      
+      let targetCompleted = false;
+      let targetProgress = act.progressPercent;
+
+      if (act.relatedModule === "5S Audits") {
+        const audit = audits5S.find(a => a.id === act.linkedItemId);
+        if (audit) {
+          targetProgress = Math.round(audit.overallScore || 0);
+          targetCompleted = targetProgress >= 80;
+        }
+      } else if (act.relatedModule === "Kaizen Projects") {
+        const kaizen = kaizens.find(k => k.id === act.linkedItemId);
+        if (kaizen) {
+          targetCompleted = kaizen.status === "Completed";
+          targetProgress = targetCompleted ? 100 : kaizen.status === "In Progress" ? 50 : 10;
+        }
+      } else if (act.relatedModule === "OEE Improvement" || act.relatedModule === "Capacity Analysis") {
+        const proc = processes.find(p => p.id === act.linkedItemId);
+        if (proc) {
+          targetProgress = Math.round(proc.oee || 0);
+          targetCompleted = targetProgress >= 85;
+        }
+      }
+
+      const updatedStatus = targetCompleted ? "Completed" : act.progressPercent > 0 ? "In Progress" : "Planned";
+      
+      if (act.progressPercent !== targetProgress || act.status !== updatedStatus) {
+        changed = true;
+        return {
+          ...act,
+          progressPercent: targetProgress,
+          status: updatedStatus
+        };
+      }
+      return act;
+    });
+
+    if (changed) {
+      syncedList.forEach(act => {
+        const original = currentActivities.find(o => o.id === act.id);
+        if (original && (original.progressPercent !== act.progressPercent || original.status !== act.status)) {
+          onUpdateActivityLocal(act);
+        }
+      });
+    }
+  }, [kaizens, audits5S, processes]);
+
+  // Handle Save (Add Activity)
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formName) return;
+
+    const newActNo = String(currentActivities.length + 1).padStart(2, "0");
+    const newAct: any = {
+      id: "act_" + Math.random().toString(36).substring(2, 9),
+      name: formName,
+      owner: formOwner,
+      startDate: "2026-06", // Compatibility fallback
+      endDate: "2026-08",
+      progressPercent: Number(formProgress),
+      priority: formPriority,
+      status: formStatus,
+      notes: formNotes,
+      
+      // Extended fields
+      activityNo: newActNo,
+      category: formCategory,
+      plannedStartWeek: Number(formPlannedStartWeek),
+      plannedFinishWeek: Number(formPlannedFinishWeek),
+      actualStartWeek: Number(formActualStartWeek),
+      actualFinishWeek: Number(formActualFinishWeek),
+      plannedManDays: Number(formPlannedManDays),
+      consumedManDays: 0,
+      responsibleConsultant: formConsultant,
+      customerOwner: formOwner,
+      milestone: formMilestone,
+      dependencies: formDependencies ? formDependencies.split(",").map(d => d.trim()) : [],
+      relatedModule: formRelatedModule,
+      linkedItemId: formLinkedItemId
+    };
+
+    onAddActivityLocal(newAct);
+    setIsAdding(false);
+    resetForm();
+  };
+
+  // Handle Edit Save
+  const handleEditSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingActivity || !formName) return;
+
+    const updatedAct = {
+      ...editingActivity,
+      name: formName,
+      owner: formOwner,
+      progressPercent: Number(formProgress),
+      priority: formPriority,
+      status: formStatus,
+      notes: formNotes,
+      category: formCategory,
+      plannedStartWeek: Number(formPlannedStartWeek),
+      plannedFinishWeek: Number(formPlannedFinishWeek),
+      actualStartWeek: Number(formActualStartWeek),
+      actualFinishWeek: Number(formActualFinishWeek),
+      plannedManDays: Number(formPlannedManDays),
+      responsibleConsultant: formConsultant,
+      customerOwner: formOwner,
+      milestone: formMilestone,
+      dependencies: formDependencies ? formDependencies.split(",").map(d => d.trim()) : [],
+      relatedModule: formRelatedModule,
+      linkedItemId: formLinkedItemId
+    };
+
+    onUpdateActivityLocal(updatedAct);
+    setEditingActivity(null);
+    resetForm();
+  };
+
+  const openEditModal = (act: any) => {
+    setEditingActivity(act);
+    setFormName(act.name);
+    setFormOwner(act.customerOwner || act.owner);
+    setFormCategory(act.category || "Kaizen");
+    setFormPriority(act.priority);
+    setFormStatus(act.status);
+    setFormProgress(act.progressPercent);
+    setFormNotes(act.notes || "");
+    setFormPlannedStartWeek(act.plannedStartWeek || 24);
+    setFormPlannedFinishWeek(act.plannedFinishWeek || 28);
+    setFormActualStartWeek(act.actualStartWeek || act.plannedStartWeek || 24);
+    setFormActualFinishWeek(act.actualFinishWeek || act.plannedFinishWeek || 28);
+    setFormPlannedManDays(act.plannedManDays || 5);
+    setFormConsultant(act.responsibleConsultant || "Ahmet Yılmaz");
+    setFormMilestone(act.milestone || false);
+    setFormDependencies(act.dependencies ? act.dependencies.join(", ") : "");
+    setFormRelatedModule(act.relatedModule || "");
+    setFormLinkedItemId(act.linkedItemId || "");
+  };
+
+  const resetForm = () => {
+    setFormName("");
+    setFormNotes("");
+    setFormProgress(0);
+    setFormDependencies("");
+    setFormRelatedModule("");
+    setFormLinkedItemId("");
+  };
+
+  // Reorder activities
+  const handleMoveActivity = (index: number, direction: "up" | "down") => {
+    const nextIndex = direction === "up" ? index - 1 : index + 1;
+    if (nextIndex < 0 || nextIndex >= upgradedActivities.length) return;
+
+    const listCopy = [...upgradedActivities];
+    const item = listCopy[index];
+    listCopy.splice(index, 1);
+    listCopy.splice(nextIndex, 0, item);
+
+    // Re-index activity numbers and save all
+    listCopy.forEach((act, idx) => {
+      onUpdateActivityLocal({
+        ...act,
+        activityNo: String(idx + 1).padStart(2, "0")
+      });
+    });
+  };
+
+  // Precise week shifting arrows
+  const handleShiftWeek = (act: any, type: 'planned' | 'actual', edge: 'start' | 'finish', amount: number) => {
+    const updated = { ...act };
+    if (type === 'planned') {
+      if (edge === 'start') {
+        const val = Math.min(updated.plannedFinishWeek - 1, Math.max(1, updated.plannedStartWeek + amount));
+        updated.plannedStartWeek = val;
+      } else {
+        const val = Math.max(updated.plannedStartWeek + 1, Math.min(52, updated.plannedFinishWeek + amount));
+        updated.plannedFinishWeek = val;
+      }
+    } else {
+      if (edge === 'start') {
+        const val = Math.min(updated.actualFinishWeek - 1, Math.max(1, updated.actualStartWeek + amount));
+        updated.actualStartWeek = val;
+      } else {
+        const val = Math.max(updated.actualStartWeek + 1, Math.min(52, updated.actualFinishWeek + amount));
+        updated.actualFinishWeek = val;
+      }
+    }
+    onUpdateActivityLocal(updated);
+  };
+
+  // Filter logic
+  const filteredActivities = upgradedActivities.filter(act => {
+    if (filterConsultant && act.responsibleConsultant !== filterConsultant) return false;
+    if (filterCategory && act.category !== filterCategory) return false;
+    if (filterPriority && act.priority !== filterPriority) return false;
+    if (filterStatus && act.status !== filterStatus) return false;
+    return true;
+  });
+
+  // Extract unique consultants & categories for filter options
+  const uniqueConsultants = Array.from(new Set(upgradedActivities.map(a => a.responsibleConsultant)));
+  const uniqueCategories = Array.from(new Set(upgradedActivities.map(a => a.category)));
+
+  // Generate Report / Export simulates
+  const handleExport = (reportType: string) => {
+    const reportTitle = `${reportType} - GEMBA PARTNER`;
+    const docText = `
+      =========================================
+      ${reportTitle.toUpperCase()}
+      Saha Raporlama Tarihi: 2026-07-07
+      Müşteri: Arçelik A.Ş. Pişirici Cihazlar
+      -----------------------------------------
+      PROJE DURUMU: %${kpis.progress} Tamamlanma Oranı
+      Toplam Faaliyet: ${kpis.total}
+      Tamamlanan: ${kpis.completed} | Süratlenen: ${kpis.inProgress} | Geciken: ${kpis.delayed}
+      Tüketilen Danışmanlık Süresi: ${kpis.consumedManDays} Adam-Gün
+      Mevcut Paket Kapasitesi: ${weeklyCapacity} Adam-Gün/Hafta
+      =========================================
+      FAALİYET LİSTESİ:
+      ${filteredActivities.map(a => `[No: ${a.activityNo}] ${a.name} | Sorumlu: ${a.responsibleConsultant} | Plan: W${a.plannedStartWeek}-W${a.plannedFinishWeek} | Durum: ${a.status} (%${a.progressPercent})`).join("\n")}
+      =========================================
+    `;
+    const element = document.createElement("a");
+    const file = new Blob([docText], {type: 'text/plain'});
+    element.href = URL.createObjectURL(file);
+    element.download = `${reportType.toLowerCase().replace(/ /g, "_")}.txt`;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+  };
+
+  // Excel Gantt Export with actual visual 2-line stacked Gantt chart representation in grid cells
+  const handleExportXlsx = () => {
+    const sheetData: any[][] = [];
+    sheetData.push(["GEMBA PARTNER - YALIN PROJE MASTER PLAN GANTT ŞEMASI"]);
+    sheetData.push(["Müşteri", "Arçelik A.Ş. Pişirici Cihazlar"]);
+    sheetData.push(["Rapor Oluşturma Tarihi", new Date().toLocaleDateString("tr-TR")]);
+    sheetData.push(["Proje Genel İlerleme Oranı", `%${kpis.progress}`]);
+    sheetData.push(["Faaliyet Özeti", `Toplam: ${kpis.total} | Tamamlanan: ${kpis.completed} | Yürütülen: ${kpis.inProgress} | Geciken: ${kpis.delayed}`]);
+    sheetData.push(["Sapma Özeti", `${devStats.totalDeviatedTasks} Faaliyet Plana Göre Sapmalı (Maks Sapma: +${devStats.maxDelayWeeks} Hafta)`]);
+    sheetData.push(["Gantt Göstergesi", "[PLAN] = Planlanan Zaman Dilimi | [GERÇEK] = Takvim/PTR Kayıtlarından Fiili Gerçekleşen Hafta"]);
+    sheetData.push([]); // Empty spacing row
+
+    // Column Headers
+    const headers = [
+      "No",
+      "Yalın Faaliyet / Proje Adı",
+      "Kategori",
+      "Sorumlu Danışman",
+      "Müşteri Sorumlusu",
+      "Öncelik",
+      "Durum",
+      "İlerleme",
+      "Plan Adam-Gün",
+      "Plan Başlangıç",
+      "Plan Bitiş",
+      "Gerçekleşen Başlangıç",
+      "Gerçekleşen Bitiş",
+      "Plan/Gerçek Sapması",
+      "Gantt Katmanı"
+    ];
+
+    // Append weeks to header row
+    for (let w = startWeek; w <= endWeek; w++) {
+      headers.push(`Hafta ${w}`);
+    }
+    sheetData.push(headers);
+
+    // Populate rows (2 rows per activity: Plan row & Actual row for clear stacked Gantt view)
+    filteredActivities.forEach((act) => {
+      const maxActual = act.actualWeeks && act.actualWeeks.length > 0 ? Math.max(...act.actualWeeks) : act.actualFinishWeek;
+      const dev = maxActual - act.plannedFinishWeek;
+      const devStr = dev > 0 ? `+${dev} Hafta Sapma` : dev < 0 ? `${Math.abs(dev)} Hafta Erken` : "Plana Tam Uygun";
+
+      // Row 1: PLAN ROW
+      const planRow = [
+        act.activityNo,
+        act.name,
+        act.category,
+        act.responsibleConsultant,
+        act.customerOwner || act.owner,
+        act.priority,
+        act.status,
+        `%${act.progressPercent}`,
+        act.plannedManDays,
+        `W${act.plannedStartWeek}`,
+        `W${act.plannedFinishWeek}`,
+        `W${act.actualStartWeek}`,
+        `W${act.actualFinishWeek}`,
+        devStr,
+        "PLANLANAN"
+      ];
+
+      for (let w = startWeek; w <= endWeek; w++) {
+        const isPlanned = w >= act.plannedStartWeek && w <= act.plannedFinishWeek;
+        planRow.push(isPlanned ? "█ PLAN █" : "·");
+      }
+      sheetData.push(planRow);
+
+      // Row 2: ACTUAL (GERÇEKLEŞEN) ROW
+      const actualRow = [
+        "", // empty No
+        `  ↳ ${act.name} (Fiili)`,
+        act.category,
+        "",
+        "",
+        "",
+        "",
+        "",
+        act.consumedManDays || 0,
+        "",
+        "",
+        `W${act.actualStartWeek}`,
+        `W${act.actualFinishWeek}`,
+        "",
+        "GERÇEKLEŞEN"
+      ];
+
+      const actWeeksList = act.actualWeeks && act.actualWeeks.length > 0
+        ? act.actualWeeks
+        : Array.from({ length: Math.max(0, act.actualFinishWeek - act.actualStartWeek + 1) }, (_, i) => act.actualStartWeek + i);
+
+      for (let w = startWeek; w <= endWeek; w++) {
+        const isActual = actWeeksList.includes(w);
+        actualRow.push(isActual ? "● GERÇEK ●" : "·");
+      }
+      sheetData.push(actualRow);
+
+      // Empty separator row between activities
+      sheetData.push([]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Master Plan Gantt");
+
+    // Adjust column widths beautifully
+    const colWidths = [
+      { wch: 6 },  // No
+      { wch: 38 }, // Name
+      { wch: 16 }, // Category
+      { wch: 18 }, // Consultant
+      { wch: 18 }, // Sorumlu
+      { wch: 10 }, // Öncelik
+      { wch: 12 }, // Durum
+      { wch: 10 }, // İlerleme
+      { wch: 14 }, // Planlanan Gün
+      { wch: 14 }, // Plan Başlangıç
+      { wch: 14 }, // Plan Bitiş
+      { wch: 18 }, // Gerçekleşen Başlangıç
+      { wch: 18 }, // Gerçekleşen Bitiş
+      { wch: 20 }, // Sapma
+      { wch: 14 }  // Gantt Katmanı
+    ];
+    for (let w = startWeek; w <= endWeek; w++) {
+      colWidths.push({ wch: 12 }); // Weeks columns width
+    }
+    ws["!cols"] = colWidths;
+
+    XLSX.writeFile(wb, `proje_master_plan_gantt_sema_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
+
+  // Excel Activities Import Parser
+  const handleImportXlsx = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const workbook = XLSX.read(bstr, { type: "binary" });
+        const sheetName = workbook.SheetNames[0];
+        const ws = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json<any>(ws);
+
+        if (rows.length === 0) {
+          alert("Excel dosyasında faaliyet bulunamadı.");
+          return;
+        }
+
+        let importedCount = 0;
+        rows.forEach((row) => {
+          // Check Turkish/English column aliases
+          const name = row["Yalın Faaliyet / Proje Adı"] || row["Aktivite Adı"] || row["Faaliyet Adı"] || row["Aktivite"] || row["Faaliyet"] || row["Name"] || row["Activity"];
+          if (!name) return; // Skip invalid rows
+
+          const category = row["Kategori"] || row["Yalın Sınıfı"] || row["Yalın Modül"] || row["Category"] || "Kaizen";
+          const owner = row["Müşteri Sorumlusu"] || row["Müşteri Sahibi"] || row["Sorumlu"] || row["Owner"] || "Yalın Koordinatör";
+          const consultant = row["Sorumlu Danışman"] || row["Danışman"] || row["Consultant"] || "Ahmet Yılmaz";
+          const priority = row["Öncelik"] || row["Priority"] || "Medium";
+          
+          let progressPercent = 0;
+          const progVal = row["İlerleme"] || row["Progress"] || row["Tamamlanma Oranı"] || row["Tamamlanma"];
+          if (progVal !== undefined) {
+            if (typeof progVal === "string") {
+              progressPercent = parseInt(progVal.replace("%", ""), 10) || 0;
+            } else if (typeof progVal === "number") {
+              progressPercent = progVal <= 1 ? Math.round(progVal * 100) : progVal;
+            }
+          }
+
+          const plannedManDays = Number(row["Planlanan Adam-Gün"] || row["Planlanan Gün"] || row["Adam-Gün"] || row["Man Days"] || row["Planned Man Days"]) || 5;
+          const plannedStartWeek = Number(row["Plan Başlangıç (Hafta)"] || row["Planlanan Başlangıç"] || row["Başlangıç Haftası"] || row["Start Week"] || row["Planned Start Week"]) || 24;
+          const plannedFinishWeek = Number(row["Plan Bitiş (Hafta)"] || row["Planlanan Bitiş"] || row["Bitiş Haftası"] || row["Finish Week"] || row["Planned Finish Week"]) || 28;
+          
+          const actualStartWeek = Number(row["Gerçekleşen Başlangıç (Hafta)"] || row["Gerçekleşen Başlangıç"] || row["Actual Start Week"] || row["Actual Start"]) || plannedStartWeek;
+          const actualFinishWeek = Number(row["Gerçekleşen Bitiş (Hafta)"] || row["Gerçekleşen Bitiş"] || row["Actual Finish Week"] || row["Actual Finish"]) || plannedFinishWeek;
+          
+          const statusVal = row["Durum"] || row["Status"];
+          let status = "Planned";
+          if (statusVal) {
+            status = statusVal;
+          } else {
+            status = progressPercent === 100 ? "Completed" : progressPercent > 0 ? "In Progress" : "Planned";
+          }
+
+          const notes = row["Notlar"] || row["Açıklama"] || row["Notes"] || "";
+
+          const newAct: any = {
+            id: "act_" + Math.random().toString(36).substring(2, 9),
+            name,
+            owner,
+            startDate: "2026-06",
+            endDate: "2026-08",
+            progressPercent,
+            priority,
+            status,
+            notes,
+            activityNo: String(activities.length + importedCount + 1).padStart(2, "0"),
+            category,
+            plannedStartWeek,
+            plannedFinishWeek,
+            actualStartWeek,
+            actualFinishWeek,
+            plannedManDays,
+            consumedManDays: 0,
+            responsibleConsultant: consultant,
+            customerOwner: owner,
+            milestone: false,
+            dependencies: [],
+            relatedModule: "",
+            linkedItemId: ""
+          };
+
+          onAddActivity(newAct);
+          importedCount++;
+        });
+
+        alert(`${importedCount} adet faaliyet başarıyla içe aktarıldı!`);
+      } catch (err: any) {
+        console.error(err);
+        alert("Excel dosyası ayrıştırılırken bir hata oluştu.");
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  // Simple Markdown Renderer
+  const renderMarkdownText = (text: string) => {
+    return text.split("\n").map((line, idx) => {
+      if (line.startsWith("### ")) {
+        return <h3 key={idx} className="text-xs font-bold text-gray-900 mt-4 mb-2 flex items-center border-b pb-1 font-sans">{line.replace("### ", "")}</h3>;
+      }
+      if (line.startsWith("## ")) {
+        return <h2 key={idx} className="text-sm font-bold text-gray-900 mt-5 mb-2 flex items-center font-sans">{line.replace("## ", "")}</h2>;
+      }
+      if (line.startsWith("- ") || line.startsWith("* ")) {
+        const clean = line.substring(2);
+        return <li key={idx} className="text-[11px] text-gray-700 ml-4 list-disc my-1 leading-relaxed">{clean}</li>;
+      }
+      if (line.trim() === "") {
+        return <div key={idx} className="h-1" />;
+      }
+      return <p key={idx} className="text-[11px] text-gray-700 leading-relaxed my-1 font-sans">{line}</p>;
+    });
+  };
+
+  return (
+    <div className="space-y-6 font-sans">
+      
+      {/* TOP NAVIGATION TABS (PROJE MASTER PLANI / PROJE PLANI) */}
+      <div className="flex border-b border-gray-200 items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center overflow-x-auto scrollbar-none">
+          <button
+            onClick={() => setCurrentTopTab("master")}
+            className={`py-2 px-4 text-xs font-bold transition-all border-b-2 -mb-[2px] cursor-pointer flex items-center space-x-1.5 whitespace-nowrap ${
+              currentTopTab === "master"
+                ? "border-emerald-600 text-emerald-600 font-extrabold"
+                : "border-transparent text-gray-500 hover:text-gray-800"
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>Proje Master Planı</span>
+          </button>
+
+          {/* Dynamic custom project plans tabs */}
+          {customPlans.map((plan) => {
+            const isActive = currentTopTab === plan.id;
+            return (
+              <div 
+                key={plan.id} 
+                className={`flex items-center border-b-2 -mb-[2px] transition-all whitespace-nowrap ${
+                  isActive 
+                    ? "border-emerald-600 text-emerald-600 font-extrabold" 
+                    : "border-transparent text-gray-500 hover:text-gray-800"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setCurrentTopTab(plan.id)}
+                  className={`py-2 pl-4 pr-2 text-xs font-bold cursor-pointer flex items-center space-x-1.5 transition-all ${
+                    isActive ? "text-emerald-600 font-extrabold" : "text-gray-500 hover:text-gray-800"
+                  }`}
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>{plan.name}</span>
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setPlanToDelete(plan);
+                  }}
+                  className="py-1 px-2.5 mr-1 text-gray-400 hover:text-red-500 hover:bg-gray-100 rounded-full cursor-pointer transition-colors flex items-center justify-center"
+                  title="Proje Planını Sil"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Create Project Plan Link/Button */}
+        <button
+          onClick={handleCreateProjectPlan}
+          className="py-1 px-3 text-xs text-emerald-600 hover:text-emerald-700 font-bold flex items-center space-x-1 hover:bg-emerald-50 rounded-lg transition-all cursor-pointer mr-2 whitespace-nowrap"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>+ Proje Planı Oluştur</span>
+        </button>
+      </div>
+
+      {/* 1. TOP SUMMARY DASHBOARD */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3.5">
+        {/* Proje İlerlemesi */}
+        <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm hover:shadow-md transition-all flex justify-between items-start min-h-[110px]">
+          <div className="space-y-1 flex-1">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400 block">Proje İlerlemesi</span>
+            <span className="text-2xl font-extrabold font-mono text-gray-900 block">%{kpis.progress}</span>
+            <div className="w-full bg-gray-150 h-1.5 rounded-full overflow-hidden mt-2">
+              <div className="bg-emerald-500 h-1.5 rounded-full transition-all duration-500" style={{ width: `${kpis.progress}%` }}></div>
+            </div>
+          </div>
+          <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600 ml-1.5 shrink-0">
+            <Zap className="w-4 h-4" />
+          </div>
+        </div>
+
+        {/* Faaliyet Özeti */}
+        <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm hover:shadow-md transition-all flex justify-between items-start min-h-[110px]">
+          <div className="space-y-1 flex-1">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400 block">Faaliyet Özeti</span>
+            <div className="flex items-baseline space-x-1 mt-1 text-gray-900 font-bold">
+              <span className="text-2xl font-mono">{kpis.completed}</span>
+              <span className="text-xs text-gray-400">/ {kpis.total} Bitti</span>
+            </div>
+            <span className="text-[10px] text-gray-500 block font-medium mt-1">
+              {kpis.inProgress} Süratlenen • {kpis.open} Açık
+            </span>
+          </div>
+          <div className="p-2 bg-blue-50 rounded-lg text-blue-600 ml-1.5 shrink-0">
+            <CheckCircle2 className="w-4 h-4" />
+          </div>
+        </div>
+
+        {/* Plan vs Gerçekleşen Sapma */}
+        <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm hover:shadow-md transition-all flex justify-between items-start min-h-[110px]">
+          <div className="space-y-1 flex-1">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400 block">Plan/Gerçekleşen Sapma</span>
+            <div className="flex items-baseline space-x-1 mt-1">
+              <span className={`text-2xl font-mono font-bold ${devStats.totalDeviatedTasks > 0 ? "text-red-600" : "text-emerald-600"}`}>
+                {devStats.maxDelayWeeks > 0 ? `+${devStats.maxDelayWeeks} Hafta` : "0 Hafta"}
+              </span>
+            </div>
+            <span className={`text-[10px] block font-bold uppercase mt-1 ${devStats.totalDeviatedTasks > 0 ? "text-red-500" : "text-emerald-600"}`}>
+              {devStats.totalDeviatedTasks > 0 ? `${devStats.totalDeviatedTasks} Görevde Sapma` : "Plana Tam Uygun"}
+            </span>
+          </div>
+          <div className={`p-2 rounded-lg ml-1.5 shrink-0 ${devStats.totalDeviatedTasks > 0 ? "bg-red-50 text-red-600 animate-pulse" : "bg-emerald-50 text-emerald-600"}`}>
+            <TrendingUp className="w-4 h-4" />
+          </div>
+        </div>
+
+        {/* Geciken Görev */}
+        <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm hover:shadow-md transition-all flex justify-between items-start min-h-[110px]">
+          <div className="space-y-1 flex-1">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400 block">Geciken Görev</span>
+            <div className="flex items-baseline space-x-1 mt-1">
+              <span className={`text-2xl font-mono font-bold ${kpis.delayed > 0 ? "text-red-600" : "text-gray-900"}`}>{kpis.delayed}</span>
+              <span className="text-[10px] font-bold text-gray-450 uppercase ml-1">Görev</span>
+            </div>
+            <span className={`text-[10px] block font-bold uppercase mt-1 ${kpis.delayed > 0 ? "text-red-500" : "text-emerald-500"}`}>
+              {kpis.delayed > 0 ? "Gecikme Var" : "Gecikme Yok"}
+            </span>
+          </div>
+          <div className={`p-2 rounded-lg ml-1.5 shrink-0 ${kpis.delayed > 0 ? "bg-red-50 text-red-600 animate-pulse" : "bg-gray-50 text-gray-450"}`}>
+            <AlertTriangle className="w-4 h-4" />
+          </div>
+        </div>
+
+        {/* Tüketilen Efor */}
+        <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-all flex justify-between items-start min-h-[110px]">
+          <div className="space-y-1 flex-1">
+            <span className="text-[11px] uppercase font-bold tracking-wider text-gray-400 block">Tüketilen Efor</span>
+            <div className="flex items-baseline space-x-1 mt-1">
+              <span className="text-2xl font-mono font-bold text-gray-900">{kpis.consumedManDays}</span>
+              <span className="text-[10px] text-gray-500 font-medium ml-1">/ {kpis.totalPlannedManDays} Gün</span>
+            </div>
+            <span className="text-[10px] text-gray-500 block font-medium mt-1">
+              Kalan: {kpis.remainingManDays} Adam-Gün
+            </span>
+          </div>
+          <div className="p-2 bg-orange-50 rounded-lg text-orange-600 ml-2 shrink-0">
+            <Clock className="w-5 h-5" />
+          </div>
+        </div>
+
+        {/* Sözleşme Kapasitesi */}
+        <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-all flex justify-between items-start min-h-[110px]">
+          <div className="space-y-1 flex-1">
+            <span className="text-[11px] uppercase font-bold tracking-wider text-gray-400 block">Sözleşme Kapasitesi</span>
+            <div className="flex items-baseline space-x-1 mt-1">
+              <span className="text-2xl font-mono font-bold text-gray-900">{totalConsultingCapacity}</span>
+              <span className="text-[10px] text-gray-500 font-medium ml-1">AG</span>
+            </div>
+            <span className={`text-[10px] font-bold block mt-1 ${capacityOverrun ? "text-red-600" : "text-emerald-600"}`}>
+              {capacityOverrun ? "Aşım Uyarısı!" : `Kalan: ${unusedCapacity} AG`}
+            </span>
+          </div>
+          <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600 ml-2 shrink-0">
+            <Award className="w-5 h-5" />
+          </div>
+        </div>
+
+        {/* Proje Sağlığı */}
+        <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-all flex justify-between items-start min-h-[110px]">
+          <div className="space-y-1 flex-1">
+            <span className="text-[11px] uppercase font-bold tracking-wider text-gray-400 block">Proje Sağlığı</span>
+            <div className="flex items-center space-x-1.5 mt-2">
+              <span className={`w-3 h-3 rounded-full ${
+                kpis.health === "Green" ? "bg-emerald-500" : kpis.health === "Yellow" ? "bg-amber-500" : "bg-red-500"
+              }`}></span>
+              <span className="text-xs font-bold text-gray-800">
+                {kpis.health === "Green" ? "Stabil" : kpis.health === "Yellow" ? "Riskli" : "Kritik"}
+              </span>
+            </div>
+            <span className="text-[10px] text-gray-500 block font-medium mt-1">
+              Öngörü: {kpis.forecast}
+            </span>
+          </div>
+          <div className="p-2 bg-teal-50 rounded-lg text-teal-600 ml-2 shrink-0">
+            <ShieldCheck className="w-5 h-5" />
+          </div>
+        </div>
+      </div>
+
+      {/* 2. CONSULTING PACKAGE & EXPORT CONTROLS */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        
+        {/* Package configuration card */}
+        <div className="md:col-span-2 bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm flex flex-col justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-2 mb-2">
+            <h4 className="text-xs font-bold text-gray-800 uppercase flex items-center space-x-2">
+              <Settings className="w-4 h-4 text-gray-600" />
+              <span>Danışmanlık Kontrat Yönetimi</span>
+            </h4>
+            <div className="flex items-center space-x-2">
+              <span className="text-[10px] text-gray-400 font-bold uppercase">Haftalık Adam-Gün:</span>
+              <span className="bg-slate-100 text-slate-800 text-[10px] font-bold px-2 py-0.5 rounded font-mono border border-slate-200">
+                {weeklyCapacity} AG / Hafta
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+            {/* Selection dropdown */}
+            <div className="sm:col-span-6">
+              <label className="block text-gray-500 font-bold mb-1 text-[10px] uppercase">Haftalık Paket Seçimi</label>
+              <select
+                value={selectedPackageId}
+                onChange={(e) => setSelectedPackageId(e.target.value)}
+                className="w-full bg-white border border-gray-300 rounded-lg py-1 px-2 text-xs font-medium text-gray-700 focus:ring-2 focus:ring-slate-200 focus:outline-none"
+              >
+                {packages.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {selectedPackageId === "pkg_custom" && (
+              <div className="sm:col-span-6">
+                <label className="block text-gray-500 font-bold mb-1 text-[10px] uppercase">Özel Efor Tanımı</label>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="7"
+                    className="w-16 bg-white border border-gray-300 rounded px-1.5 py-0.5 text-xs font-bold text-gray-800"
+                    value={customCapacity}
+                    onChange={(e) => setCustomCapacity(Number(e.target.value))}
+                  />
+                  <span className="text-[10px] text-gray-500 font-medium">Adam-Gün</span>
+                </div>
+              </div>
+            )}
+            
+            {/* Quick stats inline */}
+            <div className={`grid grid-cols-3 gap-2 text-center bg-slate-50/50 p-2 rounded-lg ${selectedPackageId === "pkg_custom" ? "sm:col-span-12" : "sm:col-span-6"}`}>
+              <div>
+                <span className="text-[9px] text-gray-400 block font-bold uppercase">Sözleşme Kapasitesi</span>
+                <span className="text-xs font-extrabold font-mono text-slate-800 mt-0.5 block">{totalConsultingCapacity} AG</span>
+              </div>
+              <div>
+                <span className="text-[9px] text-gray-400 block font-bold uppercase">Kullanılan Adam-Gün</span>
+                <span className="text-xs font-extrabold font-mono text-slate-800 mt-0.5 block">{consumedManDays} AG</span>
+              </div>
+              <div>
+                <span className="text-[9px] text-gray-400 block font-bold uppercase">Kalan Adam-Gün</span>
+                <span className={`text-xs font-extrabold font-mono mt-0.5 block ${capacityOverrun ? "text-red-600" : "text-emerald-600"}`}>
+                  {unusedCapacity} AG
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Controls & Reports Export Card */}
+        <div className="md:col-span-1 bg-white border border-gray-200 rounded-xl p-3.5 flex flex-col justify-between shadow-sm">
+          <div>
+            <h4 className="text-xs font-bold text-gray-800 uppercase flex items-center space-x-1.5 border-b border-gray-100 pb-2 mb-2">
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              <span>Zaman Planı İşlemleri</span>
+            </h4>
+            
+            <button
+              onClick={handleExportXlsx}
+              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center space-x-2 transition-all cursor-pointer border border-emerald-700 mt-1"
+            >
+              <Download className="w-4 h-4" />
+              <span>Zaman Planı (XLS) İndir</span>
+            </button>
+          </div>
+          
+          <div className="text-[9px] text-gray-400 italic text-right mt-1 pt-1 border-t border-gray-100">
+            * Anlık Gemba verileri
+          </div>
+        </div>
+
+      </div>
+
+      {/* 3. VIEW TABS & FILTERS BAR */}
+      <div className="bg-white border border-gray-200 rounded-xl p-3 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shadow-xs">
+        
+        {/* Toggle subtabs */}
+        <div className="flex items-center space-x-1 bg-gray-100 p-1 rounded-lg">
+          <button
+            onClick={() => setActiveView("timeline")}
+            className={`flex items-center space-x-1.5 py-1 px-3 text-xs rounded transition-all font-semibold cursor-pointer ${
+              activeView === "timeline" ? "bg-emerald-600 text-white shadow-xs" : "text-gray-500 hover:text-gray-800"
+            }`}
+          >
+            <Clock className={`w-3.5 h-3.5 ${activeView === "timeline" ? "text-white" : "text-gray-500"}`} />
+            <span>Timeline Pro Planı</span>
+          </button>
+
+          <button
+            onClick={() => setActiveView("table")}
+            className={`flex items-center space-x-1.5 py-1 px-3 text-xs rounded transition-all font-semibold cursor-pointer ${
+              activeView === "table" ? "bg-emerald-600 text-white shadow-xs" : "text-gray-500 hover:text-gray-800"
+            }`}
+          >
+            <List className={`w-3.5 h-3.5 ${activeView === "table" ? "text-white" : "text-gray-500"}`} />
+            <span>Tablo Esaslı Yönetim</span>
+          </button>
+
+          <button
+            onClick={() => setActiveView("kanban")}
+            className={`flex items-center space-x-1.5 py-1 px-3 text-xs rounded transition-all font-semibold cursor-pointer ${
+              activeView === "kanban" ? "bg-emerald-600 text-white shadow-xs" : "text-gray-500 hover:text-gray-800"
+            }`}
+          >
+            <KanbanSquare className={`w-3.5 h-3.5 ${activeView === "kanban" ? "text-white" : "text-gray-500"}`} />
+            <span>Kanban Panosu</span>
+          </button>
+        </div>
+
+        {/* Action button to add activities */}
+        <div className="flex items-center space-x-2">
+          <label 
+            className="bg-white hover:bg-gray-50 border border-gray-300 text-gray-750 p-2 rounded-lg flex items-center justify-center transition-colors shadow-sm cursor-pointer"
+            title="Excel'den İçe Aktar"
+          >
+            <Upload className="w-4 h-4 text-gray-500" />
+            <input
+              type="file"
+              accept=".xlsx, .xls"
+              className="hidden"
+              onChange={handleImportXlsx}
+            />
+          </label>
+          {isAdding ? null : (
+            <button
+              onClick={() => {
+                resetForm();
+                setIsAdding(true);
+              }}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center space-x-1.5 transition-colors shadow-sm cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Faaliyet Ekle</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* FILTER ROW PANEL */}
+      <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+        <div>
+          <label className="block text-gray-500 font-bold mb-1">Sorumlu Danışman</label>
+          <select
+            value={filterConsultant}
+            onChange={(e) => setFilterConsultant(e.target.value)}
+            className="w-full bg-white border border-gray-300 rounded p-1.5 text-xs text-gray-700"
+          >
+            <option value="">Tümü (All)</option>
+            {uniqueConsultants.map((c: any) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-gray-500 font-bold mb-1">Yalın Modül</label>
+          <select
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+            className="w-full bg-white border border-gray-300 rounded p-1.5 text-xs text-gray-700"
+          >
+            <option value="">Tümü (All)</option>
+            {uniqueCategories.map((cat: any) => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-gray-500 font-bold mb-1">Öncelik Seviyesi</label>
+          <select
+            value={filterPriority}
+            onChange={(e) => setFilterPriority(e.target.value)}
+            className="w-full bg-white border border-gray-300 rounded p-1.5 text-xs text-gray-700"
+          >
+            <option value="">Tümü (All)</option>
+            <option value="High">Yüksek (High)</option>
+            <option value="Medium">Orta (Medium)</option>
+            <option value="Low">Düşük (Low)</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-gray-500 font-bold mb-1">Durum</label>
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="w-full bg-white border border-gray-300 rounded p-1.5 text-xs text-gray-700"
+          >
+            <option value="">Tümü (All)</option>
+            <option value="Planned">Planned</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Completed">Completed</option>
+            <option value="Delayed">Delayed</option>
+          </select>
+        </div>
+      </div>
+
+      {/* 4. MAIN VIEWS SWITCH CONTAINER */}
+
+      {/* Immersive Fullscreen Backdrop Overlay */}
+      {isExpanded && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 transition-opacity" onClick={() => setIsExpanded(false)} />
+      )}
+
+      {/* VIEW 1: ADVANCED TIMELINE GANTT CALENDAR WEEK VIEW */}
+      {activeView === "timeline" && (
+        <div className={`bg-white border border-gray-200 rounded-xl shadow-sm transition-all duration-300 ${
+          isExpanded 
+            ? "fixed inset-4 md:inset-8 z-50 flex flex-col bg-white border-2 border-slate-300 shadow-2xl rounded-2xl p-2 md:p-4 overflow-hidden animate-fadeIn" 
+            : "overflow-hidden"
+        }`}>
+          
+          <div className="p-4 border-b border-gray-150 bg-gray-50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+              {isExpanded && (
+                <span className="bg-slate-900 text-white text-[10px] font-extrabold px-2 py-0.5 rounded uppercase font-sans mr-2">
+                  Tam Ekran Gantt Şeması
+                </span>
+              )}
+              <span className="w-3 h-3 bg-blue-500 rounded-full"></span>
+              <span className="text-[11px] font-bold text-gray-600">Planlanan Dönem (Planned)</span>
+              <span className="w-3 h-3 bg-emerald-500 rounded-full ml-2"></span>
+              <span className="text-[11px] font-bold text-gray-600">Gerçekleşme / Mevcut Durum (Actual)</span>
+            </div>
+            
+            <div className="flex items-center space-x-3 text-xs w-full sm:w-auto justify-between sm:justify-end">
+              {/* Week range adjuster */}
+              <div className="flex items-center space-x-2">
+                <span className="text-gray-500 font-medium">Takvim Hafta Aralığı:</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="52"
+                  className="w-14 bg-white border border-gray-300 rounded px-1.5 py-0.5 font-bold focus:ring-1 focus:ring-slate-300 focus:outline-none text-center text-xs"
+                  value={startWeek}
+                  onChange={(e) => setStartWeek(Number(e.target.value))}
+                />
+                <span>-</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="52"
+                  className="w-14 bg-white border border-gray-300 rounded px-1.5 py-0.5 font-bold focus:ring-1 focus:ring-slate-300 focus:outline-none text-center text-xs"
+                  value={endWeek}
+                  onChange={(e) => setEndWeek(Number(e.target.value))}
+                />
+              </div>
+
+              {/* Screen Expansion Trigger */}
+              <button
+                onClick={() => setIsExpanded(!isExpanded)}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all shadow-xs cursor-pointer ${
+                  isExpanded 
+                    ? "bg-slate-800 text-white border-slate-700 hover:bg-slate-900" 
+                    : "bg-white hover:bg-gray-50 text-gray-750 border-gray-300"
+                }`}
+                title={isExpanded ? "Normal ekrana dön" : "Tam ekran / genişletilmiş görünüm"}
+              >
+                {isExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                <span>{isExpanded ? "Daralt" : "Ekranı Genişlet"}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className={`overflow-x-auto overflow-y-auto ${isExpanded ? "flex-1 min-h-0" : ""}`}>
+            <div className="min-w-[1000px] divide-y divide-gray-100">
+              
+              {/* Grid Header row */}
+              <div className="grid grid-cols-12 bg-gray-50/50 text-[10px] font-bold text-gray-400 uppercase tracking-wider py-2.5 items-center">
+                <div className="col-span-5 px-4">Yalın Faaliyet Bilgileri</div>
+                
+                {/* Generated Weeks Header */}
+                <div className="col-span-7 grid grid-flow-col auto-cols-fr text-center border-l border-gray-200">
+                  {Array.from({ length: totalWeeks }).map((_, i) => {
+                    const w = startWeek + i;
+                    return (
+                      <div key={w} className="border-r border-gray-100 last:border-0 font-mono text-[10px] py-1 text-gray-600 font-bold">
+                        W{w}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Grid Content Rows */}
+              {filteredActivities.length === 0 ? (
+                <div className="text-center py-8 text-xs text-gray-400">Aranan kriterlerde faaliyet bulunmamaktadır.</div>
+              ) : (
+                filteredActivities.map((act, idx) => {
+                  
+                  // Compute planned relative positions in percentage
+                  const pStartRel = act.plannedStartWeek;
+                  const pFinishRel = act.plannedFinishWeek;
+                  const aStartRel = act.actualStartWeek;
+                  const aFinishRel = act.actualFinishWeek;
+
+                  const pLeftPercent = Math.max(0, ((pStartRel - startWeek) / totalWeeks) * 100);
+                  const pWidthPercent = Math.max(5, (((pFinishRel - pStartRel + 1)) / totalWeeks) * 100);
+
+                  const aLeftPercent = Math.max(0, ((aStartRel - startWeek) / totalWeeks) * 100);
+                  const aWidthPercent = Math.max(5, (((aFinishRel - aStartRel + 1)) / totalWeeks) * 100);
+
+                  // Colors based on status
+                  let actualColor = "bg-gray-400/80";
+                  if (act.status === "Completed") actualColor = "bg-emerald-500 shadow-xs shadow-emerald-500/10";
+                  else if (act.status === "In Progress") actualColor = "bg-orange-500 shadow-xs shadow-orange-500/10";
+                  else if (act.status === "Delayed") actualColor = "bg-red-500 shadow-xs shadow-red-500/10";
+
+                  return (
+                    <div key={act.id} className="grid grid-cols-12 py-3 items-center group hover:bg-slate-50/40 transition-colors">
+                      
+                      {/* Left: Info Card */}
+                      <div className="col-span-5 px-4 flex items-start space-x-2.5">
+                        
+                        {/* Drag handles & Order Controls */}
+                        <div className="flex flex-col items-center justify-center space-y-0.5 shrink-0">
+                          <button
+                            onClick={() => handleMoveActivity(idx, "up")}
+                            disabled={idx === 0}
+                            className="p-0.5 hover:bg-gray-200 rounded disabled:opacity-30"
+                          >
+                            <ChevronUp className="w-3.5 h-3.5 text-gray-600" />
+                          </button>
+                          <span className="font-mono text-[9px] font-bold text-gray-400">
+                            {act.activityNo}
+                          </span>
+                          <button
+                            onClick={() => handleMoveActivity(idx, "down")}
+                            disabled={idx === filteredActivities.length - 1}
+                            className="p-0.5 hover:bg-gray-200 rounded disabled:opacity-30"
+                          >
+                            <ChevronDown className="w-3.5 h-3.5 text-gray-600" />
+                          </button>
+                        </div>
+
+                        {/* Title, Category and Linked Badge */}
+                        <div className="space-y-1 overflow-hidden">
+                          <div className="flex items-center space-x-1.5 flex-wrap">
+                            <span 
+                              onClick={() => openEditModal(act)}
+                              className="font-bold text-[12px] text-gray-900 hover:text-blue-600 cursor-pointer block truncate"
+                            >
+                              {act.name}
+                            </span>
+                            {act.milestone && (
+                              <span className="bg-amber-100 text-amber-800 text-[8px] font-bold px-1 rounded uppercase">Milestone</span>
+                            )}
+                          </div>
+                          
+                          <div className="flex items-center space-x-2 text-[10px] text-gray-500 flex-wrap gap-y-1">
+                            <span className="bg-gray-100 text-gray-700 font-bold px-1 rounded text-[9px]">{act.category}</span>
+                            <span>•</span>
+                            <span className="flex items-center">
+                              <User className="w-3 h-3 text-gray-400 mr-0.5" />
+                              {act.responsibleConsultant}
+                            </span>
+                            <span>•</span>
+                            <span className={`font-bold ${
+                              act.priority === "High" ? "text-red-500" :
+                              act.priority === "Medium" ? "text-amber-500" : "text-gray-400"
+                            }`}>{act.priority}</span>
+
+                            {/* Schedule Deviation Badge */}
+                            {(() => {
+                              const maxActual = act.actualWeeks && act.actualWeeks.length > 0 ? Math.max(...act.actualWeeks) : act.actualFinishWeek;
+                              const deviation = maxActual - act.plannedFinishWeek;
+                              if (deviation > 0) {
+                                return (
+                                  <span className="bg-red-50 text-red-700 border border-red-200 text-[8px] font-bold px-1.5 py-0.5 rounded flex items-center space-x-1" title="Planlanan Bitiş Tarihinden Sapma Var">
+                                    <AlertTriangle className="w-2.5 h-2.5 text-red-500 shrink-0" />
+                                    <span>+{deviation} Hafta Sapma</span>
+                                  </span>
+                                );
+                              } else if (deviation < 0) {
+                                return (
+                                  <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[8px] font-bold px-1.5 py-0.5 rounded flex items-center space-x-1">
+                                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500 shrink-0" />
+                                    <span>{Math.abs(deviation)} Hafta Erken</span>
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span className="bg-gray-50 text-gray-500 border border-gray-200 text-[8px] font-bold px-1 py-0.5 rounded">
+                                  Plana Uygun
+                                </span>
+                              );
+                            })()}
+                          </div>
+
+                          {/* Linked Module Integration Badge */}
+                          {act.relatedModule && act.linkedItemId && (
+                            <div className="flex items-center space-x-1 bg-blue-50/50 border border-blue-100 rounded px-1.5 py-0.5 w-max">
+                              <Zap className="w-2.5 h-2.5 text-blue-500 shrink-0" />
+                              <span className="text-[8px] font-bold text-blue-700 uppercase">
+                                Entegre: {act.relatedModule} (Otomatik Senkron)
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                      </div>
+
+                      {/* Right: Dual timeline grid container */}
+                      <div className="col-span-7 h-16 relative border-l border-gray-200 flex flex-col justify-center px-1">
+                        
+                        {/* Weekly vertical lines background layer */}
+                        <div className="absolute inset-0 grid grid-flow-col auto-cols-fr pointer-events-none">
+                          {Array.from({ length: totalWeeks }).map((_, i) => (
+                            <div key={i} className="border-r border-gray-100/60 last:border-0 h-full"></div>
+                          ))}
+                        </div>
+
+                        {/* RENDER DIAMOND MILESTONE OR SCHEDULE BARS */}
+                        {act.milestone ? (
+                          <div className="relative h-12 w-full flex items-center">
+                            
+                            {/* Milestone diamond representation */}
+                            <div 
+                              className="absolute z-10 w-4 h-4 bg-amber-500 rotate-45 border border-white flex items-center justify-center shadow-xs cursor-pointer group-hover:scale-110 transition-transform"
+                              style={{ left: `calc(${pLeftPercent}% - 8px)` }}
+                              title={`Milestone: ${act.name} (Hafta ${act.plannedStartWeek})`}
+                              onClick={() => openEditModal(act)}
+                            >
+                            </div>
+                            
+                            <div className="absolute text-[9px] text-gray-400 font-mono" style={{ left: `calc(${pLeftPercent}% + 12px)` }}>
+                              Hafta {act.plannedStartWeek}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-2.5 relative z-10">
+                            
+                            {/* Track 1: Planned (Blue) */}
+                            <div className="relative h-4 w-full group/bar">
+                              
+                              <div 
+                                className="absolute bg-blue-500 rounded h-2.5 flex items-center justify-between text-[8px] text-white font-mono px-1 select-none transition-all"
+                                style={{ left: `${pLeftPercent}%`, width: `${pWidthPercent}%` }}
+                                title={`Planlanan: Hafta ${act.plannedStartWeek} - Hafta ${act.plannedFinishWeek}`}
+                              >
+                                {/* Left Shifter Arrow */}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'planned', 'start', -1); }}
+                                  className="absolute -left-3.5 bg-blue-100 hover:bg-blue-200 text-blue-700 w-3 h-3.5 rounded flex items-center justify-center text-[9px] font-bold opacity-0 group-hover/bar:opacity-100 transition-opacity"
+                                >
+                                  ‹
+                                </button>
+                                
+                                <span className="truncate block leading-none font-bold scale-90">Plan W{act.plannedStartWeek}</span>
+
+                                {/* Right Shifter Arrow */}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'planned', 'finish', 1); }}
+                                  className="absolute -right-3.5 bg-blue-100 hover:bg-blue-200 text-blue-700 w-3 h-3.5 rounded flex items-center justify-center text-[9px] font-bold opacity-0 group-hover/bar:opacity-100 transition-opacity"
+                                >
+                                  ›
+                                </button>
+                              </div>
+
+                            </div>
+
+                            {/* Track 2: Actual (Status-Based Color & Discrete Week Blocks) */}
+                            <div className="relative h-4 w-full group/actual">
+                              {(() => {
+                                const blocks = getWeekBlocks(act.actualWeeks || []);
+                                if (blocks.length === 0) {
+                                  return (
+                                    <div 
+                                      className={`absolute rounded h-2.5 flex items-center justify-between text-[8px] text-white font-mono px-1 transition-all ${actualColor}`}
+                                      style={{ left: `${aLeftPercent}%`, width: `${aWidthPercent}%` }}
+                                      title={`Gerçekleşen: Hafta ${act.actualStartWeek} - Hafta ${act.actualFinishWeek} (${act.status})`}
+                                    >
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'actual', 'start', -1); }}
+                                        className="absolute -left-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 w-3 h-3.5 rounded flex items-center justify-center text-[9px] font-bold opacity-0 group-hover/actual:opacity-100 transition-opacity"
+                                      >
+                                        ‹
+                                      </button>
+                                      <span className="truncate block leading-none font-bold scale-90">Fiili W{act.actualStartWeek} (%{act.progressPercent})</span>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'actual', 'finish', 1); }}
+                                        className="absolute -right-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 w-3 h-3.5 rounded flex items-center justify-center text-[9px] font-bold opacity-0 group-hover/actual:opacity-100 transition-opacity"
+                                      >
+                                        ›
+                                      </button>
+                                    </div>
+                                  );
+                                }
+                                return blocks.map((b, bIdx) => {
+                                  const bLeft = Math.max(0, ((b.start - startWeek) / totalWeeks) * 100);
+                                  const bWidth = Math.max(2.5, (((b.finish - b.start + 1) / totalWeeks) * 100));
+                                  return (
+                                    <div 
+                                      key={bIdx}
+                                      className={`absolute rounded h-2.5 flex items-center justify-between text-[8px] text-white font-mono px-1 transition-all ${actualColor}`}
+                                      style={{ left: `${bLeft}%`, width: `${bWidth}%` }}
+                                      title={`Gerçekleşen Uygulama: Hafta ${b.start}${b.finish > b.start ? ' - Hafta ' + b.finish : ''}`}
+                                    >
+                                      {bIdx === 0 && (
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'actual', 'start', -1); }}
+                                          className="absolute -left-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 w-3 h-3.5 rounded flex items-center justify-center text-[9px] font-bold opacity-0 group-hover/actual:opacity-100 transition-opacity"
+                                        >
+                                          ‹
+                                        </button>
+                                      )}
+                                      <span className="truncate block leading-none font-bold scale-90 font-mono">
+                                        W{b.start}{b.finish > b.start ? `-${b.finish}` : ''}
+                                      </span>
+                                      {bIdx === blocks.length - 1 && (
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'actual', 'finish', 1); }}
+                                          className="absolute -right-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 w-3 h-3.5 rounded flex items-center justify-center text-[9px] font-bold opacity-0 group-hover/actual:opacity-100 transition-opacity"
+                                        >
+                                          ›
+                                        </button>
+                                      )}
+                                    </div>
+                                  );
+                                });
+                              })()}
+                            </div>
+
+                          </div>
+                        )}
+
+                      </div>
+
+                    </div>
+                  );
+                })
+              )}
+
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {/* VIEW 2: EXCEL SPREADSHEET TABLE VIEW */}
+      {activeView === "table" && (
+        <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 font-bold uppercase text-[10px] tracking-wider">
+                  <th className="py-2.5 px-3">No</th>
+                  <th className="py-2.5 px-3">Faaliyet Adı</th>
+                  <th className="py-2.5 px-3">Kategori</th>
+                  <th className="py-2.5 px-3">Danışman</th>
+                  <th className="py-2.5 px-3">Müşteri Sahibi</th>
+                  <th className="py-2.5 px-3 text-center">Plan Hafta</th>
+                  <th className="py-2.5 px-3 text-center">Gerçekleşen Hafta</th>
+                  <th className="py-2.5 px-3 text-center">İlerleme Oranı</th>
+                  <th className="py-2.5 px-3">Öncelik</th>
+                  <th className="py-2.5 px-3">Durum</th>
+                  <th className="py-2.5 px-3 text-right">İşlemler</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 text-gray-700">
+                {filteredActivities.map(act => (
+                  <tr key={act.id} className="hover:bg-gray-50/50">
+                    <td className="py-3 px-3 font-mono font-bold text-gray-400">{act.activityNo}</td>
+                    <td className="py-3 px-3 font-bold text-gray-900">{act.name}</td>
+                    <td className="py-3 px-3">
+                      <span className="bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded text-[10px] font-semibold">{act.category}</span>
+                    </td>
+                    <td className="py-3 px-3">{act.responsibleConsultant}</td>
+                    <td className="py-3 px-3">{act.customerOwner}</td>
+                    <td className="py-3 px-3 font-mono text-center">W{act.plannedStartWeek} - W{act.plannedFinishWeek}</td>
+                    <td className="py-3 px-3 font-mono text-center text-gray-500">W{act.actualStartWeek} - W{act.actualFinishWeek}</td>
+                    <td className="py-3 px-3 text-center">
+                      <div className="flex items-center justify-center space-x-1.5">
+                        <span className="font-mono font-semibold">%{act.progressPercent}</span>
+                        <div className="w-12 bg-gray-200 h-1.5 rounded-full overflow-hidden">
+                          <div className="bg-emerald-500 h-1.5 rounded" style={{ width: `${act.progressPercent}%` }}></div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3">
+                      <span className={`px-2 py-0.5 rounded-[4px] font-bold text-[10px] uppercase ${
+                        act.priority === "High" ? "bg-red-50 text-red-700 border border-red-100" :
+                        act.priority === "Medium" ? "bg-amber-50 text-amber-700 border border-amber-100" :
+                        "bg-gray-100 text-gray-700"
+                      }`}>
+                        {act.priority}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3">
+                      <span className={`px-2 py-0.5 rounded-[4px] font-bold text-[10px] uppercase ${
+                        act.status === "Completed" ? "bg-emerald-100 text-emerald-800" :
+                        act.status === "In Progress" ? "bg-blue-100 text-blue-800" :
+                        act.status === "Delayed" ? "bg-red-100 text-red-800" :
+                        "bg-gray-100 text-gray-700"
+                      }`}>
+                        {act.status}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      <div className="flex items-center justify-end space-x-1.5">
+                        <button
+                          onClick={() => openEditModal(act)}
+                          className="p-1 text-gray-400 hover:text-blue-500 transition-colors"
+                          title="Düzenle"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => onDeleteActivity(act.id)}
+                          className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                          title="Sil"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW 3: KANBAN BOARD VIEW */}
+      {activeView === "kanban" && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          
+          {/* Planned Column */}
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-3">
+            <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+              <span className="font-bold text-xs text-gray-600 uppercase">Plana Alınanlar</span>
+              <span className="bg-gray-200 text-gray-800 text-[10px] font-bold px-1.5 py-0.5 rounded font-mono">
+                {filteredActivities.filter(a => a.status === "Planned").length}
+              </span>
+            </div>
+            <div className="space-y-2 overflow-y-auto max-h-[400px]">
+              {filteredActivities.filter(a => a.status === "Planned").map(act => (
+                <div key={act.id} className="bg-white border border-gray-200 rounded-lg p-3 shadow-xs space-y-2 hover:border-gray-300 cursor-pointer" onClick={() => openEditModal(act)}>
+                  <div className="flex items-center justify-between">
+                    <span className="bg-gray-100 text-gray-750 px-1 rounded text-[8px] font-bold font-mono">{act.category}</span>
+                    <span className="text-gray-400 text-[8px] font-bold font-mono">#{act.activityNo}</span>
+                  </div>
+                  <span className="font-bold text-[12px] text-gray-900 block leading-tight">{act.name}</span>
+                  <div className="flex justify-between items-center text-[10px] pt-1 text-gray-500 border-t border-gray-100">
+                    <span>{act.responsibleConsultant}</span>
+                    <span className="font-mono font-bold text-blue-600 text-[9px]">W{act.plannedStartWeek}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* In Progress Column */}
+          <div className="bg-blue-50/40 border border-blue-200 rounded-xl p-3 space-y-3">
+            <div className="flex justify-between items-center border-b border-blue-200 pb-2">
+              <span className="font-bold text-xs text-blue-950 uppercase">Yürütülüyor</span>
+              <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded font-mono">
+                {filteredActivities.filter(a => a.status === "In Progress").length}
+              </span>
+            </div>
+            <div className="space-y-2 overflow-y-auto max-h-[400px]">
+              {filteredActivities.filter(a => a.status === "In Progress").map(act => (
+                <div key={act.id} className="bg-white border border-blue-100 rounded-lg p-3 shadow-xs space-y-2 hover:border-blue-300 cursor-pointer" onClick={() => openEditModal(act)}>
+                  <div className="flex items-center justify-between">
+                    <span className="bg-blue-50 text-blue-750 px-1 rounded text-[8px] font-bold font-mono">{act.category}</span>
+                    <span className="text-gray-400 text-[8px] font-bold font-mono">#{act.activityNo}</span>
+                  </div>
+                  <span className="font-bold text-[12px] text-gray-900 block leading-tight">{act.name}</span>
+                  
+                  {/* Progress Line */}
+                  <div className="w-full bg-gray-100 h-1 rounded overflow-hidden">
+                    <div className="bg-blue-500 h-1" style={{ width: `${act.progressPercent}%` }}></div>
+                  </div>
+
+                  <div className="flex justify-between items-center text-[10px] pt-1 text-gray-500 border-t border-gray-100">
+                    <span>{act.responsibleConsultant}</span>
+                    <span className="font-mono font-bold text-emerald-600 text-[9px]">% {act.progressPercent}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Completed Column */}
+          <div className="bg-emerald-50/40 border border-emerald-200 rounded-xl p-3 space-y-3">
+            <div className="flex justify-between items-center border-b border-emerald-200 pb-2">
+              <span className="font-bold text-xs text-emerald-950 uppercase">Tamamlananlar</span>
+              <span className="bg-emerald-100 text-emerald-855 text-[10px] font-bold px-1.5 py-0.5 rounded font-mono">
+                {filteredActivities.filter(a => a.status === "Completed").length}
+              </span>
+            </div>
+            <div className="space-y-2 overflow-y-auto max-h-[400px]">
+              {filteredActivities.filter(a => a.status === "Completed").map(act => (
+                <div key={act.id} className="bg-white border border-emerald-100 rounded-lg p-3 shadow-xs space-y-2 opacity-85 hover:opacity-100 cursor-pointer" onClick={() => openEditModal(act)}>
+                  <div className="flex items-center justify-between">
+                    <span className="bg-emerald-50 text-emerald-750 px-1 rounded text-[8px] font-bold font-mono">{act.category}</span>
+                    <span className="text-gray-400 text-[8px] font-bold font-mono">#{act.activityNo}</span>
+                  </div>
+                  <span className="font-bold text-[12px] text-gray-800 line-through block leading-tight">{act.name}</span>
+                  <div className="flex justify-between items-center text-[10px] pt-1 text-gray-400 border-t border-gray-150">
+                    <span>{act.responsibleConsultant}</span>
+                    <span className="text-emerald-600 font-bold flex items-center text-[9px]">
+                      ✓ Ok
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Delayed Column */}
+          <div className="bg-red-50/40 border border-red-200 rounded-xl p-3 space-y-3">
+            <div className="flex justify-between items-center border-b border-red-200 pb-2">
+              <span className="font-bold text-xs text-red-950 uppercase">Tarihi Gecikenler</span>
+              <span className="bg-red-100 text-red-800 text-[10px] font-bold px-1.5 py-0.5 rounded font-mono">
+                {filteredActivities.filter(a => a.status === "Delayed").length}
+              </span>
+            </div>
+            <div className="space-y-2 overflow-y-auto max-h-[400px]">
+              {filteredActivities.filter(a => a.status === "Delayed").map(act => (
+                <div key={act.id} className="bg-white border border-red-100 rounded-lg p-3 shadow-xs space-y-2 hover:border-red-300 cursor-pointer" onClick={() => openEditModal(act)}>
+                  <div className="flex items-center justify-between">
+                    <span className="bg-red-50 text-red-750 px-1 rounded text-[8px] font-bold font-mono">{act.category}</span>
+                    <span className="text-gray-400 text-[8px] font-bold font-mono">#{act.activityNo}</span>
+                  </div>
+                  <span className="font-bold text-[12px] text-red-900 block leading-tight">{act.name}</span>
+                  <div className="flex justify-between items-center text-[10px] pt-1 text-red-700 border-t border-red-100">
+                    <span>{act.responsibleConsultant}</span>
+                    <span className="font-bold font-mono text-[9px]">Gecikti</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {/* 7. QUICK ADD & EDIT DIALOG MODALS */}
+      {(isAdding || editingActivity) && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-200">
+            
+            <div className="bg-gray-55 px-5 py-3 border-b border-gray-200 flex justify-between items-center">
+              <h3 className="text-xs font-bold text-gray-900 uppercase">
+                {editingActivity ? `Yalın Faaliyeti Revize Et [No: ${editingActivity.activityNo}]` : "Yeni Yalın Faaliyet Planla"}
+              </h3>
+              <button 
+                onClick={() => {
+                  setIsAdding(false);
+                  setEditingActivity(null);
+                }} 
+                className="text-gray-400 hover:text-gray-600 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={editingActivity ? handleEditSave : handleSave} className="p-5 space-y-3.5 text-xs">
+              
+              <div>
+                <label className="block text-gray-500 font-bold mb-1">Aktivite / Kaizen / Proje Adı *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Örn: 5S Temizlik Standartları, Pres SMED Hızlı Kalıp Değişimi vb."
+                  className="w-full bg-white border border-gray-300 rounded p-2 focus:outline-none focus:ring-1 focus:ring-slate-700"
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-gray-500 font-bold mb-1">Yalın Sınıfı (Lean Category)</label>
+                  <select
+                    className="w-full bg-white border border-gray-300 rounded p-2 text-xs"
+                    value={formCategory}
+                    onChange={(e) => setFormCategory(e.target.value)}
+                  >
+                    <option value="5S Audit">5S Audit / Standart İş</option>
+                    <option value="SMED">SMED (Hızlı Kalıp Değişimi)</option>
+                    <option value="Yamazumi">Yamazumi (Hat Dengeleme)</option>
+                    <option value="VSM">VSM (Değer Akış Haritalama)</option>
+                    <option value="Spaghetti">Spaghetti Diyagramı</option>
+                    <option value="Time Study">Kronometraj / Zaman Etüdü</option>
+                    <option value="Kaizen">Kaizen Projesi</option>
+                    <option value="OEE">OEE İyileştirme</option>
+                    <option value="Capacity Analysis">Kapasite Analizi</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-gray-500 font-bold mb-1">Yalın Danışman</label>
+                  <input
+                    type="text"
+                    required
+                    className="w-full bg-white border border-gray-300 rounded p-2"
+                    value={formConsultant}
+                    onChange={(e) => setFormConsultant(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-gray-500 font-bold mb-1">Müşteri Sahibi</label>
+                  <input
+                    type="text"
+                    className="w-full bg-white border border-gray-300 rounded p-2"
+                    value={formOwner}
+                    onChange={(e) => setFormOwner(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-gray-500 font-bold mb-1">Öncelik Seviyesi</label>
+                  <select
+                    className="w-full bg-white border border-gray-300 rounded p-2 font-semibold text-gray-700"
+                    value={formPriority}
+                    onChange={(e) => setFormPriority(e.target.value as any)}
+                  >
+                    <option value="High">Yüksek (High)</option>
+                    <option value="Medium">Orta (Medium)</option>
+                    <option value="Low">Düşük (Low)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-gray-500 font-bold mb-1">Planlanan Man-Day</label>
+                  <input
+                    type="number"
+                    min="1"
+                    className="w-full bg-white border border-gray-300 rounded p-2"
+                    value={formPlannedManDays}
+                    onChange={(e) => setFormPlannedManDays(Number(e.target.value))}
+                  />
+                </div>
+              </div>
+
+              {/* Weeks ranges */}
+              <div className="grid grid-cols-2 gap-3 bg-gray-50 p-3 rounded-lg border border-gray-150">
+                <div>
+                  <h4 className="font-bold text-gray-700 uppercase text-[9px] mb-1">Planlanan Dönem (Hafta)</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <span className="text-[9px] text-gray-400">Başlangıç</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="52"
+                        className="w-full bg-white border border-gray-300 rounded p-1 font-mono font-bold"
+                        value={formPlannedStartWeek}
+                        onChange={(e) => setFormPlannedStartWeek(Number(e.target.value))}
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-gray-400">Bitiş</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="52"
+                        className="w-full bg-white border border-gray-300 rounded p-1 font-mono font-bold"
+                        value={formPlannedFinishWeek}
+                        onChange={(e) => setFormPlannedFinishWeek(Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-bold text-gray-700 uppercase text-[9px] mb-1">Gerçekleşen Dönem (Hafta)</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <span className="text-[9px] text-gray-400">Başlangıç</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="52"
+                        className="w-full bg-white border border-gray-300 rounded p-1 font-mono font-bold"
+                        value={formActualStartWeek}
+                        onChange={(e) => setFormActualStartWeek(Number(e.target.value))}
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-gray-400">Bitiş</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="52"
+                        className="w-full bg-white border border-gray-300 rounded p-1 font-mono font-bold"
+                        value={formActualFinishWeek}
+                        onChange={(e) => setFormActualFinishWeek(Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status and milestones */}
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-gray-500 font-bold mb-1">Durum</label>
+                  <select
+                    className="w-full bg-white border border-gray-300 rounded p-2 font-bold"
+                    value={formStatus}
+                    onChange={(e) => {
+                      const st = e.target.value;
+                      setFormStatus(st);
+                      if (st === "Completed") setFormProgress(100);
+                    }}
+                  >
+                    <option value="Planned">Planned</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Delayed">Delayed</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-gray-500 font-bold mb-1">İlerleme Oranı</label>
+                  <div className="flex items-center space-x-1">
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="5"
+                      className="w-full cursor-pointer accent-gray-850"
+                      value={formProgress}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setFormProgress(val);
+                        if (val === 100) setFormStatus("Completed");
+                        else if (val > 0 && formStatus === "Planned") setFormStatus("In Progress");
+                      }}
+                    />
+                    <span className="font-mono font-bold text-gray-700">% {formProgress}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-center pt-4">
+                  <label className="flex items-center space-x-2 cursor-pointer font-bold">
+                    <input
+                      type="checkbox"
+                      className="rounded"
+                      checked={formMilestone}
+                      onChange={(e) => setFormMilestone(e.target.checked)}
+                    />
+                    <span>Milestone Diamond?</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Linked Module Integration Selectors */}
+              <div className="bg-blue-50/50 border border-blue-100 rounded-lg p-3 space-y-2">
+                <h4 className="font-bold text-blue-900 uppercase text-[9px] flex items-center space-x-1">
+                  <Zap className="w-3 h-3 text-blue-500 animate-pulse" />
+                  <span>Sistemler Arası Otomatik Entegrasyon (No Duplicate Entry)</span>
+                </h4>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-gray-500 font-bold mb-1">İlişkili Yalın Modül</label>
+                    <select
+                      className="w-full bg-white border border-gray-300 rounded p-1.5"
+                      value={formRelatedModule}
+                      onChange={(e) => {
+                        setFormRelatedModule(e.target.value);
+                        setFormLinkedItemId("");
+                      }}
+                    >
+                      <option value="">Bağlantı Yok</option>
+                      <option value="5S Audits">5S Audits (Değerlendirmeler)</option>
+                      <option value="Kaizen Projects">Kaizen Projects (Panosu)</option>
+                      <option value="OEE Improvement">OEE Improvement / Kayıp Analizi</option>
+                      <option value="Capacity Analysis">Kapasite Analizi (Süreç Verileri)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-500 font-bold mb-1">İlişkili Kayıt</label>
+                    <select
+                      className="w-full bg-white border border-gray-300 rounded p-1.5"
+                      value={formLinkedItemId}
+                      onChange={(e) => setFormLinkedItemId(e.target.value)}
+                      disabled={!formRelatedModule}
+                    >
+                      <option value="">Seçiniz...</option>
+                      
+                      {formRelatedModule === "5S Audits" && audits5S.map(a => (
+                        <option key={a.id} value={a.id}>{a.area} (% {a.overallScore})</option>
+                      ))}
+
+                      {formRelatedModule === "Kaizen Projects" && kaizens.map(k => (
+                        <option key={k.id} value={k.id}>{k.title} ({k.status})</option>
+                      ))}
+
+                      {(formRelatedModule === "OEE Improvement" || formRelatedModule === "Capacity Analysis") && processes.map(p => (
+                        <option key={p.id} value={p.id}>{p.name} (OEE: % {p.oee})</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <span className="text-[8px] text-blue-800 leading-normal block">
+                  * Seçilen kaydın durumu tamamlandığında, master plan göreviniz otomatik biter. Veri mükerrerliğini önler.
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-gray-500 font-bold mb-1">Öncüller (Dependencies - Örn: 01,02)</label>
+                <input
+                  type="text"
+                  placeholder="01, 02 vb."
+                  className="w-full bg-white border border-gray-300 rounded p-1.5 font-mono"
+                  value={formDependencies}
+                  onChange={(e) => setFormDependencies(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-500 font-bold mb-1">Açıklama / Gemba Notları</label>
+                <textarea
+                  placeholder="Gerekçe, kilit kayıplar ve beklenen dönüşüm çıktısı..."
+                  rows={2}
+                  className="w-full bg-white border border-gray-300 rounded p-2 text-gray-800 focus:outline-none focus:ring-1 focus:ring-slate-700"
+                  value={formNotes}
+                  onChange={(e) => setFormNotes(e.target.value)}
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3 border-t border-gray-150">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAdding(false);
+                    setEditingActivity(null);
+                  }}
+                  className="bg-gray-100 text-gray-600 font-semibold px-4 py-1.5 rounded-lg"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  className="bg-gray-900 hover:bg-gray-800 text-white font-bold px-5 py-1.5 rounded-lg"
+                >
+                  {editingActivity ? "Planı Güncelle" : "Gantt Planına Ekle"}
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* NEW CUSTOM PROJECT PLAN NAME MODAL */}
+      {isCreatingPlan && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden border border-gray-200">
+            
+            <div className="bg-gray-50 px-5 py-4 border-b border-gray-200 flex justify-between items-center">
+              <h3 className="text-xs font-bold text-gray-900 uppercase flex items-center space-x-2">
+                <Calendar className="w-4 h-4 text-emerald-600" />
+                <span>Yeni Proje Planı Tanımla</span>
+              </h3>
+              <button 
+                onClick={() => {
+                  setIsCreatingPlan(false);
+                  setNewPlanInputName("");
+                }} 
+                className="text-gray-400 hover:text-gray-600 font-bold text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateProjectPlanSubmit} className="p-5 space-y-4 text-xs">
+              <div>
+                <label className="block text-gray-600 font-bold mb-2 uppercase tracking-wider text-[10px]">
+                  Proje Adı *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Örn: Pres Hattı Yalın Dönüşüm Projesi"
+                  className="w-full bg-white border border-gray-300 rounded-lg p-2.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                  value={newPlanInputName}
+                  onChange={(e) => setNewPlanInputName(e.target.value)}
+                  autoFocus
+                />
+                <p className="text-[10px] text-gray-400 mt-1.5 leading-normal">
+                  * Yeni plan oluşturulduğunda, master plandaki yerleşim ve faaliyet şablonu otomatik olarak yeni plana kopyalanacaktır.
+                </p>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3 border-t border-gray-150">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCreatingPlan(false);
+                    setNewPlanInputName("");
+                  }}
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold px-4 py-2 rounded-lg transition-colors cursor-pointer"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-2 rounded-lg transition-colors shadow-sm cursor-pointer"
+                >
+                  Proje Planı Oluştur
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE PLAN CONFIRMATION MODAL */}
+      {planToDelete && (
+        <div className="fixed inset-0 z-[9999] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center space-x-3 text-red-600 border-b border-gray-100 pb-3">
+              <div className="p-2.5 bg-red-50 rounded-xl">
+                <Trash2 className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-base text-gray-900">Proje Planını Sil</h3>
+                <p className="text-xs text-gray-500">Bu işlem için onayınız gerekmektedir</p>
+              </div>
+            </div>
+
+            <div className="space-y-2 text-sm text-gray-700">
+              <p>
+                <strong className="text-gray-900">"{planToDelete.name}"</strong> adlı proje planını silmek istediğinizden emin misiniz?
+              </p>
+              <p className="text-xs text-amber-700 bg-amber-50 p-2.5 rounded-lg border border-amber-200 font-medium">
+                Silinen plan çöp kutusuna kaldırılacak ve Sistem Ayarları panelinden dilediğiniz zaman geri yüklenebilecektir.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end space-x-3 pt-2 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setPlanToDelete(null)}
+                className="px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-all cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const plan = planToDelete;
+                  // Save to deleted plans list
+                  const deletedKey = `gemba_deleted_custom_project_plans_${activeCustomerId}`;
+                  const existingDeleted = JSON.parse(localStorage.getItem(deletedKey) || "[]");
+                  const newDeletedPlan = {
+                    ...plan,
+                    deletedAt: new Date().toISOString()
+                  };
+                  localStorage.setItem(deletedKey, JSON.stringify([...existingDeleted, newDeletedPlan]));
+
+                  // Remove from custom plans
+                  const updatedPlans = customPlans.filter(p => p.id !== plan.id);
+                  setCustomPlans(updatedPlans);
+                  localStorage.setItem(`gemba_custom_project_plans_${activeCustomerId}`, JSON.stringify(updatedPlans));
+
+                  if (currentTopTab === plan.id) {
+                    setCurrentTopTab("master");
+                  }
+
+                  // Dispatch global event
+                  window.dispatchEvent(new CustomEvent("CustomPlansChanged"));
+                  setPlanToDelete(null);
+                }}
+                className="px-4 py-2 text-xs font-bold bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-xs transition-all cursor-pointer flex items-center space-x-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Evet, Planı Sil</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}

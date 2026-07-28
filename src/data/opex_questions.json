@@ -1,0 +1,2807 @@
+[
+  {
+    "id": "A1.1",
+    "categoryId": "A",
+    "categoryName": "YÖNETİMİN KATILIMI VE DESTEĞİ",
+    "subject": "DESTEK",
+    "subjectId": "A1",
+    "weight": 2,
+    "idealState": "YÖNETİM İSRAFLA MÜCADELE VE SÜREÇLERİN İYİLEŞTİRİLMESİ KONUSUNDA FARKINDALIK ÇALIŞMALARINI BAŞLATMIŞ, BUNUN İÇİN KAYNAK VE ZAMAN AYIRIYOR",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Yönetimin bu konuda vizyonu mevcuttur. Fakat etkin bir çalışma başlatılmamıştır.",
+      "2": "Temel bilgilendirme eğitimleri verilmiş. Faaliyet başlatılmamış",
+      "3": "Eğitimler verilmiş, Süreç ile ilgili ilk çalışmalar başlatılmış. Bu konudaki vizyon tüm organizasyona henüz geçmemiş.",
+      "4": "Yönetimin  israfla mücadele ve süreçlerin iyileştirilmesi konularınnda farkındalığı yüksektir. Yalın süreç yapısı yönetim tarafından desteklenmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "A1.2",
+    "categoryId": "A",
+    "categoryName": "YÖNETİMİN KATILIMI VE DESTEĞİ",
+    "subject": "FARKINDALIK OLUŞTURMA",
+    "subjectId": "A1",
+    "weight": 1,
+    "idealState": "İYİLEŞTİRME SÜREÇLERİNE DİKKAT ÇEKMEK İÇİN KAMPANYALAR, SLOGANLAR, BİLGİLENDİRME AFİŞLER GİBİ ARAÇLARLA ÇALIŞANLARDAN FARKINDALIK YARATIYOR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kampanyalar kısmen görüldü. Yalına dikkat çeken mesaj içerikleri yeterli değil.",
+      "2": "İnsan Kaynakları tarafından konunun önemine dikkat çekilmektedir.",
+      "3": "Dönemsel kampanyalarla yönetilmektedir.",
+      "4": "Periyodik bir takvimle kampanyalar yönetilmektedir. Fabrika'nın bir çok alanında sürece dikkat çeken kampanyalar mevcuttur.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "A2.1",
+    "categoryId": "A",
+    "categoryName": "YÖNETİMİN KATILIMI VE DESTEĞİ",
+    "subject": "ORGANİZASYON",
+    "subjectId": "A2",
+    "weight": 1.5,
+    "idealState": "SAHANIN VE İŞLETMENİN ORGANİZASYON YAPISI SÜREKLİ GELİŞİM FAALİYETLERİNİ DESTEKLENMESİNE HİZMET ETMEKTEDİR.  SÜREKLİ GELİŞİM İÇİN  ROLLER VE GÖREVLER BELİRLENMİŞ EN AZ BİR KİŞİ / DEPARTMAN TARAFINDAN TAKİBİ YAPTIRILMAKTADIR.",
+    "rubric": {
+      "0": "Organizasyon Mevcut Değildir",
+      "1": "Süreci takip etmek için bir departmana ek görev verilmiş.",
+      "2": "Süreci takip etmek için bir departmana ek görev verilmiş.",
+      "3": "Çalışmaları 1 kişi takip etmektedi.",
+      "4": "Sahanın ve işletmenin organizasyon yapısı sürekli gelişmeyi sağlayacak düzeyde hazırlanmıştır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "A2.2",
+    "categoryId": "A",
+    "categoryName": "YÖNETİMİN KATILIMI VE DESTEĞİ",
+    "subject": "RAPORLAMA",
+    "subjectId": "A2",
+    "weight": 2,
+    "idealState": "YAPILAN İYİLEŞTİRİCİ FAALİYETLER PERİODİK OLARAK SORUMLULAR TARAFINDAN YÖNETİME RAPORLANIR. YAPILAN ÇALIŞMALAR ÜST YÖNETİM EKİBİ TARAFINDAN TAKİP EDİLEREK SÜREÇLERİN GELİŞİMİ İZLENİR.",
+    "rubric": {
+      "0": "Raporöama yapıılamamaktadır.",
+      "1": "Yönetimin belirlediği spesifik konularda dönemsel raporlamalar yapılmaktadır.",
+      "2": "Raporlamalar yapılmaktadır. Fakat bir period ile yönetilmemektedir.",
+      "3": "Raporlamalar mevucttur. Gerçekleşmeyen hedeflere karşı aksiyon takibi yetersizdir.",
+      "4": "Raporlamalar kök nedenleri ile birlikte takip edilip, takip edilmektedir. Süreç bir performansa tabi tutulmuştur.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "A3.1",
+    "categoryId": "A",
+    "categoryName": "YÖNETİMİN KATILIMI VE DESTEĞİ",
+    "subject": "VİZYON",
+    "subjectId": "A3",
+    "weight": 1.5,
+    "idealState": "İŞLETME VİZYONU BELİRLİ, GÖRSEL OLARAK İZLENEBİLİYOR VE HERKES TARAFINDAN BİLİNİYOR DESTEKLİYOR. VİZYONU GERÇEKLEŞTİRMEDE KATILIMCI YÖNETİMİN ALT YAPISI MEVCUTTUR.",
+    "rubric": {
+      "0": "Şirket Vizyonu belirlideğildir.",
+      "1": "Şirket vizyonu belirlenmiş ama duyrurulmamıştır",
+      "2": "Şirket vizyonu belirli ama organizasyon tarafından belirlenmemektedir.",
+      "3": "Saha genelinde şirket vizyonunu anlatan, ana hedefleri ve gelecek planları ifade eden duyuru, veya görselle karşılaşılmadı.",
+      "4": "Şirket vizyonu yönetim tarafından belirlenmiş, yönetim ekibi tarafından bilinmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "A3.2",
+    "categoryId": "A",
+    "categoryName": "YÖNETİMİN KATILIMI VE DESTEĞİ",
+    "subject": "HEDEFLER - STRATEJİLER",
+    "subjectId": "A3",
+    "weight": 1.5,
+    "idealState": "ÜST YÖNETİM UZUN VADELİ HEDEFLERE ULAŞMAK İÇİN ORTA VADELİ HEDEF VE STRATEJİLERİ BELİRLEMİŞ, BU STRATEJİLERİ DEPARTMAN YÖNETİCİLERİ İLE PAYLAŞARAK YILLIK PROGRAMLARA DÖKMÜŞTÜR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Hedef belirleme ve izleme çalışması başlangıç aşamasındadır.",
+      "2": "Konu devreye alınmıştır ama etkili bir şekilde takip edilmemektedir.",
+      "3": "Departman yönetileri kendi programları yapmışlardır ama konu bir raporla veya bir takvimle takip edilmemektedir.",
+      "4": "Yönetim bu konuyu paylaşmış, çalıştay veya periyodik toplantılarla konuları projelendirerek takip etmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "A3.3",
+    "categoryId": "A",
+    "categoryName": "YÖNETİMİN KATILIMI VE DESTEĞİ",
+    "subject": "5 ANA MİSYON",
+    "subjectId": "A3",
+    "weight": 3,
+    "idealState": "ŞİRKETİN ANA HEDEFLERİ 5 ANA MİSYONA HİZMET ETMEKTEDİR. ANA HEDEFLER KALİTE, MALİYET, SEVKİYAT, (ÜRETİM,BAKIM), İŞ GÜVENLİĞİ, İNSAN KAYNAKLARI VB. GİBİ ŞİRKETİN GELİŞİMESİ İÇİN ÖNEMLİ NOKTALARI İÇERMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Hedefler sahada takip edilmektedir. Fakat, raporlaması ve takibi yeterli seviyede",
+      "2": "Hedefler kısmen takip edilmektedir.",
+      "3": "Hedefler takip edimekte fakat, gerçekleşmeyen hedefler için aksiyonlar takip edilmemektedir.",
+      "4": "Hedef yönetimi organizasyonun her seviyesine indirilmiş. Gerçekleşmeyen hedefler takip edilmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "A4.1",
+    "categoryId": "A",
+    "categoryName": "YÖNETİMİN KATILIMI VE DESTEĞİ",
+    "subject": "KATILIMCI YÖNETİM",
+    "subjectId": "A4",
+    "weight": 3,
+    "idealState": "ANA HEDEFLERİ DESTEKLEYEN ALT HEDEFLER, DEPARTMAN YÖNETİCİLERİ TARAFINDAN BELİRLENMİŞ, DEPARTMAN İÇİNDEKİ TÜM SEVİYERELERE HEDEFLERİN YAYILIMI SAĞLANMIŞTIR.",
+    "rubric": {
+      "0": "Hedef yönetimi izlenmedi",
+      "1": "Belili hedeflerde alt hedefler görülmüştür.",
+      "2": "Sistem yaygın olarak görülmemiştir.",
+      "3": "Alt hedefler takip edilmektedir. Tesisinde genelinde aynı disipliner takip görülmemektedir.",
+      "4": "Alt hedefler takip edilmektedir. Gerçekleşmeyen hedeflere aksiyon planlanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "A4.2",
+    "categoryId": "A",
+    "categoryName": "YÖNETİMİN KATILIMI VE DESTEĞİ",
+    "subject": "HEDEF TAKİP",
+    "subjectId": "A4",
+    "weight": 2,
+    "idealState": "DEPARTMANLARIN FAALİYETLERİ İZLENEBİLİR BİR YAPIDADIR. AYLIK FAALİYETLER -HEDEF GERÇEKLEŞME SONUÇLARI - HOSHIN / B.S.C ( BALANCE SCORECARD) GİBİ YAPILARLA AYLIK OLARAK YÖNDETİMİNDE KATILDIĞI TOPLANTILARLA TAKİP EDİLİR (VE SONUÇLAR GÖRSELLEŞTİRİLİR. )",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Bu tarz hedeflerin takibi aylık yapılmamaktadır.",
+      "2": "Genel katılımla takip toplantısı yapılmamaktadır. Sadece yönetime raporlaması yapılmaktadır.",
+      "3": "Yönetimle aylıkk değerlendirme toplantıları yapılmaktadır. Aksiyon yönetimi etkin yapılamamaktadır.",
+      "4": "Hedef yönetmii her ay belirli bir tarihte yapılarak yönetime raporlanmaktadır.  Aksiyonlar için sorumlular tayin edilmekte ve takip edilmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "A4.3",
+    "categoryId": "A",
+    "categoryName": "YÖNETİMİN KATILIMI VE DESTEĞİ",
+    "subject": "ANALİZ",
+    "subjectId": "A4",
+    "weight": 2.5,
+    "idealState": "GERÇEKLEŞMEYEN HEDEFLERE KARŞI ANALİZLER YAPILIR, UYGUNSUZLUKLARIN KÖK NEDENLERİ TESPİT EDİLEREK YENİ YÖNTEM VE KNOW HOW ELDE EDİLMESİ SAĞLANIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kök neden analizleri etkin yapılmamaktadır",
+      "2": "Kök neden analizleri yapılmakta fakat aksiyon yöntemi zayıfır.",
+      "3": "Tüm organizasyon genelinde kök neden analizleri takip edilmektedir.",
+      "4": "Kök neden analizleri yapılmakta, PDCA döngüsüne göre aksiyonların terminleri takip edilmekte ve izlenmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "B1.1",
+    "categoryId": "B",
+    "categoryName": "DEĞER & MALİYET YÖNETİMİ",
+    "subject": "KAR ODAKLILIK",
+    "subjectId": "B1",
+    "weight": 3,
+    "idealState": "YILLIK HEDEF PLANLARI BİR BÜTÇE DAHİLİNDE OLUŞTURULMUŞ, HEDEFLENEN KAR ORANI BELİRLENMİŞTİR. İSTENİLEN KARLILIĞA ULAŞABİLMEK İÇİN ODAKLANILMIŞ MAALİYET AZALTICI PROGRAMLAR OLUŞTURULARAK TAKİP EDİLMEKTEDİR",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Bütçe takibi ve karlılık ile ilgili konular sadece yönetim tarafından takip edilmektedir.",
+      "2": "Operasyonel bütçeler mevcut. Planlanan karlılık seviyesine ulaşabilmek için maliyet unsuru olan kalemeler için iyileştirme program veya maliyet azaltıcı faaliyetler mevcut değil.",
+      "3": "Maliyet kalemleri belirlenmiş, yıllık azaltma hedefleri oluşturulmuş fakat projelendirilerek takip edilmemektedir.",
+      "4": "Karllık hedefi doğrultunda sistematik bir maliyet azaltımı faaliyetinin varlığı ve bölüm bütçelerinin takibi yapılmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "B1.2",
+    "categoryId": "B",
+    "categoryName": "DEĞER & MALİYET YÖNETİMİ",
+    "subject": "OPERASYONEL MALİTET",
+    "subjectId": "B1",
+    "weight": 3,
+    "idealState": "DİREK OPERASYON VE ÜRETİM FAALİYETLERİNDE MALİYET İLE İLİŞKİLİ HEDEFLER TAKİP EDİLMEKTEDİR. MALİYET UNUSURLARI OLUŞTURULAN FAKTÖRLERE SORUMLULAR ATANARAK MAALİYET AZALTICI ALT FAALİYETLER SÜREKLİ YÜRTÜLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Sistematik olmasa da Operasyonda Maliyet azaltılması talebi vardır.",
+      "2": "Operasyon yönetimi hedeflerinde Maliyet ile ilişkilendirilmiş konu veya faaliyete başlıkları mevcuttur uygulama aktif değildir",
+      "3": "Kişilerin bireysel çabaları ile belirlenen temel problemler ve maliyet konuları iyileştirilmektedir.",
+      "4": "Yönetim tarafından belirlenen ve bütçelenen yıllık bazda maliyet azaltma projeleri yapılmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "B1.3",
+    "categoryId": "B",
+    "categoryName": "DEĞER & MALİYET YÖNETİMİ",
+    "subject": "6 BÜYÜK KAYIP",
+    "subjectId": "B1",
+    "weight": 2,
+    "idealState": "OEE - 6 BÜYÜK KAYIP KONULARI MAALİYETLER İLE İLİŞKİLENDİRİLMİŞ VE SAHA YÖNETİMİ AÇISINDAN ÖNEMLİ BİR PARAMETRE OLARAK İZLENEBİLMEKTE VE İYİLEŞTİRME PROGRAMLARINA DAHİL EDİLMİŞTİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "OEE takibi kısmen görülmüştür. Etkinliği takip edilmemektedir.",
+      "2": "OEE takibi alt kırılımları sistem üzerinde raporlarla takip edilmektedir.",
+      "3": "OEE takibi etkindir fakat, maliyet ile ilgili olarak 6 Büyük kayıp konuları saha genelinde takip edilmemektedir.",
+      "4": "Maliyet azaltma konusu olarak OEE ve 6 büyük kayıp konuları sahada görsel olarak yönetilmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "B1.4",
+    "categoryId": "B",
+    "categoryName": "DEĞER & MALİYET YÖNETİMİ",
+    "subject": "ENDİREK MALZEME",
+    "subjectId": "B1",
+    "weight": 2,
+    "idealState": "ENDİREK OPERASYONLARDA ( SARF MALZEME - HAMMADDE, ENERJİ YÖNETİMİ VB GİBİ ) KONULARDA MAALİYET AZALTMA CALIŞMALARI SİSTEMATİK BİR ŞEKİLDE YAPILMAKTA VE SONUÇLAR TAKİP EDİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Çalışma henüz olgunluk seviyesinde değildir.",
+      "2": "Maliyet azaltma konuları kısmen takip edilmekte fakat standart bir takip metodu oluşturulmamıştır.",
+      "3": "Bazı bölümler ve alanlar için etkin bir takip yöntemi ile süreçler yönetilse de tüm fabrika genelinde bu konu yaygın değildir.",
+      "4": "Saha yöneticileri için tüm operasyonlarda maliyet azaltma konusunda roller tanımlanmıştır. Aylık olarak iyileştirmeler takip edilmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "B2.1",
+    "categoryId": "B",
+    "categoryName": "DEĞER & MALİYET YÖNETİMİ",
+    "subject": "DEĞER YÖNETİMİ",
+    "subjectId": "B2",
+    "weight": 2.5,
+    "idealState": "OPERASYONEL FAALİYETLERİN TÜMÜ İÇİN DEĞER YÖNETİMİ, ANALİZLER YAPILMIŞTIR. DEĞER YÖNETİMİ VE MAJOR PROBLEMLER İÇİN FARKINDALİIK BAŞLATILMIŞTIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Konu ile ilgili eğitim alınmış farkındalık başlatılmış.",
+      "2": "Bir alan için ilk uygulamala başlatılmış, sadece mevcut durum analiz edilmiştir.",
+      "3": "Tüm fabrika için bir kere çalışma yapılmış,  darboğazlar takip edilmiştir. Fakat analiz güncel değildir.",
+      "4": "Periyodik olarak VSM güncellemekte ve ideal duruma doğru iyileştirme planları hayata geçirilmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "B3.1",
+    "categoryId": "B",
+    "categoryName": "DEĞER & MALİYET YÖNETİMİ",
+    "subject": "DAR BOĞAZ ANALİZLERİ",
+    "subjectId": "B3",
+    "weight": 2.5,
+    "idealState": "VSM, PROSES KAPASİTE ANALİZLERİ, MIFA GİBİ SÜREÇ TANIMLAMA ANALİZ METOTLARI İLE DAR BOĞAZ HAT / İSTASYON VE PROSESLER TANIMLANMIŞTIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Darbogaz analizleri güncel değildir.",
+      "2": "Dar boğaz tespiti bir metoda dayalı yapılmamaktadır. Planlama verileri kullanılmaktadır.",
+      "3": "Darboğaz tanımlarında tüm süreç dahil edilerek yapılmamıştır. Darboğaz prosesler tanımlanmıştır.",
+      "4": "Güncel VSM analizlerinde darboğaz yönetimi yapılmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "B3.2",
+    "categoryId": "B",
+    "categoryName": "DEĞER & MALİYET YÖNETİMİ",
+    "subject": "AKSİYON YÖNETİMİ",
+    "subjectId": "B3",
+    "weight": 3,
+    "idealState": "TANIMLANAN DAR BOĞAZ NOKTALARINA İSTİNADEN İYİLEŞTİRME AKSİYONLARI BELİRLENMİŞTİR.  AKSİYONLAR İZLENMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Bir kereye mahsus iyileştirmeler yapılmış, güncelleğini kaybetmiştir.",
+      "2": "Bazı istasyonlar içn aksiyonlar belirlenmiş,aksiyonlar hayata henüz geçirilmemiştir.",
+      "3": "Dar boğaz  tanımlamaları yapılmış ama iyieştirme programları tüm alanlar için devreye alınmamıştır.",
+      "4": "Darboğaz yönetimi için tüm iyileştirme programları uygulamaya alınmaktadır. Yönetim tarafından takip edilmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "B3.3",
+    "categoryId": "B",
+    "categoryName": "DEĞER & MALİYET YÖNETİMİ",
+    "subject": "DEĞER YETKİNLİK GELİŞİMİ",
+    "subjectId": "B3",
+    "weight": 2,
+    "idealState": "MAJOR PROBLEM KONULARINI  İYİLEŞTİRME EKİPLERİ TEMEL  SEVİYEDEKİ FARKINDALIK BİLGİLERİNE SAHİPTİRLER, DAR BOĞAZ ANALİZLERİ VE İYİLEŞTİRME KONUSUNDA EĞİTİMLİ VE YETKİNDİRLER.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Daha önce eğitim alınmış, eğitim güncellenmemiş.",
+      "2": "Ekiplerin problem çözme yetkinliği yeterli görülmemiştir.",
+      "3": "Ekip içinde yetkin ve eğitimli kişiler vardır. Fakat, konu ile ilgili çalışmalar yeterli değildir.",
+      "4": "Ekiplerin yetkinliği tam ve eğitimleri günceldir. Aktif olarak iyileştirme çalışmalarına katılmaktadırlar.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "C1.1",
+    "categoryId": "C",
+    "categoryName": "EĞİTİM VE IK YÖNETİMİ",
+    "subject": "GELİŞİM HEDEFLERİ",
+    "subjectId": "C1",
+    "weight": 3,
+    "idealState": "SÜREÇLERİN İYİLEŞTİRİLMESİ, YETKİNLİK GELİŞİMİ İÇİN ANA MİSYONLARDA (HR )EĞİTİM HEDEFLERİ BELİRLİDİR. GÖRSEL OLARAK İZLENMELİDİR",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Sadece devam oranları sistem üzerinden takip edilmektetir.",
+      "2": "Gelişim hedefleri sistemde var.",
+      "3": "Eğitim hedefleri takip ediliyor ama güncel değilr.",
+      "4": "Sabah toplantılarında IK hedefleri görsel olarak takip edilmekte ve gün gün izlenebilmkektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "C1.2",
+    "categoryId": "C",
+    "categoryName": "EĞİTİM VE IK YÖNETİMİ",
+    "subject": "EĞİTİM YÖNETİMİ",
+    "subjectId": "C1",
+    "weight": 3,
+    "idealState": "IK MEVCUT DURUM EĞİTİM DURUMU İLE  VE GELECEK DURUM İHTİYAÇ PLANLAMASINI YAPARAK GELİŞİM İÇİN EĞİTİM TAKVİMİ OLUŞTURUR VE GÜNCEL TUTAR. GELİŞİMİ AKTİF TUTARAK FARKINDALIĞI SÜREKLİ KILAR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Operatörlerin çoklu beceri kazanmasına yönelik eğitimler başlatılmıştır ancak kapsamlı bir beceri matrisi henüz oluşturulmamıştır.",
+      "2": "Çoklu beceri eğitimi veriliyor ve bazı matrisler var ancak bunlar güncel değil ya da tüm hatlarda sergilenmiyor; eğitimlerin takibi de standart dışıdır.",
+      "3": "Bazı hatlarda yetkinlik matrisleri ve polivalans uygulamaları yapılmakta, ancak bunlar standart bir yapıya sahip değildir ve geliştirme planları eksiktir.",
+      "4": "Operasyon birimleri ile birlikte IK gelişim programlarını oluşturmuş ve takip etmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "C1.3",
+    "categoryId": "C",
+    "categoryName": "EĞİTİM VE IK YÖNETİMİ",
+    "subject": "EĞİTİM YÖNETİMİ 2",
+    "subjectId": "C1",
+    "weight": 1.5,
+    "idealState": "GERÇEKLEŞTİRİLEN EĞİTİMLER, SONUÇLARI VE ÇIKTILARI  IK TARAFINDAN DEĞERLENDİRİLİR KAYIT ALTINA ALINIR. TAMAMLANAN DÖNGÜLERİN YERİNE  GELECEK PLANINA YÖNELİK EĞİTİMLER PLANLANLANIR",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "İK, eğitimlerin değerlendirilmesi ve kayıt altına alınması sürecine yeni başlamış; henüz sistematik bir yaklaşım bulunmamaktadır. Eğitimlerin sonuçları ya hiç analiz edilmemekte ya da çok sınırlı düzeyde takip edilmektedir.",
+      "2": "Eğitimler kısmen değerlendiriliyor ve bazı çıktılar kayıt altına alınıyor; ancak bu uygulamalar belli bir standartta veya tutarlılıkta yapılmıyor. Geleceğe yönelik eğitim planları belirli kişilere veya birimlere göre değişiklik gösterebiliyor.",
+      "3": "Eğitim değerlendirmeleri ve çıktı analizleri belirli bölümlerde düzenli olarak yapılmakta ve kayıt altına alınmakta; ancak tüm organizasyon genelinde uygulanmadığı için kurumsal bir bütünlük sağlanamamıştır. Gelecek planlamaları bazı alanlarda eksik kalmaktadır.",
+      "4": "Eğitimlerin değerlendirilmesi, çıktıların analiz edilmesi ve kayıt altına alınması İK tarafından kurum genelinde sistematik olarak uygulanmakta; ayrıca tamamlanan döngüler doğrultusunda gelecek eğitim planları yapılmaktadır. Ancak süreçlerde daha fazla dijital entegrasyon, etki analizleri veya sürekli iyileştirme gibi gelişmeye açık alanlar mevcuttur.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "C2.1",
+    "categoryId": "C",
+    "categoryName": "EĞİTİM VE IK YÖNETİMİ",
+    "subject": "YETKİNLİK GELİŞİMİ",
+    "subjectId": "C2",
+    "weight": 2,
+    "idealState": "HATLARDA OPERATÖRLERİN YETKİNLİK SEVİYELERİ, YETKİNLİK MATRİSLERİ / POLİVALANSLARLA İLE İZLENMEKTEDİR. POLİVALANSLAR MEVCUT YETKİNLİK SEVİYELERİ İLE BİRLİKTE YETKİNLİK ARTTIRIMA PLANLARINI DA GÖSTERMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Yetkinlik matrisleri oluşturulma aşamasında olup, operatör seviyeleri henüz sistematik şekilde izlenmemektedir.",
+      "2": "Bazı hatlarda yetkinlik matrisleri ve polivalans uygulamaları yapılmakta, ancak bunlar standart bir yapıya sahip değildir ve geliştirme planları eksiktir.",
+      "3": "Yetkinlik matrisleri belirli üretim hatlarında aktif olarak kullanılmakta, fakat tüm üretim alanlarında yaygın şekilde uygulanmamaktadır.",
+      "4": "Tüm hatlarda yetkinlik seviyeleri sistemli olarak izlenmekte ve polivalans yapıları üzerinden gelişim planları açıkça gösterilmektedir; ancak güncellenme sıklığı veya dijitalleştirme gibi yönlerde iyileştirmeye açık alanlar bulunmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "C2.2",
+    "categoryId": "C",
+    "categoryName": "EĞİTİM VE IK YÖNETİMİ",
+    "subject": "BECERİ MATRİSLERİ",
+    "subjectId": "C2",
+    "weight": 3,
+    "idealState": "MAKİNA OPERATÖLERİ BİRDEN ÇOK PROSESTE BECERİ GÖSTEREBİLECEK ŞEKİLDE EĞİTİLMEKTEDİR.  BECERİ  MATRİSİLERİ - ÇOKLU BECERİYİ YÖNETEBİLECEK ŞEKİLDE KURGULANMIŞTIR. MATRİSLER GÜNCEL OLARAK HATLARDA SERGİLENMEKTEDİR. EĞİTİMLER UYGULANMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Operatörlerin çoklu beceri kazanmasına yönelik eğitimler başlatılmıştır ancak kapsamlı bir beceri matrisi henüz oluşturulmamıştır.",
+      "2": "Çoklu beceri eğitimi veriliyor ve bazı matrisler var ancak bunlar güncel değil ya da tüm hatlarda sergilenmiyor; eğitimlerin takibi de standart dışıdır.",
+      "3": "Güncel beceri matrisleri ve eğitimler bazı proseslerde düzenli yürütülüyor, ancak tüm sahada tutarlılık sağlanmamış durumda.",
+      "4": "Tüm hatlarda beceri matrisleri aktif şekilde kullanılmakta ve operatörler planlı şekilde çoklu beceri kazanacak şekilde eğitilmektedir; ancak gelişim kayıtlarının analizi ve sistem entegrasyonu yönlerinde geliştirmeler yapılabilir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "C2.3",
+    "categoryId": "C",
+    "categoryName": "EĞİTİM VE IK YÖNETİMİ",
+    "subject": "NİTELİKİK TAKİBİ",
+    "subjectId": "C2",
+    "weight": 1.5,
+    "idealState": "MATRİSLEME YÖNTEMİ 5 AŞAMALI - ANA HEDEFİ ALANINDA UZAMAN, BAŞKA OPERATÖRLERİ DE EĞİTEBİLİR SEVİYESİNDE OLUŞTURULMUŞTUR.  GÖRSEL OLARAK TAKİP EDİLEBİLECEK ŞEKİLDEDİR.  ŞİRKET ANA HEDEFLERİNİ GERÇEKLEŞTİRECEK ŞEKİLDE, NİTELİKLİ İNSAN KAYNAĞI YETİŞTİRMEYİ SAĞLAYACAK NİTELİKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "5 aşamalı matrisleme sisteminin yapısı oluşturulmuş ancak uygulamaya geçilmemiştir.",
+      "2": "Bazı bölümlerde 5 seviyeli yapı uygulanmakta, ancak her seviyenin kriterleri net tanımlanmamış veya süreç görselleştirme tam oturmamıştır.",
+      "3": "5 seviyeli sistem bazı alanlarda etkili biçimde uygulanıyor, ancak tüm birimlerde yaygın değil ve insan kaynağı gelişimi hedeflerine tam entegre değil.",
+      "4": "Matrisleme yöntemi organizasyon çapında uygulanmakta, hedeflerle uyumlu, görsel takibi güçlü; ancak bazı seviyelerde değerlendirme nesnelliği veya sürdürülebilirlik yönlerinde gelişim ihtiyacı olabilir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "C3.1",
+    "categoryId": "C",
+    "categoryName": "EĞİTİM VE IK YÖNETİMİ",
+    "subject": "LİDER GELİŞİMİ",
+    "subjectId": "C3",
+    "weight": 2,
+    "idealState": "SAHA LİDERLERİ VE LİDER ADAYLARI İÇİN LİDER GELİŞİMİ IK 'NIN ANA POLİTİKALARI ARASINDADIR. LİDERLİK BECERİLERİ GELİŞİTİRME, SAHA YÖNETİM YETENEKLERİ ARTTIRMA ÜZERİNE PROGRAMLAR UYGULANMAKTA VE PLANLAMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Lider gelişim süreci gündeme alınmış ancak henüz programa dönüşmemiştir.",
+      "2": "Bazı liderlik eğitimleri uygulanmakta fakat bunlar belli bir sistematiğe ve devamlılığa sahip değildir.",
+      "3": "İK tarafından liderlik gelişimi programı bazı liderler için uygulanıyor ancak lider adaylarının tümüne yaygınlaştırılmamıştır.",
+      "4": "Liderlik gelişim programları sistematik biçimde uygulanmakta ve geleceğe dönük planlamalar yapılmaktadır; fakat mentorluk, ölçme-değerlendirme gibi yan süreçlerde gelişim sağlanabilir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "C4.1",
+    "categoryId": "C",
+    "categoryName": "EĞİTİM VE IK YÖNETİMİ",
+    "subject": "TEK NOKTA EĞİTİMLERİ",
+    "subjectId": "C4",
+    "weight": 2,
+    "idealState": "OPERASYONEL BİLİNCİN ARTTIRILMASI VE SAHA STANDARLARININ KORUNMASI İÇİN TND - TEK NOKTA DERSLERİ UYGULANMAKTADIR. TEK NOKTA DERSLERİ KONU - ADAM / SAAT HEDEFLERİ İLE TAKİP EDİLEREK KAYIT ALTINA ALINMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Tek Nokta Dersleri fikri benimsenmiş ancak uygulamalar henüz sistematik değil ya da çok sınırlı.",
+      "2": "TND’ler yapılmakta ancak konu-adam/saat takibi düzensiz ya da kayıtlar tutarsızdır.",
+      "3": "Bazı hatlarda veya ekiplerde TND uygulamaları disiplinli şekilde yapılmakta, ancak organizasyon geneline yaygınlaştırılamamıştır.",
+      "4": "TND’ler konu bazlı ve adam/saat hedefleriyle takip edilmekte, sistematik kayıtlar tutulmaktadır; gelişim alanı olarak içerik standardizasyonu veya dijital takip sistemleri değerlendirilebilir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "C4.2",
+    "categoryId": "C",
+    "categoryName": "EĞİTİM VE IK YÖNETİMİ",
+    "subject": "UYGULAMALI EĞİTİMLER",
+    "subjectId": "C4",
+    "weight": 2,
+    "idealState": "KALİTE - EKİPMAN KULLANIMI, BAKIM, VB GİBİ OPERASYONEL KONULARDA SAHA GELİŞİMİNİ SAĞLAMAK İÇİN  UYGULAMALI EĞİTMLER ORGANİZE EDİLİR, LİDERLERİN ÖNDERLİĞİNDE BECERİ GELİŞİMİ SAĞLANIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Uygulamalı eğitimler planlama aşamasındadır, henüz düzenli uygulama başlamamıştır.",
+      "2": "Bazı liderler eğitimleri başlatmış olup, süreçler düzenli değil ve içerikler çeşitlilik göstermektedir.",
+      "3": "Uygulamalı eğitimler bazı hatlarda uygulanmakta, ancak tüm sahada aynı düzeyde lider katılımı ve takip sağlanamamaktadır.",
+      "4": "Liderlerin aktif rol aldığı uygulamalı eğitimler tüm sahada yürütülmekte, beceri gelişimine katkı sağlanmaktadır; eğitimlerin etkinliğini ölçme veya sürekliliği sağlama konusunda gelişim imkanı vardır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "D1.1",
+    "categoryId": "D",
+    "categoryName": "GÜVENLİK & ERGONOMİ",
+    "subject": "FAALİYET YÖNETİMİ",
+    "subjectId": "D1",
+    "weight": 1,
+    "idealState": "SAHA ÇALIŞMA VE ISG KURALLARI HERKES TARAFINDAN ANLAŞILIR VE NETTİR. GÖRSEL UYARILAR, TEHLİKELİ ALANLAR, GÜVENLİ YÜRÜME YOLLARI, DİKKAT GEREKTİREN BÖLGELER  SAHADA FAALİYET KURALLARI GÖRSEL HALE GETİRMİŞTİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kuralların görsel hale getirilmesi çalışması yeni başlamış düzeydedir. Sahada farkındalık ve yaygınlık düşük seviyededir.",
+      "2": "Görseller ve işaretlemeler kısmen mevcut ancak sahada standart bir yapıda uygulanmamaktadır.",
+      "3": "Kurallar ve görseller çoğu noktada mevcuttur ancak tüm sahaya yaygın bir uygulama bulunmamaktadır.",
+      "4": "Tüm sahada uygulama başarılı şekilde yapılmakta, kurallar net, görseller yeterli düzeydedir fakat bazı iyileştirme alanları mevcuttur.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "D1.2",
+    "categoryId": "D",
+    "categoryName": "GÜVENLİK & ERGONOMİ",
+    "subject": "FAALİYET TAKVİMİ",
+    "subjectId": "D1",
+    "weight": 2,
+    "idealState": "ISG FAALİYETLERİ PLANLI BİR TAKVİM DOĞRULTUSUNDA YÖNETİLMEKTEDİR. HER AYIN KONUSU ISG YÖNETİM PANOLARINDA GÖSTERİLMEKTEDİR. BELİRLİ DÖNEMLER - AYLAR ISG AYI İLAN EDİLEREK FAALİYETLER ÜZERİNDEKİ DİKKAT ARTTIRILMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Tüm sahada uygulama başarılı şekilde yapılmakta, kurallar net, görseller yeterli düzeydedir fakat bazı iyileştirme alanları mevcuttur.",
+      "2": "Aylık konular belirlenmiş ancak takvim uygulaması net ve standart hale gelmemiştir.",
+      "3": "ISG takvimi ve pano uygulamaları bazı bölümlerde aktif, ancak tüm organizasyon genelinde uygulanmamaktadır.",
+      "4": "Takvim doğrultusunda tüm bölümlerde uygulama yapılmakta, ISG konuları net şekilde sergilenmektedir, ancak süreçte gelişime açık yönler vardır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "D2.1",
+    "categoryId": "D",
+    "categoryName": "GÜVENLİK & ERGONOMİ",
+    "subject": "İSG HEDEFLERİ",
+    "subjectId": "D2",
+    "weight": 1.5,
+    "idealState": "GÜVENLİK VE ERGONOMİ (S)  İLE İLGİLİ ANA HEDEFLER BELİRLENMİŞ, SAHADA NEREDEYSE KAZA-RAMAK KALA GİBİ RİSKLİ ÇALIŞMALARI TAKİP EDEN ALT HEDEFLER DE MEVCUTTUR",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Hedef belirleme çalışmaları yeni başlamış; sistematik izleme yapılmamaktadır.",
+      "2": "Hedefler tanımlanmış ancak takip ve uygulama süreci standart değil.",
+      "3": "Takip edilen hedefler bazı alanlarda uygulanıyor, sahaya tam yayılmamış.",
+      "4": "Güvenlik ve ergonomi hedefleri belirlenmiş, sahada aktif olarak takip edilmekte; yine de süreç iyileştirilebilir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "D2.2",
+    "categoryId": "D",
+    "categoryName": "GÜVENLİK & ERGONOMİ",
+    "subject": "İSG KAIZEN",
+    "subjectId": "D2",
+    "weight": 2,
+    "idealState": "ISG, ERGONOMİ VE ÇEVRE İLE İLGİLİ KAİZEN HEDEFLERİ BELİRLENMİŞTİR VE GÖRSEL OLARAK TAKİP EDİLMEKTEDİR. ANA İYİLEŞTİRME KONULARI ARASINDA YER ALMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kaizen hedefleri tanımlama aşamasında, görsel takip henüz başlamamıştır.",
+      "2": "Kaizen hedefleri tanımlı ancak takibi tüm sahada net değildir.",
+      "3": "Takip sistemi bazı bölümlerde var, ancak organizasyon genelinde aktif değildir.",
+      "4": "Kaizen hedefleri tüm sahada görsel olarak izleniyor; gelişmeye açık detaylar bulunabilir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "D3.1",
+    "categoryId": "D",
+    "categoryName": "GÜVENLİK & ERGONOMİ",
+    "subject": "GÜVENLİK",
+    "subjectId": "D3",
+    "weight": 1,
+    "idealState": "HER PROSES VE HAT YAPISINA UYGUN KORUYUCU GÜVENLİK EKİPMANLARI BELİRLENMİŞ, GEREKLİ TALİMATLARLA BU EKİPMANLARIN DOĞRU KULLANIMI VE UYARILARI MEVCUTTUR.  OPERATÖRLER - SAHA LİDERLERİ TARAFINDAN BU EKİPMANLAR KULLANILMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Koruyucu ekipman belirleme süreci yeni başlatılmış, uygulama sınırlı.",
+      "2": "Ekipmanlar belirlenmiş fakat talimatlar veya uygulama standardı eksiktir.",
+      "3": "Ekipman ve kullanım talimatları birçok noktada uygulanmakta, ancak genelleşmemiştir.",
+      "4": "Tüm proseslerde ekipman tanımı, kullanım talimatı uygulanmakta; yine de geliştirilebilecek alanlar mevcuttur.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "D3.2",
+    "categoryId": "D",
+    "categoryName": "GÜVENLİK & ERGONOMİ",
+    "subject": "RİSK ANALİZLERİ",
+    "subjectId": "D3",
+    "weight": 1.5,
+    "idealState": "TÜM FABRRİKADA GEREKLİ RİSK ANALİZ ÇALIŞMALARI YAPILMIŞ, RİSKLİ BÖLGELER TANIMLANMIŞ VE EKİPLERLE BİRLİKTE RİSK AZALTMA FAALİYETLERİ  BAŞLATILMIŞTIR. EKİPMANLAR ÜZERİNDEKİ RİSKLİ ALANLAR TANIMLANARAK GÜVENLİ ÇALIŞMA ORTAMI OLUŞTURULMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Risk analizi süreci henüz başlangıç aşamasında, uygulama yaygın değil.",
+      "2": "Riskler belirlenmiş ancak azaltma faaliyetleri ve ekip katılımı tam standart hale gelmemiştir.\r\nRiskler belirlenmiş ancak azaltma faaliyetleri ve ekip katılımı tam standart hale gelmemiştir.",
+      "3": "Risk azaltma faaliyetleri bazı alanlarda uygulanmakta, ancak tüm fabrika geneline yayılmamıştır.",
+      "4": "Tüm risk analizleri yapılmış, ekipman üzerindeki riskli alanlar belirlenmiş ve ekip katılımıyla yaygın uygulama sağlanmış; ancak süreçte gelişime açık yönler bulunabilir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "D4.1",
+    "categoryId": "D",
+    "categoryName": "GÜVENLİK & ERGONOMİ",
+    "subject": "SAHA DEVRİYESİ",
+    "subjectId": "D4",
+    "weight": 1.5,
+    "idealState": "YÖNETİMİNDE DAHİL OLDUĞU GÜVENLİK DEVRİYELERİ YAPILMAKTA VE ERGONOMİ, PROSES AÇISINDAN TEHLİKELİ BÖLGELERE ACİL ÖNLEMLER ALINARAK TEHLİKEYE KARŞI PROAKTİF BİR YAKLAŞIM SERGİLENMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Güvenlik devriyesi süreci yeni başlatılmış, yönetimin katılımı henüz sistematik değil.",
+      "2": "Yönetim zaman zaman devriyelere katılmakta ancak süreç standart değildir, alınan önlemler geçicidir.",
+      "3": "Güvenlik devriyesi uygulaması bazı alanlarda yapılmakta, ancak organizasyon geneline yaygınlaşmamıştır.",
+      "4": "Yönetim aktif olarak sürece dahildir, tehlikeli bölgeler izlenmekte ve proaktif önlemler alınmaktadır; süreç yine de geliştirilebilir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "D4.2",
+    "categoryId": "D",
+    "categoryName": "GÜVENLİK & ERGONOMİ",
+    "subject": "LİDERİN ROLÜ",
+    "subjectId": "D4",
+    "weight": 2,
+    "idealState": "SAHA LİDERLERİNİN GÜVENLİ SAHA OLUŞTURMA ROLÜ BELİRLEMİŞ, CHECK LİSTLERLE ( 5S CHECK LİSTLERİ )KONSEPT DAHİLİNDE) OTONOM KONTROLLER SAĞLANARAK EKİP İÇİ ÖNCE GÜVENLİK FAALİYETLERİ SAĞLANMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Saha liderlerinin güvenlik rolü net olarak tanımlanmamış, otonom kontrol süreci başlama aşamasındadır.",
+      "2": "Rol tanımı yapılmış ancak kontrol listeleri sahada standart olarak kullanılmamaktadır.",
+      "3": "Check list kontrolleri ve lider katılımı bazı bölgelerde uygulanıyor, ancak tüm sahada yaygın değildir.",
+      "4": "Liderlerin rolü açık şekilde tanımlanmış, otomon kontroller yapılıyor; ancak gelişim fırsatları bulunmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "D5.1",
+    "categoryId": "D",
+    "categoryName": "GÜVENLİK & ERGONOMİ",
+    "subject": "ERGONOMİ",
+    "subjectId": "D5",
+    "weight": 2,
+    "idealState": "HATLARDA ÇALIŞMA ALANLARI OPERATÖRÜN ERGONOMİSİ DİKKATE ALINARAK KURULMUŞTUR. STANDART İŞ TABLOLARINDA ERGONOMİ VE GÜVENLİĞE DİKKAT GEREKTİREN NOKTALAR BELİRLEMİŞ VE DÖNEMSEL OLARAK KONTROL EDİLEREK GÜNCELLİĞİ SAĞLANMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Ergonomik düzenlemeler başlangıç aşamasındadır, standart iş tablolarında yer almamaktadır.",
+      "2": "Ergonomi dikkate alınarak bazı uygulamalar yapılmış, ancak bu uygulamalar standardize edilmemiştir.",
+      "3": "Çalışma alanları ergonomiye uygun yapılandırılmış, kontrol ve güncellemeler sınırlı alanlarda yapılmaktadır.",
+      "4": "Hatlar ergonomiye göre kurulmuş, güvenlik noktaları belirlenmiş ve periyodik kontrol sağlanmaktadır; yine de bazı alanlarda iyileştirme yapılabilir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "D5.2",
+    "categoryId": "D",
+    "categoryName": "GÜVENLİK & ERGONOMİ",
+    "subject": "ERGONOMİ İYİLEŞTİRME",
+    "subjectId": "D5",
+    "weight": 2,
+    "idealState": "ZOR PROSES / ÇALIŞMA ERGONOMİSİNİ ETKİLEYEN, PROSES SÜRESİNİ NEGATİF ETKİ EDEN ÇALIŞMALAR İÇİN OPERATÖRLERDEN LİDERLERE GERİ BESLEME SİSTEMİ VARDIR. BU PROSESLER DİKKATE ALINARAK İYİLEŞTİRME ÇALIŞMLARI YAPILARAK PROSES KOŞULLARI DAHA RAHAT ÇALIŞMA FORMUNA GETİRİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Geri bildirim süreci oluşturulmamış ya da henüz başlangıç aşamasındadır.",
+      "2": "Operatörlerden geri bildirim alınmakta ancak iyileştirme süreci sistematik değildir.",
+      "3": "Geri bildirim süreci bazı hatlarda uygulanmakta, ancak tüm zorlukları kapsayacak düzeyde değildir.",
+      "4": "Operatörlerden gelen geri bildirimler dikkate alınarak iyileştirme sağlanmakta, süreç başarılı fakat daha da geliştirilebilir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "D6.1",
+    "categoryId": "D",
+    "categoryName": "GÜVENLİK & ERGONOMİ",
+    "subject": "TEHLİKE TAHMİN",
+    "subjectId": "D6",
+    "weight": 1.5,
+    "idealState": "SAHA ÇALIŞANLARINDA ISG BİLİNCİ ARTTIRMAK İÇİN EKİPLER OLUŞTURULARAK ÇEMBER ÇALIŞMLARI VEYA (KY) TEHLİKE TAHMİN ÇALIŞMALARI ORGANİZE EDİLİR, RİSK VE TEHLİKE ÖNGÖRÜ EĞİTİMLERİ İLE ÇALIŞANIN KENDİ SAHASINI GÜVENLİ HALE GETİRMESİ SAĞLANIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "ISG bilinci artırmaya yönelik çember çalışmaları ve eğitim faaliyetleri henüz yeni başlamıştır.",
+      "2": "Çember çalışmaları yapılmakta ancak süreç standart değil ve ekip katılımı değişkenlik göstermektedir.",
+      "3": "ISG bilinçlendirme faaliyetleri bazı bölümlerde uygulanmakta, ancak tüm çalışanlara yaygın şekilde ulaşmamaktadır.",
+      "4": "Tehlike tahmini çalışmaları, eğitimler ve ekip çalışmaları sistematik olarak yürütülmekte, ancak daha da yaygınlaştırılabilir yönleri mevcuttur.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "D6.2",
+    "categoryId": "D",
+    "categoryName": "GÜVENLİK & ERGONOMİ",
+    "subject": "STOP 6",
+    "subjectId": "D6",
+    "weight": 2,
+    "idealState": "ISG SORUMLULUĞU SADECE ISG BİRİMİNDE DEĞİL TÜM SAHA ÇALIŞANLARINDADIR. SAHA GENELİNDE KARŞILAŞILAN EN FAZLA RİSK GRUBU / STOP 6 GİBİ FAALİYETLERLE ISG ÇALIŞMALARI HERKESİN KATILIIM İLE  GÜÇLENDİRİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "ISG sorumluluğu yalnızca birim bazlı yürütülmekte, çalışan katılımı henüz başlamamıştır.",
+      "2": "Bazı çalışanlar sürece dahil edilmekte ancak sahadaki tüm bireylerin sorumluluk alması sağlanmamıştır.",
+      "3": "ISG çalışmaları geniş katılımlı olarak bazı alanlarda uygulanıyor ancak organizasyon genelinde tam sahiplenme sağlanmamıştır.",
+      "4": "ISG sahada herkesin sorumluluğu olarak benimsenmiş, STOP 6 gibi faaliyetlerle etkin katılım sağlanmaktadır; ancak iyileştirilecek alanlar bulunabilir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "E1.1",
+    "categoryId": "E",
+    "categoryName": "5S",
+    "subject": "ORGANİZASYON",
+    "subjectId": "E1",
+    "weight": 2.5,
+    "idealState": "5S ÇALIŞMALARINI ETKİN BİR ŞEKİLDE YÖNETMEK İÇİN BİR ORGANİZASYON KURULMUŞ, ROLLER GÖREVLER DAĞITILMIŞ, ALANLARA SORUMLULAR TAYİN EDİLEREK FAALİYET YÖNETİMİ SİSTEMATİK OLARAK YAPILMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Organizasyon yapısı yeni oluşturulmuş, görev dağılımları henüz netleşmemiştir.",
+      "2": "Organizasyon ve sorumluluklar tanımlı ancak süreçler tam olarak standardize edilmemiştir.",
+      "3": "5S organizasyonu mevcut ve işler durumda fakat tüm alanlarda aynı etkinlikte yürütülmemektedir.",
+      "4": "5S organizasyonu sistematik olarak işler halde, ancak sürekli iyileştirme ile daha da etkin hale getirilebilir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "E1.2",
+    "categoryId": "E",
+    "categoryName": "5S",
+    "subject": "FAALİYET YÖNETİMİ",
+    "subjectId": "E1",
+    "weight": 2,
+    "idealState": "5S SİSTEM ETKİNLİĞİNİ ÖLÇMEK VE TAKİP ETMEK ADINA RAPORLAMA VE PUANLAMA METODOLOJİSİ KURULMUŞ, PERİODİK DENETİMLERLE ORTAYA ÇIKAN MEVCUT DURUM GRAFİKSEL OLARAK ANATILMAKTA VE HEDEF PUANLARLA GELİŞİMİ TAKİP EDİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Raporlama ve puanlama süreci yeni başlatılmıştır, veriler henüz yeterince toplanmamıştır.",
+      "2": "Puanlama sistemi uygulanıyor ancak analiz ve grafiksel izleme süreçleri düzensizdir.",
+      "3": "Sistem etkinliği ölçülmekte, ancak tüm alanları kapsayacak şekilde uygulanmamaktadır.",
+      "4": "Puanlama, raporlama ve takip süreci düzenli, görselleştirme etkili, ancak sürekli geliştirmeye açıktır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "E1.3",
+    "categoryId": "E",
+    "categoryName": "5S",
+    "subject": "DENETİM RAPORLAMA",
+    "subjectId": "E1",
+    "weight": 2,
+    "idealState": "PLANLI BİR TAKVİM DOĞRULTUSUNDA 5S FAALİYETLERİ ORGANİZASYON VE ALAN SORUMLULARI TARAFINDAN ÇAPRAZ DENETİM METODU İLE  İNCELENMETEKDİR. SİSTEMİN ETKİNLİĞİ VE GELİŞİMİ YÖNETİME RAPORLANMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Çapraz denetim süreci başlatılmış, ancak henüz planlı ve raporlanabilir düzeyde değildir.",
+      "2": "Denetimler yapılmakta ancak sistematik değildir, takvim ve raporlama eksiktir.",
+      "3": "Çapraz denetim ve raporlama mevcut, ancak tüm sahada eş zamanlı yürütülmemektedir.",
+      "4": "Çapraz denetimler sistematik, takvime bağlı ve yönetime geri bildirim sağlanmakta, iyileştirme yönleri vardır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "E2.1",
+    "categoryId": "E",
+    "categoryName": "5S",
+    "subject": "UYGULAMA",
+    "subjectId": "E2",
+    "weight": 1.5,
+    "idealState": "SAHA GENEL DÜZENİ SAĞLANMIŞ, ALAN TANIMLARI, YÜRÜYÜŞ YOLLARI, HAT SINIR ÇİZGİLERİ VB GİBİ TEMEL LAYOUT GEREKSİNİMLERİ 5S ŞARTLARINA GÖRE OLUŞTURULMUŞTUR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Saha düzeni çalışmaları başlatılmış, temel çizim ve uygulamalar eksiktir.",
+      "2": "Bazı alanlarda düzenlemeler yapılmış, ancak genel saha düzeni bütünlük taşımamaktadır.",
+      "3": "Genel düzen büyük ölçüde sağlanmış, bazı bölgelerde eksiklikler bulunmaktadır.",
+      "4": "Saha genelinde düzenli yapı oluşturulmuş, 5S layout ihtiyaçları karşılanmakta, geliştirmeye açık alanlar vardır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "E2.2",
+    "categoryId": "E",
+    "categoryName": "5S",
+    "subject": "UYGULAMA 2",
+    "subjectId": "E2",
+    "weight": 3,
+    "idealState": "SAHA YÖNETİMİ KONULARINDA LİDERİN TEMEL GÖREVLERİ ARASINDA 5S FAALİYETLERİNİN GÜNLÜK KONTROLÜ VE SİSTEMİN SÜRDÜRÜLEBİLİRLİĞİ İÇİN CHECK LİSTLERLE KONTROLÜ VE AKSİYON ALMASI GİBİ KONULAR EKLENMİŞTİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Liderlerin 5S kontrol rolü yeni tanımlanmış, günlük kontroller henüz düzenli değildir.",
+      "2": "Checklist kullanımı bazı liderlerce yapılmakta, ancak kontrol ve aksiyon alma standart değildir.",
+      "3": "Liderler 5S takibini yapıyor ancak sistematik günlük kontrol uygulaması tüm alanlarda oturmamıştır.",
+      "4": "Liderler günlük kontrolleri düzenli yapmakta, 5S sürdürülebilirliği sağlanmakta, iyileştirilebilecek yönler mevcuttur.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "E3.1",
+    "categoryId": "E",
+    "categoryName": "5S",
+    "subject": "GELİŞTİRME",
+    "subjectId": "E3",
+    "weight": 2,
+    "idealState": "HÜCRELER VE HATLAR 5S ŞARTLARINA GÖRE KURULMUŞTUR. HAT TANIMLARI, ÜRETİLEN ÜRÜN, MALZEME TANIMI, GÖRSEL TALİMATLAR, STOK SEVİYELERİ MİN-MAX, EL ALETİ DÜZENLERİ VB GİBİ GEREKLİ GÖRSELLEŞTİRME ARAÇLARI HATTIN 5S YAPISINI KORUMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Hücre ve hat düzeni başlatılmış ancak 5S görselleştirme eksiktir.",
+      "2": "Hatlarda bazı görsel düzenlemeler yapılmış, ancak tüm hücrelerde uygulama birliği sağlanmamıştır.",
+      "3": "5S şartları uygulanıyor, ancak bazı alanlarda görsel standartlar eksik ya da güncel değildir.",
+      "4": "Tüm hatlarda görselleştirme ve düzen oturmuş, sürdürülebilir yapılar kurulmuş, küçük iyileştirmelere açıktır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "E3.2",
+    "categoryId": "E",
+    "categoryName": "5S",
+    "subject": "STANDARDİZASYON",
+    "subjectId": "E3",
+    "weight": 2,
+    "idealState": "FABRİKA TEMEL KİRLİLİK KAYNAKLARI 5S İLE MATRİSLİ BİR YAPIDA GÖRSELLEŞTİRİLMİŞ VE KİRLİLİK KAYNAKLARINI AZALATMA KONUSUNDA ÇALIŞMALAR BAŞLATILMIŞTIR.  HER BİR ÇALIŞMA KAİZEN KONUSU OLARAK ELE ALINARAK 5S FAALİYETLERİN PROBLEM ÇÖZME FONKSİYONU ORTAYA ÇIKARTILMIŞTIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kirlilik kaynaklarının belirlenmesi ve görselleştirme yeni başlamış, sistematik değil.",
+      "2": "Kirlilik azaltma faaliyetleri var, ancak kaizen odaklı yaklaşım sınırlı uygulanmakta.",
+      "3": "Çalışmalar düzenli yapılıyor ancak matris yapısı ve kaizen entegrasyonu tüm alanlara yayılmamış.",
+      "4": "Kirlilik kaynakları belirlenmiş, görselleştirilmiş ve kaizenle ilişkilendirilmiş, ancak sürekli iyileştirme devam etmeli.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "E3.3",
+    "categoryId": "E",
+    "categoryName": "5S",
+    "subject": "GÜVENLİK FONKSİYONU",
+    "subjectId": "E3",
+    "weight": 2,
+    "idealState": "5S YAPISI ISG FAALİYETLRİ İLE BÜTÜNLEŞMİŞTİR. DÜZENLİ SAHA GÜVENLİ SAHA YAPISI KURULMUŞTUR. 5S ŞARTLARINA GÖRE RİSKLİ BÖLGE TANIMLAMA KODLARI, DİKKAT EDİLMESİ GEREKEN PROSES / ALAN GİBİ KONULAR 5S İLE GÖRSELLEŞTİRİLMEKTEDİR. 5S DENETİM ÇIKTILARI ISG SİTEMİNİ DE BESLEMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "5S ve ISG entegrasyonu başlangıç aşamasındadır.",
+      "2": "Bazı ISG konuları 5S ile ilişkilendirilmiş, ancak görselleştirme ve entegrasyon standart değil.",
+      "3": "5S ve ISG büyük ölçüde entegre çalışıyor ancak sahada tutarlılık eksikleri vardır.",
+      "4": "5S ile ISG tam entegrasyon sağlanmış, görselleştirme ve raporlama destekli, geliştirilebilir yönler mevcuttur.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "E3.4",
+    "categoryId": "E",
+    "categoryName": "5S",
+    "subject": "KORUMA VE GELİŞTİRME",
+    "subjectId": "E3",
+    "weight": 2,
+    "idealState": "KALİTE VE VERİMLİLİK AÇISINDAN İNCELEME : ÜRETİM İÇERİSİNDE ÜRÜNE, EL ALETİNE ULAŞMA ARAMA GİBİ MUDA HAREKETLER 5S İLE OPTİMİZE EDİLMİŞTİR. RAF AKIŞ YÖNLERİ, ALMA BIRAKMA, LİMİT KONTROL NOKTALARI 5 İLE GÖRSELLEŞTİRİLMİŞTİR.STANDART İŞ KONULARI DESTEKLER NİTELİKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Muda hareketlerini azaltmaya yönelik çalışmalar henüz başlamıştır.",
+      "2": "Bazı alanlarda muda azaltımı yapılmış ancak sistematik optimizasyon yoktur.",
+      "3": "5S ile verimlilik artırma uygulamaları mevcut, ancak her hatta uygulanmamaktadır.",
+      "4": "Muda azaltımı, el aleti ve ürün akışı 5S ile optimize edilmiş, süreç sürekli iyileştirme ile geliştirilebilir durumdadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "F1.1",
+    "categoryId": "F",
+    "categoryName": "GÖRSEL FABRİKA",
+    "subject": "MUDA ELİMİNASYON",
+    "subjectId": "F1",
+    "weight": 2,
+    "idealState": "FABRİKA ÜRÜN VE FAALİYET AKIŞI NETTİR. RENK KODLARI, ALAN ÇİZGİLERİ, YÖNLENDİRMELER, TANIMLAMALAR, YÖNETİM KÖŞELERİ İLE FABRİKA FAALİYETLERİ GÖRSELLEŞTİRİLMİŞTİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Ürün ve faaliyet akışı tanımlanmamış veya görsel öğeler sınırlıdır.",
+      "2": "Renk kodları ve alan çizgileri bazı bölümlerde mevcuttur ancak bütünsellik sağlanmamıştır.",
+      "3": "Faaliyet akışı çoğunlukla net ve görselleştirilmiş, ancak bazı alanlarda eksiklikler mevcuttur.",
+      "4": "Tüm faaliyet akışı açık, standart ve görsel yönetim araçlarıyla etkin şekilde desteklenmiştir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "F1.2",
+    "categoryId": "F",
+    "categoryName": "GÖRSEL FABRİKA",
+    "subject": "ALAN TANIMLARI",
+    "subjectId": "F1",
+    "weight": 2.5,
+    "idealState": "FABRİKA STANDARTLARI, KURALLARI GÖRSELLEŞTİRİLMİŞTİR. STOK SEVİYELERİ, SUPER MARKET RAFLARI, FIFO AKIŞLARI PROSES BESLEME, İŞ YÜKLERİ VB GİBİ DİĞER OPERASYONEL FAALİYETLERDEKİ STANDARTLAR ANLAŞILIR SEVİYEDEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Görsel standartlar henüz oluşturulmamış ya da dağınık durumdadır.",
+      "2": "Bazı operasyonel alanlarda standartlar belirlenmiş ama görselleştirme yetersizdir.",
+      "3": "Operasyonel standartlar büyük oranda tanımlanmış ve görselleştirilmiştir, tutarlılık kısmen vardır.",
+      "4": "Tüm standartlar açık ve sade bir şekilde görselleştirilmiş, eğitim ihtiyacı azaltılmıştır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "F1.3",
+    "categoryId": "F",
+    "categoryName": "GÖRSEL FABRİKA",
+    "subject": "GÖRSEL STANDARTLAR",
+    "subjectId": "F1",
+    "weight": 2.5,
+    "idealState": "ANORMAL DURUM / NORMAL DURUM AYRIMLARI GÖRSEL VE İŞİTSEL YÖNETİM ARAÇLARI SAĞLANMAKTADIR. FABRİKA GENELİNDE ANDON / RENKLİ TANIMLAMALAR İLE ANORMAL DURUM ŞARTLARI HEM SESLİ HEM GÖRSEL OLARAK İFADE EDİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Anormal durum bildirimi manuel ve sınırlı seviyededir.",
+      "2": "Bazı bölgelerde görsel veya sesli bildirim araçları mevcuttur ancak yaygın değildir.",
+      "3": "Anormal durum ayrımı çoğu alanda etkin şekilde sağlanmakta, iyileştirme gerektiren noktalar vardır.",
+      "4": "Andon sistemleri ve işitsel/görsel araçlar tüm fabrikada etkin ve bütünleşik şekilde çalışmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "F2.1",
+    "categoryId": "F",
+    "categoryName": "GÖRSEL FABRİKA",
+    "subject": "PROBLEMİN GÖRSELLİĞİ",
+    "subjectId": "F2",
+    "weight": 2,
+    "idealState": "KALİTE UYGULAMALARI İÇİN OK / NOK - RED PARÇA YÖNETİMİ GİBİ KONULAR GÖRSEL KONTROL ARAÇLARI İLE SAĞLANMAKTADIR.  AYNI ŞEKİLDE GÖRSEL KONTROL ARAÇLARI İLE EKİPMAN KONTROLLERİ DE KOLAYLAŞTIRILMAKTADIR.  TALİMATLAR ULAŞILABİLİR GÖRSELDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "OK/NOK ayrımı, ekipman kontrolleri ve talimatlar yetersiz veya standart dışıdır.",
+      "2": "Bazı hatlarda görsel kontrol araçları kullanılmakta ancak tüm süreçleri kapsamamaktadır.",
+      "3": "Kalite uygulamaları büyük ölçüde görselleştirilmiş, ekipman ve talimat yönetimi geliştirilmiştir.",
+      "4": "Tüm sahada kalite ve ekipman yönetimi için görsel kontrol araçları etkili ve erişilebilirdir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "F2.2",
+    "categoryId": "F",
+    "categoryName": "GÖRSEL FABRİKA",
+    "subject": "GÖRSEL KALİTE",
+    "subjectId": "F2",
+    "weight": 3,
+    "idealState": "SAHA PERFORMANSININ İZLENDİĞİ, FABRİKA YÖNETİM PANOLARI, PROBLEM TAKİP VE AKSİYON PANOLARI MEVCUTTUR. ANORMAL KOŞULLAR BURADA GÖRSELLEŞTİRİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Yönetim panoları ya mevcut değildir ya da güncelliğini korumamaktadır.",
+      "2": "Panolar bazı bölümlerde mevcut ancak takip ve aksiyon ilişkilendirmesi zayıftır.",
+      "3": "Panolar aktif kullanılmakta, problem takibi yapılmakta ancak tüm alanlarda etkin değildir.",
+      "4": "Yönetim panoları sahada aktif, takip ve aksiyon süreci canlı olarak işletilmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "F2.3",
+    "categoryId": "F",
+    "categoryName": "GÖRSEL FABRİKA",
+    "subject": "GÖRSEL YÖNETİM",
+    "subjectId": "F2",
+    "weight": 2,
+    "idealState": "HAT KENARLARINDA VERİMLİLİK YÖNETİMİ, KALİTE YÖNETİMİ, ISG YÖNETİMİ İÇİN GEREKLİ UNSURLAR, GÖRSEL YÖNETİM ARAÇLARI İLE YÖNETİLMEKTEDİR. OLUŞAN  ANORMAL DURUMLAR TAKİP EDİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Hat kenarlarında yönetim araçları yetersiz ya da kullanım dışıdır.",
+      "2": "Bazı hatlarda görsel unsurlar kullanılıyor ancak bütünlük ve sürdürülebilirlik yoktur.",
+      "3": "Verimlilik, kalite ve İSG yönetimi hatlarda çoğunlukla görselleştirilmiştir; bazı alanlar eksiktir.",
+      "4": "Tüm hat kenarlarında gerekli yönetim araçları sistemli, standart ve etkili şekilde uygulanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "F2.4",
+    "categoryId": "F",
+    "categoryName": "GÖRSEL FABRİKA",
+    "subject": "PANO YÖNETİMİ",
+    "subjectId": "F2",
+    "weight": 2,
+    "idealState": "GÖRSEL KONTROL ARAÇLARI KONTROL VE YÖNETİM ARACI OLARAK İYİLEŞTİRME UNUSURU OLARAK TÜM SAHADA KULLANILMAKTA KONUNUN ÖNEMİNE DİKKAT ÇEKİLMEKTEDİR. ( SAYAÇ KONTOLLERİ, EKİPMAN ŞEFFAF ALANLAR, GÖRSEL SAATLER )",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Görsel kontrol araçları sınırlı veya etkisizdir.",
+      "2": "Bazı alanlarda kullanılıyor ancak sürekli gelişim ve sahaya yaygınlaştırma eksiktir.",
+      "3": "Çoğu sahada etkili görsel kontrol araçları mevcut, kullanıcı alışkanlıkları gelişmektedir.",
+      "4": "Tüm saha genelinde görsel araçlar standartlaştırılmış, işlevsel ve sürdürülebilir şekilde kullanılmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "F2.5",
+    "categoryId": "F",
+    "categoryName": "GÖRSEL FABRİKA",
+    "subject": "GÖRSEL KONTROL ARAÇLARI",
+    "subjectId": "F2",
+    "weight": 2,
+    "idealState": "HATLARDA KALİTE GÜVENCE & OPERASYONEL VERİMLİLİK İÇİN GÖRSEL TALİMATLAR ( RESİMLİ VE RENK KODLARI İLE ANLATIM.) SIKLIKLA KULLANILMAKTADIR. OPERATÖRÜN İŞİNİ KOLAYLAŞTIRACAK FONKSİYONLARA SAHİPTİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Görsel talimatlar yetersiz veya operatörün erişimine uygun değildir.",
+      "2": "Bazı hatlarda görsel talimatlar mevcut ancak standart ve kolay anlaşılır değildir.",
+      "3": "Görsel talimatlar büyük ölçüde kullanılmakta, bazı iyileştirme fırsatları vardır.",
+      "4": "Tüm hatlarda operatör dostu, açık, renk kodlu, resimli talimatlar standarttır ve etkilidir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "F2.6",
+    "categoryId": "F",
+    "categoryName": "GÖRSEL FABRİKA",
+    "subject": "GÖRSEL TALİMATLAR",
+    "subjectId": "F2",
+    "weight": 2,
+    "idealState": "BU MADDE CHECK LİSTTE YOK. PUANI NERDEN ALMIŞ GEREKİRSE SİLEBİLİRİZ.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "",
+      "2": "",
+      "3": "",
+      "4": "",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "G1.1",
+    "categoryId": "G",
+    "categoryName": "STANDART İŞ",
+    "subject": "STANDART İŞ",
+    "subjectId": "G1",
+    "weight": 3,
+    "idealState": "HATLARDA HER BİR ÜRÜN GRUBU İÇİN STANDART İŞ KARTLARI HAZIRLANMIŞ, HAT AKIŞ VE LAYOUT YAPISININ STANDARDI BELİRLENMİŞ. PROSES SÜRELERİ ÖLÇÜLMÜŞ VE STANDARD OLARAK KABUL EDİLMİŞTİR. DEĞİŞİKLİKLERDE REVİZE EDİLDİĞİNİ GÖSTREREN REVİZYON NOLARI MEVCUTTUR",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Standart iş kartları ve layoutlar eksik veya güncel değildir, revizyon sistemi yoktur.",
+      "2": "Standart iş kartları hazırlanmış ancak bazı ürün grupları eksiktir, revizyon takibi sınırlıdır.",
+      "3": "Tüm ürün grupları için standart iş tanımlanmış, revizyonlar mevcuttur, layoutlar çoğunlukla standarda uygun.",
+      "4": "Tüm hatlarda standart iş ve layout sistematik şekilde uygulanmakta, revizyonlar etkin izlenmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "G1.2",
+    "categoryId": "G",
+    "categoryName": "STANDART İŞ",
+    "subject": "WIP STANDARDİZASYONU",
+    "subjectId": "G1",
+    "weight": 2,
+    "idealState": "STANDART İŞ FORMLARI WIP STOK MİKTARINI TANIMLAR VE İYİLEŞTİRMEYE AÇIK NOKTALARI GÖSTERİR.  BU PROBLEMLER İÇİN İYİLEŞTİRME PLANI YAPILMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "WIP stokları kontrolsüz, standart iş formlarında gösterilmemektedir.",
+      "2": "WIP miktarları tanımlanmış, ancak iyileştirme planı ya yoktur ya da sınırlıdır.",
+      "3": "WIP tanımları ve problemler görünür, zaman zaman iyileştirme planları yapılmaktadır.",
+      "4": "Standart iş formları, WIP tanımları ve problem alanlarını açıkça belirtir, iyileştirme sistematik yapılır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "G2.1",
+    "categoryId": "G",
+    "categoryName": "STANDART İŞ",
+    "subject": "ÇOKLU BECERİ",
+    "subjectId": "G2",
+    "weight": 2,
+    "idealState": "PROSESLERDE BACK UP KİŞİLER BELİRLENMİŞ, MULTİ SKILL TABLOLARINDA GÖSTERİLMİŞTİR. KİŞİLERİN DEĞİŞMESİ DURUMUNDA PROSESTE VARYASYON GÖRÜLMEZ.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Back-up kişiler tanımlanmamış, kişi değişiminde proses performansı düşmektedir.",
+      "2": "Bazı proseslerde yedek kişiler tanımlanmış ancak multi skill tabloları güncel değildir.",
+      "3": "Çoğu proses için back-up planı mevcuttur, tablolar görünürdür, varyasyon azdır.",
+      "4": "Tüm proseslerde back-up sistem tam uygulanmakta, varyasyon yaşanmamakta, tablolar aktif kullanılmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "G3.1",
+    "categoryId": "G",
+    "categoryName": "STANDART İŞ",
+    "subject": "BİRİM İŞ",
+    "subjectId": "G3",
+    "weight": 3,
+    "idealState": "BİRİM İŞ FORMLARI PROSES SÜRELERİ, USTALIK VE BECERİ İSTEYEN İŞLERLE, KALİTE NOKTALARINI, GÜVENLİK DİKKAT NOKTALARI İÇERMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "İş formları eksik veya içerik olarak yetersizdir.",
+      "2": "Bazı iş formlarında temel bilgiler yer almakta ancak güvenlik veya kalite detayları eksiktir.",
+      "3": "İş formları detaylı ve çoğu proses için kapsamlıdır, bazı güncellemeler gerekebilir.",
+      "4": "Tüm birim iş formları detaylıdır; kalite, süre, beceri ve güvenlik noktalarını bütüncül şekilde içerir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "G4.1",
+    "categoryId": "G",
+    "categoryName": "STANDART İŞ",
+    "subject": "ANORMAL DURUM STANDARTLARI",
+    "subjectId": "G4",
+    "weight": 2,
+    "idealState": "STANDARTLARA UYULMUŞ OLMASINA RAĞMEN ANORMAL DURUM OLUŞMASI GİBİ DURUMLARDA OPERATÖRÜN İZLEMESİ GEREKEN ADIMLAR STANDAR İŞ / ACİL DURUM TALİMATI VB GİBİ DOKUMANLARDA TANIMLI MIDIR?",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Anormal durum yönetimi tanımlı değil veya standart dışı yürütülmektedir.",
+      "2": "Bazı durumlar için acil prosedürler mevcuttur ancak sahada erişim ve uygulama sınırlıdır.",
+      "3": "Anormal durumlara yönelik prosedürler ve dokümanlar çoğunlukla mevcuttur ve operatör tarafından bilinmektedir.",
+      "4": "Tüm anormal durumlar için net prosedürler oluşturulmuş, sahada görünür ve operatörce uygulanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "G5.1",
+    "categoryId": "G",
+    "categoryName": "STANDART İŞ",
+    "subject": "S/W FONKSİYONU",
+    "subjectId": "G5",
+    "weight": 2,
+    "idealState": "HAT KURULUMLARI S/ W BELİRTİLDİĞİ GİBİ YAPILIR, ÜRÜN AKIŞI, OPERATÖR HAREKETLERİ S/W ÜZERİNDE TANIMLANMIŞTIR. OPERATÖRLER BU STANDARTLARA GÖRE ÜRETİM YAPMAKTADIR. BELİRLENEN ÜRETİM SÜRESİ İLE SAHADAKİ C/T UYUMLUDUR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "S/W uygulaması yetersizdir, üretim süresi ile C/T uyumu gözlemlenmemektedir.",
+      "2": "S/W sistemi bazı hatlarda uygulanıyor, üretim süresi ile sahadaki süre kısmen örtüşüyor.",
+      "3": "S/W sistemi büyük oranda uygulanıyor, operatör hareketleri genellikle uyumlu, C/T uyumsuzlukları az.",
+      "4": "Tüm hatlarda S/W standartlarına uygun kurulum yapılmakta, C/T tam uyumludur.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "G6.1",
+    "categoryId": "G",
+    "categoryName": "STANDART İŞ",
+    "subject": "S/W DENETİMLERİ",
+    "subjectId": "G6",
+    "weight": 3,
+    "idealState": "OPERATÖRLERİN STANDART İŞE UYUMLARI PERİODİK OLARAK DENETLENMEKTEDİR. ÇIKAN UYGUNSUZLUKLAR DOĞRULTUSUNDA EĞİTİM VE AKSİYONLAR PLANLANMAKTADIR",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Uyum denetimi yapılmamakta veya kayıt altına alınmamaktadır.",
+      "2": "Uyum kontrolleri düzensizdir, çıkan bulguların takibi zayıftır.",
+      "3": "Periyodik denetimler yapılmakta, aksiyonlar alınmakta; takip sistematiği gelişmektedir.",
+      "4": "Standart işe uyum düzenli denetlenmekte, uygunsuzluklara anında müdahale edilip eğitim aksiyonları alınmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "G7.1",
+    "categoryId": "G",
+    "categoryName": "STANDART İŞ",
+    "subject": "3M ANALİZLERİ",
+    "subjectId": "G7",
+    "weight": 3,
+    "idealState": "HAT DENGELEMELERİ YAPILMAKTADIR. HAT AKIŞI / PROSES AKIŞINDA 3M ANALİZLERİ GÖZ ÖNÜNDE BULUNDURULARAK 3M OLUŞMAYACAK ŞEKİLDE AKIŞ STANDART HALE GETİRİLMİŞTİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Hat dengesi yoktur, süreçler kişi bağımlı ve dengesizdir.",
+      "2": "Bazı hatlarda dengeleme yapılmış, ancak 3M analizleri sınırlı uygulanmaktadır.",
+      "3": "Çoğu hatta dengeleme uygulanmakta, 3M analizleri göz önünde bulundurulmakta, iyileştirme fırsatları mevcuttur.",
+      "4": "Hat dengesi optimum seviyede, 3M analizleriyle sürekli gözden geçirilmektedir. Akış standart ve dengelidir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "H1.1",
+    "categoryId": "H",
+    "categoryName": "İYİLEŞTİRME / GELİŞİM",
+    "subject": "ÖNERİ SİSTEMİ",
+    "subjectId": "H1",
+    "weight": 1,
+    "idealState": "İYİLEŞTİRMELERİ TAKİP ETMEK, ORGANİZASYON YAPISINI DİNAMİK TUTMAK İÇİN ÖNERİ-KAİZEN SİSTEMİ KURULMUŞ, AKTİF BİR ŞEKİLDE AYLIK PERİODLARLA ÇALIŞMAKTADIR",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Öneri-kaizen sistemi kurulu değil veya sadece kağıt üstünde var, çalışan katılımı çok düşük.",
+      "2": "Sistem var ancak düzenli takip edilmiyor, öneri sayısı sınırlı.",
+      "3": "Aylık toplantılar yapılıyor, öneriler kayıt altına alınıyor, orta düzeyde katılım var.",
+      "4": "Sistem aktif çalışıyor, tüm çalışanlar katılıyor, aylık hedefler ve sonuçlar takip ediliyor.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "H1.2",
+    "categoryId": "H",
+    "categoryName": "İYİLEŞTİRME / GELİŞİM",
+    "subject": "TAKTİR VE TANIMA",
+    "subjectId": "H1",
+    "weight": 1,
+    "idealState": "İYİLEŞTİRME ÖNERİLERİNİN HAYATA GEÇİRİLMESİ İÇİN YÖNETİM KAYNAK AYIRMAKTA VE ÖDÜL SİSTEMİ İLE ÇALIŞMALARA TAM DESTEK VERMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Yönetim destek vermiyor, öneriler dikkate alınmıyor.",
+      "2": "Sınırlı kaynak ayrılıyor, önerilerin sadece bir kısmı uygulanıyor.",
+      "3": "Yönetim önerileri destekliyor, ödül sistemi sınırlı da olsa uygulanıyor.",
+      "4": "Yönetim güçlü destek veriyor, kaynak ayırıyor, ödül sistemiyle tüm öneriler değerlendiriliyor.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "H1.3",
+    "categoryId": "H",
+    "categoryName": "İYİLEŞTİRME / GELİŞİM",
+    "subject": "KAMPANYA",
+    "subjectId": "H1",
+    "weight": 1,
+    "idealState": "BU SİSTEME VERİLEN ÖNEM AFİŞLER, BİLGİLENDİRME DUYURULARI VE DÖNEMSEL KAMPANYALARLA CANLI TUTULARAK KATILIM SAĞLANMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "kampanyalar kısmen uygulanmaktadır",
+      "2": "ik tarafından duyuru sistemi ile yürütülmektedir.",
+      "3": "genel olarak duyuru ve dikkat çekici kampanya yapılıyor ama belirli bir periodu yok.",
+      "4": "Ik tarafından ve diğer bölümler tarafından konu sürekli güncel birakılacak ve dikkati çekecek şekilde yürütülüyor.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "H2.1",
+    "categoryId": "H",
+    "categoryName": "İYİLEŞTİRME / GELİŞİM",
+    "subject": "KAİZEN HEDEFLERİ",
+    "subjectId": "H2",
+    "weight": 1.5,
+    "idealState": "KAİZEN KÜLTÜRÜ ÖNEMSENMEKTEDİR. SÜREKLİLİĞİ SAĞLAMAK VE İÇİN  KPI SET EDİLMİŞTİR. DAHA ETKİN BİR KAİZEN SİSTEMİ İÇİN KALİTE-VERİMLİLİK-ISG -VB GİBİ KONU BAŞLIKLARI İLE TAKİP EDİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kaizen kültürü yerleşmemiş, KPI tanımlı değil.",
+      "2": "KPI'lar var ancak düzenli takip edilmiyor.",
+      "3": "Kaizen KPI'ları tanımlı, kalite ve verimlilik gibi başlıklar takip ediliyor.",
+      "4": "KPI'lar tüm alanlara yayılmış, sonuçlar düzenli raporlanıyor ve aksiyonlar alınıyor.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "H2.2",
+    "categoryId": "H",
+    "categoryName": "İYİLEŞTİRME / GELİŞİM",
+    "subject": "KAİZEN HEDEFLERİ 2",
+    "subjectId": "H2",
+    "weight": 2,
+    "idealState": "5 ANA MİSYON - IK BAŞLIĞI ALTINDA KAİZEN İLE KATILIMCI YÖNETİMİ SAĞLAMAK, ÇALIŞAN MOTİVASYONUNU ARTTIRMAK VE DÜŞÜNME GÜCÜNÜ GELİŞTİRMEK İÇİN ÖNERİ- KAİZEN - PROBLEM ÇÖZME AKTİVİTELERİ GİBİ  ALT HEDEFLER BELİRLENMİŞTİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Alt hedefler tanımlı değil, faaliyetler rastgele yapılıyor.",
+      "2": "Alt hedefler belirlenmiş ancak uygulama eksik.",
+      "3": "Alt hedeflere yönelik uygulamalar mevcut ama takip eksik.",
+      "4": "Alt hedefler doğrultusunda sistematik uygulamalar yapılıyor, motivasyon artışı gözlemleniyor.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "H3.1",
+    "categoryId": "H",
+    "categoryName": "İYİLEŞTİRME / GELİŞİM",
+    "subject": "KAİZEN EĞİTİMLERİ",
+    "subjectId": "H3",
+    "weight": 1.5,
+    "idealState": "KAİZEN ETKİNLİĞİNİ VE NİTELİĞİNİ ARTTIRMAK İÇİN HER SENE PERİODİK OLARAK FARKLI KONSEPTLERDE KAİZEN EĞİTİMLERİ VERİLMEKTE, ÖNERİ OLUŞTURMA VE PROBLEM ÇÖZME KONULARI ÜSTÜNDE YETKİNLİK KAZANDIRILMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kaizen eğitimi verilmemekte veya düzensiz şekilde yapılmakta.",
+      "2": "Sınırlı içerikte ve sadece belirli konularla ilgili kaizen eğitimi verilmekte.",
+      "3": "Farklı konseptlerde eğitimler periyodik olarak veriliyor, öneri-problem çözme konularına değiniliyor.",
+      "4": "Eğitimler sistematik, yıllık planlı; öneri oluşturma ve problem çözme becerisi kurum kültürüne entegre.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "H4.1",
+    "categoryId": "H",
+    "categoryName": "İYİLEŞTİRME / GELİŞİM",
+    "subject": "7 TEMEL İSRAF",
+    "subjectId": "H4",
+    "weight": 1.5,
+    "idealState": "İYİLEŞTİRME KONULARI OLARAK 7 TEMEL İSRAF ÖNCELİKLİ ELE ALINMAKTA VE SAHADA HER ALANDA ÖNÜNE GEÇİLMEYE ÇALIŞILMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "7 israf konusu dikkate alınmıyor, farkındalık düşük.",
+      "2": "7 israftan bazıları dikkate alınıyor, ancak sistematik değil.",
+      "3": "7 israf tüm alanlarda öncelikli inceleniyor, azaltma çabaları var.",
+      "4": "7 israf odağında iyileştirmeler aktif şekilde yapılıyor, sürekli iyileştirme kültürü oturmuş.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "H5.1",
+    "categoryId": "H",
+    "categoryName": "İYİLEŞTİRME / GELİŞİM",
+    "subject": "YAYGINLAŞTIRMA",
+    "subjectId": "H5",
+    "weight": 1.5,
+    "idealState": "GERÇEKLEŞTİRİLEN KAİZENLERİN SONUÇLARI TEK BİR ALANDA SINIRLI KALMAYIP YOKOTEN FAALİYETLERİ İLE TÜM SAHA VE ORGANİZASYON GENELİNE YAYGINLAŞTIRILARAK TÜM SÜREÇLERİN GELİŞİMİ HIZLI BİR ŞEKİLDE SAĞLANMAKTADIR",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kaizen sonuçları sadece uygulandığı alanda kalıyor, yaygınlaştırma yapılmıyor.",
+      "2": "Bazı iyi uygulamalar diğer alanlara öneriliyor.",
+      "3": "Yaygınlaştırma süreci var, sınırlı oranda uygulanıyor.",
+      "4": "Kaizen sonuçları yokoten yöntemiyle sistemli olarak tüm organizasyona yayılıyor.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "H6.1",
+    "categoryId": "H",
+    "categoryName": "İYİLEŞTİRME / GELİŞİM",
+    "subject": "TAKIM ÇALIŞMASI",
+    "subjectId": "H6",
+    "weight": 1.5,
+    "idealState": "PERİODİK TAKVİMLERLE SAHA ÇALIŞANLARINDAN OLUŞTURULAN TAKIMLARLA (ÇEMBER ) İYİLEŞTİRME FAALİYETLERİ ORGANİZE EDİLMEKTE KATMA DEĞERİ YÜKSEK İYİLEŞTİRME ÇALIŞMALARI GERÇEKLEŞTİRİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Çember çalışmaları yapılmıyor.",
+      "2": "Çember çalışmaları düzensiz ve sınırlı katılımla yapılıyor.",
+      "3": "Periyodik takvimli çember çalışmaları mevcut, bazı sonuçlar elde ediliyor.",
+      "4": "Sistematik ve yaygın çember yapısı ile yüksek katma değerli iyileştirmeler sağlanıyor.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "H7.1",
+    "categoryId": "H",
+    "categoryName": "İYİLEŞTİRME / GELİŞİM",
+    "subject": "PDCA",
+    "subjectId": "H7",
+    "weight": 2,
+    "idealState": "KAİZEN SAHA YÖNETİM METODU OLARAK KULLANILMAKTADIR. HAT YÖNETİM PANOLARINDA EN ÇOK KARŞILAŞILAN PROBLEMLER PFUS SAYFALARINA İŞLENEREK PRATİK PROBLEM ÇÖZME ARAÇALARI VEYA FARKLI TEKNİKLERLE ODAK NOKTASI HALİNE GETİRİLİR VE PDCA DÖNGÜSÜNE GÖRE TAKİP EDİLEREK PROBLEMLER ÇÖZÜME KAVUŞTURULUR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kaizen, sahada bir yönetim aracı olarak kullanılmıyor.",
+      "2": "PFU uygulamaları var ancak sistematik değil.",
+      "3": "Kaizen, PFU ve PDCA döngüsüyle kısmen entegre çalışıyor.",
+      "4": "Kaizen, PFU, PDCA döngüsü ve problem çözme sistematiği ile saha yönetiminde aktif rol alıyor.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "H8.1",
+    "categoryId": "H",
+    "categoryName": "İYİLEŞTİRME / GELİŞİM",
+    "subject": "PROBLEM ÇÖZME",
+    "subjectId": "H8",
+    "weight": 2,
+    "idealState": "YÖNETİM OFİS PERSONELLERİNİN DE KATILIDIĞI,PROBLEM ÇÖZME TAKIMLARI TAYİN EDER A3 - 6 SİGMA / PROBLEM ÇÖZME TEKNİKLERİNDEN YARARLANILARAK MALİYET AZALTMA VEYA KPI İYİLEŞTİRME ODAKLI İYİLEŞTİRME ÇALIŞMALARI ORGANİZE EDEREK YÜKSEK KATMA DEĞERLİ ÇALIŞMALAR YÜRÜTMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Yönetim ofisi kaizen çalışmalarına katılmıyor.",
+      "2": "Katılım nadiren sağlanıyor, teknik bilgiden çok saha desteği veriliyor.",
+      "3": "Problem çözme teknikleri yönetim ofisi ile kısmen kullanılıyor.",
+      "4": "Yönetim ofisleri aktif olarak A3, 6 Sigma vb. tekniklerle yüksek değerli projeler yürütüyor.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "H9.1",
+    "categoryId": "H",
+    "categoryName": "İYİLEŞTİRME / GELİŞİM",
+    "subject": "PROBLEM ÇÖZME 2",
+    "subjectId": "H9",
+    "weight": 2,
+    "idealState": "PROBLEM ÇÖZME EĞİTİMLERİ VERİLMİŞ, HAT YÖNETİCİLERİ 5 NEDEN, FTA, BALIK KILÇIĞI GİBİ KÖK NEDEN ANALİZ TEKNİKLERİ PROBLEMLERE KARŞI ETKİN BİR ŞEKİLDE KULLANILMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Problem çözme tekniklerine dair bilgi yok veya eğitim verilmemiştir.",
+      "2": "Eğitim verilmiş ancak pratik kullanım sınırlıdır.",
+      "3": "Eğitimler verilmiş, teknikler sahada zaman zaman kullanılıyor.",
+      "4": "Teknikler sistematik kullanılıyor, yöneticiler etkin problem çözme uyguluyor.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "H10.1",
+    "categoryId": "H",
+    "categoryName": "İYİLEŞTİRME / GELİŞİM",
+    "subject": "STANDARDİZASYON",
+    "subjectId": "H10",
+    "weight": 1.5,
+    "idealState": "İYİLEŞTİRME SONUÇLARI DÜZENLİ OLARAK YÖNETİME RAPORLAMAKTADIR.  SONUÇLAR STANDARDİZE EDİLEREK GETİRİ SEVİYESİ KORUNMAKTADIR.MALİ TABLOLARDA İYİLEŞTİRMELERİN KONTOLLERİ GERÇEKLEŞTİRİLEREK KAİZENİN KATMA DEĞERİ KORUNMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "İyileştirme sonuçları raporlanmıyor, mali etki izlenmiyor.",
+      "2": "Bazı raporlamalar yapılıyor, sonuçlar değerlendirilmiyor.",
+      "3": "Düzenli raporlama var, getiri analizi kısmen yapılıyor.",
+      "4": "Raporlama, standardizasyon ve mali analiz ile iyileştirmeler sürdürülebilir hale getiriliyor.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "I1.1",
+    "categoryId": "I",
+    "categoryName": "SMED -C/O AZALTMA",
+    "subject": "PLANSIZ DURUŞ",
+    "subjectId": "I1",
+    "weight": 2,
+    "idealState": "MAKİNA KULLANILABİLİRLİK ORANLARI TAKİP EDİLEREK C/O SÜRECİNDE ORTAYA ÇIKAN ZAMAN KAYIP OLARAK KABUL EDİLMEKTEDİR. KONU İLE FARKINDALIK BAŞLAMIŞ SÜRELER GÖRSEL OLARAK  TAKİP EDİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "C/O süreleri ve makina kullanılabilirliği takip edilmiyor.",
+      "2": "Bazı C/O verileri toplanıyor ama analiz edilmeden kalıyor.",
+      "3": "Süreler takip edilmekte ve görsel şekilde sahada gösterilmektedir.",
+      "4": "Süreler sistematik olarak analiz ediliyor, farkındalık yüksek, kayıplar net biçimde yönetiliyor.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "I1.2",
+    "categoryId": "I",
+    "categoryName": "SMED -C/O AZALTMA",
+    "subject": "SMED ANALİZİ",
+    "subjectId": "I1",
+    "weight": 3,
+    "idealState": "C/O SÜRELERİ İÇİN SMED ANALİZLERİ YAPILMIŞ, ORTAYA ÇIKAN POTANSİYEL KAZANIMLAR HESAPLANARAK SÜRE KISALTMA YOL HARİTASI BELİRLENMİŞTİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Bireysel çabalarla br azaltma çalışması yapılmış",
+      "2": "SMED analizi yapılmış ancak çıktılarına göre sistematik bir plan oluşturulmamış.",
+      "3": "Analiz yapılmış, yol haritası belirlenmiş ve bazı uygulamalara geçilmiş.",
+      "4": "SMED analizi etkin şekilde kullanılıyor, tüm kazanımlar aksiyonlara dönüştürülmüş ve planlı ilerleniyor.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "I2.1",
+    "categoryId": "I",
+    "categoryName": "SMED -C/O AZALTMA",
+    "subject": "İÇ-DIŞ SÜRE AZALTMA",
+    "subjectId": "I2",
+    "weight": 3,
+    "idealState": "SMED ANALİZLERİ SONRASI HAZIRLIK SÜRELERİ İKİYE AYRILMIŞ VE İÇ VE DIŞ SÜRELER OLARAK ÇALIŞMALAR TAKİP EDİLEREK HER İKİ SÜRENİN DE AZALTILMASI İÇİN FAALİYETLER BAŞLATILMIŞTIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "İç ve dış süre ayrımı yapılmamış.",
+      "2": "Süreler ayrılmış ancak sadece gözlemsel değerlendirme yapılmış.",
+      "3": "İç/dış süre ayrımı yapılmış, her iki süre için de bazı aksiyonlar alınmış.",
+      "4": "İç ve dış süreler detaylı şekilde analiz edilip azaltılmış, sistematik olarak takip edilmekte.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "I3.1",
+    "categoryId": "I",
+    "categoryName": "SMED -C/O AZALTMA",
+    "subject": "SMED EĞİTİMLERİ",
+    "subjectId": "I3",
+    "weight": 3,
+    "idealState": "C/O AZALTMA TAKIMI KURULMUŞ, EKİBE ANALİZ VE UYGULAMA EĞİTİMLERİ VERİLMİŞTİR. EKİPLER ÇALIŞMALARI TAMAMLADIKÇA BİR SONRAKİ İYİLEŞTİRME SEVİYESİNİ PLANLAR VE UYGULAMAYA ALIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Takım kurulmamış, bireysel çabalarla ilerleniyor.",
+      "2": "Takım var ancak eğitimsiz ve sistematik çalışmıyor.",
+      "3": "Takım kurulmuş, eğitimler verilmiş, temel aksiyonlar alınmış.",
+      "4": "Takım organize, eğitimli, sürekli iyileştirme odaklı sistematik çalışıyor.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "I4.1",
+    "categoryId": "I",
+    "categoryName": "SMED -C/O AZALTMA",
+    "subject": "5S",
+    "subjectId": "I4",
+    "weight": 3,
+    "idealState": "DIŞ SÜRENİN HIZLI BİR ŞEKİLDE TAMAMLANMASI İÇİN 5S METOTLARINDAN YARARLANILMAKTADIR. DEĞİŞİM ARAÇLARI, EL ALETLERİ, ARABALAR HAZIR TANIMLI VE HERKESİN ULAŞABİLECEĞİ ŞEKİLDE MUAHFAZA EDİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Ekipmanlar düzensiz, 5S uygulaması yok.",
+      "2": "Bazı araçlar düzenlenmiş, ancak sürdürülebilir değil.",
+      "3": "5S uygulanıyor, gerekli araçlar tanımlı ve erişilebilir.",
+      "4": "5S kültürü tam yerleşmiş, her değişim öncesi dış hazırlıklar tam kontrol altında.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "I5.1",
+    "categoryId": "I",
+    "categoryName": "SMED -C/O AZALTMA",
+    "subject": "ETKNİLK TAKİBİ",
+    "subjectId": "I5",
+    "weight": 3,
+    "idealState": "YAPILAN UYGULAMALARLA C/O SURELERİ PLANSIZ DURUŞ OLARAK HAT YÖNETİM / ASAKAİ PANOLARINDA ALT HEDEF OLARAK SORGULANMAKTA  VE SAPMALAR SORGULANARAK KAİZENLERLE SÜREKLİ İYİLEŞTİRİLMEKTEDİR",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "C/O süreleri hiçbir şekilde panolarda yer almıyor.",
+      "2": "Süreler gösteriliyor ama analiz veya sorgulama yapılmıyor.",
+      "3": "Süreler panolarda takip ediliyor, sapmalar kısmen analiz ediliyor.",
+      "4": "Süreler sürekli sorgulanıyor, sapmalar kaizenlere dönüştürülerek takip ediliyor.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "I6.1",
+    "categoryId": "I",
+    "categoryName": "SMED -C/O AZALTMA",
+    "subject": "STANDARDİZASYON",
+    "subjectId": "I6",
+    "weight": 3,
+    "idealState": "DEĞİŞİM SÜRELERİNİ KORUMAK VE VARYASYONLARI ORTADAN KALDIRMAK İÇİN C/O TALİMATI VEYA SET UP STANDART FORMLARI OLUŞTURULMUŞTUR. HER İYİLEŞTİRMEDE REVİZE EDİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Talimat ve formlar mevcut değil.",
+      "2": "Standart formlar var ama güncel değil, nadiren kullanılıyor.",
+      "3": "Formlar mevcut, kısmen güncelleniyor ve sahada uygulanıyor.",
+      "4": "Standart C/O formları her iyileştirmeyle revize edilmekte, varyasyonlar önlenmekte.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "J1.1",
+    "categoryId": "J",
+    "categoryName": "TEK PARÇA AKIŞI / ESNEK İŞ GÜCÜ",
+    "subject": "TAKT ZAMANI",
+    "subjectId": "J1",
+    "weight": 1.5,
+    "idealState": "TAKT ZAMANI C/T DENGESİNİ KURMAK VE GERÇEK İŞ GÜCÜNÜ ORTAYA ÇIKARMAK İÇİN REFERANS OLARAK ALINIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Takt zamanı ve C/T dengesi kurma çalışmalarına yeni başlanmıştır.",
+      "2": "Takt zamanı dikkate alınmakta ancak uygulamalar standart bir yapıya sahip değildir.",
+      "3": "Takt zamanı çalışmaları mevcut fakat tüm organizasyonda yaygın olarak uygulanmamaktadır.",
+      "4": "Takt zamanı başarıyla kullanılmakta, ancak bazı alanlarda geliştirmeye açık noktalar bulunmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "J2.1",
+    "categoryId": "J",
+    "categoryName": "TEK PARÇA AKIŞI / ESNEK İŞ GÜCÜ",
+    "subject": "HAT HÜCRE TASARIMI",
+    "subjectId": "J2",
+    "weight": 2.5,
+    "idealState": "HAT - HÜCRE - MAKİNE LAYOUTLARI ADAM AZALTMA VE ADAM EKLEME / 1 OPERATÖRÜN GEREKTİĞİ ZAMAN BİRDEN FAZLA İŞİ YAPABİLMESİNİ SAĞLAYACAK ŞEKİLDE TASARLANMIŞTIR",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Layout optimizasyonu ve çok işlevli operatör kurgusuna yeni geçilmiştir.",
+      "2": "Layoutlar esnek yapıya uygun fakat standart bir tasarım metodolojisi oluşturulmamıştır.",
+      "3": "Esnek layoutlar belirli alanlarda uygulanıyor, ancak organizasyon geneline yaygınlaştırılamamıştır.",
+      "4": "Esnek layoutlar başarılı şekilde uygulanmakta, iyileştirme fırsatları mevcuttur.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "J2.2",
+    "categoryId": "J",
+    "categoryName": "TEK PARÇA AKIŞI / ESNEK İŞ GÜCÜ",
+    "subject": "HAT HÜCRE TASARIMI 2",
+    "subjectId": "J2",
+    "weight": 2,
+    "idealState": "ESNEK İŞ GÜCÜ YAPISINDA ÇALIŞACAK ADAMLARIN HAT İÇİNDEKİ YERLEŞİMLERİ VE İŞ YÜKLERİ S/W KARTLARI ÜZERİNDE TANIMLANMIŞTIR. TALEP DALGALANMASINA GÖRE BU KARTLAR DEVREYE GİRER.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Esnek iş gücü planlamasına yönelik S/W kart uygulamalarına yeni başlanmıştır.",
+      "2": "S/W kartları mevcut fakat uygulamalar sistematik ve standart hale gelmemiştir.",
+      "3": "Esnek iş gücü planlaması bazı alanlarda kullanılmakta, ancak organizasyon genelinde değildir.",
+      "4": "S/W kartlarla yapılan esnek planlama etkin şekilde kullanılmakta, ancak geliştirilebilecek yönler vardır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "J2.3",
+    "categoryId": "J",
+    "categoryName": "TEK PARÇA AKIŞI / ESNEK İŞ GÜCÜ",
+    "subject": "ÜRÜN ESNEKLİĞİ",
+    "subjectId": "J2",
+    "weight": 1.5,
+    "idealState": "HÜCRE VE HATLAR BİR ÜRÜN GRUBUNA AİT DEĞİLDİR AYNI ZAMANDA HIZLI DEĞİŞİMLERLE FARKLI ÜRÜN GRUPLARINIDA ÜRETEBİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Hatların çok ürünlü üretim yapısına geçiş süreci yeni başlatılmıştır.",
+      "2": "Çok ürünlü üretim yapılmakta ancak uygulamalar henüz tam standarda oturmamıştır.",
+      "3": "Farklı ürün grupları üretilebiliyor, fakat bu yapı tüm alanlarda uygulanmamaktadır.",
+      "4": "Hatlar farklı ürünler için kullanılmakta, hızlı geçişlerde bazı geliştirme alanları bulunmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "J3.1",
+    "categoryId": "J",
+    "categoryName": "TEK PARÇA AKIŞI / ESNEK İŞ GÜCÜ",
+    "subject": "TEK PARÇA AKIŞI",
+    "subjectId": "J3",
+    "weight": 1.5,
+    "idealState": "TEK PARÇA AKIŞ PRENSİBİ UYGULANMIŞTIR. AKIŞ GENELLİKLE U YÖNÜNDE AKMAKTADIR. KONVEYÖR ÜRETİMLERİNDE İSE DÜZ AKIŞ SÖZ KONUSU OLSADA AKIŞ PRENSİBİNE UYUM VARDIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Tek parça akış prensibiyle ilgili çalışmalar yeni başlamıştır.",
+      "2": "Tek parça akış prensibi bazı alanlarda uygulanmakta, fakat standardizasyon eksiktir.",
+      "3": "Akış prensibi uygulanıyor, ancak tüm organizasyona yayılmamıştır.",
+      "4": "Tek parça akış başarılı şekilde uygulanmakta, ancak daha fazla iyileştirme yapılabilir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "J3.2",
+    "categoryId": "J",
+    "categoryName": "TEK PARÇA AKIŞI / ESNEK İŞ GÜCÜ",
+    "subject": "WIP STANDARDİZASYONU",
+    "subjectId": "J3",
+    "weight": 2.5,
+    "idealState": "AKIŞ İÇERİSİNDE KONTROLSÜZ WIP BULUNMAMAKTADIR. WIP SEVİYESİ DENGELİ - TANIMLI VE KONTROL ALTINDADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "WIP kontrolüne yönelik çalışmalara yeni başlanmıştır.",
+      "2": "WIP seviyeleri kontrol edilmeye çalışılmakta, fakat standart bir yapı yoktur.",
+      "3": "WIP yönetimi belirli hatlarda uygulanmakta, organizasyon geneline yayılmamıştır.",
+      "4": "WIP seviyesi kontrol altında, ancak süreçte bazı iyileştirme ihtiyaçları bulunmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "J3.3",
+    "categoryId": "J",
+    "categoryName": "TEK PARÇA AKIŞI / ESNEK İŞ GÜCÜ",
+    "subject": "ANORMAL DURUM",
+    "subjectId": "J3",
+    "weight": 3,
+    "idealState": "AKIŞ İÇERİSİNDE ANORMAL DURUM OLUŞTUĞUNDA ANDON VEYA BENZERİ METOTLARLA AKIŞIN SEKTEYE UĞRADIĞI DURUMLAR GÖRSELLEŞTİRİLİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Andon sistemine geçiş süreci yeni başlatılmıştır.",
+      "2": "Anormal durumları görselleştirme çalışmaları mevcut ancak sistematik değildir.",
+      "3": "Andon gibi sistemler bazı alanlarda kullanılmakta, ancak yaygın değildir.",
+      "4": "Anormal durumlar görsel olarak başarıyla izlenmekte, iyileştirme alanları bulunabilir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "J4.1",
+    "categoryId": "J",
+    "categoryName": "TEK PARÇA AKIŞI / ESNEK İŞ GÜCÜ",
+    "subject": "İŞ YÜKÜ DENGELEME",
+    "subjectId": "J4",
+    "weight": 2.5,
+    "idealState": "ESNEK İŞ GÜCÜ YAPISI İÇİN YAMAZUMİ ANALİZLERİ İLE HATTIN İŞ YÜKÜ ÇIKARTILMIŞ VE DENGELEME İLE İŞ BİRLEŞTİRMELER YAPILMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Yamazumi analizlerine yeni başlanmıştır.",
+      "2": "Yamazumi analizleri yapılıyor ancak uygulamalar standart hale gelmemiştir.",
+      "3": "Analizler ve iş dengeleme çalışmaları bazı hatlarda uygulanıyor, genelleşmemiştir.",
+      "4": "Yamazumi analizleri etkin şekilde kullanılıyor, ancak geliştirilebilir yönleri vardır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "J4.2",
+    "categoryId": "J",
+    "categoryName": "TEK PARÇA AKIŞI / ESNEK İŞ GÜCÜ",
+    "subject": "İŞ BİRLEŞTİRME",
+    "subjectId": "J4",
+    "weight": 3,
+    "idealState": "HAT DENGELEMELERİNDE - İŞ BİRLEŞTİRİLMELERİNDE N/VA - MUDA TİPİ İŞLER İÇİN KAIZEN ÇALIŞMALARI YAPILARAK GEREKSİZ İŞ YÜKLERİ AZALTILMAKTADIR. YAPILAN ÇALIŞMALAR HATTIN İŞ YÜKÜ ANALİZLERİ VEYA S/W FORMLARINDA GÖSTERİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kaizen ile iş yükü azaltma çalışmalarına yeni başlanmıştır.",
+      "2": "Kaizen uygulamaları yapılmakta ancak standart ve sürekli bir yapıya sahip değildir.",
+      "3": "Kaizen çalışmaları bazı alanlarda uygulanmakta, genel uygulama seviyesinde değildir.",
+      "4": "Kaizen ile iş yükü azaltma çalışmaları başarıyla yapılmakta, geliştirmeye açık noktalar vardır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "K1.1",
+    "categoryId": "K",
+    "categoryName": "ÜRETİM -PROSES UYGULAMALARI",
+    "subject": "PERFORMANS TAKİBİ",
+    "subjectId": "K1",
+    "weight": 2,
+    "idealState": "ÜRETİM PERFORMANSI  (D) PARAMETRESİ ALTINDA TAKİP EDİLMEKTE VE PLANSIZ DURUŞLAR / PROSES KALİTE / ÜRETKENLİK VERİMLİLİK GİBİ KONULAR BU PARAMETRE ALTINDA TAKİP EDİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Üretim performansı izlemeye yönelik çalışmalara yeni başlanmıştır.",
+      "2": "Üretim performansı takip edilmekte ancak parametreler standart bir yapıya oturtulmamıştır.",
+      "3": "Performans verileri bazı bölümlerde izleniyor ancak tüm organizasyon genelinde değildir.",
+      "4": "Üretim performansı başarıyla takip edilmekte, ancak iyileştirmeye açık alanlar bulunmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "K2.1",
+    "categoryId": "K",
+    "categoryName": "ÜRETİM -PROSES UYGULAMALARI",
+    "subject": "SAATLİK TAKİP",
+    "subjectId": "K2",
+    "weight": 3,
+    "idealState": "ÜRETİM PERFORMANSI SAATLİK PC BOARD / ANDON BOARD GİBİ ARAÇLARLA TAKİP EDİLEREK PLANLANAN GERÇEKLEŞEN ADETLERİ ANLIK TAKİP EDİLMEKTEDİR. ORTAYA ÇIKAN DALGALANLANMALARIN NEDENLERİ ANALİZ EDİLEREK ÖNLEMLER ALINMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Anlık üretim takibi sistemine yeni geçilmeye başlanmıştır.",
+      "2": "Üretim takibi araçları kullanılmakta ancak analiz ve önlem süreçleri standardize değildir.",
+      "3": "Anlık takip ve analiz uygulamaları bazı alanlarda yapılmakta, genelleşmemiştir.",
+      "4": "Anlık üretim takibi ve analiz süreçleri etkin şekilde yürütülmekte, geliştirilebilir noktalar vardır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "K3.1",
+    "categoryId": "K",
+    "categoryName": "ÜRETİM -PROSES UYGULAMALARI",
+    "subject": "KAPASİTE ANALİZLERİ",
+    "subjectId": "K3",
+    "weight": 3,
+    "idealState": "PROSES  KAPASİTE ANALİZLERİ YAPILMAKTA.  DAR BOĞAZ İSTASYONLAR TESPİT EDİLİREREK İYİLEŞTİRME PROGRAMLARI BAŞLATILIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Proses kapasite analizine yönelik çalışmalar yeni başlamıştır.",
+      "2": "Kapasite analizleri yapılmakta ancak uygulamalar standart bir süreç değildir.",
+      "3": "Analiz ve iyileştirme faaliyetleri bazı bölümlerde mevcut, genelleşmemiştir.",
+      "4": "Kapasite analizi ve darboğaz iyileştirme süreçleri etkin şekilde uygulanmakta, iyileştirilebilir yönler vardır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "K4.1",
+    "categoryId": "K",
+    "categoryName": "ÜRETİM -PROSES UYGULAMALARI",
+    "subject": "PROSES 5S",
+    "subjectId": "K4",
+    "weight": 1.5,
+    "idealState": "PROSES İÇİ 5S UYGULAMALARI İLE KOMPONENTLER, SARF MALZEMELER, KALİTE KONTROL ALETLERİ, ÜRETİM EKİPMANLARI, DÜZENLİ BİR ŞEKİLDE ORGANİZE EDİLMEKTEDİR. GEREKSİZ ARAMA VE C/T UZATICI HAREKETLER ELEMİNE EDİLMİŞTİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Proses içi 5S uygulamalarına yeni başlanmıştır.",
+      "2": "5S çalışmaları yapılmakta ancak standart bir yapıya oturtulmamıştır.",
+      "3": "5S uygulamaları belirli alanlarda oturmuş, tüm hatlara yayılmamıştır.",
+      "4": "5S uygulamaları etkin şekilde yürütülmekte, ancak sürekli iyileştirme potansiyeli vardır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "K5.1",
+    "categoryId": "K",
+    "categoryName": "ÜRETİM -PROSES UYGULAMALARI",
+    "subject": "KÜÇÜK LOT",
+    "subjectId": "K5",
+    "weight": 2.5,
+    "idealState": "ÜRETİM TİPİ KÜÇÜK LOT ÜRETİMİ ŞEKLİNDE YAPILMAKTADIR VE GEREKLİ ÜRÜNÜ GEREKTİĞİ KADAR GEREKLİ ZAMANDA ÜRET PRENSİBİNE UYGUN HAREKET EDİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Küçük lot üretim prensibine geçiş yeni başlatılmıştır.",
+      "2": "Küçük lot üretim uygulanmakta ancak prensipler net olarak standardize edilmemiştir.",
+      "3": "Üretim tarzı bazı bölümlerde bu prensibe uygundur, ancak genelleşmemiştir.",
+      "4": "Gereken zamanda gereken miktarda üretim prensibi başarıyla uygulanmakta, iyileştirme alanları mevcuttur.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "K5.2",
+    "categoryId": "K",
+    "categoryName": "ÜRETİM -PROSES UYGULAMALARI",
+    "subject": "ÇEKME YAPISI",
+    "subjectId": "K5",
+    "weight": 2,
+    "idealState": "PROSES YAPILARI SONRAKİ PROSESİ MÜŞTERİ OLARAK KABUL EDER VE İKİ PROSES ARASI ÜRÜNLER ÇEKİLEREK ÇEKİLEN MİKTAR KADAR BESLEME METODUNA GÖRE  ÜRETİM YAPILIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Çekme sistemine uygun üretim yapısı oluşturulmaya yeni başlanmıştır.",
+      "2": "Üretim çekme esasına dayalı fakat sistematik ve standart bir yapı henüz yoktur.",
+      "3": "Çekme sistemi bazı alanlarda uygulanmakta, organizasyon geneline yayılmamıştır.",
+      "4": "Çekme sistemine dayalı üretim etkin şekilde yürütülmekte, geliştirilebilir yönleri mevcuttur.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "K5.3",
+    "categoryId": "K",
+    "categoryName": "ÜRETİM -PROSES UYGULAMALARI",
+    "subject": "ÜRETİM KANBAN",
+    "subjectId": "K5",
+    "weight": 2,
+    "idealState": "ÜRETİMDE İŞ EMRİ KANBAN KARTLARI - VEYA SİNYALİZASYON İLE VERİLMEKTEDİR. HAT İÇLERİNDE KANBAN POSTASI HATTIN İŞ YÜKÜNÜ GÖSTERİR, ÜRETİM PLANLAMA / PC DEPARTMANI KANBAN KARTLARINI BELİRLENEN PERİODLARLA SAHAYA DAĞITIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kanban sistemine yönelik çalışmalar henüz yeni başlamıştır.",
+      "2": "Kanban kartları ve postaları kullanılmakta ancak sistematik değil ve standartlara tam oturmamıştır.",
+      "3": "Kanban sistemi bazı hatlarda aktif kullanılmakta, genelleşmemiştir.",
+      "4": "Kanban sistemi üretim planlamayla entegre şekilde kullanılmakta, geliştirmeye açık alanlar vardır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "K6.1",
+    "categoryId": "K",
+    "categoryName": "ÜRETİM -PROSES UYGULAMALARI",
+    "subject": "SEVİYELNDİRME",
+    "subjectId": "K6",
+    "weight": 2,
+    "idealState": "ÜRETİM HATLARI TEK TİP FAZLA ÜRETİMİ ENGELLEMEK ADINA ÇOK ÇEŞİTLİ AZ ADET ÜRÜNÜ ÜRETEBİLECEK KABİLİYETTEDİR. BUNUN İÇİN HAT AKIŞI, MALZEME BESLEME, ÇOKLU PROSES BECERİSİ GİBİ ALT YAPILAR KURULMUŞTUR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Çeşitli az adetli üretim yapısına geçiş yeni başlatılmıştır.",
+      "2": "Altyapı çalışmaları yapılmış ancak sistematik üretim kabiliyeti standart değildir.",
+      "3": "Üretim hatlarının bu kabiliyeti bazı hatlarda kullanılıyor, genelleşmemiştir.",
+      "4": "Fazla üretimi önleyici yapı başarıyla oluşturulmuş, geliştirmeye açık yönler vardır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "K6.2",
+    "categoryId": "K",
+    "categoryName": "ÜRETİM -PROSES UYGULAMALARI",
+    "subject": "SEVİYELNDİRME 2",
+    "subjectId": "K6",
+    "weight": 2,
+    "idealState": "HAT SEVİYELENDİRMESİ YAPILMASI DURUMUNDA HAT İŞ YÜKÜ GÖRSEL OLARAK TAKİP EDİLEBİLMEKTEDİR. KAYIPLAR NEDENLERİ İLE BİRLİKTE KAYIT ALTINA ALINMAKTADIR. ( ÖRNE. PC BOARD- HEIJUNKA İŞ YÜKÜ PANOSU- KANBAN POSTALARI VB GİBİ )",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Hat seviyelendirme ve iş yükü görselleştirme uygulamalarına yeni başlanmıştır.",
+      "2": "Hat iş yükü görsel olarak takip edilmekte, ancak sistematik analiz ve kayıt eksiktir.",
+      "3": "Görselleştirme ve kayıt sistemleri bazı alanlarda aktif, tüm organizasyona yayılmamıştır.",
+      "4": "Hat iş yükü etkin şekilde görselleştirilmekte ve kayıt altına alınmakta, iyileştirilebilecek alanlar mevcuttur.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "L1.1",
+    "categoryId": "L",
+    "categoryName": "SAHA YÖNETİMİ & LİDERLİK",
+    "subject": "SAHA ORGANİZASYONU",
+    "subjectId": "L1",
+    "weight": 1,
+    "idealState": "SAHA YÖNETİM ORGANİZASYONU OPERATÖR- (HAT LİDERİ) - LİDER - GRUP LİDERİ ŞEKLİNDE SAHANIN BÜTÜNÜNÜ VE ÜRETİM AKIŞINI YÖNETECEK ŞEKİLDE OLUŞTURULMUŞ.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Saha yönetim organizasyonu kurulma aşamasındadır.",
+      "2": "Organizasyon yapısı tanımlanmış, uygulamada aksaklıklar mevcuttur.",
+      "3": "Organizasyon bazı hatlarda aktif olarak uygulanmaktadır.",
+      "4": "Üretim sahası yönetimi tanımlı bir yapı ile tüm sahayı kapsayacak şekilde uygulanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "L2.1",
+    "categoryId": "L",
+    "categoryName": "SAHA YÖNETİMİ & LİDERLİK",
+    "subject": "VARDİYA BİLGİ YÖNETİMİ",
+    "subjectId": "L2",
+    "weight": 1,
+    "idealState": "VARDİYA DEĞİŞİMLERİ BİLGİ TRANSFERİ İLE YAPILMAKTADIR. OLUŞAN PROBLEMLER, ANORMAL DURUMLAR VARDİYALAR ARASI LİDERLERE AKTARILMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Vardiya bilgi transferi için sistem kurulma aşamasındadır.",
+      "2": "Vardiyalar arası bilgi aktarımı yapılmakta fakat düzenli ve sistematik değildir.",
+      "3": "Bilgi transferi prosedürü bazı vardiyalarda düzenli işlemekte, genelleşmemiştir.",
+      "4": "Tüm vardiyalarda bilgi aktarımı sistemli yapılmakta, problemler düzenli raporlanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "L3.1",
+    "categoryId": "L",
+    "categoryName": "SAHA YÖNETİMİ & LİDERLİK",
+    "subject": "HAT ALAN YÖNETİMİ",
+    "subjectId": "L3",
+    "weight": 2,
+    "idealState": "HATLARDA GÖREVLENDİRME PANOLARI, SHOP ASAKAİ - EKİP TOPLANTI PERFORMANS YÖNETİM PANOLARI MEVCUTTUR. LİDERLER EKİP TOPLANTILARINI VE HAT PERFORMANS YÖNETİMLERİNİ BU ENSTRUMANLARLA GERÇEKLEŞTİRMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Görsel yönetim panoları uygulamasına yeni başlanmıştır.",
+      "2": "Panolar mevcut ancak standart kullanımı sağlanamamıştır.",
+      "3": "Görsel araçlar bazı hatlarda etkin kullanılıyor, genel yayılım eksiktir.",
+      "4": "Görevlendirme ve performans panoları yaygın ve etkin şekilde kullanılmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "L4.1",
+    "categoryId": "L",
+    "categoryName": "SAHA YÖNETİMİ & LİDERLİK",
+    "subject": "SABAH TOPLANTILARI",
+    "subjectId": "L4",
+    "weight": 2.5,
+    "idealState": "TÜM FABRİKA PERFORMANSININ TAKİP EDİLDİĞİ ASAKAİ ALANI OLUŞTURULMUŞTUR. ASAKAİ TOPLANTILARI HER GÜN YÖNETİMİN KATILIMI İLE GERÇEKLEŞTİRİLMEKTE VE GERÇEK KALİTE PROBLEMLERİ GÜNDEME GETİRİLEREK PERFORMANSLAR AKTARILMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Asakaï toplantı sistemine geçiş sürecindedir.",
+      "2": "Toplantılar yapılmakta ancak katılım ve içerik sistematik değildir.",
+      "3": "Asakaï uygulaması kısmen oturmuş, tüm üretim alanlarında sürdürülebilir değildir.",
+      "4": "Asakaï yönetim sistemi düzenli yürütülmekte, tüm performanslar etkin şekilde aktarılmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "L5.1",
+    "categoryId": "L",
+    "categoryName": "SAHA YÖNETİMİ & LİDERLİK",
+    "subject": "LİDER YETKİNLİĞİ",
+    "subjectId": "L5",
+    "weight": 2.5,
+    "idealState": "LİDERLERİN GÖREV TANIMLARI VE YÖNETİMDEKİ ROLLERİ, SAHA YÖNETİM KONULARI- KPI'LARI TANIMLANMIŞ, LİDERLİK BECERİ VE YETKİNLİK GELİŞİMLERİ İÇİN EĞİTİMLER ORGANİZE EDİLMİŞTİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Lider görev tanımları ve eğitim programları planlanma aşamasındadır.",
+      "2": "Tanımlar yapılmış, bazı liderler eğitilmiş, sistematik uygulama eksiktir.",
+      "3": "Tanımlar ve eğitim programları kısmen uygulanmakta, tüm liderlere yaygın değildir.",
+      "4": "Lider tanımları net, KPI yönetimi yerleşmiş, eğitimlerle yetkinlik geliştirme sağlanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "L6.1",
+    "categoryId": "L",
+    "categoryName": "SAHA YÖNETİMİ & LİDERLİK",
+    "subject": "ÜRETİM ŞARTLARI",
+    "subjectId": "L6",
+    "weight": 2.5,
+    "idealState": "ÜRETİM İÇİN GEREKLİ ŞARTLAR ÜRETİM ÖNCESİ ÖN KOŞULLAR OLARAK BELİRLENMİŞ,KONTROLÜ VE ŞARTLARIN SAĞLANMASI LİDERLERE  ATANMIŞTIR. ÜRETİM SIRASINDA HERHANGİ BİR PROBLEMLE KARŞILAŞILMAMASI İÇİN ANORMAL DURUM YÖNETİM TECRÜBESİ VE BECERİSİNE SAHİPTİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Üretim ön koşulları tanımlanmamış veya uygulama başlamamıştır.",
+      "2": "Ön koşullar tanımlanmış ancak kontrol sistemi ve sorumluluk dağılımı zayıftır.",
+      "3": "Ön koşullar liderlere atanmış, uygulama belirli hatlarla sınırlıdır.",
+      "4": "Üretim öncesi şartlar tanımlı ve kontrolü liderlerce sağlanmakta, anormal durumlar yönetilmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "L7.1",
+    "categoryId": "L",
+    "categoryName": "SAHA YÖNETİMİ & LİDERLİK",
+    "subject": "KÖK NEDEN ANALİZLERİ",
+    "subjectId": "L7",
+    "weight": 3,
+    "idealState": "LİDERLER PROBLEMLERİ TANIMLAR,KÖK NEDEN ANALİZLERİ İLE  AKSİYONLARI BELİRLER, AKSİYON TAKİBİNİ VE KONTROLÜ YAPARAK YÖNETİME FEEDBACK VERİR. BUNUN İÇİN PDCA DÖNGÜSÜNÜ GÖSTEREN 5N1K, PROBLEM TAKİP LİSTELERİ, KESHİGOMU LİSTELERİNİ ETKİN BİR ŞEKİLDE KULLANIR VE GÖSTERİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Problem çözme araçlarının kullanımı henüz başlatılmamıştır.",
+      "2": "Araçlar mevcut ancak sistematik kullanım sağlanamamıştır.",
+      "3": "Problem çözüm yöntemleri liderler tarafından belirli durumlarda kullanılmaktadır.",
+      "4": "Problem çözme ve geri bildirim araçları liderlerce etkin ve düzenli şekilde kullanılmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "L7.2",
+    "categoryId": "L",
+    "categoryName": "SAHA YÖNETİMİ & LİDERLİK",
+    "subject": "PDCA",
+    "subjectId": "L7",
+    "weight": 3,
+    "idealState": "LİDERLER EKİPLERİNE KAİZEN UYGULAMA - PROBLEM ÇÖZME KONUSUNDA LİDERLİK YAPABİLECEK YETKİNLİĞİ SAHİPTİRLER. KENDİ EKİPLERİNİ KURARAK PROBLEMLERİ ELEMİNE EDERLER.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kaizen liderliği konusunda lider yetkinlikleri geliştirme aşamasındadır.",
+      "2": "Bazı liderler ekiplerine rehberlik etmekte ancak yetkinlik farklılıkları vardır.",
+      "3": "Kaizen uygulama yetkinliği sınırlı lider grubunda mevcuttur.",
+      "4": "Tüm liderler ekiplerine rehberlik edecek seviyede yetkindir, Kaizen uygulamaları düzenli yapılmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "L8.1",
+    "categoryId": "L",
+    "categoryName": "SAHA YÖNETİMİ & LİDERLİK",
+    "subject": "İSRAF YÖNETİMİ",
+    "subjectId": "L8",
+    "weight": 2.5,
+    "idealState": "LİDERLER 7 TEMEL İSRAF, MUDA - NVA İŞ GİBİ KONULARIN ÖNEMİNİN FARKINDADIR. BUNUN İÇİN SAHADA BELİRLENEN STANDARTLARIN UYGULANMASINI DEĞERİN KORUNMASINI SAĞLAYACAK YÖNETİM KONULARINI UYGULAR",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "İsraf farkındalığı konusunda liderlerin bilgi seviyesi başlangıç düzeyindedir.",
+      "2": "Liderlerin farkındalığı vardır, ancak uygulamada zayıflıklar mevcuttur.",
+      "3": "İsraf yönetimi bazı liderler tarafından uygulanmakta, tüm sahaya yayılmamıştır.",
+      "4": "Tüm liderler sahada belirlenen standartları uygulamakta, değer koruma yönetimini etkin şekilde gerçekleştirmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "M1.1",
+    "categoryId": "M",
+    "categoryName": "KALİTE İYİLEŞTİRME",
+    "subject": "KALİTE HEDEFLERİ",
+    "subjectId": "M1",
+    "weight": 2,
+    "idealState": "5 ANA MİSYON KALİTE Q HEDEFLERİ BELİRLENMİŞ. ALT HEDEFLER OLARAK İÇ KALİTE - REWORK VB GİBİ KALİTE SÜRECİNİ TAKİP EDECEK KONULAR BELİRLEMİŞTİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kalite hedefleri belirlenmemiş veya çok genel seviyededir.",
+      "2": "Ana kalite hedefleri belirlenmiş, ancak alt kırılımları ve takip sistemi eksiktir.",
+      "3": "Alt kalite hedefleri belirli alanlarda tanımlı ve izlenmekte, ancak tam yayılım sağlanmamıştır.",
+      "4": "Ana ve alt kalite hedefleri net, izlenebilir ve tüm üretim süreciyle entegre şekilde takip edilmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "M2.1",
+    "categoryId": "M",
+    "categoryName": "KALİTE İYİLEŞTİRME",
+    "subject": "HATA TİPİ İYİLEŞTİRME",
+    "subjectId": "M2",
+    "weight": 2,
+    "idealState": "KALİTE TOP 5 PROBLEM SAHADA TAKİPTEDİR VE İYİLEŞTİRME PROGRAMLARI İLE GÜNLÜK OLARAK VERİLER TAKİP EDİLEREK, İYİLEŞTİRME SONUÇLARI KPI OLARAK İZLENMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kalite problemleri belirlenmemiş veya sahada takip edilmemektedir.",
+      "2": "Top problemler belirli aralıklarla izlenmekte, günlük takip ve KPI ile bağlantı sınırlıdır.",
+      "3": "Günlük takip yapılmakta, bazı problemler KPI ile ilişkilendirilmektedir.",
+      "4": "Kalite Top 5 problemi sahada etkin şekilde takip edilmekte, iyileştirme sonuçları KPI olarak izlenmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "M3.1",
+    "categoryId": "M",
+    "categoryName": "KALİTE İYİLEŞTİRME",
+    "subject": "YETKİNLİK",
+    "subjectId": "M3",
+    "weight": 1.5,
+    "idealState": "KALİTE YETKİNLİKLERİNİN ARTIRILMASI İÇİN DÖNEMSEL OLARAK KALİTE ÖLÇÜM / TEST / KONTROL VB GİBİ KALİTE ODAKLI EĞİTİMLER VERİLMEKTEDİR",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kalite eğitimleri planlanmamış veya düzenlenmemiştir.",
+      "2": "Eğitimler zaman zaman verilmekte, düzenlilik ve kapsam eksiktir.",
+      "3": "Dönemsel kalite eğitimleri yapılmakta, tüm çalışanlara yayılım sınırlıdır.",
+      "4": "Kalite odaklı ölçüm/test/analiz eğitimleri dönemsel olarak planlı, yaygın ve sistematiktir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "M4.1",
+    "categoryId": "M",
+    "categoryName": "KALİTE İYİLEŞTİRME",
+    "subject": "YERİNDE KALİTE",
+    "subjectId": "M4",
+    "weight": 1.5,
+    "idealState": "ÜRETİM SAHASINDA PROSESLERDE OK PARÇA NOK PARÇA VEYA TALİMATLARLA HATA TİPLERİ VEYA KALİTE HATA MATRİSLERİ VE ÇÖZÜMLERİ  GÖRSEL OLARAK SAHADA OPERATÖRLERE AKTARILMIŞTIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kalite bilgileri sahaya yansıtılmamıştır.",
+      "2": "Talimatlar mevcut ancak görsel uygulama zayıf ve sınırlıdır.",
+      "3": "Bazı hatlarda görsel hata matrisi, OK/NOK gösterimleri uygulanmaktadır.",
+      "4": "Tüm üretim sahasında OK/NOK ve kalite talimatları görsel olarak yaygın, anlaşılır ve günceldir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "M4.2",
+    "categoryId": "M",
+    "categoryName": "KALİTE İYİLEŞTİRME",
+    "subject": "İÇ MÜŞTERİ",
+    "subjectId": "M4",
+    "weight": 2,
+    "idealState": "BİR SONRAKİ PROSES MÜŞTERİDİR. HATALI ÜRÜNÜ SONRAKİ PROSESE AKTARMA HATA AKIŞINI DURDUR, MÜŞTERİ PROSES. HATA KARTI İLE ÜRÜNLERİ REJECT EDEREK PROPBLEMLERİ GÖRÜNÜR KILARLAR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Sonraki prosese geçişte kalite kontrol sistemi bulunmamaktadır.",
+      "2": "Problemler görünür kılınmakta, hata kartı sistemi sınırlı uygulanmaktadır.",
+      "3": "Hatalı ürünler büyük oranda filtrelenmekte, bazı proseslerde hata kartı etkin kullanılmaktadır.",
+      "4": "Tüm proseslerde müşteri yaklaşımı ile hatalar durdurulmakta, kart sistemiyle görünürlük sağlanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "M4.3",
+    "categoryId": "M",
+    "categoryName": "KALİTE İYİLEŞTİRME",
+    "subject": "POKA YOKE",
+    "subjectId": "M4",
+    "weight": 2,
+    "idealState": "HATA AKIŞINI ENGELLEME ÜZERİNE BASİT POKA-YOKE UYGULAMALARI GELİŞTİRİLMEKTE VE YAYGINLAŞTIRILMALARI YAPILMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Poka-yoke uygulamaları bulunmamaktadır.",
+      "2": "Bazı proseslerde poka-yoke sistemleri uygulanmakta, sistematik yaygınlık yoktur.",
+      "3": "Poka-yoke örnekleri belirli hatlarda etkili olarak kullanılmaktadır.",
+      "4": "Poka-yoke sistemleri tüm sahada aktif kullanılmakta ve yaygınlaştırma çalışmaları yapılmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "M4.4",
+    "categoryId": "M",
+    "categoryName": "KALİTE İYİLEŞTİRME",
+    "subject": "LİDERİN SORUMLULUĞU",
+    "subjectId": "M4",
+    "weight": 2,
+    "idealState": "HATA PROBLEMLERİNE KARŞI TL ROLÜ TANIMLIDIR VE KÖK NEDENLERİNE KARŞI AKSİYON ALABİLMEKTEDİR. OLUŞAN ANORMAL DURUM TL TARAFINDAN YÖNETİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "TL rolü tanımlı değildir veya anormal durumlara müdahale zayıftır.",
+      "2": "TL'ler bazı durumlara müdahale etmekte, kök neden yönetimi sınırlıdır.",
+      "3": "TL'ler anormal durumları yönetmekte, bazı durumlarda kök neden aksiyonları alabilmektedir.",
+      "4": "TL rolü net tanımlanmış, anormal durumları ve kök nedenleri yönetmekte tam yetkindir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "M4.5",
+    "categoryId": "M",
+    "categoryName": "KALİTE İYİLEŞTİRME",
+    "subject": "JKK",
+    "subjectId": "M4",
+    "weight": 2,
+    "idealState": "PROSES -KALİTE SORUMLULUĞU OPERATÖRLERE AKTARILARAK PROSES SAHİPLENDİRMESİ YAPILMIŞTIR. HER OPERATÖR JKK PRENSİPLERİNE DAYANARAK HANGİ KALİTE NOKTASINDAN SORUMLU OLDUĞUNU BİLMEKTEDİR, YAPILAN KONTROLLER VE SONUÇLARI İZLENBİLİRDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Operatör seviyesinde kalite sorumluluğu verilmemiştir.",
+      "2": "Bazı operatörler süreçten sorumludur ancak sahiplenme yaygın değildir.",
+      "3": "Operatörler kalite noktalarını bilmekte, izlenebilirlik kısmen sağlanmaktadır.",
+      "4": "Her operatör sorumluluklarını bilmekte, kontroller izlenebilir şekilde uygulanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "M4.6",
+    "categoryId": "M",
+    "categoryName": "KALİTE İYİLEŞTİRME",
+    "subject": "5K KALİTE YAPISI",
+    "subjectId": "M4",
+    "weight": 1.5,
+    "idealState": "HATALI PARÇA, YANLIŞ ÜRÜN AKIŞINI ENGELLEMEK VE YANLIŞ ETİKET KARIŞMASININ ÖNÜNE GEÇMEK İÇİN SAHA VE OPERAYON ALANI DÜZENİ KURULMUŞ, KALİTE İÇİN 5S ŞARTLARI OLUŞTURULMUŞTUR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "5S uygulaması kaliteyi destekleyecek seviyede değildir.",
+      "2": "5S uygulamaları kısmen mevcut, bazı alanlarda düzenleme yapılmıştır.",
+      "3": "Operasyon alanlarında kalite odaklı 5S kısmen oturmuş durumdadır.",
+      "4": "Tüm saha ve operasyon alanlarında kalite için 5S koşulları sağlanmıştır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "M5.1",
+    "categoryId": "M",
+    "categoryName": "KALİTE İYİLEŞTİRME",
+    "subject": "REWORK AZALTMA",
+    "subjectId": "M5",
+    "weight": 1.5,
+    "idealState": "TAMİR / REWORK ORANLARINI TAKİP EDİLMEKTE VE  İYİLEŞTİRMELERLE TAMİR İÇİN OLUŞAN EK MALİYETLER AZALTILMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Rework oranları izlenmemekte veya kayıt dışıdır.",
+      "2": "Takip yapılmakta, ancak iyileştirme sistematiği eksiktir.",
+      "3": "Rework oranları izlenmekte, belirli konularda maliyet iyileştirmeleri yapılmaktadır.",
+      "4": "Rework oranları düzenli izlenmekte, maliyet azaltıcı aksiyonlar sistematik olarak uygulanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "M6.1",
+    "categoryId": "M",
+    "categoryName": "KALİTE İYİLEŞTİRME",
+    "subject": "TEDARİKÇİ KALİTE",
+    "subjectId": "M6",
+    "weight": 2,
+    "idealState": "TEDARİKÇİ  KAYNAKLI KALİTE HATA ORANLARI VE  PERFORMANSLARI TAKİP EDİLEREK PROBLEMLER TEDARİKÇİLERE AKTARILMAKTADIR.  TEDARİKÇİLER GELİŞTİRME PROGRAMLARI UYGULANMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Tedarikçi kalite verisi toplanmamaktadır.",
+      "2": "Hatalar kayıt altına alınmakta, ancak düzenli takip ve iyileştirme eksiktir.",
+      "3": "Tedarikçi kalite performansları izlenmekte, sınırlı geliştirme yapılmaktadır.",
+      "4": "Tedarikçi kalite performansı aktif izlenmekte, problemler aktarılmakta ve geliştirme programları sistematik uygulanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "N1.1",
+    "categoryId": "N",
+    "categoryName": "PLANLAMA VE LOJİSTİK YÖNETİMİ",
+    "subject": "ANA HEDEFLER",
+    "subjectId": "N1",
+    "weight": 1.5,
+    "idealState": "PLANLAMA TARAFINDAN ZAMANINDA TESLİMAT HEDEFİ TAKİP EDİLMEKTE VE İYİLEŞTİRME PROGRAMLARINA ALINMAKTADIR. TESLİMAT PROBLEMLERİNE NEDEN OLAN UNSURLAR ALT HEDEF OLARAK TAKİP EDİLMEKTEDİR. ( PLANSIZ DURUŞ VS. )",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Teslimat hedefi tanımlanmamış, takip yapılmamaktadır.",
+      "2": "Zamanında teslimat hedefi izlenmekte, ancak alt nedenlere yönelik sistematik bir izleme yoktur.",
+      "3": "Teslimat performansı izlenmekte, bazı nedenler (plansız duruş vs.) takip edilmekte ve aksiyon alınmaktadır.",
+      "4": "Zamanında teslimat hedefi aktif olarak izlenmekte, alt nedenler sistematik olarak takip edilip iyileştirme programlarına entegre edilmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "N1.2",
+    "categoryId": "N",
+    "categoryName": "PLANLAMA VE LOJİSTİK YÖNETİMİ",
+    "subject": "SEVKİYAT PERFORMANSI",
+    "subjectId": "N1",
+    "weight": 2,
+    "idealState": "ZAMANINDA SEVKİYAT YAPILAMAMASI DURUMUNDA OLUŞAN SHORT SHIPMENT KONUSUNA MALİYET UNSURU OLARAK DİKKAT ÇEKİLMEKTEDİR. NAVLUN- GUMRUKLEME GİBİ KONULARDA ORTAYA ÇIKAN EKSTRA MALİYETLER \"ZAMAN\" HEDEFİNİ OLUMSUZ ETKİLEMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Short shipment ve ek maliyetler takip edilmemekte, zaman hedefiyle ilişkilendirilmemektedir.",
+      "2": "Ek maliyetler fark edilmekte ancak sistematik analiz veya aksiyon süreci bulunmamaktadır.",
+      "3": "Short shipment ve navlun gibi maliyetler zaman hedefiyle ilişkilendirilmekte, sınırlı aksiyon alınmaktadır.",
+      "4": "Short shipment durumları ve neden olduğu maliyetler analiz edilerek zaman hedefiyle entegre izlenmekte, iyileştirme aksiyonları uygulanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "N2.1",
+    "categoryId": "N",
+    "categoryName": "PLANLAMA VE LOJİSTİK YÖNETİMİ",
+    "subject": "LEADTIME AZALTMA",
+    "subjectId": "N2",
+    "weight": 2.5,
+    "idealState": "LEAD TIME TAKİBİ YAPILMAKTADIR.  LEAD TIME AZALTMA POLİTİKASI VARDIR VE İYİLEŞTİRME PROGRAMLARI İLE FAALİYETLERE DÖNÜŞTÜRÜLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Lead time takibi yapılmamaktadır.",
+      "2": "Lead time ölçülmekte, ancak azaltmaya yönelik politika net değildir.",
+      "3": "Lead time azaltma hedefi tanımlı, kısmen aksiyonlar uygulanmaktadır.",
+      "4": "Lead time politikası net, takip sistematik, azaltma faaliyetleri düzenli ve yaygın şekilde yürütülmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "N3.1",
+    "categoryId": "N",
+    "categoryName": "PLANLAMA VE LOJİSTİK YÖNETİMİ",
+    "subject": "PLANLAMA YAPISI",
+    "subjectId": "N3",
+    "weight": 2,
+    "idealState": "ÜRETİM PLANI AY/ HAFTA / GÜNLÜK BAZDA YAPILMAKTADIR. ÜRETİME AKTARILMAKTADIR. ÜRETİM DEPARTMANI PLANA UYUM SAĞLAR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Üretim planlaması sistematik değildir, bölümler arası uyum yoktur.",
+      "2": "Planlama belirli dönemlerde yapılmakta, üretime kısmen aktarılmaktadır.",
+      "3": "Günlük/haftalık planlar yapılmakta, üretim planda sapmalarla çalışmaktadır.",
+      "4": "Planlar periyodik olarak yapılmakta ve üretim departmanı plana yüksek oranda uyum sağlamaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "N4.1",
+    "categoryId": "N",
+    "categoryName": "PLANLAMA VE LOJİSTİK YÖNETİMİ",
+    "subject": "PLANLAMA PERFORMANSI",
+    "subjectId": "N4",
+    "weight": 1.5,
+    "idealState": "PLANLAMA ÜRETİMİN GÜNLÜK OLARAK   GERÇEKLEŞEN / PLANA UYUM ŞEKLİNDE ÜRETİM PERFORMANSINI SABAH TOPLANTILARINDA TAKİP EDER.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Günlük üretim performansı toplantılarda değerlendirilmemektedir.",
+      "2": "Takip yapılmakta ancak toplantılarda sistematik gündem değildir.",
+      "3": "Sabah toplantılarında üretim performansı konuşulmakta, veriler sınırlı analiz edilmektedir.",
+      "4": "Gerçekleşen üretim/plana uyum detaylı olarak günlük takip edilmekte ve sabah toplantılarında değerlendirme yapılmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "N5.1",
+    "categoryId": "N",
+    "categoryName": "PLANLAMA VE LOJİSTİK YÖNETİMİ",
+    "subject": "SEVİYELENDİRME",
+    "subjectId": "N5",
+    "weight": 3,
+    "idealState": "ÜRETİM PLANLAMASI DALGALANMALARIN ÖNÜNE GEÇECEK ŞEKİLDE DENGELENMEKTE, HATLARIN ÜRETİM İŞ YÜKLERİ GÖRSELLEŞTİRİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "İş yükü dengelenmesi yapılmamakta, görselleştirme yoktur.",
+      "2": "Kısmen iş yükü planlaması yapılmakta, ancak görselleştirme yetersizdir.",
+      "3": "İş yükleri belirli hatlar için dengelenmiş, bazı görsel araçlar kullanılmaktadır.",
+      "4": "Tüm hatlarda iş yükü dengelenmekte ve görsel panolarla/tablolarla sürekli izlenmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "N5.2",
+    "categoryId": "N",
+    "categoryName": "PLANLAMA VE LOJİSTİK YÖNETİMİ",
+    "subject": "3M",
+    "subjectId": "N5",
+    "weight": 3,
+    "idealState": "MÜŞTERİ TALEPLERİNDEKİ DENGESİZLİK ÜRETİMDE 3M PROBLEMLERİNE NEDEN OLMAKTADIR. PLANLAMA ÖNGÖRÜ ÇALIŞMASI İLE ÜRETİM ADETLERİNİ DENGELER VE 3M OLUŞMASININ ÖNÜNE GEÇEREK PLANI SEVİYELENDİRİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Öngörü çalışması yapılmamakta, 3M problemleri yönetilmemektedir.",
+      "2": "Planlama kısmen öngörü çalışmaları yapmakta, 3M’ye yönelik plan seviyelendirmesi yetersizdir.",
+      "3": "Üretim talep dengesizliklerine karşı öngörü ve 3M azaltma çalışmaları yapılmakta, etkisi sınırlıdır.",
+      "4": "Talep dengesizliklerine karşı öngörü ile üretim planı dengelenmekte, 3M problemleri önlenmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "N6.1",
+    "categoryId": "N",
+    "categoryName": "PLANLAMA VE LOJİSTİK YÖNETİMİ",
+    "subject": "SEVKİYAT TAKİP",
+    "subjectId": "N6",
+    "weight": 2.5,
+    "idealState": "SEVKİYAT PLANLARI OLUŞTURULMUŞTUR.  SEVKİYAT ALANINDA KONTROL ÇİZELGELERİ / TABLOLARLA TAKİP EDİLMEKTDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Sevkiyat planı ve kontrol araçları bulunmamaktadır.",
+      "2": "Sevkiyat planı mevcut, ancak kontrol çizelgeleri zayıf ve düzensizdir.",
+      "3": "Sevkiyat planları uygulanmakta, kontrol tabloları kısmen takip edilmektedir.",
+      "4": "Sevkiyat planları sistemli şekilde yürütülmekte, çizelgelerle etkin takip sağlanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "N6.2",
+    "categoryId": "N",
+    "categoryName": "PLANLAMA VE LOJİSTİK YÖNETİMİ",
+    "subject": "ALAN YÖNETİMİ",
+    "subjectId": "N6",
+    "weight": 2,
+    "idealState": "SEVKİYAT ALANI DÜZENİ OLUŞTURULMUŞTUR. ÜRÜN GRUPLARI / DOCK ALANLARI / MÜŞTERİ GRUPLARINA GÖRE AYRIŞTIRMALARLA SEVKİYATTA ÜRÜN KARŞIKLIĞININ ÖNÜNE GEÇİLMİŞTİR. KOMPONENT -HAMMADDE VE BİTMİŞ ÜRÜN STOK ALANLARI AYRI AYRI YÖNETİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Sevkiyat alanında düzen ve ayrıştırma bulunmamaktadır.",
+      "2": "Ürünler kısmen gruplanmakta, alan düzeni sınırlıdır.",
+      "3": "Sevkiyat alanı düzenli, gruplayarak ayrıştırma uygulanmakta, stoklar kısmen ayrılmıştır.",
+      "4": "Ürün grupları, müşteri ve alan bazında ayrıştırılmış, tüm sevkiyat ve stok yönetimi düzenli ve hatasız şekilde yapılmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "O1.1",
+    "categoryId": "O",
+    "categoryName": "ÇEKME SİSTEMİ & MALZEME YÖNETİMİ",
+    "subject": "MALZEME BESLEME",
+    "subjectId": "O1",
+    "weight": 2,
+    "idealState": "TOPLAMA VE BESLEME ROTALARI OLUŞTURULMUŞ. C/T HESAPLARI YAPILMIŞTIR. MALZEME DÖNGÜSÜ BU ROTA VE SÜRELER STANDART KABUL EDİLEREK YAPILMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Toplama-besleme rotaları tanımlı değil, malzeme akışı plansızdır.",
+      "2": "Rotalar belirli alanlarda oluşturulmuş, standart süreler yoktur.",
+      "3": "Rotalar tüm alanlarda tanımlı, C/T hesapları yapılmış fakat uygulamada sapmalar mevcuttur.",
+      "4": "Tüm malzeme akışları belirlenmiş rotalara ve standart döngü sürelerine uygun şekilde yürütülmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "O1.2",
+    "categoryId": "O",
+    "categoryName": "ÇEKME SİSTEMİ & MALZEME YÖNETİMİ",
+    "subject": "HAT İÇİ BESLEME",
+    "subjectId": "O1",
+    "weight": 2.5,
+    "idealState": "STOK HARELETLERİ ARTTIRILARAK HAT/ HÜCRE İÇERİSİNDE VE DEPOLARDA ALAN KAZANIMI SAĞLANMAKTADIR. BESLEME FREKANSLARI SIKTIR VE UYUMLUDUR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Stok hareketliliği düşüktür, alan kullanımı verimsizdir.",
+      "2": "Bazı alanlarda stok hareketi artırılmış, frekanslar tutarsızdır.",
+      "3": "Hattaki stok azaltılmış, besleme frekansları belirli oranda uygulanmaktadır.",
+      "4": "Stok hareketleri artırılmış, hat ve depo alanlarında etkin kazanım sağlanmış, besleme frekansları net ve uyumludur.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "O2.1",
+    "categoryId": "O",
+    "categoryName": "ÇEKME SİSTEMİ & MALZEME YÖNETİMİ",
+    "subject": "ÇEKME SİSTEMİ",
+    "subjectId": "O2",
+    "weight": 3,
+    "idealState": "İSTASYONLAR VE HATLAR ARASINDA ÇEKME SİSTEMİ UYGULANMAKTADIR. HATLAR BİRBİRLERİNİN İHTİYACI KADAR ÜRÜNÜ GEREKLİ ZAMANDA GEREKLİ MİKTARDA ÜRETMEKTEDİRLER.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Çekme sistemi bulunmamaktadır, itme sistemi ile çalışılmaktadır.",
+      "2": "Belirli istasyonlarda çekme uygulanmakta, tam yaygın değildir.",
+      "3": "Hatlar arası çekme sistemine geçilmiş, kısmen istenilen düzeydedir.",
+      "4": "Tüm hat ve istasyonlar ihtiyaca göre çekme sistemiyle senkron üretim yapmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "O2.2",
+    "categoryId": "O",
+    "categoryName": "ÇEKME SİSTEMİ & MALZEME YÖNETİMİ",
+    "subject": "SUPERMARKET MODELİ",
+    "subjectId": "O2",
+    "weight": 3,
+    "idealState": "ÇEKME SİSTEMİ SÜPERMARKET YAPISI İLE DESTEKLENMEKTEDİR. SUPERMARKETLER GÖRSEL KONTOL YÖNTEMLERİ İLE YÖNETİLMEKTE İZLENEBİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Süpermarket uygulaması yoktur.",
+      "2": "Süpermarket alanları tanımlı, görsel kontrol sınırlıdır.",
+      "3": "Süpermarketler aktif kullanılmakta, görsellik kısmen uygulanmaktadır.",
+      "4": "Süpermarket yapısı tam olarak kurulmuş, görsel kontrol araçları ile yönetim etkin şekilde yapılmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "O3.1",
+    "categoryId": "O",
+    "categoryName": "ÇEKME SİSTEMİ & MALZEME YÖNETİMİ",
+    "subject": "TAŞIMA KANBANI",
+    "subjectId": "O3",
+    "weight": 3,
+    "idealState": "SÜPERMARKET VE HATLAR ARASI MALZEME TAŞIMA İÇİN KANBAN KARTLARI VE DÖNÜŞÜMLÜ KASALAR İLE SAĞLANMAKTADIR. KANBAN VE KASA DÖNGÜ FREKANSLARI BELİRLENMİŞTİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Malzeme taşıma sistemi plansız, Kanban uygulanmamaktadır.",
+      "2": "Kanban veya dönüşümlü kasa sistemi sınırlı alanda kullanılmaktadır.",
+      "3": "Kanban kartları ve kasa sistemi uygulanmakta, bazı alanlarda standart dışı uygulamalar mevcuttur.",
+      "4": "Tüm taşıma Kanban kartları ve dönüşümlü kasalarla yürütülmekte, frekanslar belirlenmiş ve uygulanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "O3.2",
+    "categoryId": "O",
+    "categoryName": "ÇEKME SİSTEMİ & MALZEME YÖNETİMİ",
+    "subject": "İÇ LOJİSTİK",
+    "subjectId": "O3",
+    "weight": 2.5,
+    "idealState": "MALZEME DAĞITIMI VE TOPLANMASI ÜRETİM PERSONELLERİ TARFINDAN DEĞİL, PC / PLANLAMAYA LOJİSTİK BİRİMLERİ / MUZUSUMASHİ - SU ÖRÜMCEĞİ GİBİ ORGANİZASYONLARLA YÖNETİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Üretim personeli malzeme dağıtımı ve toplamasından sorumludur.",
+      "2": "Bazı hatlarda lojistik destek mevcuttur, ancak yaygın değildir.",
+      "3": "Lojistik organizasyon kurulmuş, bazı alanlarda üretim personeli hâlâ sürece dahildir.",
+      "4": "Malzeme yönetimi tamamen lojistik birimleri (PC/ su örümceği vs.) tarafından yürütülmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "O4.1",
+    "categoryId": "O",
+    "categoryName": "ÇEKME SİSTEMİ & MALZEME YÖNETİMİ",
+    "subject": "FIFO",
+    "subjectId": "O4",
+    "weight": 1.5,
+    "idealState": "MALZEME HAMMADDE AKIŞI FİFO YA GÖRE YAPILMAKTADIR. SON KULLANMA TARİHİ ELZEM OLMAYAN MALZEME TİPLERİNDE FIFO GERİYE DÖNÜK İZLEME İÇİN TAKİP AÇISINDAN AVANTAJ SAĞLAMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "FIFO uygulaması yapılmamaktadır.",
+      "2": "Kısmen FIFO uygulanmakta, bazı stok gruplarında dikkate alınmamaktadır.",
+      "3": "FIFO prensibi uygulanmakta, geriye dönük izleme bazı ürünlerde etkin yapılmaktadır.",
+      "4": "Tüm malzemelerde FIFO uygulanmakta, izlenebilirlik ve takip avantajı sağlanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "O5.1",
+    "categoryId": "O",
+    "categoryName": "ÇEKME SİSTEMİ & MALZEME YÖNETİMİ",
+    "subject": "DEPO YÖNETİMİ",
+    "subjectId": "O5",
+    "weight": 2.5,
+    "idealState": "MALZEME DEPO YÖNETİMİ DÜZENLİDİR, MALZEMEYE ULAŞMA GÖRSEL ARAÇLAR VEYA BARKOD - TERMİNAL SİSTEMLERİ İLE SAĞLANMAKTADIR. ÜRÜN MALZEME KARIŞIKLIĞINA NEDEN OLACAK UNSURLAR ELEMİNE EDİLMİŞTİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Depo yönetimi düzensiz, karışıklık riski yüksektir.",
+      "2": "Bazı düzenlemeler mevcut, erişim araçları yetersizdir.",
+      "3": "Depo yönetimi düzenli, barkod vb. sistemler kısmen kullanılmaktadır.",
+      "4": "Depo yönetimi tam düzenli, erişim barkod/terminal ile yapılmakta, karışıklık önleyici uygulamalar eksiksizdir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "P1.1",
+    "categoryId": "P",
+    "categoryName": "BAKIM YÖNETİMİ",
+    "subject": "BAKIM HEDEFLERİ",
+    "subjectId": "P1",
+    "weight": 2,
+    "idealState": "OEE PERFORMANSLARI HEDEF OLARAK TAKİP EDİLMEKTEDİR. OEE İYİLEŞTİRME ANLAMINDA BAKIM ANA HEDEFLERİ BELİRLENMİŞTİR. MTTR - MTBF İLE DESKTEKLENMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "OEE performansları düzenli olarak takip edilmemekte ve bakım hedefleri belirlenmemiştir.",
+      "2": "OEE takip edilmektedir ancak bakım hedefleri kısmen tanımlanmış ve MTTR-MTBF ölçümleri sınırlıdır.",
+      "3": "OEE performansları hedefler doğrultusunda takip edilmekte, bakım hedefleri belirlenmiş ve MTTR-MTBF ile desteklenmektedir.",
+      "4": "OEE hedefleri düzenli gözden geçirilmekte, bakım hedefleri kapsamlıdır; MTTR ve MTBF analizleri sistematik olarak iyileştirmeye yöneliktir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "P2.1",
+    "categoryId": "P",
+    "categoryName": "BAKIM YÖNETİMİ",
+    "subject": "ORGANİZASYON",
+    "subjectId": "P2",
+    "weight": 1.5,
+    "idealState": "BAKIM DEPARTMANI ORGANİZASYONEL OLARAK GÖREV VE SORUMLULUKLARI BELİRLENMİŞ VE PERSONEL YETKİNLİK MATRİSLERİ İLE EĞİTİM VE GELİŞİMLERİ TAKİP EDİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Bakım departmanında görev tanımları ve yetkinlik matrisi bulunmamaktadır; eğitim takibi yapılmamaktadır.",
+      "2": "Görev ve sorumluluklar kısmen belirlenmiş; yetkinlik matrisi ve eğitim takibi sınırlı uygulanmaktadır.",
+      "3": "Bakım organizasyonu net olarak tanımlanmış, yetkinlik matrisi ile eğitim ve gelişim düzenli takip edilmektedir.",
+      "4": "Görev ve sorumluluklar kapsamlı şekilde belirlenmiş; yetkinlik matrisleri etkin kullanılarak personel gelişimi sistematik olarak yönetilmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "P3.1",
+    "categoryId": "P",
+    "categoryName": "BAKIM YÖNETİMİ",
+    "subject": "BAKIM PLANLARI",
+    "subjectId": "P3",
+    "weight": 2,
+    "idealState": "BAKIM İÇİN TAKVİM VE PLANLAR OLUŞTURULMUŞTUR.  EKİPMANLAR VE MAKİNELER PLAN DOĞRULTUSUNDA BAKIMA ALINMAKTADIR. PLANA UYUM PERFORMANSI TAKİP EDİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Bakım takvimi ve planlaması yapılmamaktadır; planlı bakım uygulanmamaktadır.",
+      "2": "Planlama kısmen yapılmakta; ekipmanların bakıma alınması düzensiz ve planda uyum takip edilmemektedir.",
+      "3": "Planlı bakım takvimi oluşturulmuş, ekipmanlar plana uygun şekilde bakıma alınmakta ve uyum performansı takip edilmektedir.",
+      "4": "Bakım planları detaylı hazırlanmış, tüm ekipmanlar plana tam uyumlu bakıma alınmakta ve performans düzenli analiz edilmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "P4.1",
+    "categoryId": "P",
+    "categoryName": "BAKIM YÖNETİMİ",
+    "subject": "KESTİRİMCİ BAKIM",
+    "subjectId": "P4",
+    "weight": 2,
+    "idealState": "KESTİRİMCİ/ÖNLEYİCİ BAKIM FAALİYETLERİ İÇİN GEREKLİ VERİLER TOPLANMAKTA RİSK DEĞERLENDİRMESİ YAPILARAK İŞLETME İÇİN ÖNEMLİ OLDUĞU SAPTANMIŞ EKİPMANDA  TREND  MANUEL VEYA OTOMATİK YÖNTEMLE GÖZLENEREK  YAKLAŞMAKTA OLAN ÖNEMLİ ARIZALARI ÖNCEDEN TESBİT VE İLGİLİ AKSİYONU ALMA SİSTEMİ UYGULANMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kestirimci bakım için veri toplanmamakta, risk değerlendirmesi ve arıza öncesi aksiyon alınmamaktadır.",
+      "2": "Veri toplama kısmen yapılmakta, risk değerlendirmesi sınırlı, önleyici aksiyonlar düzensizdir.",
+      "3": "Gerekli veriler toplanmakta, riskler değerlendirilmekte ve önemli ekipmanlarda trend analizleri yapılarak aksiyon alınmaktadır.",
+      "4": "Kestirimci bakım tam entegre şekilde uygulanmakta, veriler otomatik/manuel toplanarak risk değerlendirmesi ve proaktif aksiyonlar sistematik olarak yürütülmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "P4.2",
+    "categoryId": "P",
+    "categoryName": "BAKIM YÖNETİMİ",
+    "subject": "KESTİRİMCİ BAKIM 2",
+    "subjectId": "P4",
+    "weight": 1,
+    "idealState": "BAKIM GÖRECEK EKİPMANIN ÇALIŞMADIĞI SÜRE BOYUNCA YARATACAĞI NEGATİF ETKİ EKİPMAN BACK UP- DAR BOĞAZDA ETKİ- YEDEK PARÇA TEMİN LEAD TIME -SERVİS DESTEĞİ- VERİMLİLİK VE KALİTEYE ETKİSİ ÖNCEDEN MATRİSLEME YÖNTEMİ İLE PLANLANMIŞTIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Ekipman arızasının etkisi önceden analiz edilmemekte, back-up ve kritik etki planlaması yapılmamaktadır.",
+      "2": "Etki analizleri kısmen yapılmış; yedek parça temini ve servis desteği plansız ve reaktif şekilde yönetilmektedir.",
+      "3": "Ekipman duruşlarının etkisi matriks yöntemiyle planlanmakta, yedek parça ve servis desteği dikkate alınmaktadır.",
+      "4": "Negatif etkiler detaylı matrikslerle önceden analiz edilmekte, back-up çözümleri, kritik etkiler, yedek parça temini ve servis desteği tam entegre planlanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "P5.1",
+    "categoryId": "P",
+    "categoryName": "BAKIM YÖNETİMİ",
+    "subject": "BAKIM BÜTÇESİ",
+    "subjectId": "P5",
+    "weight": 2,
+    "idealState": "BÜTÇE TAKİBİ : YILLIK SATIŞ ÖNGÖRÜSÜYLE EŞLEŞTİRİLMİŞ, DOĞRUDAN VE DOLAYLI MALİYETLER AYRIMI YAPILMIŞ , PLANLI BAKIM DÖNEMLERİ GÖZÖNÜNE ALINARAK  AYRINTILANDIRILMIŞ ,BÖLÜM ÇALIŞANLARI TARAFINDAN  BİLİNEN VE SAHADA GÖRSEL TAKİBİ YAPILAN BAKIM BÜTÇESİNİN MEVCUDİYETİ .",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Bakım bütçesi takibi yapılmamaktadır veya plansızdır, maliyet ayrımı yapılmamaktadır.",
+      "2": "Bütçe takibi kısmen yapılmakta, maliyet ayrımı eksik; planlı bakım dönemi bütçesi net değildir.",
+      "3": "Bütçe yıllık satış öngörüsüne göre planlanmakta, doğrudan/dolaylı maliyetler ayrılmakta ve sahada görsel takip yapılmaktadır.",
+      "4": "Bütçe yönetimi detaylı yapılmakta, maliyet ayrımları net, planlı bakım dönemi tam entegre izlenmekte ve tüm ekip bilinçli şekilde takip etmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "P6.1",
+    "categoryId": "P",
+    "categoryName": "BAKIM YÖNETİMİ",
+    "subject": "KRİTİK YEDEK PARÇA",
+    "subjectId": "P6",
+    "weight": 2,
+    "idealState": "KRİTİK EKİPMAN VE KRİTİK YEDEK PARÇA ÇALIŞMALARI SİSTEMATİK OLARAK YAPILMAKTA VE YEDEKPARÇA VE EKİPMAN TEMİNLERİ BU ÇALIŞMAYA UYGUN OLARAK YAPILMAKTADIR.   KRİTİK YEDEK PARÇA TÜKETİMİ YIL SONUNDA ARİZA SÜRESİ VE MALİYETLERİ İLE KARŞILAŞTIRILARAK ETKİNLİK ÖLÇÜLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Kritik ekipman/yedek parça yönetimi plansızdır ve tüketim takip edilmemektedir.",
+      "2": "Kritik ekipman/yedek parça çalışmaları kısmen sistematik; tüketim ve arıza süresi karşılaştırmaları sınırlıdır.",
+      "3": "Sistematik kritik ekipman ve yedek parça yönetimi yapılmakta, tüketim ve arıza süreleri karşılaştırılarak performans ölçülmektedir.",
+      "4": "Kritik ekipman ve yedek parça yönetimi tam entegre, detaylı analiz ve karşılaştırmalarla sürekli iyileştirme sağlanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "P7.1",
+    "categoryId": "P",
+    "categoryName": "BAKIM YÖNETİMİ",
+    "subject": "ENERJİ",
+    "subjectId": "P7",
+    "weight": 2,
+    "idealState": "ÇEŞİTLİ ENERJİ TÜRLERİ TÜKETİMİ  İŞLETMEDE, SABİT VE DOLAYLI  OLARAK AYRIŞTIRILMIŞ , AYRICA MAKİNA GRUBU /TESİS BAZINDA HEDEFLERLE AYRI AYRI  TAKİP EDİLMEKTEDİR.\r\nSAPMALAR TESBİT EDİLEBİLMEKTE  VE AKSİYON PLANLARI OLUŞTURULMAKTADIR. SABİT VE DOLAYLI MALİYETLERİ (TÜKETİM MİKTARLARINI) AZALTMAYA YÖNELİK KAİZEN’LER PLANLANMAKTA VE GERÇEKLEŞTİRİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Enerji tüketimi takip edilmemekte veya ayrım yapılmamaktadır.",
+      "2": "Enerji tüketimi kısmen takip edilmekte ancak sabit/dolaylı ayrımı ve hedef takibi yetersizdir.",
+      "3": "Enerji tüketimi sabit ve dolaylı olarak ayrıştırılmış, makine/tesis bazında hedeflerle takip edilmektedir.",
+      "4": "Enerji tüketimi detaylı şekilde ayrıştırılmış, hedef bazlı takip sistemleri tam entegre ve iyileştirme odaklıdır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "P8.1",
+    "categoryId": "P",
+    "categoryName": "BAKIM YÖNETİMİ",
+    "subject": "SAHA DÜZENİ",
+    "subjectId": "P8",
+    "weight": 1.5,
+    "idealState": "BAKIM ATÖLYELERİNDE 5S VE GÖRSEL YÖNETİM ARAÇLARI ETKİN OLARAK KULLANILMAKTADIR. ATÖLYE DÜZENİ SAĞLANMIŞTIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "5S ve görsel yönetim araçları kullanılmamakta, atölye düzeni sağlanmamıştır.",
+      "2": "5S ve görsel yönetim uygulamaları sınırlı ve düzensiz yapılmaktadır; düzen kısmen sağlanmıştır.",
+      "3": "5S ve görsel yönetim araçları etkin kullanılıyor, atölye düzeni genel olarak sağlanmıştır.",
+      "4": "5S ve görsel yönetim tam entegre ve sürekli iyileştirilen şekilde uygulanmakta, atölye düzeni mükemmel seviyededir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "P9.1",
+    "categoryId": "P",
+    "categoryName": "BAKIM YÖNETİMİ",
+    "subject": "ERKEN EKİPMAN YÖNETİMİ",
+    "subjectId": "P9",
+    "weight": 2,
+    "idealState": "iŞLETMEDE MEVCUT TÜM EKİPMANIN TEKNİK ÖZELLİKLERİ, ALT EKİPMAN ÖZELLİKLERİ DAHİL   , GÜNCELLENEN BİR VERİTABANINDA BULUNMAKTADIR. BU VERİTABANINDAN  YILLIK YATIRIM PLANLAMASINDA , BACK UP ÇALIŞMALARINDA , TUTULACAK YEDEK ÇEŞİDİ VE SAYISININ SAPTANMASINDA , AYRICA   ÇEŞİTLİ İDARİ KONULARDA (SİGORTA, BENCHMARKİNG,   VB) YARARLANILIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Ekipman teknik özellikleri veritabanında bulunmamaktadır veya güncel değildir.",
+      "2": "Veritabanı mevcut ancak teknik detaylar ve güncellemeler sınırlı, planlama için kısıtlı kullanılmaktadır.",
+      "3": "Güncellenen ekipman veritabanı aktif kullanılıyor, yatırım, yedek parça ve idari planlamalarda yararlanılmaktadır.",
+      "4": "Veritabanı kapsamlı, güncel ve çok yönlü kullanılmakta, tüm planlama süreçlerinde etkin şekilde entegre edilmiştir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "P9.2",
+    "categoryId": "P",
+    "categoryName": "BAKIM YÖNETİMİ",
+    "subject": "FMEA",
+    "subjectId": "P9",
+    "weight": 2,
+    "idealState": "FMEA ÇALIŞMALARI VEYA RİSK TAHMİN ÇALIŞMALARI İLE EKİPMAN KAYNAKLI PROBLEMLER BİR SONRAKİ YATIRIM SÜREÇLERİNDE REFERANS OLARAK ELE ALINMAKTADIR. KÖK NEDEN ANALİZİ ÇALIŞMALARI İLE DE PROBLEMLERİN NEDENLERİ VE AKSİYONLARI PROAKTİF OLARAK BELİRLENMEKTDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "FMEA, risk tahmin ve kök neden analizleri yapılmamaktadır; yatırımlar plansızdır.",
+      "2": "FMEA ve risk çalışmaları sınırlı yapılmakta, kök neden analizleri nadiren uygulanmaktadır.",
+      "3": "FMEA, risk tahmin ve kök neden analizleri düzenli yapılmakta, yatırımlarda referans olarak kullanılmaktadır.",
+      "4": "FMEA ve kök neden analizleri sistematik, proaktif aksiyonlarla bütünleşik ve yatırım süreçlerinde tam entegredir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "R1.1",
+    "categoryId": "R",
+    "categoryName": "OTONOM BAKIM",
+    "subject": "KULLANICI BAKIMI",
+    "subjectId": "R1",
+    "weight": 2,
+    "idealState": "OTONOM BAKIM / GÜNLÜK BAKIM / KULLANICI BAKIM ADI ALTINDA MAKİNE OPERATÖRLERİNİN KONTROL VE BAKIM KONULARINI ÜSTLENDİĞİ BİR BAKIM SİSTEMİ ÇALIŞMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Operatörlerin bakım ve kontrol sorumluluğu net değildir; otonom bakım sistemi uygulanmamaktadır.",
+      "2": "Otonom bakım sistemi kısmen çalışmakta, operatörler bazı kontrol ve bakım görevlerini üstlenmektedir.",
+      "3": "Operatörler otonom bakım kapsamında düzenli kontrol ve bakım görevlerini aktif şekilde yürütmektedir.",
+      "4": "Otonom bakım sistemi tam entegre, operatörler tüm kontrol ve bakım süreçlerinde sorumluluk almış ve sistem etkin şekilde işlemektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "R2.1",
+    "categoryId": "R",
+    "categoryName": "OTONOM BAKIM",
+    "subject": "EĞİTİM",
+    "subjectId": "R2",
+    "weight": 3,
+    "idealState": "OPERATÖR TEORİK VE EKİPMAN ÜZERİ EĞİTİMLERİ TAMAMLANMIŞ, GENEL KONTROLLER, EKİPMAN BİLEŞENLERİ, EĞİTİMLER ALMIŞLARDIR. HANGİ AŞAMADA KONTROL GERÇEKLEŞTİREBİLECEĞİ MATRİSLERLE TANIMLANMIŞTIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Operatörlere eğitim verilmemiştir; kontrol aşamaları tanımlanmamıştır.",
+      "2": "Temel eğitimler verilmiş ancak kontrol aşamaları ve yetkinlikler matrisi eksik veya kısmi olarak tanımlanmıştır.",
+      "3": "Operatörlerin teorik ve uygulamalı eğitimleri tamamlanmış, kontrol aşamaları matrikslerle net şekilde tanımlanmıştır.",
+      "4": "Eğitimler eksiksiz, güncel ve sistematik; kontrol aşamalarının tamamı matrikslerle detaylı ve izlenebilir şekilde tanımlanmıştır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "R3.1",
+    "categoryId": "R",
+    "categoryName": "OTONOM BAKIM",
+    "subject": "STANDARTLAR",
+    "subjectId": "R3",
+    "weight": 3,
+    "idealState": "BAKIM DEPARTMANI OPERATÖRLERİN GÜNLÜK KONROL KONULARINI BELİRLEMİŞ VE BİR STANDARDA BAĞLAMIŞTIR. STANDARTLAR GÜNLÜK OLARAK UYGULANMAKTA VE TEYİT EDİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Operatörlerin günlük kontrol konuları belirlenmemiş veya standartlaştırılmamıştır.",
+      "2": "Kontrol konuları belirlenmiş ancak standart uygulamalar eksik veya tutarsızdır.",
+      "3": "Günlük kontrol konuları standartlara bağlanmış ve düzenli olarak uygulanıp teyit edilmektedir.",
+      "4": "Standartlar tam entegre ve sürekli iyileştiriliyor; uygulama ve teyit süreçleri yüksek performansla sürdürülmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "R4.1",
+    "categoryId": "R",
+    "categoryName": "OTONOM BAKIM",
+    "subject": "HATA TESPİT",
+    "subjectId": "R4",
+    "weight": 3,
+    "idealState": "VARDİYALARDA VEYA GÜN SONUNDA EKİPMAN GENEL TEMİZLİKLERİ YAPILMAKTADIR. KİRLİLİK KAYNAKLARI TESPİT EDİLEREK PROBLEMLER TANIMLANMAKTADIR. HATA KARTI - KIRMIZI KART VE SOFTWARE ÜZERİNDEN BAKIM DEPARTMANINA GERİ BESLEME YAPILMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Temizlik ve kirlik tespiti yapılmamaktadır; geri besleme sistemi yoktur.",
+      "2": "Temizlik yapılmakta ancak kirlilik kaynakları tespiti ve geri besleme sınırlıdır.",
+      "3": "Vardiya sonunda temizlik düzenli yapılmakta, kirlik kaynakları tespit edilmekte ve geri besleme aktif olarak yapılmaktadır.",
+      "4": "Temizlik ve kirlik tespiti sistematik, tüm problemler kayıt altına alınmakta, hızlı geri besleme ve aksiyon süreçleri etkin şekilde işlemektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "R4.2",
+    "categoryId": "R",
+    "categoryName": "OTONOM BAKIM",
+    "subject": "GÖRSEL KONTROL TEKNİKLERİ",
+    "subjectId": "R4",
+    "weight": 3,
+    "idealState": "GÖRSEL KONTROL METOTLARI İLE OPERATÖRÜN BAKIM / KONTROL SÜREÇLERİ KOLAYLAŞTIRILARAK KONTROL İÇİN AYRILAN SÜRELER KISATILMAKTADIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Görsel kontrol metotları kullanılmamaktadır; bakım ve kontrol süreçleri karmaşık ve zaman almaktadır.",
+      "2": "Görsel kontroller kısmen uygulanmakta, süreçlerde kolaylaştırma sınırlı ve sürede iyileşme azdır.",
+      "3": "Görsel kontrol metotları etkin kullanılarak bakım ve kontrol süreçleri kolaylaşmakta ve zaman tasarrufu sağlanmaktadır.",
+      "4": "Görsel kontroller tüm bakım süreçlerine entegre, operatörler için süreçler çok kolay ve hızlıdır; sürekli iyileştirme sağlanmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "R5.1",
+    "categoryId": "R",
+    "categoryName": "OTONOM BAKIM",
+    "subject": "YETKİNLİK",
+    "subjectId": "R5",
+    "weight": 3,
+    "idealState": "OPERATÖRLERİN ÖNCELİKLE ARIZA TESPİT, PROBLEM HATA TANIMLAMA, SONRASINDA ARIZAYA MÜDAHELE EDEBİLME YETKİNLİKLERİ GELİŞTİRİLMEKTE VE PERFORMANSLARI KPI OLARAK TAKİP EDİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Operatörlerin arıza tespit ve müdahale yetkinlikleri geliştirilmemiştir; performans takibi yapılmamaktadır.",
+      "2": "Arıza tespit ve problem tanımlama yetkinlikleri geliştirilmiş ancak müdahale yetkinliği sınırlı ve KPI takibi yetersizdir.",
+      "3": "Operatörlerin arıza tespit, tanımlama ve müdahale yetkinlikleri geliştirilmiş, performansları KPI olarak takip edilmektedir.",
+      "4": "Yetkinlik geliştirme tam entegre, KPI takibi düzenli ve sonuç odaklıdır; operatörler proaktif arıza yönetimi gerçekleştirmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "R6.1",
+    "categoryId": "R",
+    "categoryName": "OTONOM BAKIM",
+    "subject": "GELİŞİM",
+    "subjectId": "R6",
+    "weight": 3,
+    "idealState": "BAKIM VE ÜRETİM DEPARTMANLARI İLE OTONOM BAKIM İYİLEŞTİRME TOPLANTILARI ORGANİZE EDİLMEKTEDİR. BAKIM DEPARTMANI BİLDİRİLEN HATA GERİ BESLEMELERİNE HIZLI CEVAP VEREREK OPERATÖRLERİ DESTEKLEMEKTEDİR. HER GERİ BESLEME KAİZEN KONUSU OLARAK ELE ALINARAK KAİZEN PERFORMANSI İYİLEŞTİRİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "İyileştirme toplantıları organize edilmemekte; hata geri beslemeleri ve kaizen süreçleri yoktur.",
+      "2": "Toplantılar aralıklı yapılmakta; geri besleme ve kaizen süreçleri kısmi olarak yürütülmektedir.",
+      "3": "Düzenli iyileştirme toplantıları yapılmakta; geri beslemeler hızlı, kaizen faaliyetleri planlıdır.",
+      "4": "İyileştirme toplantıları sistematik, hızlı geri besleme ve kaizen performansı sürekli artırılmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "S1.1",
+    "categoryId": "S",
+    "categoryName": "HENKATEN YÖNETİMİ",
+    "subject": "4M",
+    "subjectId": "S1",
+    "weight": 3,
+    "idealState": "SAHA YÖNETİMİ,  KALİTE ŞARTLARINI GÜVENCE ALTINDA TUTABİLMEK İÇİN OLUŞAN HER TÜRLÜ DEĞİŞİK NOKTASI 4M BAŞLIKLARI ALTINDA TOPLANMIŞ VE GRUPLANDIRILMIŞTIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Değişiklik noktaları sistematik olarak izlenmemekte, 4M bazlı sınıflandırma yapılmamaktadır.",
+      "2": "Bazı değişiklikler belirlenmekte ancak 4M başlıkları altında tutarlı bir şekilde gruplanmamaktadır.",
+      "3": "Değişiklikler 4M başlıklarıyla gruplanmakta, saha yönetimi kısmen sistematik ilerlemektedir.",
+      "4": "Tüm değişiklikler eksiksiz şekilde 4M sistematiğine göre gruplanmış, sürekli izlenmekte ve güncellenmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "S2.1",
+    "categoryId": "S",
+    "categoryName": "HENKATEN YÖNETİMİ",
+    "subject": "SAHA KONTROLLERİ",
+    "subjectId": "S2",
+    "weight": 3,
+    "idealState": "OLUŞMASI MUHTEMEL VARYASYON KONULARI SAPTANMIŞTIR. AKSİYONLARI BELİRLENMİŞTİR. LİDERLERİN BU KONUDA HIZLI AKSİYONA GEÇEBİLMESİ GEREKLİ YETKİNLİKLERİ MEVCUTTUR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Varyasyon konuları belirlenmemiş, liderlerin aksiyon alma becerileri sınırlıdır.",
+      "2": "Bazı varyasyonlar öngörülmüş, liderlerin aksiyon alma yeterliliği gelişmektedir.",
+      "3": "Varyasyonlar saptanmış ve aksiyonlar belirlenmiştir, liderler çoğunlukla etkin şekilde müdahale edebilmektedir.",
+      "4": "Tüm varyasyon konuları proaktif olarak ele alınmakta, liderler tam yetkinlikte hızlı aksiyon alabilmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "S3.1",
+    "categoryId": "S",
+    "categoryName": "HENKATEN YÖNETİMİ",
+    "subject": "PANO YÖNETİMİ",
+    "subjectId": "S3",
+    "weight": 2,
+    "idealState": "STANDART İŞLEYİŞ HAT YÖNETİM / GÖREVLENDİRME / VB GİBİ GÖRSEL PANOLARDA MEVCUTTUR. YERİNE BAŞKA ADAM ÇALIŞMASI, BAŞKA MALZEME, FARKLI EKİPMAN VB GİBİ KONULAR BU PANOLARDA DEĞİŞİM NOKTASI OLARAK GÖSTERİLEREK YÖNETİLMEKTEDİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Görsel panolarda standart işleyişe dair bilgiler yer almamakta, değişim yönetimi yapılmamaktadır.",
+      "2": "Görsel panolar kısmen kullanılmakta, değişikliklerin bir kısmı yansıtılmaktadır.",
+      "3": "Standart işleyiş ve değişim noktaları büyük ölçüde panolarda görünür durumdadır.",
+      "4": "Tüm değişiklikler eksiksiz biçimde görsel panolarda izlenmekte, yönetim kararlarına anlık veri sağlamaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "S4.1",
+    "categoryId": "S",
+    "categoryName": "HENKATEN YÖNETİMİ",
+    "subject": "ÖN KOŞULLARIN TÖNETİMİ",
+    "subjectId": "S4",
+    "weight": 3,
+    "idealState": "ÜRETİM ÖNCESİ ÖN KOŞULLARIN SAĞLANMASI, MALZEME, İNSAN, TALİMATLAR, CHECK LİSTLERİN İŞLEVSELLİĞİ, EKİPMAN KONTROLÜ GİBİ GÜNLÜK KONTROL ALTINDA OLMASI GEREKEN KONULAR LİDERLERE GÖREV OLARAK ATANMIŞ VE SÜRECİ YÖNETMELERİ SAĞLANMIŞTIR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Üretim öncesi koşulların takibi yapılamamakta, görev atamaları net değildir.",
+      "2": "Bazı ön koşullar takip edilmekte, liderlerin sürece hâkimiyeti sınırlıdır.",
+      "3": "Ön koşullar belirlenmiş ve liderler çoğunlukla sorumluluk alarak süreci yönetmektedir.",
+      "4": "Tüm ön koşullar liderlere tanımlı görev olarak verilmiş, süreçler eksiksiz kontrol edilmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "S5.1",
+    "categoryId": "S",
+    "categoryName": "HENKATEN YÖNETİMİ",
+    "subject": "KONTROL",
+    "subjectId": "S5",
+    "weight": 3,
+    "idealState": "DEĞİŞİKLİK OLUŞMASI DURUMUNDA OPERATÖRLER BU DEĞİŞİKLİĞİ ANDON LAMBALARI, SİNYALLER, RENKLİ BAYRAK  VB GİBİ GÖRSEL ARAÇLARLA GÖRSEL HALE GETİRMEKTEDİR.  LİDER BURADA DEVREYE GİREREK GEREKLİ AKSİYONLARI DEVREYE SOKAR. KALİTE İLE BİRLİKTE ÜRÜN KALİTESİNİ İZLER",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Görsel uyarı sistemleri kullanılmamakta, lider müdahalesi düzensizdir.",
+      "2": "Bazı görsel uyarılar mevcuttur, ancak lider aksiyonu tutarsızdır.",
+      "3": "Değişiklikler görsel olarak işaretlenmekte, liderler genellikle hızlı müdahale etmektedir.",
+      "4": "Tüm değişiklikler anında görsel hale getirilmekte, lider kaliteyle birlikte hızlı ve etkili şekilde sürece müdahil olmaktadır.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "S5.2",
+    "categoryId": "S",
+    "categoryName": "HENKATEN YÖNETİMİ",
+    "subject": "KONTROL 2",
+    "subjectId": "S5",
+    "weight": 3,
+    "idealState": "PROSES AKIŞ DEĞİŞİKLİĞİ, LAYOUTLARIN DEĞİŞMESİ, KAİZEN İLE EKİPMANLARDA YAPILAN İYİLEŞTİRMELER, POKAYOKE REVİZYONLARI VB GİBİ KONULAR HENKATEN KONUSU OLARAK ELE ALINIR. STANDARTLAR OLUŞANA KADAR OLUŞAN DEĞİŞİKLİK KONTROL ALTINDA TUTULUR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Süreç değişiklikleri izlenmemekte, henkaten uygulaması yoktur.",
+      "2": "Bazı değişiklikler kayıt altına alınmakta, ancak standardizasyon süreci eksiktir.",
+      "3": "Henkaten uygulaması aktif, değişiklikler geçici kontrollerle izlenmektedir.",
+      "4": "Tüm proses ve ekipman değişiklikleri sistematik şekilde henkaten ile yönetilmekte, standart oluşana kadar kontrol sürmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  },
+  {
+    "id": "S6.1",
+    "categoryId": "S",
+    "categoryName": "HENKATEN YÖNETİMİ",
+    "subject": "RAPORLAMA",
+    "subjectId": "S6",
+    "weight": 3,
+    "idealState": "OLUŞAN HENKATEN MADDELERİ RAPORLANIR, KAYIT ALTINA ALINARAK AKSİYONLARI İLE BİRLİKTE KURUM HAFIZASINDA SAKLANIR. ÜRETİMİN AKSİYON KABİLİYETİ GELİŞTİRİLİR.",
+    "rubric": {
+      "0": "Çalışma Görülmedi",
+      "1": "Henkaten kayıtları tutulmamakta, aksiyonlar izlenmemektedir.",
+      "2": "Bazı henkaten kayıtları tutulmakta, aksiyonlar düzensiz biçimde uygulanmaktadır.",
+      "3": "Henkaten raporları oluşturulmakta, aksiyonlar takip edilerek üretim tepkiselliği artırılmaktadır.",
+      "4": "Tüm henkaten maddeleri sistematik şekilde kayıt altına alınmakta, kurum hafızasında saklanarak üretimin refleksleri geliştirilmektedir.",
+      "5": "Başarılı Uygulama"
+    }
+  }
+]

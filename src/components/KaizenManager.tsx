@@ -1,0 +1,4430 @@
+import React, { useState, useEffect } from "react";
+import { KaizenCard, ProcessRecord, GanttActivity, Customer } from "../types";
+import { 
+  Plus, Layers, Filter, CheckCircle, Trash2, DollarSign, 
+  ArrowRight, Edit2, Sparkles, TrendingUp, BarChart2, PieChart, 
+  Calendar, List, AlertTriangle, Check, RotateCcw, FileText, 
+  ChevronRight, ChevronDown, Info, Users, Clock, Percent, Shield, ArrowDownUp,
+  GripVertical, Maximize2, Minimize2, FileUp, File, FileSpreadsheet, Image,
+  Camera, Upload, ZoomIn, X
+} from "lucide-react";
+import { 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, 
+  ResponsiveContainer, PieChart as RePieChart, Pie, Cell, 
+  LineChart as ReLineChart, Line, AreaChart, Area, ScatterChart, Scatter, ZAxis
+} from "recharts";
+
+interface KaizenManagerProps {
+  kaizens: KaizenCard[];
+  onAddKaizen: (k: KaizenCard) => void;
+  onUpdateKaizen: (k: KaizenCard) => void;
+  onDeleteKaizen: (id: string) => void;
+  processes: ProcessRecord[];
+  activities: GanttActivity[];
+  onAddActivity: (a: GanttActivity) => void;
+  onUpdateActivity: (a: GanttActivity) => void;
+  onDeleteActivity: (id: string) => void;
+  selectedCustomer: Customer;
+}
+
+type TabType = "kanban" | "list" | "timeline" | "dashboard";
+
+interface CITask {
+  id: string;
+  name: string;
+  responsible: string;
+  deadline: string;
+  priority: "High" | "Medium" | "Low";
+  progressPercent: number;
+}
+
+interface CIFinancialsInput {
+  scrapReduction: { pct: number; val: number };
+  reworkReduction: { pct: number; val: number };
+  wasteReduction: { pct: number; val: number };
+  setupTimeReduction: { pct: number; val: number };
+  leadTimeReduction: { pct: number; val: number };
+  wipReduction: { pct: number; val: number };
+  operatorEfficiency: { pct: number; val: number };
+  oeeIncrease: { pct: number; val: number };
+  energySavings: { pct: number; val: number };
+  qualityImprovement: { pct: number; val: number };
+  productionIncrease: { pct: number; val: number };
+  deliveryPerformance: { pct: number; val: number };
+  ohsGain: { pct: number; val: number };
+  spaceSavings: { pct: number; val: number };
+  inventoryReduction: { pct: number; val: number };
+  maintenanceSavings: { pct: number; val: number };
+  otherSavings: { pct: number; val: number };
+}
+
+const defaultFinancialsInput = (): CIFinancialsInput => ({
+  scrapReduction: { pct: 0, val: 0 },
+  reworkReduction: { pct: 0, val: 0 },
+  wasteReduction: { pct: 0, val: 0 },
+  setupTimeReduction: { pct: 0, val: 0 },
+  leadTimeReduction: { pct: 0, val: 0 },
+  wipReduction: { pct: 0, val: 0 },
+  operatorEfficiency: { pct: 0, val: 0 },
+  oeeIncrease: { pct: 0, val: 0 },
+  energySavings: { pct: 0, val: 0 },
+  qualityImprovement: { pct: 0, val: 0 },
+  productionIncrease: { pct: 0, val: 0 },
+  deliveryPerformance: { pct: 0, val: 0 },
+  ohsGain: { pct: 0, val: 0 },
+  spaceSavings: { pct: 0, val: 0 },
+  inventoryReduction: { pct: 0, val: 0 },
+  maintenanceSavings: { pct: 0, val: 0 },
+  otherSavings: { pct: 0, val: 0 }
+});
+
+export default function KaizenManager({
+  kaizens,
+  onAddKaizen,
+  onUpdateKaizen,
+  onDeleteKaizen,
+  processes,
+  activities,
+  onAddActivity,
+  onUpdateActivity,
+  onDeleteActivity,
+  selectedCustomer
+}: KaizenManagerProps) {
+  const [activeTab, setActiveTab] = useState<TabType>("kanban");
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [wizardStep, setWizardStep] = useState<1 | 2>(1);
+  const [selectedDeptFilter, setSelectedDeptFilter] = useState("all");
+  const [selectedPhaseFilter, setSelectedPhaseFilter] = useState("all");
+  
+  // Selected Product Family filter for Loss Capacity topics
+  const [selectedProductFamily, setSelectedProductFamily] = useState<string>("ALL");
+
+  const PRODUCT_FAMILIES = React.useMemo(() => [
+    { id: "ALL", name: "Tüm Fabrika Ürün Aileleri (%100 Hacim Payı)", ratio: 1.0, sharePct: 100 },
+    { id: "Isıtıcı Grubu", name: "Isıtıcı Ürün Ailesi (%30 Hacim Payı)", ratio: 0.30, sharePct: 30 },
+    { id: "Soğutucu Grubu", name: "Soğutucu Ürün Ailesi (%45 Hacim Payı)", ratio: 0.45, sharePct: 45 },
+    { id: "Pişirici Grubu", name: "Pişirici Ürün Ailesi (%25 Hacim Payı)", ratio: 0.25, sharePct: 25 },
+  ], []);
+
+  // Selected opportunity for Step 1
+  const [selectedOpportunity, setSelectedOpportunity] = useState<any | null>(null);
+  const [wizardTab, setWizardTab] = useState<"firsat" | "yeni">("firsat");
+  const [projectCurrentLoss, setProjectCurrentLoss] = useState<number>(0);
+  const [editCurrentLoss, setEditCurrentLoss] = useState<number>(0);
+  const [isProjectFullScreen, setIsProjectFullScreen] = useState(false);
+  
+  // Wizard Step 2 States
+  const [projectName, setProjectName] = useState("");
+  const [projectDesc, setProjectDesc] = useState("");
+  const [projectLeader, setProjectLeader] = useState("Barış Gökdemir (OpEx Lead)");
+  const [projectTeam, setProjectTeam] = useState<string[]>([]);
+  const [projectSponsor, setProjectSponsor] = useState("Mehmet Soyer (Fabrika Müdürü)");
+  const [projectDept, setProjectDept] = useState("Üretim / Montaj");
+  const [projectCost, setProjectCost] = useState<number>(15000);
+  const [projectImpact, setProjectImpact] = useState<"High" | "Medium" | "Low">("Medium");
+  const [projectPhase, setProjectPhase] = useState<any>("Faz 1 (1 Ay)");
+  const [plannedFinish, setPlannedFinish] = useState("");
+
+  // Wizard Step 2 Extra Fields (CI Problem, Root Cause, Actions)
+  const [problemDefinition, setProblemDefinition] = useState("");
+  const [problemDetail, setProblemDetail] = useState("");
+  const [targetObjective, setTargetObjective] = useState("");
+  const [rootCause, setRootCause] = useState("");
+  const [improvementActions, setImprovementActions] = useState("");
+  const [responsibles, setResponsibles] = useState("");
+  const [actionsTaken, setActionsTaken] = useState("");
+
+  // Edit Project Detail States
+  const [editingProject, setEditingProject] = useState<KaizenCard | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editProblemDefinition, setEditProblemDefinition] = useState("");
+  const [editProblemDetail, setEditProblemDetail] = useState("");
+  const [editTargetObjective, setEditTargetObjective] = useState("");
+  const [editTargetKpi, setEditTargetKpi] = useState("");
+  const [editTargetRatio, setEditTargetRatio] = useState<number>(0);
+  const [editTargetCostReduction, setEditTargetCostReduction] = useState<number>(0);
+  const [editRootCause, setEditRootCause] = useState("");
+  const [editImprovementActions, setEditImprovementActions] = useState("");
+  const [editResponsibles, setEditResponsibles] = useState("");
+  const [editActionsTaken, setEditActionsTaken] = useState("");
+  const [editProjectLeader, setEditProjectLeader] = useState("");
+  const [editProjectSponsor, setEditProjectSponsor] = useState("");
+  const [editPlannedFinishDate, setEditPlannedFinishDate] = useState("");
+  const [editEstimatedCost, setEditEstimatedCost] = useState(0);
+  const [editPhase, setEditPhase] = useState<any>("Faz 1 (1 Ay)");
+  const [editDepartment, setEditDepartment] = useState("");
+  const [editImpactAnalysis, setEditImpactAnalysis] = useState<Record<string, 'Yüksek' | 'Orta' | 'Düşük'>>({});
+  const [editTasks, setEditTasks] = useState<any[]>([]);
+  const [editProgressStep, setEditProgressStep] = useState<string>("Tanımlama");
+  const [editExpectedGain, setEditExpectedGain] = useState<number>(0);
+  const [editExpectedGainCurrency, setEditExpectedGainCurrency] = useState<string>("TL");
+  const [editRealizedGain, setEditRealizedGain] = useState<number>(0);
+  const [editRealizedGainCurrency, setEditRealizedGainCurrency] = useState<string>("TL");
+  const [editRealizedImprovementPct, setEditRealizedImprovementPct] = useState<number>(0);
+  const [editStdWorkUpdated, setEditStdWorkUpdated] = useState<boolean>(false);
+  const [editInstructionRevised, setEditInstructionRevised] = useState<boolean>(false);
+  const [editTrainingGiven, setEditTrainingGiven] = useState<boolean>(false);
+  const [editControlPlanUpdated, setEditControlPlanUpdated] = useState<boolean>(false);
+  const [editAuditListUpdated, setEditAuditListUpdated] = useState<boolean>(false);
+  const [editProjectResult, setEditProjectResult] = useState<string>("Başarılı");
+  const [editResultDescription, setEditResultDescription] = useState<string>("");
+  const [editDocuments, setEditDocuments] = useState<any[]>([]);
+
+  // Section 2 & 7 Photo States for Mobile/Tablet Camera & Gallery Uploads
+  const [editProblemPhotos, setEditProblemPhotos] = useState<string[]>([]);
+  const [editResultPhotos, setEditResultPhotos] = useState<string[]>([]);
+
+  // Expand/Collapse state for sub-activities on Gantt Timeline
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Record<string, boolean>>({});
+
+  // Lightbox Zoom Modal State
+  const [lightboxPhoto, setLightboxPhoto] = useState<{ url: string; title: string } | null>(null);
+
+  // Screen expansion mode
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  // Email status message for simulated notification system
+  const [emailStatusMessage, setEmailStatusMessage] = useState<string | null>(null);
+
+  // Drag and Drop States
+  const [draggedProjId, setDraggedProjId] = useState<string | null>(null);
+  const [activeDropCol, setActiveDropCol] = useState<string | null>(null);
+
+  // Team options from client/predefined list
+  const teamOptions = [
+    "Barış Gökdemir (OpEx Lead)",
+    "Mehmet Soyer (Fabrika Müdürü)",
+    "Zeynep Karahan (Metot Müh.)",
+    "Mustafa Çelik (Üretim Şefi)",
+    "Ahmet Yılmaz (Kalite Müh.)",
+    "Ayşe Demir (Bakım Sorumlusu)",
+    "Hakan Bulgurlu (Yönetici Sponsor)",
+    "Selin Kara (Lojistik Şefi)"
+  ];
+
+  // Financial inputs state for active project editing
+  const [editingFinancialsProjId, setEditingFinancialsProjId] = useState<string | null>(null);
+  const [financialsInput, setFinancialsInput] = useState<CIFinancialsInput>(defaultFinancialsInput());
+  
+  // Task management state
+  const [activeTasksProjId, setActiveTasksProjId] = useState<string | null>(null);
+  const [newTaskName, setNewTaskName] = useState("");
+  const [newTaskResponsible, setNewTaskResponsible] = useState("Barış Gökdemir (OpEx Lead)");
+  const [newTaskDeadline, setNewTaskDeadline] = useState("");
+  const [newTaskPriority, setNewTaskPriority] = useState<"High" | "Medium" | "Low">("Medium");
+
+  // Currency helper
+  const currency = selectedCustomer?.currency || "₺";
+
+  // Bi-directional sync with Gantt Master Plan
+  const syncWithGantt = (project: KaizenCard, action: 'add' | 'update' | 'delete') => {
+    const activityId = `gantt_sync_${project.id}`;
+    const existingGantt = activities.find(a => a.id === activityId);
+    
+    if (action === 'delete') {
+      if (existingGantt) {
+        onDeleteActivity(activityId);
+      }
+      return;
+    }
+    
+    const formatGanttDate = (dateStr?: string) => {
+      if (!dateStr) return new Date().toISOString().slice(0, 7);
+      return dateStr.slice(0, 7); // YYYY-MM
+    };
+    
+    const ganttStatusMap = {
+      "Draft": "Planned",
+      "Approved": "Planned",
+      "In Progress": "In Progress",
+      "Completed": "Completed"
+    } as const;
+
+    const progressMap = {
+      "Draft": 15,
+      "Approved": 30,
+      "In Progress": 65,
+      "Completed": 100
+    };
+
+    // Calculate dynamic progress if tasks exist
+    let progress = progressMap[project.status];
+    if (project.tasks && project.tasks.length > 0) {
+      const completedCount = project.tasks.filter((t: any) => t.progressPercent === 100).length;
+      progress = Math.round((completedCount / project.tasks.length) * 100);
+    }
+    if (project.status === "Completed") progress = 100;
+
+    const ganttPayload: GanttActivity = {
+      id: activityId,
+      name: `[CI] ${project.title}`,
+      owner: project.projectLeader || project.originator || "CI Ekibi",
+      startDate: formatGanttDate(project.dateProposed),
+      endDate: formatGanttDate(project.plannedFinishDate || project.dateProposed),
+      progressPercent: progress,
+      priority: project.impactLevel,
+      status: (project.status === "Completed") ? "Completed" : (project.plannedFinishDate && new Date(project.plannedFinishDate) < new Date()) ? "Delayed" : ganttStatusMap[project.status] || "In Progress",
+      notes: project.description || project.descriptionBefore || "CI Proje Portföyü Entegrasyonu"
+    };
+
+    if (existingGantt) {
+      onUpdateActivity(ganttPayload);
+    } else {
+      onAddActivity(ganttPayload);
+    }
+  };
+
+  // Generate opportunities dynamically from Loss Capacity Analysis (COPQ / Cost Deployment Entegrasyonu)
+  const generateOpportunities = () => {
+    // 1. Read stored Loss Capacity Analysis for the current customer
+    const custId = selectedCustomer?.id || "default";
+    const savedLcStr = localStorage.getItem(`gemba_loss_capacity_${custId}`);
+    let lcData: any = null;
+    if (savedLcStr) {
+      try {
+        lcData = JSON.parse(savedLcStr);
+      } catch (e) {
+        console.error("Failed to parse gemba_loss_capacity", e);
+      }
+    }
+
+    // Determine active Product Family Ratio and Label
+    let familyRatio = 1.0;
+    let familyLabel = "Tüm Fabrika Ürün Aileleri (%100 Hacim Payı)";
+
+    const presetFamily = PRODUCT_FAMILIES.find(p => p.id === selectedProductFamily);
+    if (presetFamily) {
+      familyRatio = presetFamily.ratio;
+      familyLabel = presetFamily.name;
+    } else if (lcData && lcData.selectedVsmProject && selectedProductFamily === lcData.selectedVsmProject.productGroup) {
+      familyRatio = (lcData.selectedVsmProject.productVolumeShare || 30) / 100;
+      familyLabel = `${lcData.selectedVsmProject.name} (${lcData.selectedVsmProject.productGroup} - %${lcData.selectedVsmProject.productVolumeShare || 30} Hacim Payı)`;
+    }
+
+    // Detailed problem definition mapping
+    const getLossProblemDetail = (subject: string, costGroup?: string) => {
+      switch (subject) {
+        case "Setup Süreleri (SMED)":
+          return "Pres, kalıphane ve montaj hatlarında tip/model değişimlerinde harcanan verimsiz ayar süreleri ve bağlı kapasite kaybı.";
+        case "Hurda Maliyeti":
+          return "Üretim sürecinde oluşan hatalı parça, ıskarta sac ve hammaddenin neden olduğu doğrudan malzeme ve işçilik kaybı.";
+        case "Fire & Malzeme Kayıpları":
+          return "Kesim, kenar ve proses içi fireler ile taşıma esnasında ziyan olan doğrudan malzeme maliyeti.";
+        case "Plansız Duruşların Önlenmesi":
+          return "Mekanik, elektriksel ve otomasyon kaynaklı plansız makine duruşlarının neden olduğu kullanılabilirlik kaybı.";
+        case "OEE İyileştirmesi":
+          return "OEE 6 büyük kayıp (küçük duruşlar, hız kayıpları, hurda) nedeniyle genel ekipman verimliliğinin hedefin altında kalması.";
+        case "Yeniden İşleme (Rework)":
+          return "İlk seferde doğru üretilemeyen parçaların tamir ve yeniden işlenmesi için harcanan ek işçilik ve enerji kaybı.";
+        case "Operasyonel Verimsizlik":
+          return "Hat içi istasyonlar arası yük ve çevrim süresi dengesizlikleri (Yamazumi darboğazları) kaynaklı işçilik israfı.";
+        case "Operatör Verimliliği":
+          return "Standart dışı hareketler, bekleme süreleri ve OLE (Overall Labor Effectiveness) yetersizliğinden kaynaklı adam-saat kaybı.";
+        case "WIP (Yarı Mamul) Azaltımı":
+          return "Proses aralarında biriken aşırı yarı mamul stoku, alan işgali ve kilitli çalışma sermayesi finansman maliyeti.";
+        case "Lead Time (Sipariş Çevrimi)":
+          return "Değer yaratmayan bekleme ve taşıma sürelerinin uzunluğu nedeniyle toplam sipariş teslim süresinin uzaması.";
+        case "Fazla Mesai Azaltımı":
+          return "Planlama yetersizliği ve verimsizliklerden doğan yüksek maliyetli fazla mesai işçilik yükü.";
+        case "Sevkiyat Performansı":
+          return "Lojistik, ambalajlama ve OTIF (Zamanında ve Eksiksiz Teslimat) aksamalarından doğan ceza ve gecikme riski.";
+        default:
+          return `${subject} alanında tespit edilen ve Loss Capacity Analizi ile ortaya çıkarılan finansal kayıp konusu.`;
+      }
+    };
+
+    const getDeptForSubject = (subject: string) => {
+      if (subject.includes("Setup") || subject.includes("SMED")) return "Pres Atölyesi";
+      if (subject.includes("Hurda") || subject.includes("Fire") || subject.includes("Rework")) return "Kalite Güvence";
+      if (subject.includes("Duruş") || subject.includes("OEE")) return "Bakım Onarım";
+      if (subject.includes("Operatör") || subject.includes("Verimsizlik")) return "Endüstri Mühendisliği";
+      if (subject.includes("WIP") || subject.includes("Lead") || subject.includes("Sevkiyat")) return "Lojistik / Depo";
+      return "Üretim / Montaj";
+    };
+
+    // Primary: If Loss Capacity Analysis has computed recoveryMatrixData, use as primary source of truth
+    if (lcData && Array.isArray(lcData.recoveryMatrixData) && lcData.recoveryMatrixData.length > 0) {
+      return lcData.recoveryMatrixData.map((item: any) => {
+        const scaledLoss = Math.round((item.avgLoss || 100000) * familyRatio);
+        const scaledGain = Math.round((item.avgGain || 60000) * familyRatio);
+        const potPct = scaledLoss > 0 ? Math.round((scaledGain / scaledLoss) * 100) : 60;
+
+        return {
+          id: `opp_lc_${item.subject.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase()}`,
+          type: item.subject,
+          problem: `${item.subject}: ${getLossProblemDetail(item.subject, item.costGroup)}`,
+          currentCost: scaledLoss,
+          potential: potPct,
+          expectedGain: scaledGain,
+          priority: item.severity === "Critical" || item.severity === "High" ? "High" : "Medium",
+          dept: getDeptForSubject(item.subject),
+          leanTool: item.leanTool || "Kaizen & Standart İş",
+          source: "Loss Capacity Analizi (COPQ & Cost Deployment)",
+          productFamily: familyLabel,
+          area: item.area || "Doğrudan Maliyet Azaltma"
+        };
+      });
+    }
+
+    // Default Loss Capacity Topics (scaled proportionally by product family ratio)
+    const baseLossTopics = [
+      { subject: "Setup Süreleri (SMED)", loss: 220000, gain: 154000, priority: "High", tool: "SMED (Hızlı Kalıp Değişimi)", dept: "Pres Atölyesi" },
+      { subject: "Hurda Maliyeti", loss: 180000, gain: 117000, priority: "High", tool: "Poka-Yoke & Kalite Otonomasyonu", dept: "Kalite Güvence" },
+      { subject: "Plansız Duruşların Önlenmesi", loss: 290000, gain: 188500, priority: "High", tool: "Otonom & Planlı Bakım (TPM)", dept: "Bakım Onarım" },
+      { subject: "Yeniden İşleme (Rework)", loss: 120000, gain: 72000, priority: "Medium", tool: "Matriks Analizi & FTT", dept: "Montaj Hattı" },
+      { subject: "WIP (Yarı Mamul) Azaltımı", loss: 160000, gain: 96000, priority: "Medium", tool: "Kanban & Sürekli Akış (One-Piece)", dept: "Lojistik / Depo" },
+      { subject: "Operatör Verimliliği", loss: 140000, gain: 105000, priority: "High", tool: "Hat Dengeleme & Yamazumi", dept: "Endüstri Mühendisliği" },
+      { subject: "Fire & Malzeme Kayıpları", loss: 110000, gain: 66000, priority: "Medium", tool: "Standardize İş & Malzeme Fire Kaizeni", dept: "Pres Atölyesi" },
+      { subject: "Fazla Mesai Azaltımı", loss: 95000, gain: 66500, priority: "Medium", tool: "Yük Dengeleme (Heijunka) & OLE", dept: "Üretim Planlama" }
+    ];
+
+    return baseLossTopics.map(item => {
+      const scaledLoss = Math.round(item.loss * familyRatio);
+      const scaledGain = Math.round(item.gain * familyRatio);
+      return {
+        id: `opp_lc_${item.subject.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase()}`,
+        type: item.subject,
+        problem: `${item.subject}: ${getLossProblemDetail(item.subject)}`,
+        currentCost: scaledLoss,
+        potential: Math.round((scaledGain / scaledLoss) * 100),
+        expectedGain: scaledGain,
+        priority: item.priority,
+        dept: item.dept,
+        leanTool: item.tool,
+        source: "Loss Capacity Analizi (COPQ & Cost Deployment)",
+        productFamily: familyLabel,
+        area: "Doğrudan Maliyet Azaltma"
+      };
+    });
+  };
+
+  const opportunitiesList = generateOpportunities();
+
+  // Helper to calculate project number (CIPYYAA-No)
+  const getProjectNo = (proj: KaizenCard) => {
+    const dateStr = proj.dateProposed || "2026-07-11";
+    const year = dateStr.substring(2, 4) || "26";
+    const month = dateStr.substring(5, 7) || "07";
+    
+    // Sort all kaizens to get a stable sequence number for the index
+    const sortedAll = [...kaizens].sort((a, b) => {
+      const da = a.dateProposed || "";
+      const db = b.dateProposed || "";
+      if (da !== db) return da.localeCompare(db);
+      return a.id.localeCompare(b.id);
+    });
+    
+    const index = sortedAll.findIndex(p => p.id === proj.id);
+    const seqNum = index !== -1 ? index + 1 : 1;
+    const seqStr = seqNum.toString().padStart(2, '0');
+    
+    return `CIP${year}${month}-${seqStr}`;
+  };
+
+  // Helper function for delay calculations
+  const getDelayWeeksSinceDeadline = (deadlineStr?: string) => {
+    if (!deadlineStr) return 0;
+    const deadlineDate = new Date(deadlineStr);
+    const today = new Date();
+    if (today < deadlineDate) return 0;
+    const diffTime = Math.abs(today.getTime() - deadlineDate.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return Math.max(1, Math.floor(diffDays / 7));
+  };
+
+  // Simulated email notifier function
+  const sendEmailReminder = (project: KaizenCard) => {
+    const leader = project.projectLeader || project.originator || "Sorumlu Ekip";
+    const emailStr = `${leader.toLowerCase().replace(/[^a-z0-9]/g, "")}@sirket.com`;
+    
+    // Simulate real database save
+    const updated: KaizenCard = {
+      ...project,
+      emailSentCount: (project.emailSentCount || 0) + 1,
+      lastEmailSentAt: new Date().toLocaleString()
+    };
+    
+    onUpdateKaizen(updated);
+    syncWithGantt(updated, 'update');
+    
+    // If we are currently editing this in detail modal, sync the modal state too
+    if (editingProject && editingProject.id === project.id) {
+      setEditingProject(updated);
+    }
+    
+    setEmailStatusMessage(`E-posta başarıyla gönderildi! Alıcı: ${emailStr}. Konu: "CI Proje Gecikme Uyarısı: ${project.title}".`);
+    setTimeout(() => {
+      setEmailStatusMessage(null);
+    }, 5000);
+  };
+
+  // Open project details/editing modal
+  const handleOpenProjectDetails = (proj: KaizenCard) => {
+    setEditingProject(proj);
+    setEditTitle(proj.title);
+    setEditDescription(proj.description || "");
+    setEditProblemDefinition(proj.problemDefinition || proj.descriptionBefore || "");
+    setEditProblemDetail(proj.problemDetail || "");
+    setEditTargetObjective(proj.targetObjective || "");
+    setEditTargetKpi(proj.targetKpi || "");
+    setEditTargetRatio(proj.targetRatio || 0);
+    setEditTargetCostReduction(proj.targetCostReduction || 0);
+    setEditRootCause(proj.rootCause || "Kök neden 5 Neden analizi yapılması bekleniyor.");
+    setEditImprovementActions(proj.improvementActions || "Belirlenen iyileştirme faaliyetleri planlanacaktır.");
+    setEditResponsibles(proj.responsibles || proj.projectLeader || "");
+    setEditActionsTaken(proj.actionsTaken || "Planlanan faaliyetler yürütülmektedir.");
+    setEditProjectLeader(proj.projectLeader || "Barış Gökdemir (OpEx Lead)");
+    setEditProjectSponsor(proj.projectSponsor || "Mehmet Soyer (Fabrika Müdürü)");
+    setEditPlannedFinishDate(proj.plannedFinishDate || "");
+    setEditEstimatedCost(proj.estimatedCost || 0);
+    setEditCurrentLoss(proj.currentLoss || 0);
+    setEditPhase(proj.phase || "Faz 1 (1 Ay)");
+    setEditDepartment(proj.department || "Üretim");
+    setEditImpactAnalysis(proj.impactAnalysis || {});
+    setEditTasks(proj.tasks || []);
+    setIsProjectFullScreen(false);
+    
+    // Set new states
+    setEditProgressStep(proj.progressStep || (
+      proj.status === "Completed" ? "Kapatıldı" :
+      proj.kanbanStatus === "ACT" ? "Standardizasyon" :
+      proj.kanbanStatus === "CHECK" ? "Kontrol" :
+      proj.kanbanStatus === "DO" ? "Uygulama" :
+      proj.kanbanStatus === "PLAN" ? "Planlama" :
+      proj.status === "Approved" ? "Analiz" : "Tanımlama"
+    ));
+    setEditExpectedGain(proj.expectedGain || 0);
+    setEditExpectedGainCurrency(proj.expectedGainCurrency || currency || "TL");
+    setEditRealizedGain(proj.realizedGain || 0);
+    setEditRealizedGainCurrency(proj.realizedGainCurrency || currency || "TL");
+    setEditRealizedImprovementPct(proj.realizedImprovementPct || 0);
+    setEditStdWorkUpdated(proj.stdWorkUpdated || false);
+    setEditInstructionRevised(proj.instructionRevised || false);
+    setEditTrainingGiven(proj.trainingGiven || false);
+    setEditControlPlanUpdated(proj.controlPlanUpdated || false);
+    setEditAuditListUpdated(proj.auditListUpdated || false);
+    setEditProjectResult(proj.projectResult || "Başarılı");
+    setEditResultDescription(proj.resultDescription || "");
+    setEditDocuments(proj.documents || []);
+    setEditProblemPhotos(proj.problemPhotos || []);
+    setEditResultPhotos(proj.resultPhotos || []);
+  };
+
+  const handleOpenProjectFullScreen = (proj: KaizenCard) => {
+    handleOpenProjectDetails(proj);
+    setIsProjectFullScreen(true);
+  };
+
+  const handleSaveProjectDetails = () => {
+    if (!editingProject) return;
+
+    // Synchronize progress step back to kanbanStatus and status
+    let synchedStatus = editingProject.status;
+    let synchedKanbanStatus = editingProject.kanbanStatus;
+
+    if (editProgressStep === "Kapatıldı") {
+      synchedStatus = "Completed";
+      synchedKanbanStatus = "ACT";
+    } else if (editProgressStep === "Standardizasyon") {
+      synchedStatus = "In Progress";
+      synchedKanbanStatus = "ACT";
+    } else if (editProgressStep === "Kontrol") {
+      synchedStatus = "In Progress";
+      synchedKanbanStatus = "CHECK";
+    } else if (editProgressStep === "Uygulama") {
+      synchedStatus = "In Progress";
+      synchedKanbanStatus = "DO";
+    } else if (editProgressStep === "Planlama") {
+      synchedStatus = "In Progress";
+      synchedKanbanStatus = "PLAN";
+    } else if (editProgressStep === "Analiz") {
+      synchedStatus = "Approved";
+      synchedKanbanStatus = "PLAN";
+    } else if (editProgressStep === "Tanımlama") {
+      synchedStatus = "Draft";
+      synchedKanbanStatus = "PLAN";
+    }
+    
+    const updated: KaizenCard = {
+      ...editingProject,
+      title: editTitle,
+      description: editDescription,
+      descriptionBefore: editProblemDefinition, // keep both in sync
+      problemDefinition: editProblemDefinition,
+      problemDetail: editProblemDetail,
+      targetObjective: editTargetObjective,
+      targetKpi: editTargetKpi,
+      targetRatio: Number(editTargetRatio),
+      targetCostReduction: Number(editTargetCostReduction),
+      rootCause: editRootCause,
+      improvementActions: editImprovementActions,
+      responsibles: editResponsibles,
+      actionsTaken: editActionsTaken,
+      projectLeader: editProjectLeader,
+      projectSponsor: editProjectSponsor,
+      plannedFinishDate: editPlannedFinishDate,
+      estimatedCost: Number(editEstimatedCost),
+      currentLoss: Number(editCurrentLoss),
+      phase: editPhase,
+      department: editDepartment,
+      impactAnalysis: editImpactAnalysis,
+      tasks: editTasks,
+      status: synchedStatus,
+      kanbanStatus: synchedKanbanStatus,
+      progressStep: editProgressStep,
+      expectedGain: Number(editExpectedGain),
+      expectedGainCurrency: editExpectedGainCurrency,
+      realizedGain: Number(editRealizedGain),
+      realizedGainCurrency: editRealizedGainCurrency,
+      realizedImprovementPct: Number(editRealizedImprovementPct),
+      stdWorkUpdated: editStdWorkUpdated,
+      instructionRevised: editInstructionRevised,
+      trainingGiven: editTrainingGiven,
+      controlPlanUpdated: editControlPlanUpdated,
+      auditListUpdated: editAuditListUpdated,
+      projectResult: editProjectResult as any,
+      resultDescription: editResultDescription,
+      problemPhotos: editProblemPhotos,
+      resultPhotos: editResultPhotos,
+      documents: editDocuments,
+      actualSavings: Number(editRealizedGain) // map realized gain directly to actualSavings for standard dashboards!
+    };
+
+    onUpdateKaizen(updated);
+    syncWithGantt(updated, 'update');
+    setEditingProject(null);
+    setIsProjectFullScreen(false);
+  };
+
+  // Export CI Improvement Project Card to Excel (.xls) formatted with styled tables and borders
+  const exportKaizenCardToExcel = (proj: KaizenCard, customerName?: string, currencySymbol: string = "₺") => {
+    const projNo = getProjectNo(proj);
+    const fileName = `${projNo}_CI_Proje_Karti.xls`;
+
+    const tasksRows = (proj.tasks && proj.tasks.length > 0)
+      ? proj.tasks.map((t, idx) => `
+        <tr style="height: 24px;">
+          <td style="border: 1px solid #cbd5e1; text-align: center; font-size: 10pt; font-family: Calibri, sans-serif;">${idx + 1}</td>
+          <td style="border: 1px solid #cbd5e1; font-weight: bold; font-size: 10pt; font-family: Calibri, sans-serif; padding-left: 6px;">${t.name || '-'}</td>
+          <td style="border: 1px solid #cbd5e1; text-align: center; font-size: 10pt; font-family: Calibri, sans-serif;">${t.responsible || '-'}</td>
+          <td style="border: 1px solid #cbd5e1; text-align: center; font-size: 10pt; font-family: Calibri, sans-serif;">${t.deadline || '-'}</td>
+          <td style="border: 1px solid #cbd5e1; text-align: center; font-weight: bold; font-size: 10pt; font-family: Calibri, sans-serif;">%${t.progressPercent ?? 0}</td>
+          <td style="border: 1px solid #cbd5e1; text-align: center; font-size: 10pt; font-family: Calibri, sans-serif;">${t.status || 'Açık'}</td>
+        </tr>
+      `).join('')
+      : `<tr style="height: 24px;"><td colspan="6" style="border: 1px solid #cbd5e1; text-align: center; color: #64748b; font-style: italic; font-size: 10pt; font-family: Calibri, sans-serif;">Tanımlanmış alt faaliyet bulunmuyor.</td></tr>`;
+
+    const impactAnalysisItems = proj.impactAnalysis 
+      ? Object.entries(proj.impactAnalysis).map(([key, val]) => `${key}: ${val}`).join(' | ')
+      : 'Belirtilmedi';
+
+    const html = `
+      <html xmlns:o="urn:schemas-microsoft-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <!--[if gte mso 9]>
+        <xml>
+          <x:ExcelWorkbook>
+            <x:ExcelWorksheets>
+              <x:ExcelWorksheet>
+                <x:Name>CI Proje Kartı</x:Name>
+                <x:WorksheetOptions>
+                  <x:DisplayGridlines/>
+                </x:WorksheetOptions>
+              </x:ExcelWorksheet>
+            </x:ExcelWorksheets>
+          </x:ExcelWorkbook>
+        </xml>
+        <![endif]-->
+        <style>
+          td { vertical-align: middle; }
+        </style>
+      </head>
+      <body>
+        <table border="1" style="border-collapse: collapse; font-family: Calibri, sans-serif; width: 100%;">
+          
+          <!-- BRAND & HEADER ROW -->
+          <tr style="height: 40px; background-color: #1e1b4b;">
+            <td colspan="6" style="text-align: center; color: #ffffff; font-size: 15pt; font-weight: bold; font-family: Arial, sans-serif; background-color: #1e1b4b;">
+              SÜREKLİ İYİLEŞTİRME (CI) PROJE KARTI & AKSİYON TAKİP FORMU
+            </td>
+          </tr>
+
+          <!-- META ROW 1 -->
+          <tr style="height: 26px; background-color: #f8fafc;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Müşteri / Fabrika:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #1e1b4b; padding-left: 8px;">${customerName || 'Varsayılan Müşteri'}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Proje Numarası:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #4338ca; font-family: monospace; padding-left: 8px;">${projNo}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Proje Durumu:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #15803d; padding-left: 8px;">${proj.status === 'Completed' ? 'Tamamlandı (ACT)' : (proj.kanbanStatus || 'PLAN')}</td>
+          </tr>
+
+          <!-- 1. PROJE KİMLİĞİ & SORUMLULAR -->
+          <tr style="height: 30px; background-color: #312e81;">
+            <td colspan="6" style="border: 1px solid #1e1b4b; font-weight: bold; color: #ffffff; font-size: 11pt; padding-left: 10px; background-color: #312e81;">
+              1. PROJE KİMLİĞİ VE TEMEL BİLGİLER
+            </td>
+          </tr>
+          <tr style="height: 28px;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Proje Adı / Konusu:</td>
+            <td colspan="5" style="border: 1px solid #cbd5e1; font-weight: bold; font-size: 12pt; color: #0f172a; padding-left: 8px;">${proj.title || '-'}</td>
+          </tr>
+          <tr style="height: 26px;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Departman:</td>
+            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${proj.department || '-'}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Proje Fazı:</td>
+            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${proj.phase || 'Phase 1'}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">İlerleme Aşaması:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px; color: #4338ca;">${proj.progressStep || 'Planlama'}</td>
+          </tr>
+          <tr style="height: 26px;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Proje Lideri:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px;">${proj.projectLeader || proj.originator || '-'}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Proje Sponsoru:</td>
+            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${proj.projectSponsor || '-'}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Etki Seviyesi:</td>
+            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${proj.impactLevel || 'Medium'} Impact</td>
+          </tr>
+          <tr style="height: 26px;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Teklif Tarihi:</td>
+            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${proj.dateProposed || '-'}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Planlanan Bitiş:</td>
+            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${proj.plannedFinishDate || '-'}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Gerçekleşen Bitiş:</td>
+            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${proj.realizedFinishDate || '-'}</td>
+          </tr>
+
+          <!-- 2. PROBLEM TANIMI & MEVCUT DURUM -->
+          <tr style="height: 30px; background-color: #312e81;">
+            <td colspan="6" style="border: 1px solid #1e1b4b; font-weight: bold; color: #ffffff; font-size: 11pt; padding-left: 10px; background-color: #312e81;">
+              2. PROBLEM TANIMI VE MEVCUT DURUM (GEMBA İNCELEMESİ)
+            </td>
+          </tr>
+          <tr style="height: 36px;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Problem Tanımı:</td>
+            <td colspan="5" style="border: 1px solid #cbd5e1; padding: 6px 8px; color: #0f172a;">${proj.problemDefinition || proj.descriptionBefore || proj.description || '-'}</td>
+          </tr>
+          <tr style="height: 36px;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Mevcut Durum Detayı:</td>
+            <td colspan="3" style="border: 1px solid #cbd5e1; padding: 6px 8px;">${proj.problemDetail || '-'}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Mevcut Yıllık Kayıp:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #b91c1c; padding-left: 8px;">${currencySymbol}${(proj.currentLoss || 0).toLocaleString()}</td>
+          </tr>
+
+          <!-- 3. ETKİ ANALİZİ & KÖK NEDEN -->
+          <tr style="height: 30px; background-color: #312e81;">
+            <td colspan="6" style="border: 1px solid #1e1b4b; font-weight: bold; color: #ffffff; font-size: 11pt; padding-left: 10px; background-color: #312e81;">
+              3. ETKİ ANALİZİ VE KÖK NEDEN ANALİZİ (5 NEDEN / BALIK KILÇIĞI)
+            </td>
+          </tr>
+          <tr style="height: 28px;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Etki Alanları:</td>
+            <td colspan="5" style="border: 1px solid #cbd5e1; padding-left: 8px; font-weight: bold; color: #334155;">${impactAnalysisItems}</td>
+          </tr>
+          <tr style="height: 36px;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Kök Neden Analizi:</td>
+            <td colspan="5" style="border: 1px solid #cbd5e1; padding: 6px 8px;">${proj.rootCause || '-'}</td>
+          </tr>
+
+          <!-- 4. HEDEFLER VE FİNANSAL KAZANIMLAR -->
+          <tr style="height: 30px; background-color: #312e81;">
+            <td colspan="6" style="border: 1px solid #1e1b4b; font-weight: bold; color: #ffffff; font-size: 11pt; padding-left: 10px; background-color: #312e81;">
+              4. HEDEFLER VE BÜTÇE / NET FİNANSAL KAZANIMLAR
+            </td>
+          </tr>
+          <tr style="height: 28px;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Hedeflenen Durum:</td>
+            <td colspan="3" style="border: 1px solid #cbd5e1; padding-left: 8px;">${proj.targetObjective || '-'}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Hedef KPI:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px; color: #1e1b4b;">${proj.targetKpi || '-'}</td>
+          </tr>
+          <tr style="height: 26px;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Hedef İyileştirme %:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px;">%${proj.targetRatio || 0}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Hedef Tasarruf:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px;">${currencySymbol}${(proj.targetCostReduction || 0).toLocaleString()}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Tahmini Bütçe:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px;">${currencySymbol}${(proj.estimatedCost || 0).toLocaleString()}</td>
+          </tr>
+          <tr style="height: 28px; background-color: #f0fdf4;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #e2e8f0; color: #334155; padding-left: 8px;">Beklenen Kazanım:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #1d4ed8; padding-left: 8px;">${proj.expectedGainCurrency || currencySymbol}${(proj.expectedGain || 0).toLocaleString()}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #dcfce7; color: #14532d; padding-left: 8px;">Gerçekleşen Tasarruf:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #15803d; font-size: 11pt; padding-left: 8px; background-color: #dcfce7;">${proj.realizedGainCurrency || currencySymbol}${(proj.realizedGain || proj.actualSavings || 0).toLocaleString()}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #dcfce7; color: #14532d; padding-left: 8px;">Gerçekleşen İyileştirme:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #15803d; font-size: 11pt; padding-left: 8px; background-color: #dcfce7;">%${proj.realizedImprovementPct || 0}</td>
+          </tr>
+
+          <!-- 5. UYGULAMA PLANI (6. ADIM AKSİYON LİSTESİ) -->
+          <tr style="height: 30px; background-color: #312e81;">
+            <td colspan="6" style="border: 1px solid #1e1b4b; font-weight: bold; color: #ffffff; font-size: 11pt; padding-left: 10px; background-color: #312e81;">
+              5. UYGULAMA PLANI VE AKSİYON TAKİP TABLOSU (6. UYGULAMA ADIMI)
+            </td>
+          </tr>
+          <tr style="height: 26px; background-color: #e2e8f0;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; width: 6%;">#</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; text-align: left; padding-left: 8px; width: 44%;">Alt Faaliyet / Aksiyon Adı</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; width: 18%;">Sorumlu</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; width: 12%;">Termin Tarihi</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; width: 10%;">Tamamlanma %</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; width: 10%;">Durum</td>
+          </tr>
+          ${tasksRows}
+
+          <!-- 6. STANDARTLAŞTIRMA VE SÜRDÜRÜLEBİLİRLİK -->
+          <tr style="height: 30px; background-color: #312e81;">
+            <td colspan="6" style="border: 1px solid #1e1b4b; font-weight: bold; color: #ffffff; font-size: 11pt; padding-left: 10px; background-color: #312e81;">
+              6. STANDARTLAŞTIRMA VE YAYGINLAŞTIRMA ADIMLARI (7. & 8. ADIM)
+            </td>
+          </tr>
+          <tr style="height: 26px;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Standart İş Güncellendi:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: ${proj.stdWorkUpdated ? '#16a34a' : '#64748b'}; padding-left: 8px;">${proj.stdWorkUpdated ? 'EVET [✓]' : 'HAYIR [ ]'}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Talimat Revize Edildi:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: ${proj.instructionRevised ? '#16a34a' : '#64748b'}; padding-left: 8px;">${proj.instructionRevised ? 'EVET [✓]' : 'HAYIR [ ]'}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Eğitim Verildi:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: ${proj.trainingGiven ? '#16a34a' : '#64748b'}; padding-left: 8px;">${proj.trainingGiven ? 'EVET [✓]' : 'HAYIR [ ]'}</td>
+          </tr>
+          <tr style="height: 26px;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Kontrol Planı Güncellendi:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: ${proj.controlPlanUpdated ? '#16a34a' : '#64748b'}; padding-left: 8px;">${proj.controlPlanUpdated ? 'EVET [✓]' : 'HAYIR [ ]'}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Denetim Listesi Güncellendi:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: ${proj.auditListUpdated ? '#16a34a' : '#64748b'}; padding-left: 8px;">${proj.auditListUpdated ? 'EVET [✓]' : 'HAYIR [ ]'}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Kapanış Sonucu:</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #15803d; padding-left: 8px;">${proj.projectResult || 'Başarılı'}</td>
+          </tr>
+          <tr style="height: 36px;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Kapanış Açıklaması:</td>
+            <td colspan="5" style="border: 1px solid #cbd5e1; padding: 6px 8px;">${proj.resultDescription || 'Proje başarıyla tamamlanmış ve finansal tasarruf tescil edilmiştir.'}</td>
+          </tr>
+
+        </table>
+      </body>
+      </html>
+    `;
+
+    const blob = new Blob(['\ufeff' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportCurrentEditingProjectToExcel = () => {
+    if (!editingProject) return;
+
+    const currentCard: KaizenCard = {
+      ...editingProject,
+      title: editTitle,
+      description: editDescription,
+      problemDefinition: editProblemDefinition,
+      problemDetail: editProblemDetail,
+      targetObjective: editTargetObjective,
+      targetKpi: editTargetKpi,
+      targetRatio: Number(editTargetRatio),
+      targetCostReduction: Number(editTargetCostReduction),
+      rootCause: editRootCause,
+      improvementActions: editImprovementActions,
+      responsibles: editResponsibles,
+      actionsTaken: editActionsTaken,
+      projectLeader: editProjectLeader,
+      projectSponsor: editProjectSponsor,
+      plannedFinishDate: editPlannedFinishDate,
+      estimatedCost: Number(editEstimatedCost),
+      currentLoss: Number(editCurrentLoss),
+      phase: editPhase,
+      department: editDepartment,
+      impactAnalysis: editImpactAnalysis,
+      tasks: editTasks,
+      progressStep: editProgressStep,
+      expectedGain: Number(editExpectedGain),
+      expectedGainCurrency: editExpectedGainCurrency,
+      realizedGain: Number(editRealizedGain),
+      realizedGainCurrency: editRealizedGainCurrency,
+      realizedImprovementPct: Number(editRealizedImprovementPct),
+      stdWorkUpdated: editStdWorkUpdated,
+      instructionRevised: editInstructionRevised,
+      trainingGiven: editTrainingGiven,
+      controlPlanUpdated: editControlPlanUpdated,
+      auditListUpdated: editAuditListUpdated,
+      projectResult: editProjectResult as any,
+      resultDescription: editResultDescription,
+      problemPhotos: editProblemPhotos,
+      resultPhotos: editResultPhotos,
+      documents: editDocuments,
+      actualSavings: Number(editRealizedGain)
+    };
+
+    exportKaizenCardToExcel(currentCard, selectedCustomer?.companyName, currency);
+  };
+
+  // Wizard Launch Project Handler
+  const handleSelectOpportunity = (opp: any) => {
+    const leaderName = "Barış Gökdemir (OpEx Lead)";
+    const defaultDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const newId = `kai_${Math.random().toString(36).substring(2, 9)}`;
+    const newTitle = `${opp.type} Entegrasyonu - ${opp.dept}`;
+
+    // Automatically suggest impact areas based on opportunity type
+    const suggestedImpacts: Record<string, 'Yüksek' | 'Orta' | 'Düşük'> = {};
+    const typeLower = (opp.type || "").toLowerCase();
+    if (typeLower.includes("smed") || typeLower.includes("setup")) {
+      suggestedImpacts["Setup"] = "Yüksek";
+      suggestedImpacts["OEE"] = "Orta";
+      suggestedImpacts["Plansız Duruş"] = "Düşük";
+    } else if (typeLower.includes("hurda") || typeLower.includes("scrap")) {
+      suggestedImpacts["Hurda"] = "Yüksek";
+      suggestedImpacts["Kalite Maliyetleri"] = "Orta";
+    } else if (typeLower.includes("rework")) {
+      suggestedImpacts["Rework"] = "Yüksek";
+      suggestedImpacts["Kalite Maliyetleri"] = "Orta";
+    } else if (typeLower.includes("verimlilik") || typeLower.includes("operatör")) {
+      suggestedImpacts["Operatör Verimliliği"] = "Yüksek";
+      suggestedImpacts["Fazla Mesai"] = "Orta";
+    } else if (typeLower.includes("wip")) {
+      suggestedImpacts["WIP"] = "Yüksek";
+      suggestedImpacts["Lead Time"] = "Orta";
+    } else if (typeLower.includes("duruş") || typeLower.includes("plansız")) {
+      suggestedImpacts["Plansız Duruş"] = "Yüksek";
+      suggestedImpacts["OEE"] = "Yüksek";
+    } else {
+      suggestedImpacts["OEE"] = "Yüksek";
+      suggestedImpacts["Plansız Duruş"] = "Orta";
+    }
+
+    const newK: KaizenCard = {
+      id: newId,
+      title: newTitle,
+      originator: leaderName,
+      department: opp.dept,
+      dateProposed: new Date().toISOString().split('T')[0],
+      impactLevel: opp.priority || "Medium",
+      estimatedCost: Math.round(opp.currentCost * 0.15),
+      currentLoss: opp.currentCost || 0,
+      actualSavings: 0,
+      status: "In Progress",
+      descriptionBefore: opp.problem,
+      descriptionAfter: "Aksiyon planı uygulanıyor, standartlaşma hedefleniyor.",
+      description: `${opp.problem} probleminin giderilmesi amacıyla başlatılan sürekli iyileştirme faaliyetidir.`,
+      projectLeader: leaderName,
+      projectTeam: [],
+      projectSponsor: "Mehmet Soyer (Fabrika Müdürü)",
+      plannedFinishDate: defaultDate,
+      phase: "Faz 1 (1 Ay)",
+      opportunityId: opp.id,
+      opportunityType: opp.type,
+      kanbanStatus: "PLAN",
+      tasks: [
+        { id: `tsk_1_${Math.random().toString(36).substring(2, 5)}`, name: "Mevcut Durum Standardizasyon Analizi", responsible: leaderName, deadline: defaultDate, priority: "High", progressPercent: 0 },
+        { id: `tsk_2_${Math.random().toString(36).substring(2, 5)}`, name: "Kök Neden Analizi & Aksiyon Tasarımı", responsible: leaderName, deadline: defaultDate, priority: "High", progressPercent: 0 }
+      ],
+      financialsInput: defaultFinancialsInput(),
+      problemDefinition: opp.problem,
+      problemDetail: "",
+      targetObjective: "",
+      rootCause: "Kök neden 5 Neden analizi yapılması bekleniyor.",
+      improvementActions: "Belirlenen iyileştirme faaliyetleri planlanacaktır.",
+      responsibles: leaderName,
+      actionsTaken: "Proje başlangıç aşamasında.",
+      impactAnalysis: suggestedImpacts
+    };
+
+    onAddKaizen(newK);
+    syncWithGantt(newK, 'add');
+    setIsWizardOpen(false);
+    handleOpenProjectDetails(newK);
+  };
+
+  const handleSelectNewProjectTheme = () => {
+    const leaderName = "Barış Gökdemir (OpEx Lead)";
+    const defaultDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const newId = `kai_${Math.random().toString(36).substring(2, 9)}`;
+    const newK: KaizenCard = {
+      id: newId,
+      title: "",
+      originator: leaderName,
+      department: "Üretim",
+      dateProposed: new Date().toISOString().split('T')[0],
+      impactLevel: "Medium",
+      estimatedCost: 0,
+      currentLoss: 0,
+      actualSavings: 0,
+      status: "In Progress",
+      descriptionBefore: "",
+      descriptionAfter: "Aksiyon planı uygulanıyor, standartlaşma hedefleniyor.",
+      description: "",
+      projectLeader: leaderName,
+      projectTeam: [],
+      projectSponsor: "Mehmet Soyer (Fabrika Müdürü)",
+      plannedFinishDate: defaultDate,
+      phase: "Faz 1 (1 Ay)",
+      kanbanStatus: "PLAN",
+      tasks: [],
+      financialsInput: defaultFinancialsInput(),
+      problemDefinition: "",
+      problemDetail: "",
+      targetObjective: "",
+      rootCause: "",
+      improvementActions: "",
+      responsibles: leaderName,
+      actionsTaken: ""
+    };
+
+    onAddKaizen(newK);
+    syncWithGantt(newK, 'add');
+    setIsWizardOpen(false);
+    handleOpenProjectDetails(newK);
+  };
+
+  const handleLaunchProject = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!projectName) return;
+
+    const leaderName = projectLeader;
+    const finalProblem = problemDefinition || (selectedOpportunity?.id !== "opp_other" ? selectedOpportunity?.problem : "") || projectName;
+
+    const newK: KaizenCard = {
+      id: `kai_${Math.random().toString(36).substring(2, 9)}`,
+      title: projectName,
+      originator: leaderName,
+      department: projectDept,
+      dateProposed: new Date().toISOString().split('T')[0],
+      impactLevel: projectImpact,
+      estimatedCost: Number(projectCost),
+      currentLoss: Number(projectCurrentLoss || (selectedOpportunity ? selectedOpportunity.currentCost : 0)),
+      actualSavings: 0, // start with 0 realized savings
+      status: "In Progress", // auto start
+      descriptionBefore: finalProblem,
+      descriptionAfter: "Aksiyon planı uygulanıyor, standartlaşma hedefleniyor.",
+      
+      // CI portfolio fields
+      description: projectDesc,
+      projectLeader: leaderName,
+      projectTeam: projectTeam,
+      projectSponsor: projectSponsor,
+      plannedFinishDate: plannedFinish,
+      phase: projectPhase,
+      opportunityId: selectedOpportunity?.id,
+      opportunityType: selectedOpportunity?.type,
+      kanbanStatus: "PLAN", // start in PLAN
+      tasks: [
+        { id: `tsk_1_${Math.random().toString(36).substring(2, 5)}`, name: "Mevcut Durum Standardizasyon Analizi", responsible: leaderName, deadline: plannedFinish, priority: "High", progressPercent: 0 },
+        { id: `tsk_2_${Math.random().toString(36).substring(2, 5)}`, name: "Kök Neden Analizi & Aksiyon Tasarımı", responsible: leaderName, deadline: plannedFinish, priority: "High", progressPercent: 0 }
+      ],
+      financialsInput: defaultFinancialsInput(),
+
+      // Prepopulate requested detail fields
+      problemDefinition: finalProblem,
+      problemDetail: problemDetail,
+      targetObjective: targetObjective,
+      rootCause: rootCause || "Kök neden 5 Neden analizi yapılması bekleniyor.",
+      improvementActions: improvementActions || "Belirlenen iyileştirme faaliyetleri planlanacaktır.",
+      responsibles: responsibles || leaderName,
+      actionsTaken: actionsTaken || "Proje başlangıç aşamasında."
+    };
+
+    onAddKaizen(newK);
+    syncWithGantt(newK, 'add');
+
+    // Reset wizard
+    setIsWizardOpen(false);
+    setWizardStep(1);
+    setWizardTab("firsat");
+    setSelectedOpportunity(null);
+    setProjectName("");
+    setProjectDesc("");
+    setProjectTeam([]);
+    setProjectCurrentLoss(0);
+    setProblemDefinition("");
+    setProblemDetail("");
+    setTargetObjective("");
+    setRootCause("");
+    setImprovementActions("");
+    setResponsibles("");
+    setActionsTaken("");
+  };
+
+  // Status Change (PLAN -> DO -> CHECK -> ACT)
+  const handleKanbanStatusChange = (project: KaizenCard, newKanbanStatus: KaizenCard["kanbanStatus"]) => {
+    const updated: KaizenCard = {
+      ...project,
+      kanbanStatus: newKanbanStatus,
+      status: newKanbanStatus === "ACT" ? "Completed" : "In Progress"
+    };
+
+    if (newKanbanStatus === "ACT") {
+      updated.realizedFinishDate = new Date().toISOString().split('T')[0];
+    }
+
+    onUpdateKaizen(updated);
+    syncWithGantt(updated, 'update');
+  };
+
+  const handleDrop = (newKanbanStatus: KaizenCard["kanbanStatus"]) => {
+    if (!draggedProjId) return;
+    const project = kaizens.find(k => k.id === draggedProjId);
+    if (project) {
+      handleKanbanStatusChange(project, newKanbanStatus);
+    }
+    setDraggedProjId(null);
+    setActiveDropCol(null);
+  };
+
+  // Update complete Project
+  const handleStatusUpdate = (project: KaizenCard, newStatus: KaizenCard["status"]) => {
+    const updated: KaizenCard = {
+      ...project,
+      status: newStatus,
+      kanbanStatus: newStatus === "Completed" ? "ACT" : project.kanbanStatus || "DO"
+    };
+    onUpdateKaizen(updated);
+    syncWithGantt(updated, 'update');
+  };
+
+  const handleDeleteProject = (id: string) => {
+    if (window.confirm("Bu sürekli iyileştirme projesini kalıcı olarak silmek istediğinizden emin misiniz?")) {
+      const proj = kaizens.find(k => k.id === id);
+      onDeleteKaizen(id);
+      if (proj) {
+        syncWithGantt(proj, 'delete');
+      }
+    }
+  };
+
+  // Project Task Operations
+  const handleAddTask = (projId: string) => {
+    if (!newTaskName) return;
+    const proj = kaizens.find(k => k.id === projId);
+    if (!proj) return;
+
+    const updatedTasks = [...(proj.tasks || [])];
+    updatedTasks.push({
+      id: `tsk_${Math.random().toString(36).substring(2, 5)}`,
+      name: newTaskName,
+      responsible: newTaskResponsible,
+      deadline: newTaskDeadline || proj.plannedFinishDate || "",
+      priority: newTaskPriority,
+      progressPercent: 0
+    });
+
+    const updated = {
+      ...proj,
+      tasks: updatedTasks
+    };
+
+    onUpdateKaizen(updated);
+    syncWithGantt(updated, 'update');
+    
+    // reset form
+    setNewTaskName("");
+    setNewTaskDeadline("");
+  };
+
+  const handleToggleTaskProgress = (projId: string, taskId: string) => {
+    const proj = kaizens.find(k => k.id === projId);
+    if (!proj) return;
+
+    const updatedTasks = (proj.tasks || []).map((t: any) => {
+      if (t.id === taskId) {
+        return { ...t, progressPercent: t.progressPercent === 100 ? 0 : 100 };
+      }
+      return t;
+    });
+
+    const updated = {
+      ...proj,
+      tasks: updatedTasks
+    };
+
+    onUpdateKaizen(updated);
+    syncWithGantt(updated, 'update');
+  };
+
+  const handleDeleteTask = (projId: string, taskId: string) => {
+    const proj = kaizens.find(k => k.id === projId);
+    if (!proj) return;
+
+    const updated = {
+      ...proj,
+      tasks: (proj.tasks || []).filter((t: any) => t.id !== taskId)
+    };
+
+    onUpdateKaizen(updated);
+    syncWithGantt(updated, 'update');
+  };
+
+  // Financial Results Save
+  const handleOpenFinancials = (proj: KaizenCard) => {
+    setEditingFinancialsProjId(proj.id);
+    setFinancialsInput(proj.financialsInput || defaultFinancialsInput());
+  };
+
+  const handleSaveFinancials = () => {
+    if (!editingFinancialsProjId) return;
+    const proj = kaizens.find(k => k.id === editingFinancialsProjId);
+    if (!proj) return;
+
+    // Calculate dynamic realized savings
+    let totalRealizedSavings = 0;
+    Object.values(financialsInput).forEach((indicator: any) => {
+      totalRealizedSavings += Number(indicator.val || 0);
+    });
+
+    const updated: KaizenCard = {
+      ...proj,
+      financialsInput,
+      actualSavings: totalRealizedSavings
+    };
+
+    onUpdateKaizen(updated);
+    syncWithGantt(updated, 'update');
+    setEditingFinancialsProjId(null);
+  };
+
+  // Helper calculation for overall Portföy metrics
+  const filteredProjects = kaizens.filter(k => {
+    const matchesDept = selectedDeptFilter === "all" || k.department === selectedDeptFilter;
+    const matchesPhase = selectedPhaseFilter === "all" || k.phase === selectedPhaseFilter;
+    return matchesDept && matchesPhase;
+  });
+
+  const totalCIProjects = filteredProjects.length;
+  const inProgressProjects = filteredProjects.filter(k => k.status === "In Progress" && k.kanbanStatus !== "ACT").length;
+  const completedProjects = filteredProjects.filter(k => k.status === "Completed" || k.kanbanStatus === "ACT").length;
+  const pendingProjects = filteredProjects.filter(k => k.status === "Draft" || k.kanbanStatus === "PLAN").length;
+  
+  // Calculate At Risk / Delayed
+  const atRiskProjects = filteredProjects.filter(k => k.impactLevel === "High" && k.status === "In Progress").length;
+  const delayedProjects = filteredProjects.filter(k => {
+    if (k.status === "Completed") return false;
+    if (!k.plannedFinishDate) return false;
+    return new Date(k.plannedFinishDate) < new Date();
+  }).length;
+
+  const totalExpectedFinancialGain = filteredProjects.reduce((sum, k) => {
+    const opp = opportunitiesList.find(o => o.id === k.opportunityId);
+    return sum + (opp ? opp.expectedGain : k.actualSavings * 1.2 || 60000);
+  }, 0);
+
+  const realizedFinancialGain = filteredProjects.reduce((sum, k) => sum + (k.actualSavings || 0), 0);
+  const totalCOPQReduction = Math.round(realizedFinancialGain * 0.72); // 72% of gains count as COPQ elimination
+  
+  // Plant profit increase contribution and customer operating profit
+  const estimatedOperatingProfit = selectedCustomer?.annualRevenue 
+    ? Math.round(selectedCustomer.annualRevenue * 0.12)
+    : 12000000;
+
+  const profitImpactPercentage = estimatedOperatingProfit > 0
+    ? ((realizedFinancialGain / estimatedOperatingProfit) * 100).toFixed(2)
+    : "0.00";
+
+  // COPQ calculation from VSM process records
+  const initialCOPQ = processes && processes.length > 0
+    ? processes.reduce((sum, p) => sum + (p.scrapCost || 0) + (p.reworkCost || 0) + (p.downtimeCost || 0), 0)
+    : 4500000;
+
+  const copqReductionPercentage = initialCOPQ > 0
+    ? ((totalCOPQReduction / initialCOPQ) * 100).toFixed(2)
+    : "0.00";
+
+  const averageProjectSuccessRate = totalCIProjects > 0 
+    ? Math.round((filteredProjects.filter(k => k.status === "Completed" || k.kanbanStatus === "ACT").length / totalCIProjects) * 100) 
+    : 0;
+
+  const totalBudget = filteredProjects.reduce((sum, k) => sum + (k.estimatedCost || 0), 0);
+  const realizedToBudgetRatio = totalBudget > 0 
+    ? (realizedFinancialGain / totalBudget).toFixed(2)
+    : "0.00";
+  const netROIAmount = realizedFinancialGain - totalBudget;
+  const totalROI = totalBudget > 0 ? ((realizedFinancialGain / totalBudget) * 100).toFixed(1) : "0.0";
+
+  // Category mapping helper for deep insights
+  const getKaizenCategory = (proj: KaizenCard) => {
+    const title = (proj.title || "").toLowerCase();
+    const desc = ((proj.description || "") + " " + (proj.descriptionBefore || "")).toLowerCase();
+    const oppType = (proj.opportunityType || "").toLowerCase();
+    
+    if (oppType.includes("kalite") || title.includes("kalite") || desc.includes("kalite") || desc.includes("rework") || title.includes("hata") || desc.includes("hata") || desc.includes("düzeltme")) {
+      return "Kalite";
+    }
+    if (oppType.includes("isg") || title.includes("isg") || desc.includes("isg") || desc.includes("güvenlik") || title.includes("güvenlik") || desc.includes("iş sağlığı")) {
+      return "İSG (HSE)";
+    }
+    if (oppType.includes("hurda") || title.includes("hurda") || desc.includes("hurda") || oppType.includes("scrap") || title.includes("scrap") || desc.includes("fire") || title.includes("fire") || desc.includes("kayıp")) {
+      return "Hurda / Fire";
+    }
+    if (oppType.includes("verimlilik") || title.includes("verimlilik") || desc.includes("verimlilik") || title.includes("oee") || desc.includes("oee") || title.includes("smed") || desc.includes("smed") || desc.includes("setup")) {
+      return "Verimlilik";
+    }
+    if (oppType.includes("üretkenlik") || title.includes("üretkenlik") || desc.includes("üretkenlik") || desc.includes("kapasite") || desc.includes("hız") || title.includes("hız")) {
+      return "Üretkenlik";
+    }
+    return "Diğer / Operasyonel";
+  };
+
+  // Categories Distribution Data
+  const categoriesList = ["Kalite", "Verimlilik", "İSG (HSE)", "Hurda / Fire", "Üretkenlik", "Diğer / Operasyonel"];
+  const categoryDistributionData = categoriesList.map(cat => {
+    const list = filteredProjects.filter(k => getKaizenCategory(k) === cat);
+    const count = list.length;
+    const gain = list.reduce((sum, k) => sum + (k.actualSavings || 0), 0);
+    const totalCount = filteredProjects.length || 1;
+    const ratio = Math.round((count / totalCount) * 100);
+    return { name: cat, Adet: count, Kazanım: gain, Oran: ratio };
+  }).filter(c => c.Adet > 0);
+
+  // Power BI Dashboard Charts Formatting
+  const chartStatusData = [
+    { name: "Plan", value: pendingProjects, color: "#94a3b8" },
+    { name: "Do (Uygulama)", value: inProgressProjects, color: "#3b82f6" },
+    { name: "Check (Kontrol)", value: filteredProjects.filter(k => k.kanbanStatus === "CHECK").length, color: "#f59e0b" },
+    { name: "Act (Standartlaştır)", value: completedProjects, color: "#10b981" }
+  ];
+
+  const chartPhaseData = [
+    { name: "Quick Win (0-3m)", value: filteredProjects.filter(k => k.phase?.includes("Phase 1")).length, color: "#10b981" },
+    { name: "Capital Improvement (3-12m)", value: filteredProjects.filter(k => k.phase?.includes("Phase 2")).length, color: "#f59e0b" },
+    { name: "Strategic Transformation (1-3y)", value: filteredProjects.filter(k => k.phase?.includes("Phase 3")).length, color: "#3b82f6" }
+  ];
+
+  const chartExpectedRealized = [
+    { name: "Planlanan Hedef", Tutarı: totalExpectedFinancialGain },
+    { name: "Gerçekleşen Tasarruf", Tutarı: realizedFinancialGain }
+  ];
+
+  // Plant profit increase contribution variable for the KPI grid
+  const operatingProfitIncrease = realizedFinancialGain;
+
+  // Phase Maturity Count mappings for the Phase Delivery gauge
+  const phase1Count = filteredProjects.filter(k => k.phase?.includes("Phase 1") || !k.phase).length;
+  const phase2Count = filteredProjects.filter(k => k.phase?.includes("Phase 2")).length;
+  const phase3Count = filteredProjects.filter(k => k.phase?.includes("Phase 3")).length;
+
+  const departmentGainData = Array.from(new Set(kaizens.map(k => k.department))).map(dept => {
+    const gain = kaizens.filter(k => k.department === dept).reduce((sum, k) => sum + (k.actualSavings || 0), 0);
+    return { name: dept, Kazanım: gain };
+  }).filter(d => d.Kazanım > 0);
+
+  const opportunityDistribution = Array.from(new Set(kaizens.map(k => k.opportunityType || "Kaizen"))).map(type => {
+    const count = kaizens.filter(k => (k.opportunityType || "Kaizen") === type).length;
+    return { name: type, ProjeAdedi: count };
+  });
+
+  // Funnel Steps (Opportunities -> Evaluated -> Converted -> Completed -> Approved)
+  const funnelSteps = [
+    { name: "Fırsatlar (Opportunities)", count: opportunitiesList.length + totalCIProjects + 4, percent: 100, desc: "Sistemde analiz edilen israf kalemleri", color: "bg-slate-700" },
+    { name: "Değerlendirilen (Evaluated)", count: opportunitiesList.length + totalCIProjects, percent: Math.round(((opportunitiesList.length + totalCIProjects) / (opportunitiesList.length + totalCIProjects + 4)) * 100), desc: "Ön fizibilitesi yapılan israflar", color: "bg-slate-550" },
+    { name: "Projeye Dönüşen (Converted)", count: totalCIProjects, percent: Math.round((totalCIProjects / (opportunitiesList.length + totalCIProjects)) * 100), desc: "Kanban tahtasında açılan projeler", color: "bg-indigo-650" },
+    { name: "Tamamlanan (Completed)", count: completedProjects, percent: Math.round((completedProjects / (totalCIProjects || 1)) * 100), desc: "Aksiyonları bitip standartlaşanlar", color: "bg-indigo-500" },
+    { name: "Onaylanan (Approved)", count: Math.max(0, completedProjects - 1) || completedProjects, percent: Math.round(((Math.max(0, completedProjects - 1) || completedProjects) / (completedProjects || 1)) * 100), desc: "Finansal kazancı onaylananlar", color: "bg-emerald-600" }
+  ];
+
+  // Photo Upload Helper for Section 2 and Section 7 (Camera & Gallery Support for Tablets/Mobiles)
+  const renderPhotoUploadSection = (
+    sectionTitle: string,
+    sectionSubtitle: string,
+    photos: string[],
+    onAddPhotos: (newPhotos: string[]) => void,
+    onRemovePhoto: (index: number) => void
+  ) => {
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (!e.target.files) return;
+      const files = Array.from(e.target.files);
+      files.forEach((file) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === "string") {
+            onAddPhotos([reader.result]);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+      e.target.value = "";
+    };
+
+    return (
+      <div className="bg-slate-50/80 border border-slate-200/90 rounded-xl p-3.5 space-y-3 mt-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="font-bold text-xs text-indigo-950 flex items-center gap-1.5">
+              <Camera className="w-3.5 h-3.5 text-indigo-600" />
+              <span>{sectionTitle}</span>
+            </span>
+            <p className="text-[10px] text-slate-500 mt-0.5">{sectionSubtitle}</p>
+          </div>
+          <span className="text-[9px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-md">
+            {photos.length} Fotoğraf Ekli
+          </span>
+        </div>
+
+        {/* Buttons for Mobile/Tablet Camera & Gallery Selection */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Direct Camera Capture (Rear Camera for Gemba inspection) */}
+          <label className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors">
+            <Camera className="w-3.5 h-3.5 text-indigo-100" />
+            <span>Kamera ile Fotoğraf Çek</span>
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+          </label>
+
+          {/* Photo Gallery Picker */}
+          <label className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors">
+            <Upload className="w-3.5 h-3.5 text-slate-500" />
+            <span>Galeriden / Dosyalardan Seç</span>
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleFileChange}
+              className="hidden"
+            />
+          </label>
+        </div>
+
+        {/* Photo Thumbnail Preview Grid */}
+        {photos.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2.5 pt-1">
+            {photos.map((photo, idx) => (
+              <div key={idx} className="relative group bg-white border border-slate-200 rounded-lg p-1 shadow-2xs">
+                <img
+                  src={photo}
+                  alt={`Görsel ${idx + 1}`}
+                  onClick={() => setLightboxPhoto({ url: photo, title: `${sectionTitle} - Fotoğraf #${idx + 1}` })}
+                  className="w-full h-20 object-cover rounded-md cursor-pointer hover:opacity-90 transition-opacity"
+                />
+                <button
+                  type="button"
+                  onClick={() => onRemovePhoto(idx)}
+                  className="absolute top-2 right-2 bg-rose-600/90 text-white rounded-full p-1 opacity-90 group-hover:opacity-100 hover:bg-rose-700 transition-all cursor-pointer shadow-xs"
+                  title="Fotoğrafı Sil"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+                <div className="mt-1 flex justify-between items-center px-1 text-[9px] text-slate-500 font-mono">
+                  <span>Foto #{idx + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => setLightboxPhoto({ url: photo, title: `${sectionTitle} - Fotoğraf #${idx + 1}` })}
+                    className="text-indigo-600 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
+                  >
+                    <ZoomIn className="w-2.5 h-2.5" />
+                    <span>Büyüt</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+
+      {/* FLOATING SUCCESS TOAST FOR SIMULATED EMAILS */}
+      {emailStatusMessage && (
+        <div className="bg-emerald-600 text-white p-4 rounded-xl shadow-md flex items-center justify-between transition-all duration-300 animate-pulse">
+          <div className="flex items-center space-x-2">
+            <CheckCircle className="w-5 h-5 text-white" />
+            <span className="text-xs font-bold">{emailStatusMessage}</span>
+          </div>
+          <button onClick={() => setEmailStatusMessage(null)} className="text-white hover:text-emerald-100 font-bold text-sm">✕</button>
+        </div>
+      )}
+
+      {/* HEADER ROW WITH LAUNCH ACTION */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 border border-slate-200 rounded-2xl shadow-xs">
+        <div>
+          <h2 className="text-xl font-bold font-sans tracking-tight text-slate-900 flex items-center space-x-2">
+            <Sparkles className="w-5 h-5 text-indigo-500 animate-pulse" />
+            <span>CI Proje Yönetimi (Continuous Improvement Portfolio)</span>
+          </h2>
+          <p className="text-xs text-slate-500 mt-1">
+            VSM, COPQ ve Recovery Matrix çıktılarından filtrelenen fırsatları projeye dönüştürerek yönetin.
+          </p>
+        </div>
+
+        <button
+          onClick={() => setIsWizardOpen(true)}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center space-x-2 transition-all cursor-pointer shadow-sm"
+        >
+          <Plus className="w-4 h-4" />
+          <span>+ CI Projesi Başlat</span>
+        </button>
+      </div>
+
+      {/* 10 MODERN KPI CARDS (Power BI Style) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3.5">
+        
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Toplam Proje</span>
+            <Layers className="w-3.5 h-3.5 text-slate-400" />
+          </div>
+          <div>
+            <div className="text-2xl font-mono font-bold text-slate-800">{totalCIProjects}</div>
+            <span className="text-[9px] text-slate-400">Aktif CI Proje Hacmi</span>
+          </div>
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-300"></div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] text-blue-500 font-bold uppercase tracking-wider">Devam Eden</span>
+            <TrendingUp className="w-3.5 h-3.5 text-blue-500" />
+          </div>
+          <div>
+            <div className="text-2xl font-mono font-bold text-blue-600">{inProgressProjects}</div>
+            <span className="text-[9px] text-slate-400">Do/Check Aşamasında</span>
+          </div>
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-500"></div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider">Tamamlanan</span>
+            <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
+          </div>
+          <div>
+            <div className="text-2xl font-mono font-bold text-emerald-600">{completedProjects}</div>
+            <span className="text-[9px] text-slate-400">Standartlaşan Projeler</span>
+          </div>
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500"></div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider">Bekleyen</span>
+            <Clock className="w-3.5 h-3.5 text-amber-500" />
+          </div>
+          <div>
+            <div className="text-2xl font-mono font-bold text-amber-600">{pendingProjects}</div>
+            <span className="text-[9px] text-slate-400">Planlama Aşamasında</span>
+          </div>
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500"></div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] text-purple-500 font-bold uppercase tracking-wider">Geciken</span>
+            <Clock className="w-3.5 h-3.5 text-purple-500" />
+          </div>
+          <div>
+            <div className="text-2xl font-mono font-bold text-purple-600">{delayedProjects}</div>
+            <span className="text-[9px] text-slate-400">Termini Geçmiş</span>
+          </div>
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-purple-500"></div>
+        </div>
+
+        {/* FINANCIAL METRICS ROW */}
+        <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] text-indigo-700 font-bold uppercase tracking-wider">Beklenen Finansal Kazanç</span>
+            <DollarSign className="w-3.5 h-3.5 text-indigo-600" />
+          </div>
+          <div>
+            <div className="text-xl font-mono font-bold text-indigo-950">
+              {currency}{totalExpectedFinancialGain.toLocaleString()}
+            </div>
+            <span className="text-[9px] text-slate-400">Fırsat Toplamı</span>
+          </div>
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-indigo-500"></div>
+        </div>
+
+        <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] text-emerald-700 font-bold uppercase tracking-wider">Gerçekleşen Kazanım</span>
+            <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+          </div>
+          <div>
+            <div className="text-xl font-mono font-bold text-emerald-700">
+              {currency}{realizedFinancialGain.toLocaleString()}
+            </div>
+            <span className="text-[9px] text-slate-400">Gerçek P&L Teyidi</span>
+          </div>
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-600"></div>
+        </div>
+
+        <div className="bg-cyan-50/50 border border-cyan-100 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] text-cyan-700 font-bold uppercase tracking-wider">Toplam COPQ Azalışı</span>
+            <Percent className="w-3.5 h-3.5 text-cyan-600" />
+          </div>
+          <div>
+            <div className="text-xl font-mono font-bold text-cyan-700">
+              {currency}{totalCOPQReduction.toLocaleString()}
+            </div>
+            <span className="text-[9px] text-slate-400">Kalitesizlik Maliyeti</span>
+          </div>
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-cyan-500"></div>
+        </div>
+
+        <div className="bg-violet-50/50 border border-violet-100 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] text-violet-700 font-bold uppercase tracking-wider">Faaliyet Karı Artışı</span>
+            <TrendingUp className="w-3.5 h-3.5 text-violet-600" />
+          </div>
+          <div>
+            <div className="text-xl font-mono font-bold text-violet-700">
+              +{currency}{operatingProfitIncrease.toLocaleString()}
+            </div>
+            <span className="text-[9px] text-slate-400">P&L Katkı Oranı</span>
+          </div>
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-violet-600"></div>
+        </div>
+
+        <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] text-slate-600 font-bold uppercase tracking-wider">Proje Başarı Oranı</span>
+            <Percent className="w-3.5 h-3.5 text-slate-500" />
+          </div>
+          <div>
+            <div className="text-xl font-mono font-bold text-slate-700">{averageProjectSuccessRate}%</div>
+            <span className="text-[9px] text-slate-400">Kapatılma Oranı</span>
+          </div>
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-500"></div>
+        </div>
+
+      </div>
+
+      {/* GECİKME TAKİP & HAFTALIK CI UYARI PANELİ */}
+      {delayedProjects > 0 && (
+        <div className="bg-rose-50/70 border border-rose-200 rounded-2xl p-4.5 space-y-3 shadow-xs">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <AlertTriangle className="w-5 h-5 text-rose-600 animate-pulse" />
+              <h3 className="font-bold text-sm text-rose-950 tracking-tight">Gecikme & Haftalık Takip Uyarı Paneli (Weekly Alert Hub)</h3>
+            </div>
+            <span className="bg-rose-100 text-rose-800 text-[10px] font-bold px-2.5 py-1 rounded-full">
+              {delayedProjects} Kritik Gecikme Saptanmıştır
+            </span>
+          </div>
+          <p className="text-xs text-rose-700 leading-relaxed">
+            Aşağıdaki sürekli iyileştirme projelerinde planlanan bitiş tarihleri aşılmıştır. Sistem haftalık süreç takibi verilerine göre gecikme sürelerini hesaplamış ve uyarı durumunu aktif etmiştir:
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            {filteredProjects.filter(k => {
+              if (k.status === "Completed") return false;
+              if (!k.plannedFinishDate) return false;
+              return new Date(k.plannedFinishDate) < new Date();
+            }).map(proj => {
+              const weeks = getDelayWeeksSinceDeadline(proj.plannedFinishDate!);
+              return (
+                <div key={proj.id} className="bg-white border border-rose-150 rounded-xl p-3.5 flex flex-col justify-between space-y-3 shadow-3xs hover:shadow-2xs transition-all border-l-4 border-l-red-500">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="flex items-center space-x-1.5">
+                        <span className="bg-red-100 text-red-800 text-[8px] font-bold uppercase px-1.5 py-0.2 rounded">Kritik Gecikme</span>
+                        <span className="text-[10px] font-bold text-slate-500 font-mono">{getProjectNo(proj)}</span>
+                      </div>
+                      <h4 className="font-bold text-xs text-slate-800 tracking-tight mt-1">{proj.title}</h4>
+                    </div>
+                    <span className="bg-red-100 text-red-800 text-[10px] font-bold font-mono px-2.5 py-0.5 rounded-lg flex items-center space-x-1 animate-pulse">
+                      <span>{weeks} Hafta Gecikti</span>
+                    </span>
+                  </div>
+                  
+                  {/* Miniature Weekly Progress Bar */}
+                  <div className="space-y-1 bg-slate-50 p-2 rounded border border-slate-100">
+                    <div className="flex justify-between text-[9px] text-slate-500">
+                      <span>Haftalık Otomatik Süreç Takip Durumu</span>
+                      <span className="text-red-600 font-bold">Planlanandan +{weeks} Hafta Sapma</span>
+                    </div>
+                    <div className="w-full bg-slate-200 h-1 rounded-full overflow-hidden">
+                      <div className="bg-red-500 h-full" style={{ width: `${Math.min(100, weeks * 12)}%` }}></div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center text-[10px] text-slate-500 font-medium">
+                    <span>Sorumlu Lider: <strong className="text-slate-700">{proj.projectLeader || proj.originator}</strong></span>
+                    <span>Planlanan Termin: <strong className="text-slate-700">{proj.plannedFinishDate}</strong></span>
+                  </div>
+                  
+                  <div className="flex space-x-2 pt-2.5 border-t border-slate-100 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenProjectDetails(proj)}
+                      className="text-[10px] font-bold text-slate-600 hover:text-slate-800 px-3 py-1 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer transition-all hover:bg-slate-100"
+                    >
+                      Kartı Aç & Düzenle
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => sendEmailReminder(proj)}
+                      className="text-[10px] font-bold bg-indigo-600 text-white hover:bg-indigo-700 px-3.5 py-1 rounded-lg flex items-center space-x-1 cursor-pointer shadow-sm transition-all"
+                    >
+                      <span>📧 Sorumluya Mail At</span>
+                      {proj.emailSentCount && proj.emailSentCount > 0 && (
+                        <span className="bg-white/20 text-white text-[8px] font-bold px-1.5 py-0.2 rounded-full">
+                          {proj.emailSentCount}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* FILTER & CONTROL TOOLBAR */}
+      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        
+        {/* View selection tabs */}
+        <div className="flex items-center space-x-1.5 bg-white p-1 rounded-xl border border-slate-200">
+          <button
+            onClick={() => setActiveTab("kanban")}
+            className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+              activeTab === "kanban" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            Kanban (PDCA) Panosu
+          </button>
+          <button
+            onClick={() => setActiveTab("list")}
+            className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+              activeTab === "list" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            Liste Görünümü
+          </button>
+          <button
+            onClick={() => setActiveTab("timeline")}
+            className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+              activeTab === "timeline" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            Timeline (Gantt)
+          </button>
+          <button
+            onClick={() => setActiveTab("dashboard")}
+            className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+              activeTab === "dashboard" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            Finansal Dashboard
+          </button>
+        </div>
+
+        {/* Global Select Dropdowns */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center space-x-1">
+            <Filter className="w-3.5 h-3.5 text-slate-400" />
+            <select
+              value={selectedDeptFilter}
+              onChange={(e) => setSelectedDeptFilter(e.target.value)}
+              className="text-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none text-slate-700 font-bold"
+            >
+              <option value="all">Tüm Departmanlar</option>
+              {Array.from(new Set(kaizens.map(k => k.department))).map(dept => (
+                <option key={dept} value={dept}>{dept}</option>
+              ))}
+            </select>
+          </div>
+
+          <select
+            value={selectedPhaseFilter}
+            onChange={(e) => setSelectedPhaseFilter(e.target.value)}
+            className="text-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none text-slate-700 font-bold"
+          >
+            <option value="all">Tüm Fazlar</option>
+            <option value="Phase 1: Quick Win">Phase 1: Quick Win (0-3 Ay)</option>
+            <option value="Phase 2: Capital Improvement">Phase 2: Capital Improvement (3-12 Ay)</option>
+            <option value="Phase 3: Strategic Transformation">Phase 3: Strategic Transformation (1-3 Yıl)</option>
+          </select>
+        </div>
+
+      </div>
+
+      {/* VIEW PANEL RENDERINGS */}
+
+      {/* 1. KANBAN (PDCA) VIEW */}
+      {activeTab === "kanban" && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          
+          {(["PLAN", "DO", "CHECK", "ACT"] as const).map(colStatus => {
+            const list = filteredProjects.filter(k => {
+              if (colStatus === "PLAN") return k.kanbanStatus === "PLAN" || !k.kanbanStatus || k.status === "Draft";
+              if (colStatus === "DO") return k.kanbanStatus === "DO" || (k.status === "In Progress" && !k.kanbanStatus);
+              return k.kanbanStatus === colStatus;
+            });
+
+            const columnMeta = {
+              "PLAN": { title: "PLAN (Planlama / Taslak)", color: "border-t-slate-400 bg-slate-50/50" },
+              "DO": { title: "DO (Uygulama / Geliştirme)", color: "border-t-blue-500 bg-blue-50/10" },
+              "CHECK": { title: "CHECK (Kontrol / Doğrulama)", color: "border-t-amber-500 bg-amber-50/10" },
+              "ACT": { title: "ACT (Standartlaştırma / Kapat)", color: "border-t-emerald-500 bg-emerald-50/10" }
+            };
+
+            const isCurrentDropCol = activeDropCol === colStatus;
+
+            return (
+              <div 
+                key={colStatus} 
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                }}
+                onDragEnter={() => setActiveDropCol(colStatus)}
+                onDragLeave={() => {
+                  // Keep it highlighted as long as mouse is in area
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  handleDrop(colStatus);
+                }}
+                className={`bg-slate-50/50 border rounded-2xl p-3.5 space-y-3.5 border-t-4 transition-all duration-200 ${
+                  isCurrentDropCol 
+                    ? "border-indigo-400 bg-indigo-50/30 ring-2 ring-indigo-200/50 shadow-xs scale-[1.01]" 
+                    : "border-slate-200"
+                } ${columnMeta[colStatus].color}`}
+              >
+                <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                  <span className="font-bold text-xs text-slate-800 tracking-tight uppercase">
+                    {columnMeta[colStatus].title}
+                  </span>
+                  <span className="bg-slate-200 text-slate-800 font-mono text-[10px] font-bold px-2 py-0.5 rounded-lg">
+                    {list.length}
+                  </span>
+                </div>
+
+                <div className="space-y-3 min-h-[300px]">
+                  {list.length === 0 ? (
+                    <div className="text-slate-400 text-center py-12 text-[11px] italic">Sürükleyip bırakarak bu aşamaya proje ekleyin.</div>
+                  ) : (
+                    list.map(proj => {
+                      const opp = opportunitiesList.find(o => o.id === proj.opportunityId);
+                      const expected = opp ? opp.expectedGain : proj.actualSavings * 1.2 || 60000;
+                      const realized = proj.actualSavings || 0;
+                      const hasTasks = proj.tasks && proj.tasks.length > 0;
+                      const completedTasks = hasTasks ? proj.tasks?.filter((t: any) => t.progressPercent === 100).length : 0;
+                      const progressPct = hasTasks ? Math.round((completedTasks! / proj.tasks!.length) * 100) : 0;
+
+                      const isOverdue = proj.status !== "Completed" && proj.plannedFinishDate && (new Date(proj.plannedFinishDate) < new Date());
+                      const delayWeeks = isOverdue ? getDelayWeeksSinceDeadline(proj.plannedFinishDate) : 0;
+
+                      return (
+                        <div 
+                          key={proj.id} 
+                          draggable
+                          onDragStart={(e) => {
+                            setDraggedProjId(proj.id);
+                            e.dataTransfer.effectAllowed = "move";
+                          }}
+                          onDragEnd={() => {
+                            setDraggedProjId(null);
+                            setActiveDropCol(null);
+                          }}
+                          className={`bg-white border rounded-xl p-3.5 space-y-3.5 shadow-3xs hover:shadow-2xs transition-all relative cursor-grab active:cursor-grabbing ${
+                            draggedProjId === proj.id ? "opacity-35 border-dashed scale-95" : ""
+                          } ${
+                            isOverdue ? "border-rose-350 ring-1 ring-rose-200" : "border-slate-150"
+                          }`}
+                        >
+                          
+                          {/* Phase tag & Edit button */}
+                          <div className="flex justify-between items-center">
+                            <span className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider ${
+                              proj.phase?.includes("Quick") ? "bg-emerald-100 text-emerald-800" :
+                              proj.phase?.includes("Capital") ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"
+                            }`}>
+                              {proj.phase || "Phase 1: Quick Win"}
+                            </span>
+                            
+                            <div className="flex items-center space-x-1.5">
+                              <span className="text-[10px] font-mono text-slate-500 font-bold uppercase flex items-center gap-0.5" title="Sürüklemek için basılı tutun">
+                                <GripVertical className="w-3 h-3 text-slate-300" />
+                                <span>{getProjectNo(proj)}</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => exportKaizenCardToExcel(proj, selectedCustomer?.companyName, currency)}
+                                className="text-slate-400 hover:text-emerald-600 p-0.5 rounded hover:bg-slate-100 transition-all cursor-pointer"
+                                title="CI Kartını Excel (XLS) Olarak İndir"
+                              >
+                                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenProjectFullScreen(proj)}
+                                className="text-slate-400 hover:text-emerald-600 p-0.5 rounded hover:bg-slate-100 transition-all cursor-pointer"
+                                title="Tam Ekranda Yönet"
+                              >
+                                <Maximize2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenProjectDetails(proj)}
+                                className="text-slate-400 hover:text-indigo-600 p-0.5 rounded hover:bg-slate-100 transition-all cursor-pointer"
+                                title="Projeyi Düzenle"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (window.confirm("Bu sürekli iyileştirme projesini silmek istediğinizden emin misiniz?")) {
+                                    onDeleteKaizen(proj.id);
+                                    syncWithGantt(proj, 'delete');
+                                  }
+                                }}
+                                className="text-slate-400 hover:text-red-600 p-0.5 rounded hover:bg-slate-100 transition-all cursor-pointer"
+                                title="Projeyi Sil"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Overdue alert badge on card */}
+                          {isOverdue && (
+                            <div className="bg-red-50 border border-red-100 rounded-lg p-1.5 flex items-center justify-between text-[9px] text-red-700 font-medium">
+                              <span className="flex items-center space-x-1">
+                                <AlertTriangle className="w-3 h-3 text-red-500 animate-pulse" />
+                                <span>{delayWeeks} Hafta Gecikme</span>
+                              </span>
+                              <div className="flex items-center space-x-1">
+                                <button 
+                                  type="button"
+                                  onClick={() => sendEmailReminder(proj)}
+                                  className="bg-red-600 hover:bg-red-700 text-white font-bold px-1.5 py-0.5 rounded text-[8px] flex items-center space-x-0.5 transition-all cursor-pointer"
+                                  title="E-Posta Hatırlatıcı Gönder"
+                                >
+                                  <span>📧 Hatırlat</span>
+                                </button>
+                                <button 
+                                  type="button"
+                                  onClick={() => exportKaizenCardToExcel(proj, selectedCustomer?.companyName, currency)}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white p-1 rounded text-[8px] flex items-center justify-center transition-all cursor-pointer"
+                                  title="CI Kartını Excel (XLS) Olarak İndir"
+                                >
+                                  <FileSpreadsheet className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Title & Desc (Clickable to Edit) */}
+                          <div className="space-y-1 cursor-pointer group" onClick={() => handleOpenProjectDetails(proj)}>
+                            <h4 className="font-bold text-sm text-slate-900 tracking-tight leading-snug line-clamp-2 group-hover:text-indigo-600 transition-all">
+                              {proj.title}
+                            </h4>
+                            <p className="text-[11px] text-slate-500 line-clamp-2">
+                              {proj.description || proj.descriptionBefore}
+                            </p>
+                          </div>
+
+                          {/* Leader & Team */}
+                          <div className="flex items-center space-x-2 text-[10px] text-slate-500">
+                            <Users className="w-3.5 h-3.5 text-slate-400" />
+                            <span className="font-bold text-slate-700">{proj.projectLeader || proj.originator}</span>
+                          </div>
+
+                          {/* Sub-tasks Progress */}
+                          {hasTasks && (
+                            <div className="space-y-1 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                              <div className="flex justify-between text-[9px] text-slate-500">
+                                <span>Alt Görevler ({completedTasks}/{proj.tasks?.length})</span>
+                                <span className="font-bold text-slate-700">{progressPct}%</span>
+                              </div>
+                              <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                                <div className="bg-indigo-500 h-full transition-all" style={{ width: `${progressPct}%` }}></div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Financial summary */}
+                          <div className="flex justify-between items-center text-[10px] bg-slate-50/50 p-2 rounded-lg border border-slate-100 font-mono">
+                            <div>
+                              <span className="text-[9px] text-slate-400 block uppercase">Planlanan</span>
+                              <span className="font-bold text-slate-700">{currency}{expected.toLocaleString()}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-[9px] text-slate-400 block uppercase">Gerçekleşen</span>
+                              <span className="font-bold text-emerald-600">{currency}{realized.toLocaleString()}</span>
+                            </div>
+                          </div>
+
+                          {/* Actions Footer */}
+                          <div className="flex justify-between items-center border-t border-slate-100 pt-2.5 text-[10px]">
+                            
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => handleOpenFinancials(proj)}
+                                className="text-indigo-600 hover:text-indigo-800 font-bold hover:underline cursor-pointer flex items-center space-x-0.5"
+                              >
+                                <DollarSign className="w-3 h-3" />
+                                <span>Finansallar</span>
+                              </button>
+
+                              <button
+                                onClick={() => setActiveTasksProjId(activeTasksProjId === proj.id ? null : proj.id)}
+                                className="text-slate-600 hover:text-slate-800 font-bold hover:underline cursor-pointer"
+                              >
+                                Görevler ({proj.tasks?.length || 0})
+                              </button>
+                            </div>
+
+                            <div className="flex items-center space-x-1 bg-slate-50 text-slate-400 border border-slate-200/50 px-2 py-0.5 rounded-md text-[9px] font-medium select-none">
+                              <GripVertical className="w-2.5 h-2.5" />
+                              <span>Sürükle</span>
+                            </div>
+                          </div>
+
+                          {/* Inner task expanded panel */}
+                          {activeTasksProjId === proj.id && (
+                            <div className="border-t border-slate-200 pt-3 mt-3 space-y-2.5 bg-slate-50/50 p-2.5 rounded-xl">
+                              <div className="flex justify-between items-center text-[10px] font-bold text-slate-700">
+                                <span>Aksiyon & Görev Yönetimi</span>
+                                <button onClick={() => setActiveTasksProjId(null)} className="text-slate-400">✕</button>
+                              </div>
+
+                              <div className="space-y-1.5 max-h-[160px] overflow-y-auto">
+                                {(proj.tasks || []).map((t: any) => (
+                                  <div key={t.id} className="flex justify-between items-center bg-white p-2 border border-slate-150 rounded-lg text-[10px]">
+                                    <div className="flex items-center space-x-2">
+                                      <input 
+                                        type="checkbox" 
+                                        checked={t.progressPercent === 100}
+                                        onChange={() => handleToggleTaskProgress(proj.id, t.id)}
+                                        className="rounded text-indigo-600"
+                                      />
+                                      <span className={t.progressPercent === 100 ? "line-through text-slate-400" : "text-slate-700 font-medium"}>
+                                        {t.name}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center space-x-1.5">
+                                      <span className="text-[9px] text-slate-400">{t.responsible.split(" ")[0]}</span>
+                                      <button onClick={() => handleDeleteTask(proj.id, t.id)} className="text-slate-400 hover:text-red-500">✕</button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Task Add Form */}
+                              <div className="space-y-1.5 pt-2 border-t border-slate-200">
+                                <input 
+                                  type="text"
+                                  placeholder="Yeni görev adı..."
+                                  value={newTaskName}
+                                  onChange={(e) => setNewTaskName(e.target.value)}
+                                  className="w-full text-[10px] bg-white border border-slate-200 rounded p-1.5"
+                                />
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <select
+                                    value={newTaskResponsible}
+                                    onChange={(e) => setNewTaskResponsible(e.target.value)}
+                                    className="text-[9px] bg-white border border-slate-200 rounded p-1"
+                                  >
+                                    {teamOptions.map(member => (
+                                      <option key={member} value={member}>{member}</option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    onClick={() => handleAddTask(proj.id)}
+                                    className="bg-indigo-600 text-white font-bold text-[9px] py-1 rounded"
+                                  >
+                                    Ekle
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+        </div>
+      )}
+
+      {/* 2. LIST VIEW */}
+      {activeTab === "list" && (
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden text-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-[10px] uppercase tracking-wider">
+                  <th className="py-3 px-4">Proje No</th>
+                  <th className="py-3 px-4">Proje Tanımı (CI Project)</th>
+                  <th className="py-3 px-4">Lider / Sponsor</th>
+                  <th className="py-3 px-4">Faz / Önem</th>
+                  <th className="py-3 px-4 text-right">Tahmini Bütçe</th>
+                  <th className="py-3 px-4 text-right">Gerçekleşen Tasarruf</th>
+                  <th className="py-3 px-4 text-center">Başarı %</th>
+                  <th className="py-3 px-4">Aşama</th>
+                  <th className="py-3 px-4 text-right">İşlemler</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700 font-sans">
+                {[...filteredProjects]
+                  .sort((a, b) => getProjectNo(a).localeCompare(getProjectNo(b), undefined, { numeric: true, sensitivity: 'base' }))
+                  .map(proj => {
+                    const opp = opportunitiesList.find(o => o.id === proj.opportunityId);
+                    const expected = opp ? opp.expectedGain : proj.actualSavings * 1.2 || 60000;
+                    const realized = proj.actualSavings || 0;
+                    const successPct = expected > 0 ? Math.round((realized / expected) * 100) : 0;
+
+                    const isOverdue = proj.status !== "Completed" && proj.plannedFinishDate && (new Date(proj.plannedFinishDate) < new Date());
+                    const delayWeeks = isOverdue ? getDelayWeeksSinceDeadline(proj.plannedFinishDate) : 0;
+
+                    return (
+                      <tr key={proj.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="py-3 px-4 font-mono font-bold text-indigo-950">
+                          {getProjectNo(proj)}
+                        </td>
+                        <td 
+                          onClick={() => handleOpenProjectDetails(proj)}
+                          className="py-3 px-4 font-semibold text-slate-900 max-w-[250px] cursor-pointer group"
+                        >
+                        <div className="font-bold text-[13px] group-hover:text-indigo-600 transition-colors flex items-center gap-1.5 flex-wrap">
+                          <span>{proj.title}</span>
+                          {isOverdue && (
+                            <span className="bg-red-100 text-red-800 text-[8px] font-bold px-1.5 py-0.2 rounded-full animate-pulse">
+                              {delayWeeks}H Gecikme
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">Departman: {proj.department} | Başlangıç: {proj.dateProposed}</div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="font-semibold text-slate-800">{proj.projectLeader || proj.originator}</div>
+                        <div className="text-[10px] text-slate-400">Sponsor: {proj.projectSponsor || "Atanmamış"}</div>
+                      </td>
+                      <td className="py-3 px-4 space-y-1">
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-[8px] font-bold uppercase ${
+                          proj.phase?.includes("Quick") ? "bg-emerald-100 text-emerald-800" :
+                          proj.phase?.includes("Capital") ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"
+                        }`}>
+                          {proj.phase?.split(":")[0] || "Phase 1"}
+                        </span>
+                        <div>
+                          <span className={`inline-block px-1.5 py-0.2 rounded text-[8px] font-bold ${
+                            proj.impactLevel === "High" ? "bg-rose-100 text-rose-800" :
+                            proj.impactLevel === "Medium" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"
+                          }`}>
+                            {proj.impactLevel} Impact
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-700">
+                        {currency}{(proj.estimatedCost || 0).toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-emerald-600">
+                        {currency}{realized.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <span className={`font-mono font-bold px-1.5 py-0.5 rounded ${
+                          successPct >= 100 ? "bg-emerald-100 text-emerald-800" :
+                          successPct > 50 ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-800"
+                        }`}>
+                          %{successPct}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <select
+                          value={proj.kanbanStatus || "PLAN"}
+                          onChange={(e) => handleKanbanStatusChange(proj, e.target.value as any)}
+                          className="bg-white border border-slate-200 rounded px-2 py-1 text-[11px] font-bold text-slate-700"
+                        >
+                          <option value="PLAN">PLAN</option>
+                          <option value="DO">DO</option>
+                          <option value="CHECK">CHECK</option>
+                          <option value="ACT">ACT (Completed)</option>
+                        </select>
+                      </td>
+                      <td className="py-3 px-4 text-right space-x-1.5">
+                        <button 
+                          onClick={() => exportKaizenCardToExcel(proj, selectedCustomer?.companyName, currency)}
+                          className="p-1 text-slate-400 hover:text-emerald-600 inline-block cursor-pointer"
+                          title="CI Kartını Excel (XLS) Olarak İndir"
+                        >
+                          <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                        </button>
+                        <button 
+                          onClick={() => handleOpenProjectDetails(proj)}
+                          className="p-1 text-slate-400 hover:text-indigo-600 inline-block"
+                          title="Kartı Aç & Detaylı Düzenle"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleOpenFinancials(proj)}
+                          className="p-1 text-slate-400 hover:text-indigo-600 inline-block"
+                          title="Finansal Kayıt Girişi"
+                        >
+                          <DollarSign className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteProject(proj.id)}
+                          className="p-1 text-slate-400 hover:text-red-500 inline-block"
+                          title="Projeyi Sil"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* 3. TIMELINE (GANTT) VIEW — MASTER PLAN ENTEGRASYONU */}
+      {activeTab === "timeline" && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-5">
+          
+          {/* Header & Control Bar */}
+          <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-3 pb-3 border-b border-slate-150">
+            <div>
+              <div className="flex items-center space-x-2">
+                <Calendar className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-bold text-sm text-slate-900">
+                  CI Projeleri Master Plan Gantt Şeması & Aksiyon Takip Çizelgesi
+                </h3>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Planlanan ve gerçekleşen zaman dilimleri, plan sapmaları (kırmızı gösterim) ve 6. Uygulama Planı alt faaliyet takibi
+              </p>
+            </div>
+
+            {/* Legend & Expand All Controls */}
+            <div className="flex flex-wrap items-center gap-3 text-[11px] font-bold">
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl">
+                <span className="flex items-center space-x-1">
+                  <span className="w-3 h-3 rounded bg-blue-500 inline-block"></span>
+                  <span className="text-slate-700">Planlanan Dönem</span>
+                </span>
+                <span className="flex items-center space-x-1 ml-2">
+                  <span className="w-3 h-3 rounded bg-emerald-500 inline-block"></span>
+                  <span className="text-slate-700">Gerçekleşen / Tamamlanan</span>
+                </span>
+                <span className="flex items-center space-x-1 ml-2">
+                  <span className="w-3 h-3 rounded bg-amber-500 inline-block"></span>
+                  <span className="text-slate-700">Devam Eden</span>
+                </span>
+                <span className="flex items-center space-x-1 ml-2">
+                  <span className="w-3 h-3 rounded bg-rose-600 inline-block"></span>
+                  <span className="text-rose-700 font-black">Plan Sapması (Kırmızı)</span>
+                </span>
+              </div>
+
+              {/* Expand / Collapse All Sub-Activities Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  const allExpanded = filteredProjects.every(p => expandedProjectIds[p.id]);
+                  const newMap: Record<string, boolean> = {};
+                  filteredProjects.forEach(p => {
+                    newMap[p.id] = !allExpanded;
+                  });
+                  setExpandedProjectIds(newMap);
+                }}
+                className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-bold"
+              >
+                {filteredProjects.every(p => expandedProjectIds[p.id]) ? (
+                  <>
+                    <ChevronDown className="w-3.5 h-3.5" />
+                    <span>Alt Faaliyetleri Daralt</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                    <span>Tüm Alt Faaliyetleri Göster ({filteredProjects.reduce((acc, p) => acc + (p.tasks?.length || 0), 0)})</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-3 overflow-x-auto">
+            {/* Gantt Header Grid */}
+            <div className="grid grid-cols-12 gap-3 text-[10px] text-slate-500 font-bold pb-2 font-mono border-b border-slate-200 min-w-[850px]">
+              <div className="col-span-4 pl-1">PROJE KONUSU & ALT FAALİYETLER (6 UYGULAMA PLANILARI)</div>
+              <div className="col-span-8 grid grid-cols-12 text-center divide-x divide-slate-100 bg-slate-50/80 rounded-lg py-1 border border-slate-200">
+                {["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"].map((m, idx) => (
+                  <div key={idx} className="flex flex-col items-center">
+                    <span className="text-slate-800 font-bold">{m}</span>
+                    <span className="text-[8px] text-slate-400 font-normal">2026</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {filteredProjects.length === 0 ? (
+              <div className="text-center py-10 text-slate-400 italic">Gantt grafiği için kayıtlı proje bulunmamaktadır.</div>
+            ) : (
+              filteredProjects.map(proj => {
+                const isExpanded = !!expandedProjectIds[proj.id];
+                const tasksList = proj.tasks || [];
+                
+                // Main project dates
+                const pStart = Math.min(12, Math.max(1, Number(proj.dateProposed?.split("-")[1]) || 1));
+                const pEnd = Math.min(12, Math.max(pStart, Number((proj.plannedFinishDate || proj.dateProposed)?.split("-")[1]) || 12));
+                
+                const isCompleted = proj.status === "Completed" || proj.kanbanStatus === "ACT";
+                const isOverdue = !isCompleted && proj.plannedFinishDate && (new Date(proj.plannedFinishDate) < new Date());
+                
+                // Actual finish month (if completed or overdue)
+                let aEnd = pEnd;
+                if (isCompleted && proj.realizedFinishDate) {
+                  aEnd = Math.min(12, Math.max(pStart, Number(proj.realizedFinishDate.split("-")[1]) || pEnd));
+                } else if (isOverdue) {
+                  const currentMonth = new Date().getMonth() + 1; // 1-12
+                  aEnd = Math.max(pEnd + 1, currentMonth);
+                }
+
+                // Check deviation
+                const hasDeviation = isOverdue || aEnd > pEnd;
+                const delayWeeks = isOverdue ? getDelayWeeksSinceDeadline(proj.plannedFinishDate) : 0;
+
+                return (
+                  <div key={proj.id} className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-3xs min-w-[850px]">
+                    
+                    {/* MAIN PROJECT ROW */}
+                    <div className="grid grid-cols-12 gap-3 items-center p-2.5 bg-slate-50/60 hover:bg-indigo-50/30 transition-colors border-b border-slate-100">
+                      
+                      {/* Left: Project Metadata */}
+                      <div className="col-span-4 flex items-start space-x-2 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedProjectIds(prev => ({ ...prev, [proj.id]: !prev[proj.id] }))}
+                          className="p-1 rounded hover:bg-slate-200 text-slate-500 transition-colors mt-0.5 cursor-pointer shrink-0"
+                          title="Alt faaliyetleri göster/gizle"
+                        >
+                          {isExpanded ? <ChevronDown className="w-4 h-4 text-indigo-600" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                        </button>
+
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <div className="flex items-center space-x-1.5 flex-wrap">
+                            <span className="bg-indigo-100 text-indigo-900 font-mono text-[9px] font-extrabold px-1.5 py-0.2 rounded border border-indigo-200">
+                              {getProjectNo(proj)}
+                            </span>
+                            <span 
+                              onClick={() => handleOpenProjectDetails(proj)}
+                              className="font-bold text-slate-900 truncate hover:text-indigo-600 transition-colors cursor-pointer text-xs"
+                              title={proj.title}
+                            >
+                              {proj.title}
+                            </span>
+                            {tasksList.length > 0 && (
+                              <span className="bg-slate-200 text-slate-700 text-[9px] font-bold px-1.5 py-0.2 rounded-full font-mono">
+                                {tasksList.length} Alt Faaliyet
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="text-[10px] text-slate-500 font-mono flex items-center space-x-2 flex-wrap">
+                            <span>Sorumlu: <strong className="text-slate-700">{proj.projectLeader || proj.originator}</strong></span>
+                            <span>• {proj.department}</span>
+                            {hasDeviation && (
+                              <span className="bg-rose-100 text-rose-700 font-extrabold px-1.5 py-0.2 rounded text-[9px] flex items-center gap-0.5 animate-pulse">
+                                <AlertTriangle className="w-3 h-3 text-rose-600" />
+                                <span>{delayWeeks > 0 ? `${delayWeeks} Hafta Sapma` : 'Tarih Sapması (Gecikme)'}</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right: Dual Track Gantt Bars (Planlanan vs Gerçekleşen & Kırmızı Sapma) */}
+                      <div className="col-span-8 grid grid-cols-12 relative bg-slate-100/50 rounded-lg p-1 min-h-[44px] items-center">
+                        
+                        {/* Background Grid Lines */}
+                        <div className="absolute inset-0 grid grid-cols-12 pointer-events-none divide-x divide-slate-200/50">
+                          {Array.from({ length: 12 }).map((_, i) => (
+                            <div key={i} className="h-full"></div>
+                          ))}
+                        </div>
+
+                        {/* TRACK 1: PLANLANAN ZAMAN DİLİMİ (Blue Bar) */}
+                        <div 
+                          className="h-4 rounded bg-blue-500/90 hover:bg-blue-600 text-[8px] text-white font-bold flex items-center px-1.5 transition-all shadow-3xs z-10 my-0.5 border border-blue-400"
+                          style={{ 
+                            gridColumnStart: pStart,
+                            gridColumnEnd: Math.min(13, pEnd + 1)
+                          }}
+                          title={`Planlanan Dönem: Ay ${pStart} - Ay ${pEnd}`}
+                        >
+                          <span className="truncate">Plan: Ay {pStart}-{pEnd}</span>
+                        </div>
+
+                        {/* TRACK 2: GERÇEKLEŞEN ZAMAN DİLİMİ (Status Color & Red Deviation Extension) */}
+                        <div 
+                          className={`h-4 rounded text-[8px] text-white font-bold flex items-center justify-between px-1.5 transition-all shadow-3xs z-10 my-0.5 ${
+                            isCompleted ? "bg-emerald-500 border border-emerald-400" :
+                            hasDeviation ? "bg-rose-600 border border-rose-500 animate-pulse" :
+                            "bg-amber-500 border border-amber-400"
+                          }`}
+                          style={{ 
+                            gridColumnStart: pStart,
+                            gridColumnEnd: Math.min(13, (hasDeviation ? Math.max(pEnd + 1, aEnd + 1) : aEnd + 1))
+                          }}
+                          title={`Gerçekleşen / Mevcut Durum: ${isCompleted ? 'Tamamlandı' : hasDeviation ? 'Plan Sapması (Gecikme Var)' : 'Devam Ediyor'}`}
+                        >
+                          <span className="truncate">{isCompleted ? "Fiili: Tamamlandı" : hasDeviation ? "Fiili: Sapma Var (Gecikme)" : "Fiili: Devam Ediyor"}</span>
+                          {hasDeviation && (
+                            <span className="bg-white/30 text-white font-black px-1 rounded text-[7px] font-mono shrink-0 ml-1">
+                              SAPMA 🔴
+                            </span>
+                          )}
+                        </div>
+
+                      </div>
+                    </div>
+
+                    {/* SUB-ACTIVITIES CHILD ROWS (Requirement 4: 6 Uygulama Planı Maddeleri) */}
+                    {isExpanded && (
+                      <div className="bg-slate-50/70 border-t border-slate-150 divide-y divide-slate-100 pl-4 py-1">
+                        {tasksList.length === 0 ? (
+                          <div className="py-2.5 px-4 text-slate-400 italic text-[11px] flex items-center space-x-2">
+                            <span>↳ Henüz alt faaliyet tanımlanmadı. Kart düzenleme formundaki <strong>"6 Uygulama Planı"</strong> bölümünden proje alt faaliyetleri eklenebilir.</span>
+                          </div>
+                        ) : (
+                          tasksList.map((task: CITask, tIdx: number) => {
+                            const isTaskDone = task.progressPercent === 100 || (task as any).status === "Yapıldı" || (task as any).status === "Completed";
+                            
+                            // Task deadline month calculation
+                            const taskEndMonth = task.deadline ? Math.min(12, Math.max(pStart, Number(task.deadline.split("-")[1]) || pEnd)) : pEnd;
+                            const isTaskOverdue = !isTaskDone && task.deadline && new Date(task.deadline) < new Date();
+
+                            return (
+                              <div key={task.id || tIdx} className="grid grid-cols-12 gap-3 items-center p-2 text-[11px] hover:bg-white transition-colors">
+                                
+                                {/* Sub-activity Name & Owner */}
+                                <div className="col-span-4 pl-4 flex items-center space-x-2 min-w-0">
+                                  <span className="text-slate-400 font-mono font-bold shrink-0">↳</span>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="font-bold text-slate-800 truncate flex items-center gap-1.5">
+                                      <span>{tIdx + 1}. {task.name}</span>
+                                      <span className={`text-[8px] font-bold px-1.5 py-0.2 rounded ${
+                                        isTaskDone ? "bg-emerald-100 text-emerald-800" :
+                                        isTaskOverdue ? "bg-rose-100 text-rose-800 font-black animate-pulse" :
+                                        "bg-amber-100 text-amber-800"
+                                      }`}>
+                                        {isTaskDone ? "Yapıldı" : isTaskOverdue ? "Gecikti" : "Devam Ediyor"}
+                                      </span>
+                                    </div>
+                                    <div className="text-[9px] text-slate-400 font-mono">
+                                      Sorumlu: {task.responsible || proj.projectLeader} | Termin: {task.deadline || "Belirtilmedi"}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Sub-activity Gantt Bar */}
+                                <div className="col-span-8 grid grid-cols-12 relative bg-white rounded border border-slate-200/70 p-0.5 min-h-[26px] items-center">
+                                  <div className="absolute inset-0 grid grid-cols-12 pointer-events-none divide-x divide-slate-100">
+                                    {Array.from({ length: 12 }).map((_, i) => (
+                                      <div key={i} className="h-full"></div>
+                                    ))}
+                                  </div>
+
+                                  {/* Task Bar */}
+                                  <div 
+                                    className={`h-3.5 rounded text-[7.5px] text-white font-bold flex items-center justify-between px-1.5 transition-all z-10 ${
+                                      isTaskDone ? "bg-emerald-600" :
+                                      isTaskOverdue ? "bg-rose-600 animate-pulse" :
+                                      "bg-indigo-500"
+                                    }`}
+                                    style={{ 
+                                      gridColumnStart: pStart,
+                                      gridColumnEnd: Math.min(13, taskEndMonth + 1)
+                                    }}
+                                    title={`Alt Faaliyet: ${task.name} | Sorumlu: ${task.responsible}`}
+                                  >
+                                    <span className="truncate">{task.name}</span>
+                                    {isTaskOverdue && (
+                                      <span className="bg-white text-rose-700 font-black px-1 rounded text-[6.5px]">
+                                        GECİKME
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 4. FINANCIAL & ANALYTICAL DASHBOARD VIEW (Power BI Style) */}
+      {activeTab === "dashboard" && (
+        <div className="space-y-6">
+          
+          {/* Summary Bar - Deep Financial Business Metrics */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            
+            {/* Faaliyet Karı Etkisi */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[125px]">
+              <div className="flex justify-between items-start">
+                <span className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider">Faaliyet Karı Etkisi</span>
+                <TrendingUp className="w-4 h-4 text-indigo-600" />
+              </div>
+              <div>
+                <div className="text-2xl font-mono font-bold text-slate-900">+{profitImpactPercentage}%</div>
+                <div className="text-xs font-semibold text-indigo-600 mt-0.5">+{currency}{realizedFinancialGain.toLocaleString()} Toplam Getiri</div>
+              </div>
+              <span className="text-[9px] text-slate-400">Fabrika Yıllık Faaliyet Karı Katkısı ({currency}{estimatedOperatingProfit.toLocaleString()})</span>
+              <div className="absolute bottom-0 left-0 right-0 h-1 bg-indigo-600"></div>
+            </div>
+
+            {/* COPQ Etkisi */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[125px]">
+              <div className="flex justify-between items-start">
+                <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">COPQ (Kötü Kalite Maliyeti) Azaltımı</span>
+                <Percent className="w-4 h-4 text-emerald-600" />
+              </div>
+              <div>
+                <div className="text-2xl font-mono font-bold text-slate-900">-{copqReductionPercentage}% COPQ</div>
+                <div className="text-xs font-semibold text-emerald-600 mt-0.5">-{currency}{totalCOPQReduction.toLocaleString()} Kalite Tasarrufu</div>
+              </div>
+              <span className="text-[9px] text-slate-400">VSM ve Hurda Kaynaklı COPQ Etkisi ({currency}{initialCOPQ.toLocaleString()})</span>
+              <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500"></div>
+            </div>
+
+            {/* Yatırım Getiri Katsayısı ve ROI Miktarı */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[125px]">
+              <div className="flex justify-between items-start">
+                <span className="text-[10px] text-amber-600 font-bold uppercase tracking-wider">Yatırım Getirisi & ROI Katsayısı</span>
+                <DollarSign className="w-4 h-4 text-amber-500" />
+              </div>
+              <div>
+                <div className="text-2xl font-mono font-bold text-slate-900">{realizedToBudgetRatio}x Katsayı</div>
+                <div className="text-xs font-semibold text-amber-600 mt-0.5">Net ROI: +{currency}{netROIAmount.toLocaleString()}</div>
+              </div>
+              <span className="text-[9px] text-slate-400">Toplam Yatırım Bütçesi: {currency}{totalBudget.toLocaleString()}</span>
+              <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500"></div>
+            </div>
+
+          </div>
+
+          {/* Categories & Phase Maturity Distributions */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* Left/Middle Card: Category Breakdown and Savings (Quality, Efficiency, HSE, Scrap, Productivity) */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs lg:col-span-2 space-y-4">
+              <div className="flex justify-between items-center pb-1.5 border-b border-slate-100">
+                <div>
+                  <h3 className="font-bold text-xs text-slate-800 uppercase tracking-tight">Kategorilere Göre İyileştirme Oranları & Dağılımı</h3>
+                  <p className="text-[10px] text-slate-400">Kalite, Verimlilik, İSG, Hurda ve Üretkenlik kırılımlı CI performansları</p>
+                </div>
+                <BarChart2 className="w-4 h-4 text-slate-400" />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-center">
+                {/* Horizontal progress indicators */}
+                <div className="space-y-3.5">
+                  {categoryDistributionData.length === 0 ? (
+                    <div className="text-center py-6 text-slate-400 text-xs italic">Kategoriye ait proje bulunamadı.</div>
+                  ) : (
+                    categoryDistributionData.map(c => {
+                      const percentWidth = Math.max(8, c.Oran);
+                      return (
+                        <div key={c.name} className="space-y-1">
+                          <div className="flex justify-between text-xs font-semibold">
+                            <span className="text-slate-700 flex items-center gap-1.5">
+                              <span className={`w-2 h-2 rounded-full ${
+                                c.name === "Kalite" ? "bg-rose-500" :
+                                c.name === "Verimlilik" ? "bg-indigo-500" :
+                                c.name === "İSG (HSE)" ? "bg-emerald-500" :
+                                c.name === "Hurda / Fire" ? "bg-amber-500" :
+                                c.name === "Üretkenlik" ? "bg-cyan-500" : "bg-slate-400"
+                              }`}></span>
+                              {c.name} ({c.Adet} Proje)
+                            </span>
+                            <span className="text-slate-900">{currency}{c.Kazanım.toLocaleString()} ({c.Oran}%)</span>
+                          </div>
+                          <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden flex">
+                            <div 
+                              className={`h-full rounded-full ${
+                                c.name === "Kalite" ? "bg-rose-500" :
+                                c.name === "Verimlilik" ? "bg-indigo-500" :
+                                c.name === "İSG (HSE)" ? "bg-emerald-500" :
+                                c.name === "Hurda / Fire" ? "bg-amber-500" :
+                                c.name === "Üretkenlik" ? "bg-cyan-500" : "bg-slate-400"
+                              }`}
+                              style={{ width: `${percentWidth}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Visual Chart representation */}
+                <div className="h-[180px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={categoryDistributionData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="name" stroke="#94a3b8" fontSize={9} tickLine={false} />
+                      <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} />
+                      <Tooltip formatter={(value) => [`${currency}${Number(value).toLocaleString()}`, "Birikimli Kazanım"]} />
+                      <Bar dataKey="Kazanım" radius={[6, 6, 0, 0]}>
+                        {categoryDistributionData.map((entry, index) => {
+                          let color = "#94a3b8";
+                          if (entry.name === "Kalite") color = "#f43f5e";
+                          if (entry.name === "Verimlilik") color = "#6366f1";
+                          if (entry.name === "İSG (HSE)") color = "#10b981";
+                          if (entry.name === "Hurda / Fire") color = "#f59e0b";
+                          if (entry.name === "Üretkenlik") color = "#06b6d4";
+                          return <Cell key={`cell-${index}`} fill={color} />;
+                        })}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Card: Phase Maturity Levels (Maturity progression) */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+              <div className="flex justify-between items-center pb-1.5 border-b border-slate-100">
+                <div>
+                  <h3 className="font-bold text-xs text-slate-800 uppercase tracking-tight">CI Olgunluk Seviyesi (Phase Tracker)</h3>
+                  <p className="text-[10px] text-slate-400">Takımın karmaşık iyileştirme seviyelerine ilerleme analizi</p>
+                </div>
+                <Layers className="w-4 h-4 text-slate-400" />
+              </div>
+
+              <div className="space-y-4 py-2">
+                {/* Phase 1 */}
+                <div className="p-3 bg-emerald-50/50 border border-emerald-100 rounded-xl flex justify-between items-center">
+                  <div className="space-y-1">
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold uppercase">Faz 1: Quick Win</span>
+                    <p className="text-[11px] text-slate-500">Hızlı kazanımlı, düşük maliyetli kaizenler</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xl font-mono font-bold text-emerald-600">{phase1Count}</span>
+                    <span className="text-[10px] text-slate-400 block">Proje Adedi</span>
+                  </div>
+                </div>
+
+                {/* Phase 2 */}
+                <div className="p-3 bg-amber-50/50 border border-amber-100 rounded-xl flex justify-between items-center">
+                  <div className="space-y-1">
+                    <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold uppercase">Faz 2: Capital Improvement</span>
+                    <p className="text-[11px] text-slate-500">Orta vadeli verimlilik ve ekipman yatırımı</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xl font-mono font-bold text-amber-600">{phase2Count}</span>
+                    <span className="text-[10px] text-slate-400 block">Proje Adedi</span>
+                  </div>
+                </div>
+
+                {/* Phase 3 */}
+                <div className="p-3 bg-blue-50/50 border border-blue-100 rounded-xl flex justify-between items-center">
+                  <div className="space-y-1">
+                    <span className="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-bold uppercase">Faz 3: Strategic Transformation</span>
+                    <p className="text-[11px] text-slate-500">Uzun vadeli, VSM köklü yapısal değişim</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xl font-mono font-bold text-blue-600">{phase3Count}</span>
+                    <span className="text-[10px] text-slate-400 block">Proje Adedi</span>
+                  </div>
+                </div>
+
+                {/* Growth insight */}
+                <div className="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg p-2.5 flex items-start gap-1.5">
+                  <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-indigo-500" />
+                  <span>
+                    {phase2Count + phase3Count > 0 
+                      ? `Fabrika ekibiniz ${phase2Count + phase3Count} adet orta/ileri seviye (Faz 2 & 3) iyileştirme yürüterek metodolojik yetkinliğini artırmaktadır.`
+                      : "Gelişim Seviyesi İzlenimi: Henüz başlangıç aşamasındaki Quick-Win projelerine odaklanılmış durumdadır. Faz 2 projeleri teşvik edilmelidir."}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Project Success & Conversion Target Comparison */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            {/* Açılan ve Kapatılan Proje Oranı (Success Rate) */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+              <div className="flex justify-between items-center pb-1.5 border-b border-slate-100">
+                <div>
+                  <h3 className="font-bold text-xs text-slate-800 uppercase tracking-tight">Proje Açılış vs Kapanış Oranı</h3>
+                  <p className="text-[10px] text-slate-400">Hattın problem çözme hızı ve proje sonlandırma başarısı</p>
+                </div>
+                <CheckCircle className="w-4 h-4 text-slate-400" />
+              </div>
+
+              <div className="grid grid-cols-3 gap-4 items-center pt-2">
+                
+                {/* Visual Circle Gauge */}
+                <div className="col-span-1 flex flex-col items-center justify-center relative">
+                  <div className="relative w-24 h-24 flex items-center justify-center">
+                    <svg className="w-full h-full transform -rotate-90">
+                      <circle cx="48" cy="48" r="40" stroke="#f1f5f9" strokeWidth="8" fill="transparent" />
+                      <circle cx="48" cy="48" r="40" stroke="#10b981" strokeWidth="8" fill="transparent"
+                        strokeDasharray={251.2}
+                        strokeDashoffset={251.2 - (251.2 * averageProjectSuccessRate) / 100}
+                        strokeLinecap="round" />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-lg font-mono font-bold text-slate-900">{averageProjectSuccessRate}%</span>
+                      <span className="text-[8px] text-slate-400 font-bold uppercase">Başarı</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Pipeline Stats List */}
+                <div className="col-span-2 space-y-3 font-sans text-xs">
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-1">
+                    <span className="text-slate-500 font-medium">Toplam Açılan (Converted)</span>
+                    <span className="font-mono font-bold text-slate-900">{totalCIProjects} Adet</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-1">
+                    <span className="text-slate-500 font-medium">Aktif Devam Eden (In Progress)</span>
+                    <span className="font-mono font-bold text-blue-600">{inProgressProjects} Adet</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-1">
+                    <span className="text-slate-500 font-medium">Kapatılan & Onaylanan (Closed)</span>
+                    <span className="font-mono font-bold text-emerald-600">{completedProjects} Adet</span>
+                  </div>
+                  <p className="text-[10px] italic text-slate-400">
+                    * Hedeflenen OEE ve setup süresi kazanımlarının standartlaşması için açılan projelerin en az %60'ının kapatılması esastır.
+                  </p>
+                </div>
+
+              </div>
+            </div>
+
+            {/* Target vs Realized savings */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+              <div className="flex justify-between items-center pb-1.5 border-b border-slate-100">
+                <div>
+                  <h3 className="font-bold text-xs text-slate-800 uppercase tracking-tight">Finansal Hedef vs Gerçekleşen Tasarruf</h3>
+                  <p className="text-[10px] text-slate-400">Fizibilite hedeflerine karşılık fiili olarak kaydedilen kazançlar</p>
+                </div>
+                <TrendingUp className="w-4 h-4 text-slate-400" />
+              </div>
+
+              <div className="h-[150px] pt-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartExpectedRealized}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} tickLine={false} />
+                    <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} />
+                    <Tooltip cursor={{ fill: '#f8fafc' }} formatter={(val) => [`${currency}${Number(val).toLocaleString()}`, "Değer"]} />
+                    <Bar dataKey="Tutarı" radius={[8, 8, 0, 0]}>
+                      <Cell fill="#6366f1" />
+                      <Cell fill="#10b981" />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Visual Improvement Funnel (İyileştirme Hunisi) */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+            <div className="flex justify-between items-center pb-1.5 border-b border-slate-100">
+              <div>
+                <h3 className="font-bold text-xs text-slate-800 uppercase tracking-tight">Improvement Funnel — İyileştirme Hunisi</h3>
+                <p className="text-[10px] text-slate-400">Kayıp fırsatlarının analizden başlayıp kesinleşen finansal tasdik aşamasına dönüşüm hunisi</p>
+              </div>
+              <Filter className="w-4 h-4 text-slate-500" />
+            </div>
+
+            {/* Horizontal Stacked Visual Funnel */}
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3.5 pt-3">
+              {funnelSteps.map((step, index) => {
+                // Width gets progressivly smaller in visual representation
+                const funnelWidths = ["w-full", "w-11/12 mx-auto", "w-5/6 mx-auto", "w-3/4 mx-auto", "w-2/3 mx-auto"];
+                return (
+                  <div key={step.name} className="flex flex-col justify-between items-center text-center space-y-2 relative">
+                    
+                    {/* Visual Funnel Segment */}
+                    <div className={`${funnelWidths[index]} ${step.color} p-4 rounded-xl shadow-xs transition-all flex flex-col justify-center items-center min-h-[95px] text-white`}>
+                      <span className="text-[10px] font-bold uppercase tracking-wider block opacity-85">{step.name.split(" ")[0]}</span>
+                      <span className="text-2xl font-mono font-bold mt-1">{step.count} <span className="text-xs">Adet</span></span>
+                      <span className="text-[9px] mt-1 font-semibold block bg-white/20 px-1.5 py-0.5 rounded">
+                        {index === 0 ? "Giriş: %100" : `Dönüşüm: %${step.percent}`}
+                      </span>
+                    </div>
+
+                    {/* Step description */}
+                    <div className="px-2">
+                      <span className="text-[10px] text-slate-500 font-medium block leading-tight">{step.desc}</span>
+                    </div>
+
+                    {/* Funnel separator arrow for desktop */}
+                    {index < 4 && (
+                      <div className="hidden md:block absolute top-[30px] -right-[15px] z-10 bg-white border border-slate-200 rounded-full p-0.5 shadow-3xs">
+                        <ArrowRight className="w-4 h-4 text-slate-400" />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+        </div>
+      )}
+
+
+      {/* LAUNCH CI PROJECT WIZARD MODAL */}
+      {isWizardOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl overflow-hidden border border-slate-200">
+            
+            {/* Wizard Header */}
+            <div className="bg-slate-50 px-5 py-4 border-b border-slate-200 flex justify-between items-center">
+              <div className="flex items-center space-x-2">
+                <Sparkles className="w-5 h-5 text-indigo-500" />
+                <h3 className="font-bold text-slate-900 text-sm uppercase tracking-tight">
+                  CI Proje Başlatma ve Fırsat Seçim Paneli
+                </h3>
+              </div>
+              <button 
+                onClick={() => { setIsWizardOpen(false); }} 
+                className="text-slate-400 hover:text-slate-600 font-bold text-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-0 flex flex-col">
+              {/* Selection Tabs */}
+              <div className="flex border-b border-slate-200 bg-slate-50/50">
+                <button
+                  type="button"
+                  className="flex-1 py-4 text-center text-xs font-bold transition-all border-b-2 border-indigo-600 text-indigo-600 bg-white flex items-center justify-center space-x-2"
+                >
+                  <span>📂 Fırsat Havuzu Konuları (VSM & Loss Capacity)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectNewProjectTheme()}
+                  className="flex-1 py-4 text-center text-xs font-bold transition-all border-b-2 border-transparent text-slate-500 hover:text-indigo-600 hover:bg-slate-50 flex items-center justify-center space-x-2 cursor-pointer"
+                  title="Boş bir CI Proje Tanımlama formu başlatır."
+                >
+                  <span>✨ Yeni Proje Teması (Boş Form)</span>
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4 max-h-[520px] overflow-y-auto">
+                {/* Data Source & Product Family Selector Banner */}
+                <div className="bg-indigo-50/80 border border-indigo-200/90 rounded-2xl p-4 space-y-3 shadow-2xs">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-200/60 pb-3">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-emerald-700 font-bold bg-emerald-100 px-2.5 py-1 rounded-md text-[10px] font-mono border border-emerald-300 flex items-center gap-1.5 shadow-3xs">
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Veri Kaynağı: Loss Capacity Analizi (COPQ & Cost Deployment)</span>
+                      </span>
+                      <span className="text-xs text-indigo-900 font-bold hidden sm:inline">
+                        — CI Proje Yönetimi Fırsat Havuzu
+                      </span>
+                    </div>
+
+                    {/* Product Family Dropdown Selector */}
+                    <div className="flex items-center space-x-2">
+                      <label htmlFor="product-family-select" className="font-bold text-slate-700 text-xs flex items-center gap-1">
+                        <Filter className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>Ürün Ailesi Kapsamı:</span>
+                      </label>
+                      <select
+                        id="product-family-select"
+                        value={selectedProductFamily}
+                        onChange={(e) => setSelectedProductFamily(e.target.value)}
+                        className="bg-white border border-indigo-300 rounded-xl text-xs font-bold px-3 py-1.5 text-indigo-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-2xs cursor-pointer hover:border-indigo-400 transition-colors"
+                      >
+                        {PRODUCT_FAMILIES.map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Sistem, <strong>Loss Capacity Analizi (COPQ & Cost Deployment)</strong> modülünden elde edilen finansal kayıp konularını ve yalın gelişim potansiyellerini listelemektedir. <strong>Seçili Ürün Ailesi</strong> değiştiğinde, ilgili ürün grubunun üretim ve hacim payı oranına göre mevcut maliyet kayıpları ve kazanç potansiyelleri <strong>otomatik olarak ölçeklenmektedir</strong>.
+                  </p>
+                </div>
+
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-3xs bg-white">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[9px] tracking-wider">
+                        <th className="py-2.5 px-3">Kayıp Konusu / Metot</th>
+                        <th className="py-2.5 px-3">Loss Capacity Problem Açıklaması</th>
+                        <th className="py-2.5 px-3">Ürün Ailesi Kapsamı</th>
+                        <th className="py-2.5 px-3 text-right">Mevcut Kayıp</th>
+                        <th className="py-2.5 px-3 text-right">Geri Kazanım Potansiyeli</th>
+                        <th className="py-2.5 px-3 text-center">Önem</th>
+                        <th className="py-2.5 px-3 text-right">Eylem</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700 font-sans">
+                      {opportunitiesList.map(opp => (
+                        <tr key={opp.id} className="hover:bg-indigo-50/40 transition-colors">
+                          <td className="py-3 px-3">
+                            <div className="font-bold text-indigo-700">{opp.type}</div>
+                            {opp.leanTool && (
+                              <div className="text-[10px] text-emerald-700 font-medium font-mono bg-emerald-50 border border-emerald-200/80 px-1.5 py-0.5 rounded mt-0.5 inline-block">
+                                🛠️ {opp.leanTool}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 max-w-[280px]">
+                            <div className="font-medium text-slate-900 text-[11px] leading-snug">{opp.problem}</div>
+                            <div className="text-[10px] text-slate-400 mt-0.5">Sorumlu Birim: {opp.dept}</div>
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md block text-center">
+                              {opp.productFamily}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono font-semibold text-slate-600">
+                            {currency}{opp.currentCost.toLocaleString()}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono font-bold text-emerald-600">
+                            {currency}{opp.expectedGain.toLocaleString()}
+                            <span className="text-[10px] text-emerald-700 font-semibold block font-sans">
+                              (%{opp.potential} Kazanım)
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                              opp.priority === "High" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"
+                            }`}>
+                              {opp.priority}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            <button
+                              onClick={() => handleSelectOpportunity(opp)}
+                              className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-[10px] px-3 py-1.5 rounded-lg flex items-center space-x-1 ml-auto cursor-pointer transition-all hover:scale-102 shadow-xs"
+                            >
+                              <span>Projeye Dönüştür</span>
+                              <ArrowRight className="w-3 h-3" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Simple Footer */}
+              <div className="bg-slate-50 px-5 py-3 border-t border-slate-200 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsWizardOpen(false)}
+                  className="bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+                >
+                  Kapat
+                </button>
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+      )}
+
+
+      {/* EDIT FINANCIALS RESULTS MODAL (17 INDICATORS IN % & CURRENCY) */}
+      {editingFinancialsProjId && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl overflow-hidden border border-slate-200">
+            
+            <div className="bg-slate-50 px-5 py-4 border-b border-slate-200 flex justify-between items-center">
+              <h3 className="font-bold text-slate-900 text-sm uppercase">
+                Proje Gerçekleşen Finansal Sonuçlar Giriş Paneli (CIFinancials)
+              </h3>
+              <button onClick={() => setEditingFinancialsProjId(null)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+            </div>
+
+            <div className="p-5 space-y-4 max-h-[500px] overflow-y-auto">
+              <p className="text-xs text-slate-500">
+                Lütfen proje kapatıldığında veya ara dönemlerde gerçekleşen tasarruf / verimlilik oranlarını hem yüzde (%) hem de yıllık değer ({currency}) bazında giriniz:
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-sans">
+                
+                {/* 1. Scrap */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Hurda Azalışı (Scrap)</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.scrapReduction?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        scrapReduction: { pct: Number(e.target.value), val: financialsInput.scrapReduction?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.scrapReduction?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        scrapReduction: { pct: financialsInput.scrapReduction?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 2. Rework */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Rework Azalışı</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.reworkReduction?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        reworkReduction: { pct: Number(e.target.value), val: financialsInput.reworkReduction?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.reworkReduction?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        reworkReduction: { pct: financialsInput.reworkReduction?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 3. Waste */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Fire Azalışı (Waste)</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.wasteReduction?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        wasteReduction: { pct: Number(e.target.value), val: financialsInput.wasteReduction?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.wasteReduction?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        wasteReduction: { pct: financialsInput.wasteReduction?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 4. Setup */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Setup Süresi Kazancı (SMED)</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.setupTimeReduction?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        setupTimeReduction: { pct: Number(e.target.value), val: financialsInput.setupTimeReduction?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.setupTimeReduction?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        setupTimeReduction: { pct: financialsInput.setupTimeReduction?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 5. Lead Time */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Lead Time Azalışı</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.leadTimeReduction?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        leadTimeReduction: { pct: Number(e.target.value), val: financialsInput.leadTimeReduction?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.leadTimeReduction?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        leadTimeReduction: { pct: financialsInput.leadTimeReduction?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 6. WIP */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">WIP Azalışı</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.wipReduction?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        wipReduction: { pct: Number(e.target.value), val: financialsInput.wipReduction?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.wipReduction?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        wipReduction: { pct: financialsInput.wipReduction?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 7. Operator */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Operatör Verimlilik Artışı</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.operatorEfficiency?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        operatorEfficiency: { pct: Number(e.target.value), val: financialsInput.operatorEfficiency?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.operatorEfficiency?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        operatorEfficiency: { pct: financialsInput.operatorEfficiency?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 8. OEE */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">OEE Artışı</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.oeeIncrease?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        oeeIncrease: { pct: Number(e.target.value), val: financialsInput.oeeIncrease?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.oeeIncrease?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        oeeIncrease: { pct: financialsInput.oeeIncrease?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 9. Energy */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Enerji Tasarrufu</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.energySavings?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        energySavings: { pct: Number(e.target.value), val: financialsInput.energySavings?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.energySavings?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        energySavings: { pct: financialsInput.energySavings?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 10. Quality */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Kalite Artış Kazancı</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.qualityImprovement?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        qualityImprovement: { pct: Number(e.target.value), val: financialsInput.qualityImprovement?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.qualityImprovement?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        qualityImprovement: { pct: financialsInput.qualityImprovement?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 11. Production */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Üretim Artışı Kazanımı</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.productionIncrease?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        productionIncrease: { pct: Number(e.target.value), val: financialsInput.productionIncrease?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.productionIncrease?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        productionIncrease: { pct: financialsInput.productionIncrease?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 12. Delivery */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Teslimat Performans Getirisi</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.deliveryPerformance?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        deliveryPerformance: { pct: Number(e.target.value), val: financialsInput.deliveryPerformance?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.deliveryPerformance?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        deliveryPerformance: { pct: financialsInput.deliveryPerformance?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 13. OHS */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">İSG Kazancı (OHS)</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.ohsGain?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        ohsGain: { pct: Number(e.target.value), val: financialsInput.ohsGain?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.ohsGain?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        ohsGain: { pct: financialsInput.ohsGain?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 14. Space */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Alan Kazanımı (M2)</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.spaceSavings?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        spaceSavings: { pct: Number(e.target.value), val: financialsInput.spaceSavings?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.spaceSavings?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        spaceSavings: { pct: financialsInput.spaceSavings?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 15. Inventory */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Stok Azalışı</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.inventoryReduction?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        inventoryReduction: { pct: Number(e.target.value), val: financialsInput.inventoryReduction?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.inventoryReduction?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        inventoryReduction: { pct: financialsInput.inventoryReduction?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 16. Maintenance */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Bakım Gider Tasarrufu</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.maintenanceSavings?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        maintenanceSavings: { pct: Number(e.target.value), val: financialsInput.maintenanceSavings?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.maintenanceSavings?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        maintenanceSavings: { pct: financialsInput.maintenanceSavings?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 17. Other */}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Diğer Kazanımlar</span>
+                  <div className="flex space-x-2">
+                    <input 
+                      type="number" 
+                      placeholder="%"
+                      value={financialsInput.otherSavings?.pct || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        otherSavings: { pct: Number(e.target.value), val: financialsInput.otherSavings?.val || 0 }
+                      })}
+                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
+                    />
+                    <input 
+                      type="number" 
+                      placeholder={currency}
+                      value={financialsInput.otherSavings?.val || 0}
+                      onChange={(e) => setFinancialsInput({
+                        ...financialsInput,
+                        otherSavings: { pct: financialsInput.otherSavings?.pct || 0, val: Number(e.target.value) }
+                      })}
+                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
+                    />
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+            <div className="bg-slate-50 px-5 py-4 border-t border-slate-200 flex justify-end space-x-2">
+              <button 
+                onClick={() => setEditingFinancialsProjId(null)} 
+                className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold"
+              >
+                Kapat
+              </button>
+              <button 
+                onClick={handleSaveFinancials} 
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-sm"
+              >
+                Finansal Sonuçları Kaydet
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* EDIT KAIZEN / CI PROJECT DETAILS MODAL */}
+      {editingProject && (
+        <div className={isProjectFullScreen ? "fixed inset-0 bg-white z-50 flex flex-col h-screen w-screen overflow-hidden" : "fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4"}>
+          <div className={isProjectFullScreen ? "bg-white w-full h-full flex flex-col overflow-hidden" : "bg-white rounded-2xl shadow-xl w-full max-w-6xl overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]"}>
+            
+            <div className="bg-indigo-900 text-white px-5 py-4 flex justify-between items-center shrink-0">
+              <div className="flex items-center space-x-2">
+                <FileText className="w-5 h-5 text-indigo-200" />
+                <div>
+                  <h3 className="font-bold text-xs uppercase tracking-wider text-indigo-200">CI Proje Kartı Tanımlama ve Aksiyon Takip Formu</h3>
+                  <p className="text-[11px] text-indigo-100 font-mono mt-0.5">Proje No: {getProjectNo(editingProject)} (Ref: #{editingProject.id})</p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-3">
+                <button 
+                  type="button"
+                  onClick={() => setIsProjectFullScreen(!isProjectFullScreen)}
+                  className="text-white hover:text-indigo-200 p-1.5 rounded hover:bg-white/10 transition-colors flex items-center space-x-1 text-[11px] font-bold cursor-pointer"
+                  title={isProjectFullScreen ? "Normal Boyuta Dön" : "Tam Ekran Yap"}
+                >
+                  {isProjectFullScreen ? (
+                    <>
+                      <Minimize2 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Küçült</span>
+                    </>
+                  ) : (
+                    <>
+                      <Maximize2 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Tam Ekran</span>
+                    </>
+                  )}
+                </button>
+                <button 
+                  onClick={() => { setEditingProject(null); setIsProjectFullScreen(false); }} 
+                  className="text-white hover:text-indigo-100 font-bold text-lg cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div className={isProjectFullScreen ? "p-6 space-y-5 flex-1 overflow-y-auto text-xs font-sans bg-slate-50/40" : "p-5 space-y-5 max-h-[70vh] overflow-y-auto text-xs font-sans"}>
+              
+              {/* Progress Indicator */}
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="shrink-0">
+                  <span className="font-bold text-[10px] text-slate-400 uppercase tracking-wider block font-mono">Proje İlerleme Durumu</span>
+                  <span className="text-xs font-black text-slate-800 mt-0.5 block">Mevcut Aşama: {editProgressStep}</span>
+                </div>
+                <div className="flex-1 w-full max-w-3xl">
+                  <div className="flex items-center justify-between relative">
+                    {/* Background line */}
+                    <div className="absolute left-6 right-6 top-1/2 -translate-y-1/2 h-0.5 bg-slate-100 -z-10" />
+                    
+                    {/* Active colored line segment */}
+                    {(() => {
+                      const steps = ["Tanımlama", "Analiz", "Planlama", "Uygulama", "Kontrol", "Standardizasyon", "Kapatıldı"];
+                      const activeIdx = steps.indexOf(editProgressStep);
+                      const pct = activeIdx >= 0 ? (activeIdx / (steps.length - 1)) * 100 : 0;
+                      return (
+                        <div 
+                          className="absolute left-6 top-1/2 -translate-y-1/2 h-0.5 bg-indigo-500 transition-all duration-300 -z-10"
+                          style={{ width: `calc(${pct}% - ${activeIdx === steps.length - 1 ? '12px' : '0px'})` }}
+                        />
+                      );
+                    })()}
+
+                    {["Tanımlama", "Analiz", "Planlama", "Uygulama", "Kontrol", "Standardizasyon", "Kapatıldı"].map((step, idx) => {
+                      const steps = ["Tanımlama", "Analiz", "Planlama", "Uygulama", "Kontrol", "Standardizasyon", "Kapatıldı"];
+                      const activeIdx = steps.indexOf(editProgressStep);
+                      const isCompleted = idx < activeIdx;
+                      const isActive = idx === activeIdx;
+                      
+                      let bgClass = "bg-slate-200 border-slate-300 text-slate-500";
+                      if (isCompleted) {
+                        bgClass = "bg-emerald-500 border-emerald-600 text-white shadow-xs";
+                      } else if (isActive) {
+                        bgClass = "bg-blue-600 border-blue-700 text-white shadow-md ring-4 ring-blue-100";
+                      }
+
+                      return (
+                        <button
+                          key={step}
+                          type="button"
+                          onClick={() => setEditProgressStep(step)}
+                          className="flex flex-col items-center group relative cursor-pointer focus:outline-none"
+                        >
+                          <div className={`w-7 h-7 rounded-full border flex items-center justify-center transition-all ${bgClass} font-bold text-[11px]`}>
+                            {isCompleted ? "✓" : idx + 1}
+                          </div>
+                          <span className={`mt-1.5 text-[9px] font-bold uppercase tracking-wider transition-colors ${isActive ? "text-blue-600" : isCompleted ? "text-emerald-600" : "text-slate-400 group-hover:text-slate-600"}`}>
+                            {step}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                
+                {/* Sol Sütun: Temel Proje Künyesi */}
+                <div className="lg:col-span-4 space-y-3 bg-white p-4 rounded-xl border border-slate-200 shadow-3xs">
+                  <span className="font-bold text-[10px] text-slate-400 uppercase tracking-wider block font-mono">1. Proje Künyesi (General Metadata)</span>
+                  
+                  <div>
+                    <label className="block text-slate-500 font-bold mb-1">Proje Başlığı (Title) *</label>
+                    <input 
+                      type="text"
+                      required
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-bold text-slate-800"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-500 font-bold mb-1">Açıklama & Amacı</label>
+                    <textarea 
+                      rows={2}
+                      value={editDescription}
+                      onChange={(e) => setEditDescription(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-700"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2">
+                    <div>
+                      <label className="block text-slate-500 font-bold mb-1">Lider (Leader) *</label>
+                      <select
+                        value={editProjectLeader}
+                        onChange={(e) => setEditProjectLeader(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded p-1.5 text-slate-700 focus:outline-none font-medium text-[11px]"
+                      >
+                        {teamOptions.map(member => (
+                          <option key={member} value={member}>{member}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-500 font-bold mb-1">Sponsor (Sponsor)</label>
+                      <select
+                        value={editProjectSponsor}
+                        onChange={(e) => setEditProjectSponsor(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-700 text-[11px]"
+                      >
+                        {teamOptions.map(member => (
+                          <option key={member} value={member}>{member}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-slate-500 font-bold mb-1">Departman *</label>
+                      <input 
+                        type="text"
+                        required
+                        value={editDepartment}
+                        onChange={(e) => setEditDepartment(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none font-bold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-500 font-bold mb-1">Yatırım Bütçesi ({currency})</label>
+                      <input 
+                        type="number"
+                        value={editEstimatedCost}
+                        onChange={(e) => setEditEstimatedCost(Number(e.target.value))}
+                        className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none font-mono font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2">
+                    <div>
+                      <label className="block text-slate-500 font-bold mb-1">Mevcut Yıllık Kayıp Tutarı ({currency})</label>
+                      <input 
+                        type="number"
+                        value={editCurrentLoss}
+                        onChange={(e) => setEditCurrentLoss(Number(e.target.value))}
+                        className="w-full bg-rose-50 border border-rose-200 rounded p-1.5 focus:outline-none font-mono font-bold text-rose-700 focus:ring-1 focus:ring-rose-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-slate-500 font-bold mb-1">Planlanan Bitiş *</label>
+                      <input 
+                        type="date"
+                        required
+                        value={editPlannedFinishDate}
+                        onChange={(e) => setEditPlannedFinishDate(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-500 font-bold mb-1">Proje Fazı *</label>
+                      <select
+                        value={editPhase}
+                        onChange={(e) => setEditPhase(e.target.value as any)}
+                        className="w-full bg-white border border-slate-200 rounded p-1.5 text-indigo-700 font-bold focus:outline-none"
+                      >
+                        <option value="Faz 1 (1 Ay)">Faz 1 (Hızlı Kazanım - 1 Ay)</option>
+                        <option value="Faz 2 (2-3 Ay)">Faz 2 (Yatırım & Verimlilik - 2-3 Ay)</option>
+                        <option value="Faz 3 (6-12 Ay)">Faz 3 (Stratejik Dönüşüm - 6-12 Ay)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Sağ Sütun: Sürekli İyileştirme Faaliyet Kartı */}
+                <div className="lg:col-span-8 space-y-3.5 bg-white p-4 rounded-xl border border-slate-200 shadow-3xs font-sans">
+                  <span className="font-bold text-[10px] text-indigo-950 uppercase tracking-wider block font-mono">2. Sürekli İyileştirme Detayları</span>
+                  
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <label className="block text-indigo-900 font-bold mb-1">1 - Problem Tanımı (Problem Definition)</label>
+                      <textarea 
+                        rows={2}
+                        value={editProblemDefinition}
+                        onChange={(e) => setEditProblemDefinition(e.target.value)}
+                        placeholder="Mevcut kayıp ve problemin net tanımı..."
+                        className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-850"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-indigo-900 font-bold mb-1">2 - Problemin Detaylı Bilgisi (Detailed Problem Info)</label>
+                      <textarea 
+                        rows={2}
+                        value={editProblemDetail}
+                        onChange={(e) => setEditProblemDetail(e.target.value)}
+                        placeholder="Mevcut durum verileri, duruş süreleri veya kayıp miktarları..."
+                        className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-850"
+                      />
+                      {renderPhotoUploadSection(
+                        "Problem Görselleri & Saha Fotoğrafları (Gemba Foto)",
+                        "Problemin mevcut durumunu belgelemek için galeriden görsel seçin veya direkt cihaz kamerası ile fotoğraf çekin.",
+                        editProblemPhotos,
+                        (newP) => setEditProblemPhotos([...editProblemPhotos, ...newP]),
+                        (idx) => setEditProblemPhotos(editProblemPhotos.filter((_, i) => i !== idx))
+                      )}
+                    </div>
+
+                    {/* 3 - Etki Analizi (Impact Analysis) */}
+                    <div className="bg-indigo-50/30 border border-indigo-100 p-4 rounded-xl space-y-3">
+                      <div className="flex justify-between items-center">
+                        <label className="block text-indigo-950 font-bold">3 - Etki Analizi (Impact Analysis)</label>
+                        <span className="text-[10px] text-indigo-500 font-mono font-bold bg-indigo-100/60 px-2 py-0.5 rounded-md">Çoklu COPQ Alanı İlişkilendirme</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        Bir problem yalnızca tek bir maliyet kalemini değil, aynı anda birden fazla COPQ alanını etkileyebilir. Problemin etkilediği alanları ve önem seviyesini seçin:
+                      </p>
+                      
+                      <div className="flex flex-wrap gap-2.5">
+                        {[
+                          "Hurda",
+                          "Rework",
+                          "Fazla Mesai",
+                          "OEE",
+                          "Setup",
+                          "Plansız Duruş",
+                          "Operatör Verimliliği",
+                          "Lead Time",
+                          "WIP",
+                          "Sevkiyat Performansı",
+                          "Kalite Maliyetleri"
+                        ].map((area) => {
+                          const isSelected = !!editImpactAnalysis[area];
+                          const level = editImpactAnalysis[area] || "Orta";
+                          
+                          return (
+                            <div 
+                              key={area}
+                              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all shadow-3xs ${
+                                isSelected 
+                                  ? "bg-indigo-600 border-indigo-600 text-white" 
+                                  : "bg-white border-slate-200 text-slate-600 hover:border-indigo-300"
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated = { ...editImpactAnalysis };
+                                  if (isSelected) {
+                                    delete updated[area];
+                                  } else {
+                                    updated[area] = "Orta";
+                                  }
+                                  setEditImpactAnalysis(updated);
+                                }}
+                                className="flex items-center gap-1.5 focus:outline-none cursor-pointer"
+                              >
+                                <span>{isSelected ? "☑" : "☐"}</span>
+                                <span>{area}</span>
+                              </button>
+                              
+                              {isSelected && (
+                                <div className="flex items-center gap-1 bg-white/20 px-1.5 py-0.5 rounded-lg border border-white/15 ml-1">
+                                  {(["Düşük", "Orta", "Yüksek"] as const).map((lvl, idx) => {
+                                    const currentLevelIdx = level === "Düşük" ? 0 : level === "Orta" ? 1 : 2;
+                                    const isStarFilled = idx <= currentLevelIdx;
+                                    
+                                    return (
+                                      <button
+                                        type="button"
+                                        key={lvl}
+                                        onClick={() => {
+                                          const updated = { ...editImpactAnalysis };
+                                          updated[area] = lvl;
+                                          setEditImpactAnalysis(updated);
+                                        }}
+                                        title={`${lvl} Derecede Etkili`}
+                                        className={`text-[13px] leading-none transition-colors ${
+                                          isStarFilled ? "text-amber-300 hover:text-amber-400" : "text-white/30 hover:text-white/60"
+                                        }`}
+                                      >
+                                        ★
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 4 - Hedef Durum (Target State) */}
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <label className="block text-indigo-950 font-bold">4 - Hedef Durum (Target Condition)</label>
+                        <span className="text-[10px] text-indigo-500 font-mono font-bold bg-indigo-100/60 px-2 py-0.5 rounded-md">Hedef KPI & Kazanım Metrikleri</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        Projenin başarıya ulaşması durumunda elde edilmesi planlanan değerleri, oranları ve finansal katkıları tanımlayın:
+                      </p>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                        <div className="md:col-span-2">
+                          <label className="block text-slate-500 font-bold mb-1">Ulaşılmak İstenen Hedef (Target Objective) *</label>
+                          <textarea 
+                            rows={2}
+                            value={editTargetObjective}
+                            onChange={(e) => setEditTargetObjective(e.target.value)}
+                            placeholder="Örn: Pres sökme-takma sürelerinin dünya standartlarına çekilmesi, bekleme israfının bitirilmesi..."
+                            className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800 font-medium"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-slate-500 font-bold mb-1">Hedef KPI (Target KPI) *</label>
+                          <input 
+                            type="text"
+                            value={editTargetKpi}
+                            onChange={(e) => setEditTargetKpi(e.target.value)}
+                            placeholder="Örn: SMED Hazırlık Süresi (Dakika)"
+                            className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800 font-semibold"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-slate-500 font-bold mb-1">Hedef Oran / Değer (%)</label>
+                            <input 
+                              type="number"
+                              value={editTargetRatio}
+                              onChange={(e) => setEditTargetRatio(Number(e.target.value))}
+                              placeholder="75"
+                              className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none font-mono font-semibold text-slate-800"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-slate-500 font-bold mb-1">Hedef Maliyet Azaltımı ({currency})</label>
+                            <input 
+                              type="number"
+                              value={editTargetCostReduction}
+                              onChange={(e) => setEditTargetCostReduction(Number(e.target.value))}
+                              placeholder="50000"
+                              className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none font-mono font-semibold text-slate-800"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-indigo-900 font-bold mb-1">5 - Kök Neden (Root Cause)</label>
+                      <textarea 
+                        rows={2}
+                        value={editRootCause}
+                        onChange={(e) => setEditRootCause(e.target.value)}
+                        placeholder="5 Neden Analizi sonucu tespit edilen ana etken..."
+                        className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800"
+                      />
+                    </div>
+
+                    {/* 6 - Uygulama Planı (Action Plan Editable Table) */}
+                    <div className="space-y-2 border border-slate-200 p-4 rounded-xl bg-slate-50/50">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <label className="block text-indigo-900 font-bold">6 - Uygulama Planı (Action Plan)</label>
+                          <span className="text-[10px] text-slate-400 font-medium block">Kanban ve Timeline entegrasyonu için faaliyet listesi</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newId = `tsk_${Math.random().toString(36).substring(2, 5)}`;
+                            setEditTasks([
+                              ...editTasks,
+                              {
+                                id: newId,
+                                name: "",
+                                responsible: editProjectLeader || "Barış Gökdemir (OpEx Lead)",
+                                deadline: editPlannedFinishDate || "",
+                                status: "Açık",
+                                progressPercent: 0
+                              }
+                            ]);
+                          }}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] px-2.5 py-1.5 rounded-lg flex items-center space-x-1 shadow-3xs cursor-pointer transition-colors"
+                        >
+                          <span>➕ Satır Ekle</span>
+                        </button>
+                      </div>
+
+                      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                        <table className="w-full text-[11px] text-left border-collapse">
+                          <thead>
+                            <tr className="bg-slate-100 text-slate-700 uppercase font-bold text-[10px] border-b border-slate-200">
+                              <th className="px-3 py-2 w-12 text-center">No</th>
+                              <th className="px-3 py-2">Faaliyet (Activity)</th>
+                              <th className="px-3 py-2 w-48">Sorumlu (Owner)</th>
+                              <th className="px-3 py-2 w-32 font-medium">Termin (Due Date)</th>
+                              <th className="px-3 py-2 w-32 font-medium">Durum (Status)</th>
+                              <th className="px-3 py-2 w-12 text-center"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {editTasks.length === 0 ? (
+                              <tr>
+                                <td colSpan={6} className="text-center py-6 text-slate-400 italic">
+                                  Henüz bir faaliyet planlanmamış. Yeni satır eklemek için "+ Satır Ekle" butonuna basın.
+                                </td>
+                              </tr>
+                            ) : (
+                              editTasks.map((task, idx) => {
+                                const currentStatus = task.status || (task.progressPercent === 100 ? "Yapıldı" : task.progressPercent > 0 ? "Devam Ediyor" : "Açık");
+                                
+                                return (
+                                  <tr key={task.id} className="border-b border-slate-150 hover:bg-slate-50/40">
+                                    <td className="px-3 py-2 font-mono font-bold text-center text-slate-500">
+                                      {idx + 1}
+                                    </td>
+                                    <td className="px-2 py-1">
+                                      <input 
+                                        type="text"
+                                        required
+                                        value={task.name}
+                                        placeholder="Faaliyet açıklamasını yazın..."
+                                        onChange={(e) => {
+                                          const updated = editTasks.map(t => {
+                                            if (t.id === task.id) {
+                                              return { ...t, name: e.target.value };
+                                            }
+                                            return t;
+                                          });
+                                          setEditTasks(updated);
+                                        }}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium text-slate-800 text-[11px]"
+                                      />
+                                    </td>
+                                    <td className="px-2 py-1">
+                                      <select
+                                        value={task.responsible}
+                                        onChange={(e) => {
+                                          const updated = editTasks.map(t => {
+                                            if (t.id === task.id) {
+                                              return { ...t, responsible: e.target.value };
+                                            }
+                                            return t;
+                                          });
+                                          setEditTasks(updated);
+                                        }}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded px-1 py-1 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 text-[11px]"
+                                      >
+                                        {teamOptions.map(member => (
+                                          <option key={member} value={member}>{member}</option>
+                                        ))}
+                                      </select>
+                                    </td>
+                                    <td className="px-2 py-1">
+                                      <input 
+                                        type="date"
+                                        value={task.deadline || ""}
+                                        onChange={(e) => {
+                                          const updated = editTasks.map(t => {
+                                            if (t.id === task.id) {
+                                              return { ...t, deadline: e.target.value };
+                                            }
+                                            return t;
+                                          });
+                                          setEditTasks(updated);
+                                        }}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded px-1 py-1 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono text-slate-800 text-[11px]"
+                                      />
+                                    </td>
+                                    <td className="px-2 py-1">
+                                      <select
+                                        value={currentStatus}
+                                        onChange={(e) => {
+                                          const val = e.target.value as any;
+                                          let pct = 0;
+                                          if (val === "Yapıldı") pct = 100;
+                                          else if (val === "Devam Ediyor") pct = 50;
+
+                                          const updated = editTasks.map(t => {
+                                            if (t.id === task.id) {
+                                              return { ...t, status: val, progressPercent: pct };
+                                            }
+                                            return t;
+                                          });
+                                          setEditTasks(updated);
+                                        }}
+                                        className={`w-full border rounded px-1.5 py-1 focus:outline-none font-bold text-[10px] ${
+                                          currentStatus === "Yapıldı" ? "bg-emerald-50 border-emerald-300 text-emerald-800" :
+                                          currentStatus === "Devam Ediyor" ? "bg-amber-50 border-amber-300 text-amber-700" :
+                                          currentStatus === "İptal" ? "bg-slate-100 border-slate-300 text-slate-500" :
+                                          "bg-slate-50 border-slate-200 text-slate-600"
+                                        }`}
+                                      >
+                                        <option value="Açık">Açık</option>
+                                        <option value="Devam Ediyor">Devam Ediyor</option>
+                                        <option value="Yapıldı">Yapıldı</option>
+                                        <option value="İptal">İptal</option>
+                                      </select>
+                                    </td>
+                                    <td className="px-2 py-1 text-center">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const updated = editTasks.filter(t => t.id !== task.id);
+                                          setEditTasks(updated);
+                                        }}
+                                        className="text-slate-400 hover:text-red-600 p-1 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                                        title="Satırı Sil"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* 7 - Proje Sonucu ve Kazanımlar (Results & Gains) */}
+                    <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-4">
+                      <div className="flex justify-between items-center">
+                        <label className="block text-indigo-950 font-bold text-xs uppercase tracking-wider font-mono">
+                          7 - Proje Sonucu ve Elde Edilen Kazanımlar
+                        </label>
+                        <span className="text-[10px] text-emerald-600 font-mono font-bold bg-emerald-100/60 px-2 py-0.5 rounded-md">
+                          Kapanış & Finansal Kazanımlar
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        Proje tamamlandığında elde edilen tasarrufları, standartlaştırma adımlarını ve genel kapanış sonucunu buraya işleyin:
+                      </p>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                        {/* Expected Gain */}
+                        <div className="space-y-1">
+                          <label className="block text-slate-500 font-bold">Beklenen Kazanım</label>
+                          <div className="flex rounded-md shadow-3xs">
+                            <input 
+                              type="number"
+                              value={editExpectedGain}
+                              onChange={(e) => setEditExpectedGain(Number(e.target.value))}
+                              placeholder="0"
+                              className="w-full bg-white border border-slate-200 border-r-0 rounded-l p-1.5 focus:outline-none font-mono font-semibold"
+                            />
+                            <select
+                              value={editExpectedGainCurrency}
+                              onChange={(e) => setEditExpectedGainCurrency(e.target.value)}
+                              className="bg-slate-100 border border-slate-200 rounded-r px-1.5 text-[10px] font-bold focus:outline-none text-slate-600"
+                            >
+                              <option value="TL">₺ (TL)</option>
+                              <option value="USD">$ (USD)</option>
+                              <option value="EUR">€ (EUR)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Realized Gain */}
+                        <div className="space-y-1">
+                          <label className="block text-slate-500 font-bold">Gerçekleşen Kazanım (Net Tasarruf)</label>
+                          <div className="flex rounded-md shadow-3xs">
+                            <input 
+                              type="number"
+                              value={editRealizedGain}
+                              onChange={(e) => setEditRealizedGain(Number(e.target.value))}
+                              placeholder="0"
+                              className="w-full bg-emerald-50 border border-emerald-200 border-r-0 rounded-l p-1.5 focus:outline-none font-mono font-bold text-emerald-700"
+                            />
+                            <select
+                              value={editRealizedGainCurrency}
+                              onChange={(e) => setEditRealizedGainCurrency(e.target.value)}
+                              className="bg-emerald-100 border border-emerald-200 rounded-r px-1.5 text-[10px] font-bold focus:outline-none text-emerald-700"
+                            >
+                              <option value="TL">₺ (TL)</option>
+                              <option value="USD">$ (USD)</option>
+                              <option value="EUR">€ (EUR)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Realized Improvement Pct */}
+                        <div className="space-y-1">
+                          <label className="block text-slate-500 font-bold">Gerçekleşen İyileştirme (%)</label>
+                          <div className="flex rounded-md shadow-3xs relative">
+                            <input 
+                              type="number"
+                              value={editRealizedImprovementPct}
+                              onChange={(e) => setEditRealizedImprovementPct(Number(e.target.value))}
+                              placeholder="0"
+                              className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none font-mono font-semibold"
+                            />
+                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-[10px]">%</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Standardization Checkboxes */}
+                      <div className="bg-slate-100/50 p-3.5 rounded-xl border border-slate-200/60 space-y-2">
+                        <label className="block text-indigo-950 font-bold text-[11px] uppercase tracking-wide font-mono">
+                          Standardizasyon ve Yaygınlaştırma Adımları
+                        </label>
+                        <p className="text-[10px] text-slate-500 mb-2">
+                          İyileştirmenin kalıcı olmasını sağlamak için hangi döküman ve süreç güncellemeleri tamamlandı?
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 text-[11px]">
+                          <label className="flex items-center space-x-2 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 select-none">
+                            <input 
+                              type="checkbox"
+                              checked={editStdWorkUpdated}
+                              onChange={(e) => setEditStdWorkUpdated(e.target.checked)}
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                            />
+                            <span className="text-slate-700 font-medium">Standart İş Güncellendi</span>
+                          </label>
+
+                          <label className="flex items-center space-x-2 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 select-none">
+                            <input 
+                              type="checkbox"
+                              checked={editInstructionRevised}
+                              onChange={(e) => setEditInstructionRevised(e.target.checked)}
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                            />
+                            <span className="text-slate-700 font-medium">Talimat Revize Edildi</span>
+                          </label>
+
+                          <label className="flex items-center space-x-2 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 select-none">
+                            <input 
+                              type="checkbox"
+                              checked={editTrainingGiven}
+                              onChange={(e) => setEditTrainingGiven(e.target.checked)}
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                            />
+                            <span className="text-slate-700 font-medium">Eğitim Verildi</span>
+                          </label>
+
+                          <label className="flex items-center space-x-2 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 select-none">
+                            <input 
+                              type="checkbox"
+                              checked={editControlPlanUpdated}
+                              onChange={(e) => setEditControlPlanUpdated(e.target.checked)}
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                            />
+                            <span className="text-slate-700 font-medium">Kontrol Planı Güncellendi</span>
+                          </label>
+
+                          <label className="flex items-center space-x-2 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 select-none">
+                            <input 
+                              type="checkbox"
+                              checked={editAuditListUpdated}
+                              onChange={(e) => setEditAuditListUpdated(e.target.checked)}
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                            />
+                            <span className="text-slate-700 font-medium">Denetim Listesi Güncellendi</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Dropdown Result & Textarea Description */}
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+                        <div className="md:col-span-1">
+                          <label className="block text-slate-500 font-bold mb-1">Proje Sonucu</label>
+                          <select
+                            value={editProjectResult}
+                            onChange={(e) => setEditProjectResult(e.target.value)}
+                            className="w-full bg-white border border-slate-200 rounded p-1.5 font-bold text-slate-800 focus:outline-none"
+                          >
+                            <option value="Başarılı">🟢 Başarılı (Sustained)</option>
+                            <option value="Revizyon Gerekli">🟡 Revizyon Gerekli</option>
+                            <option value="Askıya Alındı">⚪ Askıya Alındı (On-Hold)</option>
+                            <option value="İptal">🔴 İptal (Cancelled)</option>
+                          </select>
+                        </div>
+
+                        <div className="md:col-span-3">
+                          <label className="block text-slate-500 font-bold mb-1">Sonuç ve Karar Açıklaması (Decision / Result Notes)</label>
+                          <textarea 
+                            rows={2}
+                            value={editResultDescription}
+                            onChange={(e) => setEditResultDescription(e.target.value)}
+                            placeholder="Elde edilen tasarrufun tescili, sürdürülebilirlik planları ve genel değerlendirmeler..."
+                            className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800 font-medium"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Photo Upload Section for Section 7 Project Results */}
+                      {renderPhotoUploadSection(
+                        "Sonuç & Kazanım Kanıt Fotoğrafları (İyileştirilmiş Durum)",
+                        "Proje sonucu elde edilen kazanımları ve standartlaşmayı belgelemek için galeriden görsel seçin veya direkt cihaz kamerası ile fotoğraf çekin.",
+                        editResultPhotos,
+                        (newP) => setEditResultPhotos([...editResultPhotos, ...newP]),
+                        (idx) => setEditResultPhotos(editResultPhotos.filter((_, i) => i !== idx))
+                      )}
+                    </div>
+
+                    {/* 8 - Belgeler ve Görseller (Documents & Attachments) */}
+                    <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-4">
+                      <div className="flex justify-between items-center">
+                        <label className="block text-indigo-950 font-bold text-xs uppercase tracking-wider font-mono">
+                          8 - Belgeler ve Görseller (Documents & Attachments)
+                        </label>
+                        <span className="text-[10px] text-indigo-600 font-mono font-bold bg-indigo-100/60 px-2 py-0.5 rounded-md">
+                          Dosya Havuzu Entegrasyonu
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        Projenin saha fotoğrafları, standart iş dökümanları ve analiz raporlarını (PDF, Word, Excel, JPG, PNG) yükleyin:
+                      </p>
+
+                      {/* Breadcrumb path displaying structured folder structure */}
+                      <div className="bg-slate-100 p-3 rounded-lg border border-slate-200/60 font-mono text-[10px] text-slate-600 space-y-1.5 shadow-3xs">
+                        <div className="flex items-center text-slate-500">
+                          <span className="font-bold text-indigo-700 mr-1">Dosya Yolu (Target System Path):</span>
+                          <span>Müşteriler / {selectedCustomer?.companyName || "Varsayılan Müşteri"} / Belgeler / Kaizen / KAI-{editingProject?.id || "Proje"}</span>
+                        </div>
+                        <div className="text-[9px] text-slate-400">
+                          Dosyalar bu hiyerarşi ile sunucuda otomatik arşivlenecektir.
+                        </div>
+                      </div>
+
+                      {/* Drag & Drop File Zone */}
+                      <div 
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (!e.dataTransfer.files) return;
+                          const uploadedFiles = Array.from(e.dataTransfer.files);
+                          const newDocs = uploadedFiles.map((file: any) => {
+                            const ext = file.name.split('.').pop()?.toLowerCase() || '';
+                            return {
+                              id: `doc_${Math.random().toString(36).substring(2, 9)}`,
+                              name: file.name,
+                              fileType: ext,
+                              size: (file.size / (1024 * 1024)).toFixed(2) + " MB",
+                              uploadDate: new Date().toISOString().split('T')[0]
+                            };
+                          });
+                          setEditDocuments([...editDocuments, ...newDocs]);
+                        }}
+                        className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-100/50 hover:border-indigo-400 transition-colors cursor-pointer relative group"
+                      >
+                        <input 
+                          type="file"
+                          multiple
+                          accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx"
+                          onChange={(e) => {
+                            if (!e.target.files) return;
+                            const uploadedFiles = Array.from(e.target.files);
+                            const newDocs = uploadedFiles.map((file: any) => {
+                              const ext = file.name.split('.').pop()?.toLowerCase() || '';
+                              return {
+                                id: `doc_${Math.random().toString(36).substring(2, 9)}`,
+                                name: file.name,
+                                fileType: ext,
+                                size: (file.size / (1024 * 1024)).toFixed(2) + " MB",
+                                uploadDate: new Date().toISOString().split('T')[0]
+                              };
+                            });
+                            setEditDocuments([...editDocuments, ...newDocs]);
+                          }}
+                          className="absolute inset-0 opacity-0 cursor-pointer"
+                        />
+                        <div className="flex flex-col items-center justify-center space-y-2">
+                          <div className="p-3 bg-white rounded-full shadow-3xs group-hover:scale-105 transition-transform">
+                            <FileUp className="w-5 h-5 text-indigo-600" />
+                          </div>
+                          <p className="text-[11px] font-bold text-slate-700">
+                            Dosyayı buraya sürükleyip bırakın veya <span className="text-indigo-600 underline">Göz Atın</span>
+                          </p>
+                          <p className="text-[9px] text-slate-400">
+                            Desteklenen Dosya Biçimleri: PDF, Word (DOC, DOCX), Excel (XLS, XLSX), Görseller (JPG, PNG)
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Document List */}
+                      {editDocuments.length > 0 && (
+                        <div className="space-y-2">
+                          <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider font-mono">
+                            Yüklenen Belgeler ({editDocuments.length})
+                          </label>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                            {editDocuments.map((doc) => {
+                              const isImage = ["jpg", "jpeg", "png", "gif"].includes(doc.fileType?.toLowerCase());
+                              const isExcel = ["xls", "xlsx"].includes(doc.fileType?.toLowerCase());
+                              const isPdf = doc.fileType?.toLowerCase() === "pdf";
+
+                              return (
+                                <div 
+                                  key={doc.id}
+                                  className="flex items-center justify-between p-2.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 transition-colors"
+                                >
+                                  <div className="flex items-center space-x-2 min-w-0">
+                                    <div className={`p-1.5 rounded ${
+                                      isImage ? "bg-amber-50 text-amber-600" :
+                                      isExcel ? "bg-emerald-50 text-emerald-600" :
+                                      isPdf ? "bg-rose-50 text-rose-600" :
+                                      "bg-blue-50 text-blue-600"
+                                    }`}>
+                                      {isImage ? <Image className="w-4 h-4" /> :
+                                       isExcel ? <FileSpreadsheet className="w-4 h-4" /> :
+                                       <FileText className="w-4 h-4" />}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="font-semibold text-slate-700 truncate text-[11px]" title={doc.name}>
+                                        {doc.name}
+                                      </p>
+                                      <p className="text-[9px] text-slate-400 font-mono">
+                                        {doc.size} • {doc.uploadDate}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditDocuments(editDocuments.filter(d => d.id !== doc.id));
+                                    }}
+                                    className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-slate-50 transition-colors cursor-pointer ml-2"
+                                    title="Dosyayı Kaldır"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Mail Reminder Infrastructure UI */}
+                  <div className="pt-2 border-t border-indigo-200/50 flex items-center justify-between">
+                    <div className="text-[10px] text-slate-500 font-medium">
+                      <span>E-posta Takip Hatırlatması & Excel Kart Aktarımı</span>
+                      {editingProject.lastEmailSentAt && (
+                        <div className="text-[9px] text-emerald-600 font-semibold mt-0.5 font-mono">Son Gönderim: {editingProject.lastEmailSentAt}</div>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => sendEmailReminder(editingProject)}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded-lg flex items-center space-x-1 shadow-xs cursor-pointer text-[10px]"
+                      >
+                        <span>📧 Sorumluya Mail At</span>
+                        {editingProject.emailSentCount && editingProject.emailSentCount > 0 && (
+                          <span className="bg-white/20 text-white text-[8px] font-bold px-1.5 py-0.2 rounded-full">
+                            {editingProject.emailSentCount}
+                          </span>
+                        )}
+                      </button>
+
+                      {/* XLS EXPORT ICON BUTTON (Icon only) */}
+                      <button
+                        type="button"
+                        onClick={handleExportCurrentEditingProjectToExcel}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white p-1.5 rounded-lg flex items-center justify-center shadow-xs cursor-pointer transition-colors"
+                        title="CI Proje Kartını Excel (XLS) Olarak Dışarı Aktar"
+                      >
+                        <FileSpreadsheet className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+
+            <div className="bg-slate-50 px-5 py-4 border-t border-slate-200 flex justify-end space-x-2">
+              <button 
+                onClick={() => setEditingProject(null)} 
+                className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold cursor-pointer text-xs"
+              >
+                İptal
+              </button>
+              <button 
+                onClick={handleSaveProjectDetails} 
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-xl font-bold shadow-sm cursor-pointer text-xs"
+              >
+                CI Değişikliklerini Kaydet
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* LIGHTBOX PHOTO ZOOM MODAL */}
+      {lightboxPhoto && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full overflow-hidden border border-slate-700 flex flex-col max-h-[90vh]">
+            <div className="bg-slate-900 text-white px-5 py-3.5 flex justify-between items-center">
+              <span className="font-bold text-xs text-slate-200 truncate pr-4">{lightboxPhoto.title}</span>
+              <button
+                type="button"
+                onClick={() => setLightboxPhoto(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 bg-slate-950 flex items-center justify-center overflow-auto flex-1">
+              <img
+                src={lightboxPhoto.url}
+                alt={lightboxPhoto.title}
+                className="max-h-[75vh] w-auto object-contain rounded-lg shadow-lg"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
