@@ -186,47 +186,6 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
             </div>
           )}
 
-          {/* Preset User Suggestions for Reviewer Comfort */}
-          {mode === "login" && (
-            <div className="bg-slate-55 border border-slate-150 p-3 rounded-xl mb-5 space-y-1.5 text-[11px] text-slate-600 font-medium">
-              <div className="font-bold text-gray-900 text-xs">Hızlı Test Hesapları (Preset Accounts):</div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => { setEmail("admin@gembapartner.com"); setPassword("gemba123"); }}
-                  className="bg-white border border-slate-300 rounded px-2 py-1 text-left hover:bg-slate-50 truncate"
-                >
-                  <span className="font-bold text-slate-900 block text-[10px]">🛡️ Gemba Partner Admin</span>
-                  admin@gembapartner.com
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setEmail("danisman@gembapartner.com"); setPassword("gemba123"); }}
-                  className="bg-white border border-slate-300 rounded px-2 py-1 text-left hover:bg-slate-50 truncate"
-                >
-                  <span className="font-bold text-indigo-700 block text-[10px]">🧑‍💼 Gemba Danışman</span>
-                  danisman@gembapartner.com
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setEmail("admin@arcelik.com"); setPassword("arcelik123"); }}
-                  className="bg-white border border-slate-300 rounded px-2 py-1 text-left hover:bg-slate-50 truncate"
-                >
-                  <span className="font-bold text-blue-700 block text-[10px]">🏢 Arçelik Müşteri Kullanıcısı</span>
-                  admin@arcelik.com
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setEmail("admin@ford.com.tr"); setPassword("ford123"); }}
-                  className="bg-white border border-slate-300 rounded px-2 py-1 text-left hover:bg-slate-50 truncate"
-                >
-                  <span className="font-bold text-red-700 block text-[10px]">🏢 Ford Müşteri Kullanıcısı</span>
-                  admin@ford.com.tr
-                </button>
-              </div>
-            </div>
-          )}
-
           <form className="space-y-4 text-xs font-semibold text-slate-700" onSubmit={handleSubmit}>
             
             {/* Invite Info Box */}

@@ -417,12 +417,14 @@ export function calculateHiddenFactory(calculated: CalculatedProcess[], revenue:
   // Hidden factory encapsulates: scrap, rework, extra inspection, waiting time, extra labor, setup, logistics speed loss.
   const totalLossVal = financialImpact.totalOperationalLosses.year;
   const hiddenCostYear = totalLossVal * 0.58 + copq.inspectionCost + copq.sortingCost;
-  const hiddenPercentOfRevenue = (hiddenCostYear / revenue) * 100;
-  
+  const hiddenPercentOfRevenue = revenue > 0 ? (hiddenCostYear / revenue) * 100 : 0;
+
   // Translate to equivalent resource metrics
   const avgOperatorCostYear = 2200 * 260; // operator yearly base
   const equivalentOperators = parseFloat((hiddenCostYear / avgOperatorCostYear).toFixed(1));
-  const equivalentMachineCapacityPercent = parseFloat(((calculated.reduce((s,p) => s + (100 - p.oee), 0) / calculated.length) * 0.45).toFixed(1));
+  const equivalentMachineCapacityPercent = calculated.length > 0
+    ? parseFloat(((calculated.reduce((s,p) => s + (100 - p.oee), 0) / calculated.length) * 0.45).toFixed(1))
+    : 0;
   const equivalentRevenue = hiddenCostYear * 1.5; // multiplier for revenue potential if spent producing
 
   return {

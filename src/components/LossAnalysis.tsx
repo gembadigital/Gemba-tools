@@ -586,7 +586,10 @@ export default function LossAnalysis() {
   // Synchronize annual revenue with customer details if present
   useEffect(() => {
     if (selectedCustomer) {
-      if (selectedCustomer.annualRevenue) {
+      // Explicit null/undefined check (not truthy) — a real customer with annualRevenue: 0
+      // (e.g. the "no company yet" placeholder) must still overwrite this component's
+      // hardcoded 12,000,000 starting default, not silently keep it forever.
+      if (selectedCustomer.annualRevenue !== undefined && selectedCustomer.annualRevenue !== null) {
         setAnnualRevenue(selectedCustomer.annualRevenue);
       }
       if (selectedCustomer.currency) {
