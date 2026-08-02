@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { GanttActivity } from "../types";
 import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { 
   Calendar, List, KanbanSquare, Clock, Plus, Trash2, Edit3, 
   CheckCircle2, AlertTriangle, Play, HelpCircle, ArrowRight, User,
-  Settings, Award, FileSpreadsheet, BrainCircuit, RefreshCw, Layers,
+  Settings, FileSpreadsheet, BrainCircuit, RefreshCw, Layers,
   ChevronUp, ChevronDown, Check, Zap, Info, ShieldCheck, Download, Upload, Maximize2, Minimize2, X, TrendingUp
 } from "lucide-react";
 
@@ -17,20 +18,10 @@ interface MasterPlanGanttProps {
   onUpdateActivity: (activity: any) => void;
   onDeleteActivity: (id: string) => void;
   activeCustomerId?: string;
+  customerName?: string;
 }
 
 type ViewType = "timeline" | "table" | "kanban";
-
-interface SiteVisit {
-  id: string;
-  date: string;
-  consultant: string;
-  duration: number; // in Man-Days, e.g. 1
-  activitiesPerformed: string[]; // activity IDs
-  participants: string;
-  notes: string;
-  deliverables: string;
-}
 
 interface ContractPackage {
   id: string;
@@ -46,7 +37,8 @@ export default function MasterPlanGantt({
   onAddActivity,
   onUpdateActivity,
   onDeleteActivity,
-  activeCustomerId: propActiveCustomerId
+  activeCustomerId: propActiveCustomerId,
+  customerName
 }: MasterPlanGanttProps) {
   const [activeView, setActiveView] = useState<ViewType>("timeline");
   const [isAdding, setIsAdding] = useState(false);
@@ -83,26 +75,27 @@ export default function MasterPlanGantt({
 
   // Active Customer ID/Key for Local Storage isolation
   const activeCustomerId = propActiveCustomerId || localStorage.getItem("gemba_active_factory_id_usr_arcelik_admin") || "arcelik_bolu";
+  // Real active customer's display name for reports/exports — falls back to the id only if the
+  // parent hasn't resolved a name yet, never to a different customer's hardcoded name.
+  const activeCustomerName = customerName || activeCustomerId;
 
-  // Load Proje Takip Raporu (PTR) records for syncing actual weeks
+  // Load Proje Takip Raporu (PTR) records for syncing actual weeks. PTR is backend-persisted
+  // (previously read a `gemba_ptr_records_*` localStorage key that PTR itself no longer writes).
   const [ptrRecords, setPtrRecords] = useState<any[]>([]);
 
   useEffect(() => {
     const loadPtr = () => {
-      try {
-        const saved = localStorage.getItem(`gemba_ptr_records_${activeCustomerId}`);
-        if (saved) {
-          setPtrRecords(JSON.parse(saved));
-        } else {
-          setPtrRecords([]);
+      fetch("/api/business/ptr-records", {
+        headers: {
+          "Authorization": `Bearer ${localStorage.getItem("gemba_token") || "usr_arcelik_admin"}`,
+          "x-factory-id": activeCustomerId
         }
-      } catch (e) {
-        setPtrRecords([]);
-      }
+      })
+        .then(res => res.json())
+        .then(res => setPtrRecords(res.success && Array.isArray(res.data) ? res.data : []))
+        .catch(() => setPtrRecords([]));
     };
     loadPtr();
-    window.addEventListener("storage", loadPtr);
-    return () => window.removeEventListener("storage", loadPtr);
   }, [activeCustomerId]);
 
   // Top Tabbed Navigation State
@@ -238,91 +231,6 @@ export default function MasterPlanGantt({
     localStorage.setItem(`gemba_contract_pkg_${activeCustomerId}`, selectedPackageId);
   }, [selectedPackageId]);
 
-  // 2. Site Visits State
-  const [visits, setVisits] = useState<SiteVisit[]>(() => {
-    const saved = localStorage.getItem(`gemba_visits_${activeCustomerId}`);
-    if (saved) return JSON.parse(saved);
-    // Initial Seed Visits
-    return [
-      {
-        id: "v_1",
-        date: "2026-06-15",
-        consultant: "Ahmet Yılmaz (Yalın Danışman)",
-        duration: 1,
-        activitiesPerformed: ["act_1"],
-        participants: "Barış Gökdemir, Mehmet Soyer",
-        notes: "Pres sahanlığında 5S kırmızı etiket (Red Tag) sehpası kuruldu ve temizlik sorumluluk matrisi paylaşıldı.",
-        deliverables: "Temizlik talimatnamesi ve ilk denetim fotoğrafları"
-      },
-      {
-        id: "v_2",
-        date: "2026-07-02",
-        consultant: "Zeynep Kaya (Kıdemli Danışman)",
-        duration: 1,
-        activitiesPerformed: ["act_2"],
-        participants: "Barış Gökdemir, Kemal Usta",
-        notes: "Montaj istasyonunda video analizi yapıldı. Operatörün parça almak için yürüdüğü 4 metrelik israf tescil edildi.",
-        deliverables: "ECRS analiz şablonu ve çevrim süreleri listesi"
-      }
-    ];
-  });
-
-  useEffect(() => {
-    localStorage.setItem(`gemba_visits_${activeCustomerId}`, JSON.stringify(visits));
-  }, [visits]);
-
-  // Save new Site Visit
-  const [visitDate, setVisitDate] = useState("2026-07-06");
-  const [visitConsultant, setVisitConsultant] = useState("Ahmet Yılmaz");
-  const [visitDuration, setVisitDuration] = useState(1);
-  const [visitActivities, setVisitActivities] = useState<string[]>([]);
-  const [visitParticipants, setVisitParticipants] = useState("");
-  const [visitNotes, setVisitNotes] = useState("");
-  const [visitDeliverables, setVisitDeliverables] = useState("");
-  const [showVisitForm, setShowVisitForm] = useState(false);
-
-  const handleAddVisit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newVisit: SiteVisit = {
-      id: "v_" + Math.random().toString(36).substring(2, 9),
-      date: visitDate,
-      consultant: visitConsultant,
-      duration: Number(visitDuration),
-      activitiesPerformed: visitActivities,
-      participants: visitParticipants,
-      notes: visitNotes,
-      deliverables: visitDeliverables
-    };
-
-    setVisits([...visits, newVisit]);
-    
-    // Automatically update consumed man-days in linked activities
-    visitActivities.forEach(actId => {
-      const act = currentActivities.find(a => a.id === actId);
-      if (act) {
-        const currentConsumed = (act as any).consumedManDays || 0;
-        const currentProgress = act.progressPercent;
-        // Auto boost progress slightly upon visit logging
-        const nextProgress = Math.min(100, currentProgress + 15);
-        const nextStatus = nextProgress === 100 ? "Completed" : "In Progress";
-        
-        onUpdateActivityLocal({
-          ...act,
-          consumedManDays: currentConsumed + Number(visitDuration),
-          progressPercent: nextProgress,
-          status: nextStatus
-        });
-      }
-    });
-
-    // Reset Form
-    setVisitActivities([]);
-    setVisitParticipants("");
-    setVisitNotes("");
-    setVisitDeliverables("");
-    setShowVisitForm(false);
-  };
-
   // 3. Screen Expansion State
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -353,7 +261,13 @@ export default function MasterPlanGantt({
             actualFinishWeek: (a as any).actualFinishWeek || 29,
             responsibleConsultant: (a as any).responsibleConsultant || "OpEx Team",
           })),
-          visits: visits,
+          visits: ptrRecords.map((r: any) => ({
+            date: r.workDate,
+            consultant: r.responsible,
+            duration: 1,
+            activitiesPerformed: [r.activitySubject].filter(Boolean),
+            deliverables: r.output
+          })),
           contractPackage: {
             name: activePackage.name,
             value: weeklyCapacity
@@ -427,19 +341,14 @@ export default function MasterPlanGantt({
     const actNo = (act as any).activityNo || String(index + 1).padStart(2, "0");
     const category = (act as any).category || (act.name.toLowerCase().includes("5s") ? "5S Audit" : act.name.toLowerCase().includes("smed") ? "SMED" : "Kaizen");
 
-    // Collect actual active weeks from PTR records if available
+    // Collect actual active weeks from PTR records if available. Case-insensitive EXACT name
+    // match only — the previous bidirectional substring test on activitySubject/workDone/category
+    // (e.g. "5S", "TPM", "SMED") could attach an unrelated activity's PTR weeks to this one just
+    // because one name/category contained the other's short fragment.
     let rawActualWeeks: number[] = (act as any).actualWeeks || [];
     if (ptrRecords && ptrRecords.length > 0) {
       const actNameUpper = act.name.toUpperCase().trim();
-      const actCatUpper = category.toUpperCase().trim();
-      const matchedPtr = ptrRecords.filter(r => {
-        const subjUpper = (r.activitySubject || "").toUpperCase().trim();
-        const workUpper = (r.workDone || "").toUpperCase().trim();
-        return (
-          (subjUpper && (actNameUpper.includes(subjUpper) || subjUpper.includes(actNameUpper) || actCatUpper.includes(subjUpper))) ||
-          (workUpper && (workUpper.includes(actNameUpper) || actNameUpper.includes(workUpper)))
-        );
-      });
+      const matchedPtr = ptrRecords.filter(r => (r.activitySubject || "").toUpperCase().trim() === actNameUpper);
       if (matchedPtr.length > 0) {
         const ptrWeeks = Array.from(new Set(matchedPtr.map(r => parseInt(r.visitedWeek, 10)).filter(w => !isNaN(w)))).sort((a, b) => a - b);
         rawActualWeeks = Array.from(new Set([...rawActualWeeks, ...ptrWeeks])).sort((a, b) => a - b);
@@ -496,7 +405,8 @@ export default function MasterPlanGantt({
 
   // Calculate KPIs
   const totalPlannedManDays = upgradedActivities.reduce((acc, a) => acc + (a.plannedManDays || 0), 0);
-  const consumedManDays = visits.reduce((acc, v) => acc + v.duration, 0);
+  // Consumed effort is sourced entirely from Proje Takip Raporu (synced onto each activity's consumedManDays), never entered directly here.
+  const consumedManDays = upgradedActivities.reduce((acc, a) => acc + (a.consumedManDays || 0), 0);
   const remainingManDays = Math.max(0, totalPlannedManDays - consumedManDays);
   
   // Consulting Package calculations
@@ -544,10 +454,12 @@ export default function MasterPlanGantt({
       let targetProgress = act.progressPercent;
 
       if (act.relatedModule === "5S Audits") {
+        // audits5S now holds 5S Audit headers (1-5 scale, only scored once "Tamamlandı") rather
+        // than the old per-area 0-100% record — convert to a percentage for the same progress sync.
         const audit = audits5S.find(a => a.id === act.linkedItemId);
         if (audit) {
-          targetProgress = Math.round(audit.overallScore || 0);
-          targetCompleted = targetProgress >= 80;
+          targetProgress = Math.round(((audit.overallScore || 0) / 5) * 100);
+          targetCompleted = audit.status === "Tamamlandı" && targetProgress >= 80;
         }
       } else if (act.relatedModule === "Kaizen Projects") {
         const kaizen = kaizens.find(k => k.id === act.linkedItemId);
@@ -742,163 +654,115 @@ export default function MasterPlanGantt({
   const uniqueConsultants = Array.from(new Set(upgradedActivities.map(a => a.responsibleConsultant)));
   const uniqueCategories = Array.from(new Set(upgradedActivities.map(a => a.category)));
 
-  // Generate Report / Export simulates
-  const handleExport = (reportType: string) => {
-    const reportTitle = `${reportType} - GEMBA PARTNER`;
-    const docText = `
-      =========================================
-      ${reportTitle.toUpperCase()}
-      Saha Raporlama Tarihi: 2026-07-07
-      Müşteri: Arçelik A.Ş. Pişirici Cihazlar
-      -----------------------------------------
-      PROJE DURUMU: %${kpis.progress} Tamamlanma Oranı
-      Toplam Faaliyet: ${kpis.total}
-      Tamamlanan: ${kpis.completed} | Süratlenen: ${kpis.inProgress} | Geciken: ${kpis.delayed}
-      Tüketilen Danışmanlık Süresi: ${kpis.consumedManDays} Adam-Gün
-      Mevcut Paket Kapasitesi: ${weeklyCapacity} Adam-Gün/Hafta
-      =========================================
-      FAALİYET LİSTESİ:
-      ${filteredActivities.map(a => `[No: ${a.activityNo}] ${a.name} | Sorumlu: ${a.responsibleConsultant} | Plan: W${a.plannedStartWeek}-W${a.plannedFinishWeek} | Durum: ${a.status} (%${a.progressPercent})`).join("\n")}
-      =========================================
-    `;
-    const element = document.createElement("a");
-    const file = new Blob([docText], {type: 'text/plain'});
-    element.href = URL.createObjectURL(file);
-    element.download = `${reportType.toLowerCase().replace(/ /g, "_")}.txt`;
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
-  };
-
   // Excel Gantt Export with actual visual 2-line stacked Gantt chart representation in grid cells
-  const handleExportXlsx = () => {
-    const sheetData: any[][] = [];
-    sheetData.push(["GEMBA PARTNER - YALIN PROJE MASTER PLAN GANTT ŞEMASI"]);
-    sheetData.push(["Müşteri", "Arçelik A.Ş. Pişirici Cihazlar"]);
-    sheetData.push(["Rapor Oluşturma Tarihi", new Date().toLocaleDateString("tr-TR")]);
-    sheetData.push(["Proje Genel İlerleme Oranı", `%${kpis.progress}`]);
-    sheetData.push(["Faaliyet Özeti", `Toplam: ${kpis.total} | Tamamlanan: ${kpis.completed} | Yürütülen: ${kpis.inProgress} | Geciken: ${kpis.delayed}`]);
-    sheetData.push(["Sapma Özeti", `${devStats.totalDeviatedTasks} Faaliyet Plana Göre Sapmalı (Maks Sapma: +${devStats.maxDelayWeeks} Hafta)`]);
-    sheetData.push(["Gantt Göstergesi", "[PLAN] = Planlanan Zaman Dilimi | [GERÇEK] = Takvim/PTR Kayıtlarından Fiili Gerçekleşen Hafta"]);
-    sheetData.push([]); // Empty spacing row
+  // Real visual Gantt chart export — bordered week-grid cells with fill colors for planned vs
+  // actual weeks (the previous version used plain text glyphs like "█ PLAN █" because the `xlsx`
+  // (SheetJS community) package cannot write cell borders/fills at all; ExcelJS supports both).
+  const handleExportXlsx = async () => {
+    const INFO_COLS = 14; // No..Sapma, before the "Tür" column
+    const TYPE_COL = INFO_COLS + 1;
+    const FIRST_WEEK_COL = TYPE_COL + 1;
+    const totalCols = FIRST_WEEK_COL + (endWeek - startWeek);
+
+    const THIN: Partial<ExcelJS.Border> = { style: "thin", color: { argb: "FFB0B7C3" } };
+    const CELL_BORDER: Partial<ExcelJS.Borders> = { top: THIN, left: THIN, bottom: THIN, right: THIN };
+    const PLAN_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF60A5FA" } };
+    const ACTUAL_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF34D399" } };
+    const HEADER_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "Gemba Tools";
+    wb.created = new Date();
+    const ws = wb.addWorksheet("Master Plan Gantt", { views: [{ state: "frozen", xSplit: 2, ySplit: 9 }] });
+
+    const titleRow = ws.addRow(["GEMBA PARTNER - YALIN PROJE MASTER PLAN GANTT ŞEMASI"]);
+    ws.mergeCells(titleRow.number, 1, titleRow.number, totalCols);
+    titleRow.getCell(1).font = { bold: true, size: 14, color: { argb: "FF1E293B" } };
+
+    ws.addRow(["Müşteri", activeCustomerName]);
+    ws.addRow(["Rapor Oluşturma Tarihi", new Date().toLocaleDateString("tr-TR")]);
+    ws.addRow(["Proje Genel İlerleme Oranı", `%${kpis.progress}`]);
+    ws.addRow(["Faaliyet Özeti", `Toplam: ${kpis.total} | Tamamlanan: ${kpis.completed} | Yürütülen: ${kpis.inProgress} | Geciken: ${kpis.delayed}`]);
+    ws.addRow(["Sapma Özeti", `${devStats.totalDeviatedTasks} Faaliyet Plana Göre Sapmalı (Maks Sapma: +${devStats.maxDelayWeeks} Hafta)`]);
+    const legendRow = ws.addRow(["Gantt Göstergesi", "Mavi hücre = Planlanan hafta  |  Yeşil hücre = Fiili gerçekleşen hafta"]);
+    legendRow.getCell(2).font = { italic: true, color: { argb: "FF64748B" } };
+    ws.addRow([]);
 
     // Column Headers
     const headers = [
-      "No",
-      "Yalın Faaliyet / Proje Adı",
-      "Kategori",
-      "Sorumlu Danışman",
-      "Müşteri Sorumlusu",
-      "Öncelik",
-      "Durum",
-      "İlerleme",
-      "Plan Adam-Gün",
-      "Plan Başlangıç",
-      "Plan Bitiş",
-      "Gerçekleşen Başlangıç",
-      "Gerçekleşen Bitiş",
-      "Plan/Gerçek Sapması",
-      "Gantt Katmanı"
+      "No", "Yalın Faaliyet / Proje Adı", "Kategori", "Sorumlu Danışman", "Müşteri Sorumlusu",
+      "Öncelik", "Durum", "İlerleme", "Adam-Gün", "Plan Başlangıç", "Plan Bitiş",
+      "Gerçekleşen Başlangıç", "Gerçekleşen Bitiş", "Plan/Gerçek Sapması", "Tür"
     ];
+    for (let w = startWeek; w <= endWeek; w++) headers.push(`H${w}`);
+    const headerRow = ws.addRow(headers);
+    headerRow.eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 9 };
+      cell.fill = HEADER_FILL;
+      cell.border = CELL_BORDER;
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    });
+    ws.getRow(headerRow.number).height = 28;
 
-    // Append weeks to header row
-    for (let w = startWeek; w <= endWeek; w++) {
-      headers.push(`Hafta ${w}`);
-    }
-    sheetData.push(headers);
-
-    // Populate rows (2 rows per activity: Plan row & Actual row for clear stacked Gantt view)
+    // Populate rows (2 rows per activity: Plan row & Actual row, forming a real stacked Gantt block)
     filteredActivities.forEach((act) => {
       const maxActual = act.actualWeeks && act.actualWeeks.length > 0 ? Math.max(...act.actualWeeks) : act.actualFinishWeek;
       const dev = maxActual - act.plannedFinishWeek;
       const devStr = dev > 0 ? `+${dev} Hafta Sapma` : dev < 0 ? `${Math.abs(dev)} Hafta Erken` : "Plana Tam Uygun";
 
-      // Row 1: PLAN ROW
-      const planRow = [
-        act.activityNo,
-        act.name,
-        act.category,
-        act.responsibleConsultant,
-        act.customerOwner || act.owner,
-        act.priority,
-        act.status,
-        `%${act.progressPercent}`,
-        act.plannedManDays,
-        `W${act.plannedStartWeek}`,
-        `W${act.plannedFinishWeek}`,
-        `W${act.actualStartWeek}`,
-        `W${act.actualFinishWeek}`,
-        devStr,
-        "PLANLANAN"
-      ];
-
+      const planRow = ws.addRow([
+        act.activityNo, act.name, act.category, act.responsibleConsultant, act.customerOwner || act.owner,
+        act.priority, act.status, `%${act.progressPercent}`, act.plannedManDays,
+        `W${act.plannedStartWeek}`, `W${act.plannedFinishWeek}`, `W${act.actualStartWeek}`, `W${act.actualFinishWeek}`,
+        devStr, "PLANLANAN"
+      ]);
+      planRow.eachCell((cell, colNumber) => {
+        cell.border = CELL_BORDER;
+        cell.font = { size: 9 };
+        if (colNumber === TYPE_COL) cell.font = { size: 9, bold: true, color: { argb: "FF2563EB" } };
+        if (colNumber === INFO_COLS && dev > 0) cell.font = { size: 9, bold: true, color: { argb: "FFDC2626" } };
+      });
       for (let w = startWeek; w <= endWeek; w++) {
-        const isPlanned = w >= act.plannedStartWeek && w <= act.plannedFinishWeek;
-        planRow.push(isPlanned ? "█ PLAN █" : "·");
+        const cell = planRow.getCell(FIRST_WEEK_COL + (w - startWeek));
+        cell.border = CELL_BORDER;
+        if (w >= act.plannedStartWeek && w <= act.plannedFinishWeek) cell.fill = PLAN_FILL;
       }
-      sheetData.push(planRow);
-
-      // Row 2: ACTUAL (GERÇEKLEŞEN) ROW
-      const actualRow = [
-        "", // empty No
-        `  ↳ ${act.name} (Fiili)`,
-        act.category,
-        "",
-        "",
-        "",
-        "",
-        "",
-        act.consumedManDays || 0,
-        "",
-        "",
-        `W${act.actualStartWeek}`,
-        `W${act.actualFinishWeek}`,
-        "",
-        "GERÇEKLEŞEN"
-      ];
 
       const actWeeksList = act.actualWeeks && act.actualWeeks.length > 0
         ? act.actualWeeks
         : Array.from({ length: Math.max(0, act.actualFinishWeek - act.actualStartWeek + 1) }, (_, i) => act.actualStartWeek + i);
 
+      const actualRow = ws.addRow([
+        "", act.name, act.category, "", "", "", "", "", act.consumedManDays || 0,
+        "", "", `W${act.actualStartWeek}`, `W${act.actualFinishWeek}`, "", "GERÇEKLEŞEN"
+      ]);
+      actualRow.eachCell((cell, colNumber) => {
+        cell.border = { ...CELL_BORDER, bottom: { style: "medium", color: { argb: "FF475569" } } };
+        cell.font = { size: 9 };
+        if (colNumber === TYPE_COL) cell.font = { size: 9, bold: true, color: { argb: "FF059669" } };
+      });
       for (let w = startWeek; w <= endWeek; w++) {
-        const isActual = actWeeksList.includes(w);
-        actualRow.push(isActual ? "● GERÇEK ●" : "·");
+        const cell = actualRow.getCell(FIRST_WEEK_COL + (w - startWeek));
+        cell.border = { ...CELL_BORDER, bottom: { style: "medium", color: { argb: "FF475569" } } };
+        if (actWeeksList.includes(w)) cell.fill = ACTUAL_FILL;
       }
-      sheetData.push(actualRow);
-
-      // Empty separator row between activities
-      sheetData.push([]);
     });
 
-    const ws = XLSX.utils.aoa_to_sheet(sheetData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Master Plan Gantt");
+    // Column widths
+    const widths = [6, 38, 16, 18, 18, 10, 12, 10, 10, 12, 12, 16, 16, 18, 12];
+    widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+    for (let w = startWeek; w <= endWeek; w++) ws.getColumn(FIRST_WEEK_COL + (w - startWeek)).width = 5;
 
-    // Adjust column widths beautifully
-    const colWidths = [
-      { wch: 6 },  // No
-      { wch: 38 }, // Name
-      { wch: 16 }, // Category
-      { wch: 18 }, // Consultant
-      { wch: 18 }, // Sorumlu
-      { wch: 10 }, // Öncelik
-      { wch: 12 }, // Durum
-      { wch: 10 }, // İlerleme
-      { wch: 14 }, // Planlanan Gün
-      { wch: 14 }, // Plan Başlangıç
-      { wch: 14 }, // Plan Bitiş
-      { wch: 18 }, // Gerçekleşen Başlangıç
-      { wch: 18 }, // Gerçekleşen Bitiş
-      { wch: 20 }, // Sapma
-      { wch: 14 }  // Gantt Katmanı
-    ];
-    for (let w = startWeek; w <= endWeek; w++) {
-      colWidths.push({ wch: 12 }); // Weeks columns width
-    }
-    ws["!cols"] = colWidths;
-
-    XLSX.writeFile(wb, `proje_master_plan_gantt_sema_${new Date().toISOString().slice(0,10)}.xlsx`);
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `proje_master_plan_gantt_sema_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   // Excel Activities Import Parser
@@ -984,7 +848,7 @@ export default function MasterPlanGantt({
             linkedItemId: ""
           };
 
-          onAddActivity(newAct);
+          onAddActivityLocal(newAct);
           importedCount++;
         });
 
@@ -1086,7 +950,7 @@ export default function MasterPlanGantt({
       </div>
 
       {/* 1. TOP SUMMARY DASHBOARD */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
         {/* Proje İlerlemesi */}
         <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm hover:shadow-md transition-all flex justify-between items-start min-h-[110px]">
           <div className="space-y-1 flex-1">
@@ -1170,23 +1034,6 @@ export default function MasterPlanGantt({
           </div>
         </div>
 
-        {/* Sözleşme Kapasitesi */}
-        <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-all flex justify-between items-start min-h-[110px]">
-          <div className="space-y-1 flex-1">
-            <span className="text-[11px] uppercase font-bold tracking-wider text-gray-400 block">Sözleşme Kapasitesi</span>
-            <div className="flex items-baseline space-x-1 mt-1">
-              <span className="text-2xl font-mono font-bold text-gray-900">{totalConsultingCapacity}</span>
-              <span className="text-[10px] text-gray-500 font-medium ml-1">AG</span>
-            </div>
-            <span className={`text-[10px] font-bold block mt-1 ${capacityOverrun ? "text-red-600" : "text-emerald-600"}`}>
-              {capacityOverrun ? "Aşım Uyarısı!" : `Kalan: ${unusedCapacity} AG`}
-            </span>
-          </div>
-          <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600 ml-2 shrink-0">
-            <Award className="w-5 h-5" />
-          </div>
-        </div>
-
         {/* Proje Sağlığı */}
         <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-all flex justify-between items-start min-h-[110px]">
           <div className="space-y-1 flex-1">
@@ -1262,15 +1109,15 @@ export default function MasterPlanGantt({
             {/* Quick stats inline */}
             <div className={`grid grid-cols-3 gap-2 text-center bg-slate-50/50 p-2 rounded-lg ${selectedPackageId === "pkg_custom" ? "sm:col-span-12" : "sm:col-span-6"}`}>
               <div>
-                <span className="text-[9px] text-gray-400 block font-bold uppercase">Sözleşme Kapasitesi</span>
+                <span className="text-[11px] text-gray-400 block font-bold uppercase">Sözleşme Kapasitesi</span>
                 <span className="text-xs font-extrabold font-mono text-slate-800 mt-0.5 block">{totalConsultingCapacity} AG</span>
               </div>
               <div>
-                <span className="text-[9px] text-gray-400 block font-bold uppercase">Kullanılan Adam-Gün</span>
+                <span className="text-[11px] text-gray-400 block font-bold uppercase">Kullanılan Adam-Gün</span>
                 <span className="text-xs font-extrabold font-mono text-slate-800 mt-0.5 block">{consumedManDays} AG</span>
               </div>
               <div>
-                <span className="text-[9px] text-gray-400 block font-bold uppercase">Kalan Adam-Gün</span>
+                <span className="text-[11px] text-gray-400 block font-bold uppercase">Kalan Adam-Gün</span>
                 <span className={`text-xs font-extrabold font-mono mt-0.5 block ${capacityOverrun ? "text-red-600" : "text-emerald-600"}`}>
                   {unusedCapacity} AG
                 </span>
@@ -1294,14 +1141,67 @@ export default function MasterPlanGantt({
               <Download className="w-4 h-4" />
               <span>Zaman Planı (XLS) İndir</span>
             </button>
+
+            <button
+              onClick={() => { setShowAiPanel(true); handleGenerateAiSummary(); }}
+              disabled={isAiLoading}
+              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center space-x-2 transition-all cursor-pointer border border-indigo-700 mt-2"
+            >
+              <BrainCircuit className={`w-4 h-4 ${isAiLoading ? "animate-pulse" : ""}`} />
+              <span>{isAiLoading ? "Analiz Ediliyor..." : "Yapay Zeka Analizi"}</span>
+            </button>
           </div>
-          
-          <div className="text-[9px] text-gray-400 italic text-right mt-1 pt-1 border-t border-gray-100">
-            * Anlık Gemba verileri
+
+          <div className="text-[11px] text-gray-400 italic text-right mt-1 pt-1 border-t border-gray-100">
+            * Gerçekleşen veriler Proje Takip Raporu'ndan senkronize edilir
           </div>
         </div>
 
       </div>
+
+      {/* AI INSIGHTS PANEL */}
+      {showAiPanel && (
+        <div className="bg-white border border-indigo-200 rounded-xl p-4 shadow-sm">
+          <div className="flex items-center justify-between border-b border-gray-100 pb-2 mb-3">
+            <h4 className="text-xs font-bold text-gray-800 uppercase flex items-center space-x-1.5">
+              <BrainCircuit className="w-4 h-4 text-indigo-600" />
+              <span>Yapay Zeka Proje Analizi</span>
+            </h4>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={handleGenerateAiSummary}
+                disabled={isAiLoading}
+                className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 disabled:opacity-50 flex items-center space-x-1 cursor-pointer"
+              >
+                <RefreshCw className={`w-3 h-3 ${isAiLoading ? "animate-spin" : ""}`} />
+                <span>Yenile</span>
+              </button>
+              <button
+                onClick={() => setShowAiPanel(false)}
+                className="text-gray-400 hover:text-gray-600 font-bold text-xs cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          {isAiLoading && (
+            <div className="text-xs text-gray-500 italic py-4 text-center">Proje verileri analiz ediliyor, lütfen bekleyin...</div>
+          )}
+
+          {!isAiLoading && aiError && (
+            <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{aiError}</div>
+          )}
+
+          {!isAiLoading && !aiError && aiReport && (
+            <div className="max-h-96 overflow-y-auto pr-2">{renderMarkdownText(aiReport)}</div>
+          )}
+
+          {!isAiLoading && !aiError && !aiReport && (
+            <div className="text-xs text-gray-400 italic py-4 text-center">Analiz sonucu bulunamadı.</div>
+          )}
+        </div>
+      )}
 
       {/* 3. VIEW TABS & FILTERS BAR */}
       <div className="bg-white border border-gray-200 rounded-xl p-3 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shadow-xs">
@@ -1554,7 +1454,7 @@ export default function MasterPlanGantt({
                           >
                             <ChevronUp className="w-3.5 h-3.5 text-gray-600" />
                           </button>
-                          <span className="font-mono text-[9px] font-bold text-gray-400">
+                          <span className="font-mono text-[11px] font-bold text-gray-400">
                             {act.activityNo}
                           </span>
                           <button
@@ -1576,12 +1476,12 @@ export default function MasterPlanGantt({
                               {act.name}
                             </span>
                             {act.milestone && (
-                              <span className="bg-amber-100 text-amber-800 text-[8px] font-bold px-1 rounded uppercase">Milestone</span>
+                              <span className="bg-amber-100 text-amber-800 text-[11px] font-bold px-1 rounded uppercase">Milestone</span>
                             )}
                           </div>
                           
                           <div className="flex items-center space-x-2 text-[10px] text-gray-500 flex-wrap gap-y-1">
-                            <span className="bg-gray-100 text-gray-700 font-bold px-1 rounded text-[9px]">{act.category}</span>
+                            <span className="bg-gray-100 text-gray-700 font-bold px-1 rounded text-[11px]">{act.category}</span>
                             <span>•</span>
                             <span className="flex items-center">
                               <User className="w-3 h-3 text-gray-400 mr-0.5" />
@@ -1599,21 +1499,21 @@ export default function MasterPlanGantt({
                               const deviation = maxActual - act.plannedFinishWeek;
                               if (deviation > 0) {
                                 return (
-                                  <span className="bg-red-50 text-red-700 border border-red-200 text-[8px] font-bold px-1.5 py-0.5 rounded flex items-center space-x-1" title="Planlanan Bitiş Tarihinden Sapma Var">
+                                  <span className="bg-red-50 text-red-700 border border-red-200 text-[11px] font-bold px-1.5 py-0.5 rounded flex items-center space-x-1" title="Planlanan Bitiş Tarihinden Sapma Var">
                                     <AlertTriangle className="w-2.5 h-2.5 text-red-500 shrink-0" />
                                     <span>+{deviation} Hafta Sapma</span>
                                   </span>
                                 );
                               } else if (deviation < 0) {
                                 return (
-                                  <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[8px] font-bold px-1.5 py-0.5 rounded flex items-center space-x-1">
+                                  <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold px-1.5 py-0.5 rounded flex items-center space-x-1">
                                     <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500 shrink-0" />
                                     <span>{Math.abs(deviation)} Hafta Erken</span>
                                   </span>
                                 );
                               }
                               return (
-                                <span className="bg-gray-50 text-gray-500 border border-gray-200 text-[8px] font-bold px-1 py-0.5 rounded">
+                                <span className="bg-gray-50 text-gray-500 border border-gray-200 text-[11px] font-bold px-1 py-0.5 rounded">
                                   Plana Uygun
                                 </span>
                               );
@@ -1624,7 +1524,7 @@ export default function MasterPlanGantt({
                           {act.relatedModule && act.linkedItemId && (
                             <div className="flex items-center space-x-1 bg-blue-50/50 border border-blue-100 rounded px-1.5 py-0.5 w-max">
                               <Zap className="w-2.5 h-2.5 text-blue-500 shrink-0" />
-                              <span className="text-[8px] font-bold text-blue-700 uppercase">
+                              <span className="text-[11px] font-bold text-blue-700 uppercase">
                                 Entegre: {act.relatedModule} (Otomatik Senkron)
                               </span>
                             </div>
@@ -1656,7 +1556,7 @@ export default function MasterPlanGantt({
                             >
                             </div>
                             
-                            <div className="absolute text-[9px] text-gray-400 font-mono" style={{ left: `calc(${pLeftPercent}% + 12px)` }}>
+                            <div className="absolute text-[11px] text-gray-400 font-mono" style={{ left: `calc(${pLeftPercent}% + 12px)` }}>
                               Hafta {act.plannedStartWeek}
                             </div>
                           </div>
@@ -1667,14 +1567,14 @@ export default function MasterPlanGantt({
                             <div className="relative h-4 w-full group/bar">
                               
                               <div 
-                                className="absolute bg-blue-500 rounded h-2.5 flex items-center justify-between text-[8px] text-white font-mono px-1 select-none transition-all"
+                                className="absolute bg-blue-500 rounded h-2.5 flex items-center justify-between text-[11px] text-white font-mono px-1 select-none transition-all"
                                 style={{ left: `${pLeftPercent}%`, width: `${pWidthPercent}%` }}
                                 title={`Planlanan: Hafta ${act.plannedStartWeek} - Hafta ${act.plannedFinishWeek}`}
                               >
                                 {/* Left Shifter Arrow */}
                                 <button
                                   onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'planned', 'start', -1); }}
-                                  className="absolute -left-3.5 bg-blue-100 hover:bg-blue-200 text-blue-700 w-3 h-3.5 rounded flex items-center justify-center text-[9px] font-bold opacity-0 group-hover/bar:opacity-100 transition-opacity"
+                                  className="absolute -left-3.5 bg-blue-100 hover:bg-blue-200 text-blue-700 w-3 h-3.5 rounded flex items-center justify-center text-[11px] font-bold opacity-0 group-hover/bar:opacity-100 transition-opacity"
                                 >
                                   ‹
                                 </button>
@@ -1684,7 +1584,7 @@ export default function MasterPlanGantt({
                                 {/* Right Shifter Arrow */}
                                 <button
                                   onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'planned', 'finish', 1); }}
-                                  className="absolute -right-3.5 bg-blue-100 hover:bg-blue-200 text-blue-700 w-3 h-3.5 rounded flex items-center justify-center text-[9px] font-bold opacity-0 group-hover/bar:opacity-100 transition-opacity"
+                                  className="absolute -right-3.5 bg-blue-100 hover:bg-blue-200 text-blue-700 w-3 h-3.5 rounded flex items-center justify-center text-[11px] font-bold opacity-0 group-hover/bar:opacity-100 transition-opacity"
                                 >
                                   ›
                                 </button>
@@ -1699,20 +1599,20 @@ export default function MasterPlanGantt({
                                 if (blocks.length === 0) {
                                   return (
                                     <div 
-                                      className={`absolute rounded h-2.5 flex items-center justify-between text-[8px] text-white font-mono px-1 transition-all ${actualColor}`}
+                                      className={`absolute rounded h-2.5 flex items-center justify-between text-[11px] text-white font-mono px-1 transition-all ${actualColor}`}
                                       style={{ left: `${aLeftPercent}%`, width: `${aWidthPercent}%` }}
                                       title={`Gerçekleşen: Hafta ${act.actualStartWeek} - Hafta ${act.actualFinishWeek} (${act.status})`}
                                     >
                                       <button
                                         onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'actual', 'start', -1); }}
-                                        className="absolute -left-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 w-3 h-3.5 rounded flex items-center justify-center text-[9px] font-bold opacity-0 group-hover/actual:opacity-100 transition-opacity"
+                                        className="absolute -left-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 w-3 h-3.5 rounded flex items-center justify-center text-[11px] font-bold opacity-0 group-hover/actual:opacity-100 transition-opacity"
                                       >
                                         ‹
                                       </button>
                                       <span className="truncate block leading-none font-bold scale-90">Fiili W{act.actualStartWeek} (%{act.progressPercent})</span>
                                       <button
                                         onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'actual', 'finish', 1); }}
-                                        className="absolute -right-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 w-3 h-3.5 rounded flex items-center justify-center text-[9px] font-bold opacity-0 group-hover/actual:opacity-100 transition-opacity"
+                                        className="absolute -right-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 w-3 h-3.5 rounded flex items-center justify-center text-[11px] font-bold opacity-0 group-hover/actual:opacity-100 transition-opacity"
                                       >
                                         ›
                                       </button>
@@ -1725,14 +1625,14 @@ export default function MasterPlanGantt({
                                   return (
                                     <div 
                                       key={bIdx}
-                                      className={`absolute rounded h-2.5 flex items-center justify-between text-[8px] text-white font-mono px-1 transition-all ${actualColor}`}
+                                      className={`absolute rounded h-2.5 flex items-center justify-between text-[11px] text-white font-mono px-1 transition-all ${actualColor}`}
                                       style={{ left: `${bLeft}%`, width: `${bWidth}%` }}
                                       title={`Gerçekleşen Uygulama: Hafta ${b.start}${b.finish > b.start ? ' - Hafta ' + b.finish : ''}`}
                                     >
                                       {bIdx === 0 && (
                                         <button
                                           onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'actual', 'start', -1); }}
-                                          className="absolute -left-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 w-3 h-3.5 rounded flex items-center justify-center text-[9px] font-bold opacity-0 group-hover/actual:opacity-100 transition-opacity"
+                                          className="absolute -left-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 w-3 h-3.5 rounded flex items-center justify-center text-[11px] font-bold opacity-0 group-hover/actual:opacity-100 transition-opacity"
                                         >
                                           ‹
                                         </button>
@@ -1743,7 +1643,7 @@ export default function MasterPlanGantt({
                                       {bIdx === blocks.length - 1 && (
                                         <button
                                           onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'actual', 'finish', 1); }}
-                                          className="absolute -right-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 w-3 h-3.5 rounded flex items-center justify-center text-[9px] font-bold opacity-0 group-hover/actual:opacity-100 transition-opacity"
+                                          className="absolute -right-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 w-3 h-3.5 rounded flex items-center justify-center text-[11px] font-bold opacity-0 group-hover/actual:opacity-100 transition-opacity"
                                         >
                                           ›
                                         </button>
@@ -1839,7 +1739,7 @@ export default function MasterPlanGantt({
                           <Edit3 className="w-3.5 h-3.5" />
                         </button>
                         <button
-                          onClick={() => onDeleteActivity(act.id)}
+                          onClick={() => onDeleteActivityLocal(act.id)}
                           className="p-1 text-gray-400 hover:text-red-500 transition-colors"
                           title="Sil"
                         >
@@ -1871,13 +1771,13 @@ export default function MasterPlanGantt({
               {filteredActivities.filter(a => a.status === "Planned").map(act => (
                 <div key={act.id} className="bg-white border border-gray-200 rounded-lg p-3 shadow-xs space-y-2 hover:border-gray-300 cursor-pointer" onClick={() => openEditModal(act)}>
                   <div className="flex items-center justify-between">
-                    <span className="bg-gray-100 text-gray-750 px-1 rounded text-[8px] font-bold font-mono">{act.category}</span>
-                    <span className="text-gray-400 text-[8px] font-bold font-mono">#{act.activityNo}</span>
+                    <span className="bg-gray-100 text-gray-750 px-1 rounded text-[11px] font-bold font-mono">{act.category}</span>
+                    <span className="text-gray-400 text-[11px] font-bold font-mono">#{act.activityNo}</span>
                   </div>
                   <span className="font-bold text-[12px] text-gray-900 block leading-tight">{act.name}</span>
                   <div className="flex justify-between items-center text-[10px] pt-1 text-gray-500 border-t border-gray-100">
                     <span>{act.responsibleConsultant}</span>
-                    <span className="font-mono font-bold text-blue-600 text-[9px]">W{act.plannedStartWeek}</span>
+                    <span className="font-mono font-bold text-blue-600 text-[11px]">W{act.plannedStartWeek}</span>
                   </div>
                 </div>
               ))}
@@ -1896,8 +1796,8 @@ export default function MasterPlanGantt({
               {filteredActivities.filter(a => a.status === "In Progress").map(act => (
                 <div key={act.id} className="bg-white border border-blue-100 rounded-lg p-3 shadow-xs space-y-2 hover:border-blue-300 cursor-pointer" onClick={() => openEditModal(act)}>
                   <div className="flex items-center justify-between">
-                    <span className="bg-blue-50 text-blue-750 px-1 rounded text-[8px] font-bold font-mono">{act.category}</span>
-                    <span className="text-gray-400 text-[8px] font-bold font-mono">#{act.activityNo}</span>
+                    <span className="bg-blue-50 text-blue-750 px-1 rounded text-[11px] font-bold font-mono">{act.category}</span>
+                    <span className="text-gray-400 text-[11px] font-bold font-mono">#{act.activityNo}</span>
                   </div>
                   <span className="font-bold text-[12px] text-gray-900 block leading-tight">{act.name}</span>
                   
@@ -1908,7 +1808,7 @@ export default function MasterPlanGantt({
 
                   <div className="flex justify-between items-center text-[10px] pt-1 text-gray-500 border-t border-gray-100">
                     <span>{act.responsibleConsultant}</span>
-                    <span className="font-mono font-bold text-emerald-600 text-[9px]">% {act.progressPercent}</span>
+                    <span className="font-mono font-bold text-emerald-600 text-[11px]">% {act.progressPercent}</span>
                   </div>
                 </div>
               ))}
@@ -1927,13 +1827,13 @@ export default function MasterPlanGantt({
               {filteredActivities.filter(a => a.status === "Completed").map(act => (
                 <div key={act.id} className="bg-white border border-emerald-100 rounded-lg p-3 shadow-xs space-y-2 opacity-85 hover:opacity-100 cursor-pointer" onClick={() => openEditModal(act)}>
                   <div className="flex items-center justify-between">
-                    <span className="bg-emerald-50 text-emerald-750 px-1 rounded text-[8px] font-bold font-mono">{act.category}</span>
-                    <span className="text-gray-400 text-[8px] font-bold font-mono">#{act.activityNo}</span>
+                    <span className="bg-emerald-50 text-emerald-750 px-1 rounded text-[11px] font-bold font-mono">{act.category}</span>
+                    <span className="text-gray-400 text-[11px] font-bold font-mono">#{act.activityNo}</span>
                   </div>
                   <span className="font-bold text-[12px] text-gray-800 line-through block leading-tight">{act.name}</span>
                   <div className="flex justify-between items-center text-[10px] pt-1 text-gray-400 border-t border-gray-150">
                     <span>{act.responsibleConsultant}</span>
-                    <span className="text-emerald-600 font-bold flex items-center text-[9px]">
+                    <span className="text-emerald-600 font-bold flex items-center text-[11px]">
                       ✓ Ok
                     </span>
                   </div>
@@ -1954,13 +1854,13 @@ export default function MasterPlanGantt({
               {filteredActivities.filter(a => a.status === "Delayed").map(act => (
                 <div key={act.id} className="bg-white border border-red-100 rounded-lg p-3 shadow-xs space-y-2 hover:border-red-300 cursor-pointer" onClick={() => openEditModal(act)}>
                   <div className="flex items-center justify-between">
-                    <span className="bg-red-50 text-red-750 px-1 rounded text-[8px] font-bold font-mono">{act.category}</span>
-                    <span className="text-gray-400 text-[8px] font-bold font-mono">#{act.activityNo}</span>
+                    <span className="bg-red-50 text-red-750 px-1 rounded text-[11px] font-bold font-mono">{act.category}</span>
+                    <span className="text-gray-400 text-[11px] font-bold font-mono">#{act.activityNo}</span>
                   </div>
                   <span className="font-bold text-[12px] text-red-900 block leading-tight">{act.name}</span>
                   <div className="flex justify-between items-center text-[10px] pt-1 text-red-700 border-t border-red-100">
                     <span>{act.responsibleConsultant}</span>
-                    <span className="font-bold font-mono text-[9px]">Gecikti</span>
+                    <span className="font-bold font-mono text-[11px]">Gecikti</span>
                   </div>
                 </div>
               ))}
@@ -2075,10 +1975,10 @@ export default function MasterPlanGantt({
               {/* Weeks ranges */}
               <div className="grid grid-cols-2 gap-3 bg-gray-50 p-3 rounded-lg border border-gray-150">
                 <div>
-                  <h4 className="font-bold text-gray-700 uppercase text-[9px] mb-1">Planlanan Dönem (Hafta)</h4>
+                  <h4 className="font-bold text-gray-700 uppercase text-[11px] mb-1">Planlanan Dönem (Hafta)</h4>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <span className="text-[9px] text-gray-400">Başlangıç</span>
+                      <span className="text-[11px] text-gray-400">Başlangıç</span>
                       <input
                         type="number"
                         min="1"
@@ -2089,7 +1989,7 @@ export default function MasterPlanGantt({
                       />
                     </div>
                     <div>
-                      <span className="text-[9px] text-gray-400">Bitiş</span>
+                      <span className="text-[11px] text-gray-400">Bitiş</span>
                       <input
                         type="number"
                         min="1"
@@ -2103,10 +2003,10 @@ export default function MasterPlanGantt({
                 </div>
 
                 <div>
-                  <h4 className="font-bold text-gray-700 uppercase text-[9px] mb-1">Gerçekleşen Dönem (Hafta)</h4>
+                  <h4 className="font-bold text-gray-700 uppercase text-[11px] mb-1">Gerçekleşen Dönem (Hafta)</h4>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <span className="text-[9px] text-gray-400">Başlangıç</span>
+                      <span className="text-[11px] text-gray-400">Başlangıç</span>
                       <input
                         type="number"
                         min="1"
@@ -2117,7 +2017,7 @@ export default function MasterPlanGantt({
                       />
                     </div>
                     <div>
-                      <span className="text-[9px] text-gray-400">Bitiş</span>
+                      <span className="text-[11px] text-gray-400">Bitiş</span>
                       <input
                         type="number"
                         min="1"
@@ -2187,7 +2087,7 @@ export default function MasterPlanGantt({
 
               {/* Linked Module Integration Selectors */}
               <div className="bg-blue-50/50 border border-blue-100 rounded-lg p-3 space-y-2">
-                <h4 className="font-bold text-blue-900 uppercase text-[9px] flex items-center space-x-1">
+                <h4 className="font-bold text-blue-900 uppercase text-[11px] flex items-center space-x-1">
                   <Zap className="w-3 h-3 text-blue-500 animate-pulse" />
                   <span>Sistemler Arası Otomatik Entegrasyon (No Duplicate Entry)</span>
                 </h4>
@@ -2222,7 +2122,7 @@ export default function MasterPlanGantt({
                       <option value="">Seçiniz...</option>
                       
                       {formRelatedModule === "5S Audits" && audits5S.map(a => (
-                        <option key={a.id} value={a.id}>{a.area} (% {a.overallScore})</option>
+                        <option key={a.id} value={a.id}>Denetim No {a.auditNo} ({a.status}{a.overallScore !== null && a.overallScore !== undefined ? ` — ${a.overallScore}/5` : ""})</option>
                       ))}
 
                       {formRelatedModule === "Kaizen Projects" && kaizens.map(k => (
@@ -2235,7 +2135,7 @@ export default function MasterPlanGantt({
                     </select>
                   </div>
                 </div>
-                <span className="text-[8px] text-blue-800 leading-normal block">
+                <span className="text-[11px] text-blue-800 leading-normal block">
                   * Seçilen kaydın durumu tamamlandığında, master plan göreviniz otomatik biter. Veri mükerrerliğini önler.
                 </span>
               </div>

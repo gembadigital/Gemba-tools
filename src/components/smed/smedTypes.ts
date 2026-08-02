@@ -12,6 +12,8 @@ export interface ActivityItem {
   category: string; // Faaliyet Kategorisi
   waste: string; // İsraf Türü (if any)
   opportunity: string; // İyileşme Yıldızı
+  ciKaizenId?: string; // Linked CI Proje Yönetimi kaizen card id, once exported
+  ciExportedAt?: string; // ISO timestamp of export to CI
   ecrsSteps?: ("E" | "C" | "R" | "S")[]; // ECRS İyileştirme Adımı (multi-select)
   ecrsGains?: { // For each checked step, how many minutes are gained
     E?: number;
@@ -51,10 +53,17 @@ export interface SmedProject {
   // Setup Bilgileri
   currentSetupTime: number; // Mevcut Setup Süresi (dk)
   targetSetupTime: number; // Hedef Setup Süresi (dk)
-  
+
   // Activities list
   activities: ActivityItem[];
+  actions: ActionCard[]; // İyileştirme Aksiyon Takip Kanban (proje bazlı)
   isArchived?: boolean;
+
+  // VSM Entegrasyonu — düşük OEE / uzun setup süresi olan bir prosesten başlatılan projeler için
+  linkedProcessId?: string;
+  linkedProcessName?: string;
+  linkedProcessOee?: number; // OEE değeri, proses bağlandığı andaki (snapshot)
+  linkedProcessDowntimeCost?: number; // Yıllık duruş maliyeti (snapshot)
 }
 
 export interface ActionCard {

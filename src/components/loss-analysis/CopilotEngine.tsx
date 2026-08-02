@@ -11,6 +11,7 @@ interface CopilotEngineProps {
   currency: string;
   isDarkMode: boolean;
   recoveryData: any[];
+  factoryId?: string;
 }
 
 export default function CopilotEngine({
@@ -21,7 +22,8 @@ export default function CopilotEngine({
   hiddenFactory,
   currency,
   isDarkMode,
-  recoveryData
+  recoveryData,
+  factoryId
 }: CopilotEngineProps) {
   const [userQuery, setUserQuery] = useState("");
   const [chatLog, setChatLog] = useState<{ sender: "user" | "bot"; text: string }[]>([
@@ -213,7 +215,7 @@ Analiz etmek istediğiniz diğer P&L veya saha verimlilik detaylarını sorabili
     setIsTyping(true);
 
     const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
-    const selectedCustomerId = localStorage.getItem("gemba_selected_customer_id") || "";
+    const selectedCustomerId = factoryId || "";
 
     try {
       const response = await fetch("/api/gemini/copilot-chat", {
@@ -297,7 +299,7 @@ Analiz etmek istediğiniz diğer P&L veya saha verimlilik detaylarını sorabili
                 setTimeout(() => {
                   // Trigger sending
                   const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
-                  const selectedCustomerId = localStorage.getItem("gemba_selected_customer_id") || "";
+                  const selectedCustomerId = factoryId || "";
                   fetch("/api/gemini/copilot-chat", {
                     method: "POST",
                     headers: {

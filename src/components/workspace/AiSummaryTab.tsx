@@ -16,7 +16,7 @@ export default function AiSummaryTab({ workspace, onUpdateCachedSummary }: AiSum
     setLoading(true);
     setError(null);
     try {
-      const token = localStorage.getItem("gemba_partner_token");
+      const token = localStorage.getItem("gemba_token");
       if (!token) {
         throw new Error("Oturum açma token'ı bulunamadı. Lütfen giriş yapın.");
       }

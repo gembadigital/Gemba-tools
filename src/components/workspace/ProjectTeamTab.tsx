@@ -1,17 +1,34 @@
-import React, { useState, useMemo } from "react";
-import { CompanyWorkspaceExtended, ProjectTeamMember, ProjectConsultant } from "../../types/workspace";
-import { Plus, Trash2, Users, Shield, Briefcase, Mail, UserCheck, AlertCircle, CheckCircle2, UserPlus, Lock } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { CompanyWorkspaceExtended, ProjectTeamMember } from "../../types/workspace";
+import { Customer } from "../../types";
+import { Plus, Trash2, Users, Shield, Mail, UserCheck, AlertCircle, CheckCircle2, UserPlus, ShieldCheck } from "lucide-react";
+
+interface TeamBrief {
+  id: string;
+  full_name: string;
+  email: string;
+}
+
+interface PendingInvite {
+  email: string;
+}
 
 interface ProjectTeamTabProps {
   workspace: CompanyWorkspaceExtended;
-  onUpdateTeam: (team: ProjectTeamMember[], consultants?: ProjectConsultant[]) => void;
+  customer: Customer;
+  token: string;
+  currentUser: any;
+  onRefreshCustomers?: () => void;
+  onUpdateTeam: (team: ProjectTeamMember[]) => void;
 }
 
-export default function ProjectTeamTab({ workspace, onUpdateTeam }: ProjectTeamTabProps) {
+const MAX_CONSULTANTS_PER_CUSTOMER = 3;
+const MAX_CUSTOMER_USER_INVITES_PER_CUSTOMER = 2;
+
+export default function ProjectTeamTab({ workspace, customer, token, currentUser, onRefreshCustomers, onUpdateTeam }: ProjectTeamTabProps) {
   const [showAddForm, setShowAddForm] = useState(false);
-  const [showAddConsultantForm, setShowAddConsultantForm] = useState(false);
   const [category, setCategory] = useState<"management" | "member">("management");
-  
+
   // Member Form States
   const [name, setName] = useState("");
   const [department, setDepartment] = useState("");
@@ -19,58 +36,68 @@ export default function ProjectTeamTab({ workspace, onUpdateTeam }: ProjectTeamT
   const [email, setEmail] = useState("");
   const [isProjectCoordinator, setIsProjectCoordinator] = useState(false);
 
-  // Consultant Form State
-  const [selectedConsultantUser, setSelectedConsultantUser] = useState("");
-  const [consultantError, setConsultantError] = useState("");
-
   const teamList = workspace.projectTeam || [];
 
-  // Get Primary Logged-in User consultant definition
-  const currentUser = useMemo(() => {
-    try {
-      const stored = localStorage.getItem("gemba_user_profile") || localStorage.getItem("gemba_active_user");
-      if (stored) {
-        return JSON.parse(stored);
-      }
-    } catch (e) {}
-    return { name: "Proje Yönetim Danışmanı (Siz)", email: "danisman@opexconsulting.com" };
-  }, []);
+  // Real consultant/customer-user assignment data, resolved server-side from the customer record.
+  const [teamData, setTeamData] = useState<{
+    primaryConsultant: TeamBrief | null;
+    consultants: TeamBrief[];
+    customerUsers: TeamBrief[];
+    pendingConsultantInvites: PendingInvite[];
+    pendingCustomerUserInvites: PendingInvite[];
+  }>({
+    primaryConsultant: null,
+    consultants: [],
+    customerUsers: [],
+    pendingConsultantInvites: [],
+    pendingCustomerUserInvites: []
+  });
 
-  // Primary Consultant
-  const consultantsList = useMemo<ProjectConsultant[]>(() => {
-    if (workspace.projectConsultants && workspace.projectConsultants.length > 0) {
-      return workspace.projectConsultants;
-    }
-    // Auto assign current user as 1st Consultant
-    return [
-      {
-        id: "cons_1",
-        name: currentUser.name || "Baş Danışman",
-        email: currentUser.email || "danisman@opexconsulting.com",
-        role: "Primary",
-        permissions: "FullAccess"
-      }
-    ];
-  }, [workspace.projectConsultants, currentUser]);
+  const [showAddConsultantForm, setShowAddConsultantForm] = useState(false);
+  const [consultantEmail, setConsultantEmail] = useState("");
+  const [consultantError, setConsultantError] = useState("");
+  const [consultantBusy, setConsultantBusy] = useState(false);
 
-  const primaryConsultant = consultantsList.find(c => c.role === "Primary") || consultantsList[0];
-  const primaryDomain = primaryConsultant?.email?.split("@")[1] || "opexconsulting.com";
+  const [showInviteCustomerUserForm, setShowInviteCustomerUserForm] = useState(false);
+  const [customerUserEmail, setCustomerUserEmail] = useState("");
+  const [customerUserError, setCustomerUserError] = useState("");
+  const [customerUserBusy, setCustomerUserBusy] = useState(false);
 
-  // Registered system users for additional consultant selection
-  const registeredUsers = useMemo(() => {
-    try {
-      const storedUsers = localStorage.getItem("gemba_admin_users");
-      if (storedUsers) {
-        const parsed = JSON.parse(storedUsers);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch (e) {}
-    return [
-      { id: "u2", name: "Selin Yılmaz (Kıdemli Danışman)", email: `selin@${primaryDomain}` },
-      { id: "u3", name: "Murat Demir (Proje Danışmanı)", email: `murat@${primaryDomain}` },
-      { id: "u4", name: "Ayşe Kaya (Saha Danışmanı)", email: `ayse@diğer-domain.com` }
-    ];
-  }, [primaryDomain]);
+  const [teamSuccessMessage, setTeamSuccessMessage] = useState("");
+
+  const fetchTeam = () => {
+    if (!token || !customer?.id) return;
+    fetch(`/api/business/customers/${customer.id}/team`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) {
+          setTeamData({
+            primaryConsultant: res.data.primaryConsultant || null,
+            consultants: res.data.consultants || [],
+            customerUsers: res.data.customerUsers || [],
+            pendingConsultantInvites: res.data.pendingConsultantInvites || [],
+            pendingCustomerUserInvites: res.data.pendingCustomerUserInvites || []
+          });
+        }
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchTeam();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customer?.id, token]);
+
+  const isAdmin = currentUser?.role === "Admin";
+  const isPrimaryConsultant = currentUser?.id === customer.primaryConsultantId;
+  const isAssignedConsultant = isPrimaryConsultant || teamData.consultants.some((c) => c.id === currentUser?.id);
+  const canManageConsultants = isAdmin || isPrimaryConsultant;
+  const canInviteCustomerUser = isAdmin || isAssignedConsultant;
+
+  const consultantCount = (customer.primaryConsultantId ? 1 : 0) + teamData.consultants.length + teamData.pendingConsultantInvites.length;
+  const customerUserCount = teamData.customerUsers.length + teamData.pendingCustomerUserInvites.length;
 
   // Allowed Roles
   const managementRoles = [
@@ -122,7 +149,7 @@ export default function ProjectTeamTab({ workspace, onUpdateTeam }: ProjectTeamT
       isProjectCoordinator
     };
 
-    onUpdateTeam([...updatedTeamList, newMember], consultantsList);
+    onUpdateTeam([...updatedTeamList, newMember]);
 
     // Reset Form
     setName("");
@@ -134,42 +161,77 @@ export default function ProjectTeamTab({ workspace, onUpdateTeam }: ProjectTeamT
 
   const handleDeleteMember = (id: string) => {
     const updatedTeam = teamList.filter(m => m.id !== id);
-    onUpdateTeam(updatedTeam, consultantsList);
+    onUpdateTeam(updatedTeam);
   };
 
-  const handleAddAdditionalConsultant = (e: React.FormEvent) => {
+  const handleAddConsultant = async (e: React.FormEvent) => {
     e.preventDefault();
     setConsultantError("");
-
-    if (!selectedConsultantUser) return;
-    const selected = registeredUsers.find(u => u.email === selectedConsultantUser);
-    if (!selected) return;
-
-    const userDomain = selected.email.split("@")[1];
-    if (userDomain !== primaryDomain) {
-      setConsultantError(`Seçilen danışmanın e-posta uzantısı (@${userDomain}), 1. Danışmanın e-posta uzantısı (@${primaryDomain}) ile aynı olmalıdır!`);
-      return;
+    setTeamSuccessMessage("");
+    if (!consultantEmail.trim()) return;
+    setConsultantBusy(true);
+    try {
+      const res = await fetch(`/api/business/customers/${customer.id}/consultants`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ email: consultantEmail.trim() })
+      }).then((r) => r.json());
+      if (!res.success) {
+        setConsultantError(res.error || "Danışman eklenemedi.");
+        return;
+      }
+      setTeamSuccessMessage(res.message || "Danışman eklendi.");
+      setConsultantEmail("");
+      setShowAddConsultantForm(false);
+      fetchTeam();
+      onRefreshCustomers?.();
+    } catch (err: any) {
+      setConsultantError(err.message || "Danışman eklenemedi.");
+    } finally {
+      setConsultantBusy(false);
     }
-
-    const newConsultant: ProjectConsultant = {
-      id: "cons_" + Math.random().toString(36).substring(2, 9),
-      userId: selected.id,
-      name: selected.name,
-      email: selected.email,
-      role: "Secondary",
-      permissions: "FullAccess"
-    };
-
-    const updatedConsultants = [...consultantsList, newConsultant];
-    onUpdateTeam(teamList, updatedConsultants);
-    setShowAddConsultantForm(false);
-    setSelectedConsultantUser("");
-    setConsultantError("");
   };
 
-  const handleDeleteConsultant = (id: string) => {
-    const updated = consultantsList.filter(c => c.id !== id);
-    onUpdateTeam(teamList, updated);
+  const handleDeleteConsultant = async (userId: string) => {
+    try {
+      const res = await fetch(`/api/business/customers/${customer.id}/consultants/${userId}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` }
+      }).then((r) => r.json());
+      if (res.success) {
+        fetchTeam();
+        onRefreshCustomers?.();
+      }
+    } catch (e) {
+      // no-op — transient network failure, user can retry
+    }
+  };
+
+  const handleInviteCustomerUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCustomerUserError("");
+    setTeamSuccessMessage("");
+    if (!customerUserEmail.trim()) return;
+    setCustomerUserBusy(true);
+    try {
+      const res = await fetch(`/api/business/customers/${customer.id}/invite-customer-user`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ email: customerUserEmail.trim() })
+      }).then((r) => r.json());
+      if (!res.success) {
+        setCustomerUserError(res.error || "Davet gönderilemedi.");
+        return;
+      }
+      setTeamSuccessMessage(res.message || "Davet gönderildi.");
+      setCustomerUserEmail("");
+      setShowInviteCustomerUserForm(false);
+      fetchTeam();
+    } catch (err: any) {
+      setCustomerUserError(err.message || "Davet gönderilemedi.");
+    } finally {
+      setCustomerUserBusy(false);
+    }
   };
 
   const projectCoordinator = teamList.find(m => m.isProjectCoordinator);
@@ -178,20 +240,29 @@ export default function ProjectTeamTab({ workspace, onUpdateTeam }: ProjectTeamT
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200" id="project-team-module">
-      
+
+      {teamSuccessMessage && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-semibold flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{teamSuccessMessage}</span>
+        </div>
+      )}
+
       {/* SECTION 1: PROJE DANIŞMANLARI PANELİ */}
       <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-2xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
           <div>
             <div className="flex items-center gap-2">
               <Shield className="w-4 h-4 text-zinc-900" />
-              <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">Proje Danışmanları (Proje Yönetim Ekibi)</h4>
+              <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
+                Proje Danışmanları ({consultantCount}/{MAX_CONSULTANTS_PER_CUSTOMER})
+              </h4>
             </div>
             <p className="text-[10px] text-gray-500 mt-1">
-              Projeyi oluşturan üye 1. Danışman olarak atanır. İlave danışmanlar aynı e-posta alan adına sahip olmalı ve tam eşit yetkiye sahiptir.
+              Bu müşteride en fazla {MAX_CONSULTANTS_PER_CUSTOMER} danışman görevli olabilir (1 Birincil + {MAX_CONSULTANTS_PER_CUSTOMER - 1} ilave). Yalnızca Yönetici veya Birincil Danışman ilave danışman ekleyebilir.
             </p>
           </div>
-          {!showAddConsultantForm && (
+          {!showAddConsultantForm && canManageConsultants && consultantCount < MAX_CONSULTANTS_PER_CUSTOMER && (
             <button
               type="button"
               onClick={() => setShowAddConsultantForm(true)}
@@ -205,10 +276,10 @@ export default function ProjectTeamTab({ workspace, onUpdateTeam }: ProjectTeamT
 
         {/* İlave Danışman Ekleme Formu */}
         {showAddConsultantForm && (
-          <form onSubmit={handleAddAdditionalConsultant} className="p-4 bg-gray-50/80 rounded-xl border border-gray-200 space-y-3">
-            <h5 className="text-xs font-bold text-gray-800">Sistem Üyelerinden Danışman Seçimi</h5>
+          <form onSubmit={handleAddConsultant} className="p-4 bg-gray-50/80 rounded-xl border border-gray-200 space-y-3">
+            <h5 className="text-xs font-bold text-gray-800">Danışman E-Postası</h5>
             <p className="text-[10px] text-gray-500">
-              Yalnızca 1. Danışmanın e-posta alan adı (<strong>@{primaryDomain}</strong>) ile eşleşen kayıtlı danışmanlar eklenebilir.
+              Sistemde zaten kayıtlı bir Danışman/Yönetici e-postası girilirse doğrudan eklenir; kayıtlı değilse gerçek bir davet oluşturulur.
             </p>
 
             {consultantError && (
@@ -220,19 +291,15 @@ export default function ProjectTeamTab({ workspace, onUpdateTeam }: ProjectTeamT
 
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
               <div className="sm:col-span-9 flex flex-col gap-1">
-                <label className="text-[10px] font-bold text-gray-400 uppercase">Kayıtlı Sistem Kullanıcısı Seçin</label>
-                <select
-                  value={selectedConsultantUser}
-                  onChange={(e) => setSelectedConsultantUser(e.target.value)}
+                <label className="text-[10px] font-bold text-gray-400 uppercase">E-Posta Adresi</label>
+                <input
+                  type="email"
+                  required
+                  value={consultantEmail}
+                  onChange={(e) => setConsultantEmail(e.target.value)}
+                  placeholder="danisman@gembapartner.com"
                   className="px-3 py-2 text-xs border border-gray-200 rounded-lg bg-white font-medium text-gray-800"
-                >
-                  <option value="">-- Danışman Seçiniz --</option>
-                  {registeredUsers.map(u => (
-                    <option key={u.id} value={u.email}>
-                      {u.name} - {u.email}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
 
               <div className="sm:col-span-3 flex gap-2">
@@ -248,9 +315,10 @@ export default function ProjectTeamTab({ workspace, onUpdateTeam }: ProjectTeamT
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 py-2 bg-zinc-950 text-white rounded-lg text-xs font-medium hover:bg-zinc-800"
+                  disabled={consultantBusy}
+                  className="w-1/2 py-2 bg-zinc-950 text-white rounded-lg text-xs font-medium hover:bg-zinc-800 disabled:opacity-50"
                 >
-                  Ekle
+                  {consultantBusy ? "Ekleniyor..." : "Ekle"}
                 </button>
               </div>
             </div>
@@ -259,32 +327,41 @@ export default function ProjectTeamTab({ workspace, onUpdateTeam }: ProjectTeamT
 
         {/* Danışman Kartları Listesi */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {consultantsList.map((cons, idx) => (
-            <div key={cons.id} className="p-3.5 bg-gray-50/70 border border-gray-100 rounded-xl flex items-center justify-between">
+          {teamData.primaryConsultant && (
+            <div key={teamData.primaryConsultant.id} className="p-3.5 bg-gray-50/70 border border-gray-100 rounded-xl flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className={`w-9 h-9 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs ${
-                  cons.role === "Primary" ? "bg-zinc-900 text-white" : "bg-blue-600 text-white"
-                }`}>
-                  {idx + 1}.D
+                <div className="w-9 h-9 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-zinc-900 text-white">
+                  1.D
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-gray-900">{cons.name}</span>
-                    <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold border ${
-                      cons.role === "Primary" ? "bg-zinc-100 text-zinc-800 border-zinc-200" : "bg-blue-50 text-blue-800 border-blue-200"
-                    }`}>
-                      {cons.role === "Primary" ? "1. Danışman (Sisteme Giriş Yapan)" : "İlave Danışman"}
+                    <span className="text-xs font-bold text-gray-900">{teamData.primaryConsultant.full_name}</span>
+                    <span className="text-[11px] px-1.5 py-0.2 rounded font-bold border bg-zinc-100 text-zinc-800 border-zinc-200">
+                      1. Danışman (Birincil)
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-gray-500 font-mono mt-0.5">{teamData.primaryConsultant.email}</div>
+                </div>
+              </div>
+            </div>
+          )}
+          {teamData.consultants.map((cons, idx) => (
+            <div key={cons.id} className="p-3.5 bg-gray-50/70 border border-gray-100 rounded-xl flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-blue-600 text-white">
+                  {idx + 2}.D
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-900">{cons.full_name}</span>
+                    <span className="text-[11px] px-1.5 py-0.2 rounded font-bold border bg-blue-50 text-blue-800 border-blue-200">
+                      İlave Danışman
                     </span>
                   </div>
                   <div className="text-[10px] text-gray-500 font-mono mt-0.5">{cons.email}</div>
-                  <div className="text-[9px] text-emerald-700 font-semibold flex items-center gap-1 mt-1">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                    <span>Eşit Yetkili (Okuma, Yazma, Paylaşma, Silme Tam Erişim)</span>
-                  </div>
                 </div>
               </div>
-
-              {cons.role !== "Primary" && (
+              {canManageConsultants && (
                 <button
                   type="button"
                   onClick={() => handleDeleteConsultant(cons.id)}
@@ -296,7 +373,123 @@ export default function ProjectTeamTab({ workspace, onUpdateTeam }: ProjectTeamT
               )}
             </div>
           ))}
+          {teamData.pendingConsultantInvites.map((inv) => (
+            <div key={inv.email} className="p-3.5 bg-amber-50/60 border border-amber-200 border-dashed rounded-xl flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-amber-100 text-amber-700">
+                ...
+              </div>
+              <div>
+                <span className="text-xs font-bold text-amber-900">{inv.email}</span>
+                <div className="text-[10px] text-amber-700 font-semibold mt-0.5">Davet gönderildi, kabul bekleniyor</div>
+              </div>
+            </div>
+          ))}
         </div>
+      </div>
+
+      {/* SECTION 1.1: MÜŞTERİ KULLANICISI DAVETİ */}
+      <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-2xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-zinc-900" />
+              <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
+                Müşteri Kullanıcıları ({customerUserCount}/{MAX_CUSTOMER_USER_INVITES_PER_CUSTOMER})
+              </h4>
+            </div>
+            <p className="text-[10px] text-gray-500 mt-1">
+              Bu müşteri için en fazla {MAX_CUSTOMER_USER_INVITES_PER_CUSTOMER} müşteri kullanıcısı davet edilebilir. Davet edilen kişi sisteme girdiğinde yalnızca bu müşterinin verilerini görür.
+            </p>
+          </div>
+          {!showInviteCustomerUserForm && canInviteCustomerUser && customerUserCount < MAX_CUSTOMER_USER_INVITES_PER_CUSTOMER && (
+            <button
+              type="button"
+              onClick={() => setShowInviteCustomerUserForm(true)}
+              className="px-3 py-1.5 bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 text-xs font-semibold transition-colors flex items-center gap-1.5"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              Müşteri Kullanıcısı Davet Et
+            </button>
+          )}
+        </div>
+
+        {showInviteCustomerUserForm && (
+          <form onSubmit={handleInviteCustomerUser} className="p-4 bg-gray-50/80 rounded-xl border border-gray-200 space-y-3">
+            <h5 className="text-xs font-bold text-gray-800">Müşterinin Kendi Personelinin E-Postası</h5>
+
+            {customerUserError && (
+              <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs flex items-center gap-2 font-medium">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+                <span>{customerUserError}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+              <div className="sm:col-span-9 flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase">E-Posta Adresi</label>
+                <input
+                  type="email"
+                  required
+                  value={customerUserEmail}
+                  onChange={(e) => setCustomerUserEmail(e.target.value)}
+                  placeholder={`ornek@${customer.companyName ? "musteri-firma.com" : "firma.com"}`}
+                  className="px-3 py-2 text-xs border border-gray-200 rounded-lg bg-white font-medium text-gray-800"
+                />
+              </div>
+              <div className="sm:col-span-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowInviteCustomerUserForm(false);
+                    setCustomerUserError("");
+                  }}
+                  className="w-1/2 py-2 border border-gray-200 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-100"
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  disabled={customerUserBusy}
+                  className="w-1/2 py-2 bg-zinc-950 text-white rounded-lg text-xs font-medium hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  {customerUserBusy ? "Gönderiliyor..." : "Davet Et"}
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+
+        {teamData.customerUsers.length === 0 && teamData.pendingCustomerUserInvites.length === 0 ? (
+          <div className="text-center py-6 text-gray-400 text-xs flex flex-col items-center justify-center gap-1.5">
+            <Users className="w-5 h-5 text-gray-300" />
+            Henüz davet edilmiş müşteri kullanıcısı yok.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {teamData.customerUsers.map((cu) => (
+              <div key={cu.id} className="p-3.5 bg-gray-50/70 border border-gray-100 rounded-xl flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-emerald-600 text-white">
+                  <UserCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-gray-900 block">{cu.full_name}</span>
+                  <div className="text-[10px] text-gray-500 font-mono mt-0.5">{cu.email}</div>
+                </div>
+              </div>
+            ))}
+            {teamData.pendingCustomerUserInvites.map((inv) => (
+              <div key={inv.email} className="p-3.5 bg-amber-50/60 border border-amber-200 border-dashed rounded-xl flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-amber-100 text-amber-700">
+                  ...
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-amber-900">{inv.email}</span>
+                  <div className="text-[10px] text-amber-700 font-semibold mt-0.5">Davet gönderildi, kabul bekleniyor</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* PROJE KOORDİNATÖRÜ BİLGİLENDİRME BANNERI */}
@@ -308,7 +501,7 @@ export default function ProjectTeamTab({ workspace, onUpdateTeam }: ProjectTeamT
               <strong>Proje Koordinatörü Belirlendi:</strong> {projectCoordinator.name} ({projectCoordinator.email}) — Belge, veri aktarımları ve maillerde otomatik olarak <strong>"KİME (To)"</strong> alıcısı olarak atanacaktır.
             </span>
           </div>
-          <span className="text-[9px] bg-blue-600 text-white px-2 py-0.5 rounded font-bold uppercase tracking-wider shrink-0">
+          <span className="text-[11px] bg-blue-600 text-white px-2 py-0.5 rounded font-bold uppercase tracking-wider shrink-0">
             KİME (To) Alıcısı
           </span>
         </div>
@@ -493,7 +686,7 @@ export default function ProjectTeamTab({ workspace, onUpdateTeam }: ProjectTeamT
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-gray-900">{m.name}</span>
                         {m.isProjectCoordinator && (
-                          <span className="bg-blue-600 text-white text-[9px] px-1.5 py-0.2 rounded font-bold uppercase">
+                          <span className="bg-blue-600 text-white text-[11px] px-1.5 py-0.2 rounded font-bold uppercase">
                             Proje Koordinatörü (KİME)
                           </span>
                         )}
@@ -554,7 +747,7 @@ export default function ProjectTeamTab({ workspace, onUpdateTeam }: ProjectTeamT
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-gray-900">{m.name}</span>
                         {m.isProjectCoordinator && (
-                          <span className="bg-blue-600 text-white text-[9px] px-1.5 py-0.2 rounded font-bold uppercase">
+                          <span className="bg-blue-600 text-white text-[11px] px-1.5 py-0.2 rounded font-bold uppercase">
                             Proje Koordinatörü (KİME)
                           </span>
                         )}

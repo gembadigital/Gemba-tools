@@ -23,79 +23,69 @@ export default function ProjectPortfolioTab({ workspace, onUpdateProjects }: Pro
   const [roiPercent, setRoiPercent] = useState("");
   const [projectManager, setProjectManager] = useState("");
 
-  // Sync projects from CI module (Kaizen) and VSM module
+  // Sync projects from the real CI/Kaizen and VSM backend collections (previously this read from
+  // localStorage keys — gemba_kaizens/gemba_vsms/vsm_maps/etc. — that are never written anywhere;
+  // both modules persist to the backend, not localStorage, so the sync silently did nothing).
+  const [liveKaizens, setLiveKaizens] = useState<any[]>([]);
+  const [liveVsmProjects, setLiveVsmProjects] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!workspace.customerId) return;
+    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    const headers = { "Authorization": `Bearer ${token}`, "x-factory-id": workspace.customerId };
+
+    fetch("/api/business/kaizens", { headers })
+      .then(r => r.json())
+      .then(d => { if (d.success) setLiveKaizens(d.data); })
+      .catch(() => {});
+
+    fetch("/api/business/vsm-projects", { headers })
+      .then(r => r.json())
+      .then(d => { if (d.success) setLiveVsmProjects(d.data); })
+      .catch(() => {});
+  }, [workspace.customerId]);
+
   const allProjects = useMemo(() => {
     // 1. Existing manually saved projects (filtered from old mock dummy items)
     const existingFiltered = (workspace.projects || []).filter(
       p => !p.id.startsWith("dummy_") && !p.id.startsWith("mock_")
     );
 
-    const ciProjects: ProjectPortfolioItem[] = [];
-    const vsmProjects: ProjectPortfolioItem[] = [];
+    // 2. Real CI/Kaizen projects
+    const ciProjects: ProjectPortfolioItem[] = liveKaizens
+      .filter((k: any) => k.title)
+      .map((k: any) => ({
+        id: `ci_${k.id}`,
+        name: k.title,
+        code: `KZN-${k.id?.slice(-4) || "01"}`,
+        objective: k.problemDefinition || k.description || "CI / Kaizen İyileştirme Çalışması",
+        startDate: k.dateProposed || new Date().toISOString().split("T")[0],
+        endDate: k.plannedFinishDate || k.realizedFinishDate || "",
+        status: k.status === "Completed" ? "Completed" : (k.status === "In Progress" ? "Active" : "Planned"),
+        budget: k.estimatedCost || 0,
+        currency: "₺",
+        roiPercent: k.estimatedCost > 0 ? Math.round(((k.actualSavings || k.expectedGain || 0) / k.estimatedCost) * 100) : 0,
+        projectManager: k.projectLeader || k.originator || "Kaizen Ekibi",
+        sourceModule: "CI" as const
+      }));
 
-    // 2. Fetch CI Kaizen projects from LocalStorage
-    try {
-      const kaizenRaw = localStorage.getItem(`gemba_kaizens_${workspace.customerId}`) || 
-                        localStorage.getItem(`gemba_kaizens`) ||
-                        localStorage.getItem(`gemba_kaizen_cards_${workspace.customerId}`);
-      if (kaizenRaw) {
-        const kaizens = JSON.parse(kaizenRaw);
-        if (Array.isArray(kaizens)) {
-          kaizens.forEach((k: any) => {
-            if (k.title || k.name) {
-              ciProjects.push({
-                id: `ci_${k.id || Math.random()}`,
-                name: k.title || k.name,
-                code: k.code || `KZN-${k.id?.slice(0, 4) || '01'}`,
-                objective: k.problem || k.description || "CI / Kaizen İyileştirme Çalışması",
-                startDate: k.startDate || new Date().toISOString().split("T")[0],
-                endDate: k.targetDate || k.endDate || "",
-                status: k.status === "completed" || k.status === "Tamamlandı" ? "Completed" : k.status === "in_progress" ? "Active" : "Planned",
-                budget: parseFloat(k.cost || k.budget) || 0,
-                currency: "₺",
-                roiPercent: parseFloat(k.roi) || 120,
-                projectManager: k.owner || k.author || "Kaizen Ekibi",
-                sourceModule: "CI"
-              });
-            }
-          });
-        }
-      }
-    } catch (e) {
-      console.error("CI Projects read error:", e);
-    }
-
-    // 3. Fetch VSM ongoing projects from LocalStorage
-    try {
-      const vsmRaw = localStorage.getItem(`gemba_vsm_projects_${workspace.customerId}`) || 
-                     localStorage.getItem(`gemba_vsms`) ||
-                     localStorage.getItem(`vsm_maps`);
-      if (vsmRaw) {
-        const vsms = JSON.parse(vsmRaw);
-        if (Array.isArray(vsms)) {
-          vsms.forEach((v: any) => {
-            if (v.title || v.name) {
-              vsmProjects.push({
-                id: `vsm_${v.id || Math.random()}`,
-                name: v.title || v.name || "Gelecek Durum VSM Haritası",
-                code: v.code || `VSM-${v.id?.slice(0, 4) || '01'}`,
-                objective: v.objective || "Değer Akış Haritalama ve Akış İyileştirme Projesi",
-                startDate: v.createdAt || new Date().toISOString().split("T")[0],
-                endDate: v.targetCompletionDate || "",
-                status: "Active",
-                budget: parseFloat(v.budget) || 150000,
-                currency: "₺",
-                roiPercent: 180,
-                projectManager: v.leader || "VSM Ekip Lideri",
-                sourceModule: "VSM"
-              });
-            }
-          });
-        }
-      }
-    } catch (e) {
-      console.error("VSM Projects read error:", e);
-    }
+    // 3. Real VSM projects
+    const vsmProjects: ProjectPortfolioItem[] = liveVsmProjects
+      .filter((v: any) => v.name)
+      .map((v: any) => ({
+        id: `vsm_${v.id}`,
+        name: v.name,
+        code: `VSM-${v.id?.slice(-4) || "01"}`,
+        objective: v.description || "Değer Akış Haritalama ve Akış İyileştirme Projesi",
+        startDate: v.startDate || v.created_at?.split("T")[0] || new Date().toISOString().split("T")[0],
+        endDate: v.targetDate || "",
+        status: v.status === "Tamamlandı" ? "Completed" : "Active",
+        budget: 0,
+        currency: "₺",
+        roiPercent: 0,
+        projectManager: v.leader || "VSM Ekip Lideri",
+        sourceModule: "VSM" as const
+      }));
 
     // Deduplicate by code/id
     const combinedMap = new Map<string, ProjectPortfolioItem>();
@@ -104,7 +94,7 @@ export default function ProjectPortfolioTab({ workspace, onUpdateProjects }: Pro
     vsmProjects.forEach(p => combinedMap.set(p.id, p));
 
     return Array.from(combinedMap.values());
-  }, [workspace.projects, workspace.customerId]);
+  }, [workspace.projects, liveKaizens, liveVsmProjects]);
 
   const handleOpenAddForm = () => {
     setEditingId(null);
@@ -354,13 +344,13 @@ export default function ProjectPortfolioTab({ workspace, onUpdateProjects }: Pro
                     {project.status}
                   </span>
                   {project.sourceModule === "CI" && (
-                    <span className="text-[9px] bg-purple-50 text-purple-700 border border-purple-200 px-1.5 py-0.5 rounded font-medium flex items-center gap-1">
+                    <span className="text-[11px] bg-purple-50 text-purple-700 border border-purple-200 px-1.5 py-0.5 rounded font-medium flex items-center gap-1">
                       <Zap className="w-3 h-3 text-purple-600" />
                       CI Kaizen
                     </span>
                   )}
                   {project.sourceModule === "VSM" && (
-                    <span className="text-[9px] bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded font-medium flex items-center gap-1">
+                    <span className="text-[11px] bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded font-medium flex items-center gap-1">
                       <GitCommit className="w-3 h-3 text-indigo-600" />
                       VSM Akışı
                     </span>

@@ -12,6 +12,8 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, ReferenceLine
 } from "recharts";
 import { motion } from "motion/react";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 import YamazumiStackChart from "./YamazumiStackChart";
 
 // DUAL LANGUAGE TRANSLATION DICTIONARY
@@ -297,12 +299,19 @@ const GembaDigitalLogo = () => (
       <span className="text-[11px] font-black tracking-widest text-slate-700 font-sans" style={{ letterSpacing: '0.08em' }}>
         GEMBA
       </span>
-      <span className="text-[9px] font-black tracking-wider text-slate-500 font-sans mt-0.5" style={{ letterSpacing: '0.12em' }}>
+      <span className="text-[11px] font-black tracking-wider text-slate-500 font-sans mt-0.5" style={{ letterSpacing: '0.12em' }}>
         DIGITAL
       </span>
     </div>
   </div>
 );
+
+const formatStopwatch = (seconds: number): string => {
+  const safe = Math.max(0, seconds || 0);
+  const mins = Math.floor(safe / 60);
+  const secs = (safe % 60).toFixed(2).padStart(5, "0");
+  return `${mins.toString().padStart(2, "0")}:${secs}`;
+};
 
 const normalizeWorkType = (wt: string): string => {
   if (!wt) return "T1";
@@ -313,7 +322,14 @@ const normalizeWorkType = (wt: string): string => {
   return wt;
 };
 
-export default function LineBalancing() {
+interface LineBalancingProps {
+  selectedCustomer?: { id: string; companyName: string };
+}
+
+export default function LineBalancing({ selectedCustomer }: LineBalancingProps) {
+  // Scope the working grid to the active customer so switching factories doesn't leak Yamazumi data across tenants
+  const activeCustomerId = selectedCustomer?.id || "default";
+  const elementsStorageKey = `yamazumi_elements_data_${activeCustomerId}`;
   const [lang] = useState<"tr">("tr");
   const t = TRANSLATIONS.tr;
   const [isGridMaximized, setIsGridMaximized] = useState<boolean>(false);
@@ -330,37 +346,88 @@ export default function LineBalancing() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isGridMaximized]);
 
-  // Customer & Database Persistence State
-  const [customersList, setCustomersList] = useState<any[]>([]);
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
-  const [selectedCustomerName, setSelectedCustomerName] = useState<string>("");
+  // Database Persistence State — scoped to the globally active customer (selectedCustomer prop),
+  // not a separately-fetched list. The previous internal customer fetch defaulted to whichever
+  // customer came first in the org's list on mount, silently diverging from the actual active
+  // factory shown everywhere else in the app — meaning "Save to Database" could save a study
+  // under the wrong customer without the user noticing.
+  const selectedCustomerId = selectedCustomer?.id || "";
+  const selectedCustomerName = selectedCustomer?.companyName || "";
   const [isSavingDb, setIsSavingDb] = useState<boolean>(false);
   const [saveStatusMessage, setSaveStatusMessage] = useState<string | null>(null);
 
-  // Fetch Customers on Mount
+  // Saved study history — GET /api/business/yamazumi-studies already existed on the backend but
+  // the frontend never called it, so "Save to Database" was write-only with no way to browse or
+  // reload a past save.
+  const [savedYamazumiStudies, setSavedYamazumiStudies] = useState<any[]>([]);
+  const [showYamazumiHistory, setShowYamazumiHistory] = useState<boolean>(false);
+
   useEffect(() => {
-    const fetchCustomers = async () => {
-      try {
-        const token = localStorage.getItem("auth_token") || "usr_arcelik_admin";
-        const res = await fetch("/api/business/customers", {
-          headers: { "Authorization": `Bearer ${token}` }
-        });
-        const data = await res.json();
-        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
-          setCustomersList(data.data);
-          setSelectedCustomerId(data.data[0].id);
-          setSelectedCustomerName(data.data[0].companyName);
-        }
-      } catch (e) {
-        console.warn("Customers fetch error:", e);
-      }
-    };
-    fetchCustomers();
-  }, []);
+    if (!selectedCustomerId) return;
+    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    fetch(`/api/business/yamazumi-studies?customerId=${encodeURIComponent(selectedCustomerId)}`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(res => { if (res.success) setSavedYamazumiStudies(res.data); })
+      .catch(err => console.error("Failed to load Yamazumi study history", err));
+  }, [selectedCustomerId]);
+
+  // Time Study integration: work elements can either be captured fresh from video ("standalone")
+  // or imported from an already-measured Time Study record, so the detailed VA/NVA/W breakdown
+  // doesn't have to be redone from scratch for a process that's already been time-studied.
+  const [elementSourceMode, setElementSourceMode] = useState<"standalone" | "timestudy">("standalone");
+  const [availableTimeStudies, setAvailableTimeStudies] = useState<any[]>([]);
+  const [linkedTimeStudyId, setLinkedTimeStudyId] = useState<string | null>(null);
+
+  // Önce/Sonra (current vs future state) scenario labeling — lets a saved study be tagged as the
+  // baseline or the improved target, so the comparison panel can pull one of each and show the
+  // projected line-balance improvement side by side.
+  const [scenarioLabel, setScenarioLabel] = useState<"none" | "current" | "future">("none");
+  const [compareCurrentId, setCompareCurrentId] = useState<string>("");
+  const [compareFutureId, setCompareFutureId] = useState<string>("");
+
+  useEffect(() => {
+    if (!selectedCustomerId) return;
+    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    fetch("/api/business/time-studies", {
+      headers: { "Authorization": `Bearer ${token}`, "x-factory-id": selectedCustomerId }
+    })
+      .then(res => res.json())
+      .then(res => { if (res.success) setAvailableTimeStudies(res.data); })
+      .catch(err => console.error("Failed to load Time Study records", err));
+  }, [selectedCustomerId]);
+
+  // Imports a saved Time Study's process steps into the Yamazumi grid — each step becomes one
+  // work element row (up to 10 measured cycles), with VA/NVA/W class and T1/T2/T3 type left for
+  // the user to classify manually, since Time Study doesn't capture that distinction.
+  const handleImportFromTimeStudy = (studyId: string) => {
+    const study = availableTimeStudies.find((s: any) => s.id === studyId);
+    if (!study) return;
+    const imported: WorkElementRecord[] = (study.processes || []).map((p: any, idx: number) => {
+      const cycles: (number | null)[] = Array.from({ length: 10 }, (_, i) => (p.cy && p.cy[i] !== undefined ? p.cy[i] : null));
+      const { val } = computeStandardTime(cycles);
+      return {
+        id: "e_ts_" + Math.random().toString(36).substring(2, 9),
+        seqNo: idx + 1,
+        processName: study.lineName,
+        workElement: p.name,
+        workClass: "VA",
+        workType: "T1",
+        cycles,
+        standardCycleTime: val
+      };
+    });
+    if (imported.length === 0) return;
+    setElements(imported);
+    saveToStorage(imported);
+    setLinkedTimeStudyId(studyId);
+    if (study.taktTime > 0) setTaktTime(study.taktTime);
+  };
 
   // STATE VARIABLES
   const [elements, setElements] = useState<WorkElementRecord[]>(() => {
-    const saved = localStorage.getItem("yamazumi_elements_data");
+    const saved = localStorage.getItem(elementsStorageKey);
     if (saved) {
       try { return JSON.parse(saved); } catch (e) { console.error(e); }
     }
@@ -385,6 +452,9 @@ export default function LineBalancing() {
   const [compressionOutput, setCompressionOutput] = useState<string | null>(null);
   const [playbackRate, setPlaybackRate] = useState<number>(1.0);
   const [timestampLogs, setTimestampLogs] = useState<{ id: string; absoluteTime: number; deltaDuration: number }[]>([]);
+  // Live-updating stopwatch reading, driven by the <video>'s onTimeUpdate — without this the
+  // operator has no running readout of elapsed time and can only see it after pressing stop.
+  const [currentVideoTime, setCurrentVideoTime] = useState<number>(0);
   const [activeEditingRow, setActiveEditingRow] = useState<string | null>("e1");
 
   // AI Assistant and Chat State
@@ -399,13 +469,13 @@ export default function LineBalancing() {
   // Save study to customer database record
   const handleSaveStudyToDatabase = async () => {
     if (!selectedCustomerId) {
-      alert("Lütfen önce veritabanına kaydetmek istediğiniz müşteriyi seçin.");
+      alert("Aktif fabrika/müşteri bulunamadı.");
       return;
     }
-    const cust = customersList.find(c => c.id === selectedCustomerId);
-    const token = localStorage.getItem("auth_token") || "usr_arcelik_admin";
+    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
     setIsSavingDb(true);
     try {
+      const scenarioSuffix = scenarioLabel === "current" ? " (Mevcut Durum)" : scenarioLabel === "future" ? " (Gelecek Durum)" : "";
       const res = await fetch("/api/business/yamazumi-studies", {
         method: "POST",
         headers: {
@@ -414,18 +484,21 @@ export default function LineBalancing() {
         },
         body: JSON.stringify({
           customerId: selectedCustomerId,
-          customerName: cust?.companyName || selectedCustomerName || "Müşteri Kaydı",
-          studyTitle: `Yamazumi Dengeleme Etüdü - ${new Date().toLocaleDateString("tr-TR")}`,
+          customerName: selectedCustomerName || "Müşteri Kaydı",
+          studyTitle: `Yamazumi Dengeleme Etüdü - ${new Date().toLocaleDateString("tr-TR")}${scenarioSuffix}`,
           elements,
           stats,
           aiReport,
-          taktTime
+          taktTime,
+          linkedTimeStudyId,
+          scenarioLabel: scenarioLabel === "none" ? null : scenarioLabel
         })
       });
       const data = await res.json();
       if (data.success) {
-        setSaveStatusMessage(`Müşteri (${cust?.companyName || "Seçili Müşteri"}) veritabanına başarıyla kaydedildi!`);
+        setSaveStatusMessage(`Müşteri (${selectedCustomerName || "Seçili Müşteri"}) veritabanına başarıyla kaydedildi!`);
         setTimeout(() => setSaveStatusMessage(null), 4000);
+        setSavedYamazumiStudies(prev => [data.data, ...prev]);
       } else {
         alert("Hata: " + (data.error || "Kaydedilemedi"));
       }
@@ -433,6 +506,34 @@ export default function LineBalancing() {
       alert("Veritabanı kayıt hatası: " + err.message);
     } finally {
       setIsSavingDb(false);
+    }
+  };
+
+  // Load a previously saved study from the database into the working grid
+  const handleLoadYamazumiStudy = (study: any) => {
+    setElements(study.elements || []);
+    saveToStorage(study.elements || []);
+    if (typeof study.taktTime === "number") setTaktTime(study.taktTime);
+    setAiReport(study.aiReport || null);
+    setLinkedTimeStudyId(study.linkedTimeStudyId || null);
+    setElementSourceMode(study.linkedTimeStudyId ? "timestudy" : "standalone");
+    setShowYamazumiHistory(false);
+  };
+
+  // Delete a saved study from the database
+  const handleDeleteYamazumiStudy = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("Bu kayıtlı Yamazumi etüdünü silmek istediğinize emin misiniz?")) return;
+    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    try {
+      const res = await fetch(`/api/business/yamazumi-studies/${id}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) setSavedYamazumiStudies(prev => prev.filter(s => s.id !== id));
+    } catch (err) {
+      console.error("Failed to delete Yamazumi study", err);
     }
   };
 
@@ -447,7 +548,7 @@ export default function LineBalancing() {
   // Auto save every 10 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      localStorage.setItem("yamazumi_elements_data", JSON.stringify(elements));
+      localStorage.setItem(elementsStorageKey, JSON.stringify(elements));
       const now = new Date();
       setLastSaved(now.toLocaleTimeString().slice(0, 8));
     }, 10000);
@@ -455,7 +556,7 @@ export default function LineBalancing() {
   }, [elements]);
 
   const saveToStorage = (updatedElements: WorkElementRecord[]) => {
-    localStorage.setItem("yamazumi_elements_data", JSON.stringify(updatedElements));
+    localStorage.setItem(elementsStorageKey, JSON.stringify(updatedElements));
     const now = new Date();
     setLastSaved(now.toLocaleTimeString().slice(0, 8));
   };
@@ -531,6 +632,21 @@ export default function LineBalancing() {
     }
   };
 
+  // Flags individual cycle readings that deviate more than 2 standard deviations from the mean of
+  // that element's other valid cycles — a classic outlier-rejection rule for time studies, catching
+  // likely stopwatch/measurement mistakes or one-off disruptions rather than real cycle variation.
+  // Needs at least 3 valid readings to make the statistic meaningful.
+  const isCycleOutlier = (value: number | null, allCycles: (number | null)[]): boolean => {
+    if (value === null) return false;
+    const valid = allCycles.filter((c): c is number => c !== null && !isNaN(c));
+    if (valid.length < 3) return false;
+    const mean = valid.reduce((a, b) => a + b, 0) / valid.length;
+    const variance = valid.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / valid.length;
+    const sd = Math.sqrt(variance);
+    if (sd === 0) return false;
+    return Math.abs(value - mean) > 2 * sd;
+  };
+
   // Handle cell edit
   const handleCellEdit = (elementId: string, field: string, value: any, cycleIndex?: number) => {
     const updated = elements.map(el => {
@@ -598,6 +714,9 @@ export default function LineBalancing() {
     setFilterProcess("ALL");
     setFilterOnlyBottleneck(false);
     setFilterOnlyLosses(false);
+    setLinkedTimeStudyId(null);
+    setElementSourceMode("standalone");
+    setTaktTime(15.0);
   };
 
   // Gather unique options for filters
@@ -724,6 +843,65 @@ export default function LineBalancing() {
     };
   }, [elements]);
 
+  const outlierCount = useMemo(() => {
+    let count = 0;
+    elements.forEach(el => {
+      el.cycles.forEach(c => { if (isCycleOutlier(c, el.cycles)) count++; });
+    });
+    return count;
+  }, [elements]);
+
+  // Pushes the detected bottleneck straight into CI Proje Yönetimi as a prefilled kaizen card —
+  // same direct-POST + refresh-event pattern used by VSM and Time Study.
+  const handlePushBottleneckToKaizen = async () => {
+    if (!selectedCustomerId || stats.bottleneck === "-") return;
+    const gapSeconds = parseFloat((stats.max - taktTime).toFixed(2));
+    const impactLevel = stats.max > taktTime * 1.5 ? "High" : stats.max > taktTime * 1.15 ? "Medium" : "Low";
+    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+
+    const payload = {
+      title: `[Yamazumi] ${stats.bottleneck} Darboğaz İyileştirmesi`,
+      originator: "Yamazumi AI Analizörü",
+      department: elements[0]?.processName || "Üretim Hattı",
+      dateProposed: new Date().toISOString().split("T")[0],
+      impactLevel,
+      estimatedCost: 0,
+      actualSavings: 0,
+      status: "Draft",
+      descriptionBefore: `Yamazumi hat dengeleme etüdünde "${stats.bottleneck}" iş elemanının standart çevrim süresi ${stats.max.toFixed(2)} sn, hedef takt zamanı olan ${taktTime.toFixed(2)} sn'yi ${gapSeconds.toFixed(2)} sn aşmaktadır ve hattın darboğazını oluşturmaktadır. En büyük israf (Waste) kaynağı: ${stats.largestLoss}.`,
+      descriptionAfter: "",
+      factory_id: selectedCustomerId
+    };
+
+    try {
+      const res = await fetch("/api/business/kaizens", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+          "x-factory-id": selectedCustomerId
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.success) {
+        window.dispatchEvent(new CustomEvent("gemba:refresh-factory-data"));
+        alert(`"${stats.bottleneck}" darboğazı için CI Proje Yönetimi'nde bir kaizen kartı oluşturuldu.`);
+      } else {
+        alert("Kaizen kartı oluşturulamadı.");
+      }
+    } catch (err) {
+      console.error("Failed to push bottleneck to Kaizen", err);
+      alert("Kaizen kartı oluşturulurken bir hata oluştu.");
+    }
+  };
+
+  // Önce/Sonra comparison — pulls the picked "Mevcut" and "Gelecek" saved studies and shows their
+  // stats side by side, so the projected line-balance improvement is visible without re-deriving
+  // anything by hand.
+  const comparisonCurrent = savedYamazumiStudies.find((s: any) => s.id === compareCurrentId);
+  const comparisonFuture = savedYamazumiStudies.find((s: any) => s.id === compareFutureId);
+
   // Apply sequential sizers & filters
   const filteredElements = useMemo(() => {
     return elements.filter(el => {
@@ -787,6 +965,7 @@ export default function LineBalancing() {
       videoRef.current.currentTime = 0;
       videoRef.current.pause();
       setIsPlaying(false);
+      setCurrentVideoTime(0);
     }
   };
 
@@ -794,7 +973,9 @@ export default function LineBalancing() {
   const seekTime = (seconds: number) => {
     if (videoRef.current) {
       const duration = videoRef.current.duration || 3600;
-      videoRef.current.currentTime = Math.max(0, Math.min(duration, videoRef.current.currentTime + seconds));
+      const next = Math.max(0, Math.min(duration, videoRef.current.currentTime + seconds));
+      videoRef.current.currentTime = next;
+      setCurrentVideoTime(next);
     }
   };
 
@@ -807,11 +988,11 @@ export default function LineBalancing() {
   const stepFrame = (direction: "forward" | "backward") => {
     if (videoRef.current) {
       const frameTime = 1 / 30;
-      if (direction === "forward") {
-        videoRef.current.currentTime = Math.min(videoRef.current.duration || 1000, videoRef.current.currentTime + frameTime);
-      } else {
-        videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - frameTime);
-      }
+      const next = direction === "forward"
+        ? Math.min(videoRef.current.duration || 1000, videoRef.current.currentTime + frameTime)
+        : Math.max(0, videoRef.current.currentTime - frameTime);
+      videoRef.current.currentTime = next;
+      setCurrentVideoTime(next);
     }
   };
 
@@ -1039,21 +1220,61 @@ export default function LineBalancing() {
     document.body.removeChild(link);
   };
 
-  // Excel & PowerPoint Mock Export Trigger
-  const triggerDownloadMock = (fileType: "xlsx" | "pptx" | "pdf" | "png") => {
-    const link = document.createElement("a");
-    link.href = "#";
-    const filename = `Yamazumi_Report_${new Date().toISOString().slice(0, 10)}.${fileType}`;
-    
-    // Simulating downloadable binary dynamically
-    const dummyBlob = new Blob([JSON.stringify({ dataset: elements, stats, taktTime }, null, 2)], { type: "application/json" });
-    const downloadUrl = URL.createObjectURL(dummyBlob);
-    
-    link.setAttribute("href", downloadUrl);
-    link.setAttribute("download", filename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  // Real, styled PDF report (replaces the previous "PDF Motion Report" export, which — despite
+  // its name — just downloaded a raw JSON blob renamed to .pdf and would fail to open in any PDF
+  // reader). Mirrors the dark-header + autoTable pattern used by the other modules' exports.
+  const handleExportPdf = () => {
+    const doc = new jsPDF();
+    doc.setFont("Helvetica");
+
+    doc.setFillColor(6, 95, 70);
+    doc.rect(0, 0, 210, 32, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(16);
+    doc.text("YAMAZUMI AI ANALİZÖRÜ RAPORU", 14, 14);
+    doc.setFontSize(10);
+    doc.text(`${selectedCustomerName || "Müşteri"} | Hedef Takt Zamanı: ${taktTime}s | Tarih: ${new Date().toLocaleDateString("tr-TR")}`, 14, 23);
+    doc.text(`Darboğaz: ${stats.bottleneck} (${stats.max}s) | En Büyük İsraf: ${stats.largestLoss}`, 14, 29);
+
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(12);
+    doc.text("1. İŞ ELEMANI ETÜT KÜTÜĞÜ", 14, 42);
+    autoTable(doc, {
+      head: [["No", "Proses", "İş Elemanı", "Sınıf", "Tip", "Standart Ç/S (sn)"]],
+      body: elements.map(el => [
+        `${el.seqNo}`, el.processName, el.workElement, el.workClass, el.workType, el.standardCycleTime.toFixed(2)
+      ]),
+      startY: 46,
+      theme: "striped",
+      styles: { fontSize: 7.5 },
+      headStyles: { fillColor: [6, 95, 70] }
+    });
+
+    let nextY = (doc as any).lastAutoTable.finalY + 12;
+    doc.setFontSize(12);
+    doc.text("2. OPERASYONEL MÜKEMMELLİK KPI ÖZETİ", 14, nextY);
+    autoTable(doc, {
+      body: [
+        ["Toplam Çevrim Süresi", `${stats.totalCT}s`, "VA / NVA / Waste %", `${stats.vaRate}% / ${stats.nvaRate}% / ${stats.wRate}%`],
+        ["Ortalama Çevrim Süresi", `${stats.avg}s`, "Standart Sapma (CV)", `${stats.sd}s (${stats.cv}%)`],
+        ["Potansiyel İyileşme", `${stats.potentialSaving}s (%${stats.savingPercent})`, "Tahmini Yeni Ç/S", `${stats.estNewCt}s`]
+      ],
+      startY: nextY + 4,
+      theme: "grid",
+      styles: { fontSize: 8.5, cellPadding: 3 },
+      columnStyles: { 0: { fontStyle: "bold", fillColor: [240, 240, 240] }, 2: { fontStyle: "bold", fillColor: [240, 240, 240] } }
+    });
+
+    if (aiReport) {
+      doc.addPage();
+      doc.setFontSize(12);
+      doc.text("3. YAPAY ZEKA ANALİZ RAPORU", 14, 16);
+      doc.setFontSize(8.5);
+      const lines = doc.splitTextToSize(aiReport.replace(/#{1,3}\s*/g, "").replace(/\*\*/g, ""), 180);
+      doc.text(lines, 14, 24);
+    }
+
+    doc.save(`Yamazumi_Rapor_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   // IMPORT FILE ACTIONS
@@ -1105,7 +1326,7 @@ export default function LineBalancing() {
     setIsAiLoading(true);
     setAiReport(null);
     try {
-      const token = localStorage.getItem("gemba_session_token") || "simulated_token";
+      const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
       const response = await fetch("/api/gemini/yamazumi-analyze", {
         method: "POST",
         headers: {
@@ -1115,6 +1336,7 @@ export default function LineBalancing() {
         body: JSON.stringify({
           elements,
           stats,
+          taktTime,
           language: lang
         })
       });
@@ -1151,7 +1373,7 @@ export default function LineBalancing() {
     }, 100);
 
     try {
-      const token = localStorage.getItem("gemba_session_token") || "simulated_token";
+      const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
       const response = await fetch("/api/gemini/yamazumi-chat", {
         method: "POST",
         headers: {
@@ -1166,6 +1388,7 @@ export default function LineBalancing() {
           })),
           elements,
           stats,
+          taktTime,
           language: lang
         })
       });
@@ -1226,27 +1449,106 @@ export default function LineBalancing() {
 
         {/* CONTROLS BAR */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Customer Selection Dropdown */}
-          <div className="flex items-center space-x-1.5 bg-white border border-slate-250 p-1 rounded-xl shadow-xs">
-            <span className="text-[10px] font-black uppercase text-slate-500 pl-2">Müşteri:</span>
-            <select
-              value={selectedCustomerId}
-              onChange={(e) => {
-                setSelectedCustomerId(e.target.value);
-                const cust = customersList.find(c => c.id === e.target.value);
-                if (cust) setSelectedCustomerName(cust.companyName);
-              }}
-              className="bg-slate-50 text-slate-800 text-xs font-bold rounded-lg px-2.5 py-1 focus:outline-none border border-slate-200"
+          {/* Active customer — driven entirely by the globally selected factory, not a separate
+              selector, so a save can never silently land on the wrong customer. */}
+          <div className="flex items-center space-x-1.5 bg-white border border-slate-250 p-1.5 rounded-xl shadow-xs">
+            <span className="text-[10px] font-black uppercase text-slate-500 pl-1.5">Müşteri:</span>
+            <span className="text-xs font-bold text-slate-800 pr-1.5">{selectedCustomerName || "—"}</span>
+          </div>
+
+          {/* Hedef Takt Zamanı — previously had no direct input anywhere in this module; it could
+              only change by importing a Time Study or loading a saved study, so a fresh standalone
+              video study had no way to set the real target takt time that the bottleneck alert,
+              Kaizen bridge, and AI coach all depend on. */}
+          <div className="flex items-center space-x-1.5 bg-white border border-slate-250 p-1.5 rounded-xl shadow-xs">
+            <span className="text-[10px] font-black uppercase text-slate-500 pl-1.5">Hedef Takt (sn):</span>
+            <input
+              type="number"
+              min={0.1}
+              step={0.1}
+              value={taktTime}
+              onChange={(e) => setTaktTime(Math.max(0.1, parseFloat(e.target.value) || 0.1))}
+              className="w-20 bg-slate-50 text-slate-800 text-xs font-bold rounded-lg px-2 py-1 focus:outline-none border border-slate-200"
+            />
+          </div>
+
+          {/* Saved Study History */}
+          <div className="relative">
+            <button
+              onClick={() => setShowYamazumiHistory(!showYamazumiHistory)}
+              className="flex items-center space-x-1.5 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-xs px-3 py-2 rounded-xl transition cursor-pointer shadow-xs"
             >
-              {customersList.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.companyName}
-                </option>
-              ))}
-              {customersList.length === 0 && (
-                <option value="">Arçelik A.Ş. Pişirici Cihazlar</option>
-              )}
-            </select>
+              <Layers className="w-3.5 h-3.5 text-slate-500" />
+              <span>Kayıtlar ({savedYamazumiStudies.length})</span>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+            </button>
+            {showYamazumiHistory && (
+              <div className="absolute left-0 mt-2 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 py-2 max-h-96 overflow-y-auto">
+                <div className="px-3 py-1.5 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  Kayıtlı Yamazumi Etütleri
+                </div>
+                {savedYamazumiStudies.length === 0 ? (
+                  <div className="px-3 py-4 text-xs text-slate-500 italic text-center">
+                    Bu müşteriye ait kaydedilmiş Yamazumi etüdü bulunmamaktadır.
+                  </div>
+                ) : (
+                  savedYamazumiStudies.map(study => (
+                    <div
+                      key={study.id}
+                      onClick={() => handleLoadYamazumiStudy(study)}
+                      className="px-3 py-2.5 hover:bg-slate-50 border-b border-slate-50 last:border-b-0 cursor-pointer flex flex-col justify-between text-left group"
+                    >
+                      <div className="flex justify-between items-start">
+                        <span className="text-xs font-extrabold text-slate-850 group-hover:text-emerald-600 transition">
+                          {study.studyTitle}
+                        </span>
+                        <button
+                          onClick={(e) => handleDeleteYamazumiStudy(study.id, e)}
+                          className="text-slate-400 hover:text-red-600 p-0.5 rounded opacity-0 group-hover:opacity-100 transition"
+                          title="Sil"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      {study.scenarioLabel && (
+                        <span className={`text-[9.5px] font-bold px-1.5 py-0.2 rounded-full w-fit mt-0.5 ${
+                          study.scenarioLabel === "current" ? "bg-rose-50 text-rose-700 border border-rose-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                        }`}>
+                          {study.scenarioLabel === "current" ? "Mevcut Durum" : "Gelecek Durum"}
+                        </span>
+                      )}
+                      <span className="text-[10px] font-medium text-slate-600 mt-0.5">
+                        {study.elements?.length || 0} iş elemanı • Takt: {study.taktTime}sn
+                      </span>
+                      <span className="text-[11px] text-slate-450 font-semibold mt-1">
+                        {new Date(study.created_at).toLocaleString("tr-TR")}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Önce/Sonra scenario tagging — optional label saved alongside the study so the
+              comparison panel can pull a "Mevcut" and a "Gelecek" study and show the projected
+              improvement side by side. */}
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+            {([
+              { key: "none", label: "Etiketsiz" },
+              { key: "current", label: "Mevcut Durum" },
+              { key: "future", label: "Gelecek Durum" }
+            ] as const).map(opt => (
+              <button
+                key={opt.key}
+                onClick={() => setScenarioLabel(opt.key)}
+                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                  scenarioLabel === opt.key ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
 
           {/* Save to Database Button */}
@@ -1302,19 +1604,12 @@ export default function LineBalancing() {
                     <FileSpreadsheet className="w-3.5 h-3.5 text-slate-500" />
                     <span>Ham Veri CSV (.csv)</span>
                   </button>
-                  <button 
-                    onClick={() => { triggerDownloadMock("pptx"); setIsExportOpen(false); }} 
-                    className="w-full text-left px-4 py-2 text-slate-700 hover:bg-slate-50 hover:text-slate-900 flex items-center space-x-2 cursor-pointer"
-                  >
-                    <FileText className="w-3.5 h-3.5 text-rose-500" />
-                    <span>PowerPoint Stack (.pptx)</span>
-                  </button>
-                  <button 
-                    onClick={() => { triggerDownloadMock("pdf"); setIsExportOpen(false); }} 
+                  <button
+                    onClick={() => { handleExportPdf(); setIsExportOpen(false); }}
                     className="w-full text-left px-4 py-2 text-slate-700 hover:bg-slate-50 hover:text-slate-900 flex items-center space-x-2 cursor-pointer"
                   >
                     <FileText className="w-3.5 h-3.5 text-amber-500" />
-                    <span>PDF Motion Report (.pdf)</span>
+                    <span>PDF Rapor (.pdf)</span>
                   </button>
                 </div>
               </>
@@ -1365,12 +1660,14 @@ export default function LineBalancing() {
           {/* Video Player Segment */}
           <div className="relative bg-slate-100 aspect-video rounded-xl border border-slate-200 flex flex-col items-center justify-center overflow-hidden group">
             {videoUrl ? (
-              <video 
+              <video
                 ref={videoRef}
                 src={videoUrl}
                 className="w-full h-full object-contain"
                 onPlay={() => setIsPlaying(true)}
                 onPause={() => setIsPlaying(false)}
+                onTimeUpdate={(e) => setCurrentVideoTime(e.currentTarget.currentTime)}
+                onSeeked={(e) => setCurrentVideoTime(e.currentTarget.currentTime)}
               />
             ) : (
               <div 
@@ -1486,12 +1783,13 @@ export default function LineBalancing() {
                 <span>{isPlaying ? "Pause" : "Play"}</span>
               </button>
 
-              <button 
+              <button
                 onClick={() => {
                   if(videoRef.current) {
                     videoRef.current.pause();
                     videoRef.current.currentTime = 0;
                     setIsPlaying(false);
+                    setCurrentVideoTime(0);
                   }
                 }}
                 disabled={!videoUrl}
@@ -1555,6 +1853,13 @@ export default function LineBalancing() {
 
           {/* Sequential STOP and delta recorders */}
           <div className="space-y-3 pt-2">
+            {/* Live-running stopwatch readout — updates continuously with video playback so the
+                operator can see elapsed time before pressing stop, not only after. */}
+            <div className="bg-slate-950 border border-emerald-500/40 rounded-xl py-2 text-center">
+              <span className="text-3xl font-black font-mono text-emerald-400 tracking-wider tabular-nums">
+                {formatStopwatch(currentVideoTime)}
+              </span>
+            </div>
             <button
               onClick={() => handleCaptureTimestamp()}
               disabled={!videoUrl}
@@ -1571,7 +1876,7 @@ export default function LineBalancing() {
                 {timestampLogs.length > 0 && (
                   <button 
                     onClick={() => setTimestampLogs([])} 
-                    className="text-[9px] text-rose-600 hover:text-rose-500 font-extrabold cursor-pointer"
+                    className="text-[11px] text-rose-600 hover:text-rose-500 font-extrabold cursor-pointer"
                   >
                     [{t.clearSequences}]
                   </button>
@@ -1642,6 +1947,50 @@ export default function LineBalancing() {
 
         {/* QUADRANT 2: PROCESS STUDY GRID TABLE (Top Right, spans 7 cols) */}
         <div className="lg:col-span-7 bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between space-y-4 shadow-sm">
+          {/* Kaynak: import work elements from a saved Time Study, or work standalone via video */}
+          <div className="flex flex-wrap items-center gap-2 pb-2 border-b border-slate-100">
+            <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Kaynak:</span>
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+              <button
+                onClick={() => setElementSourceMode("timestudy")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  elementSourceMode === "timestudy" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" /> Time Study'den Yükle
+              </button>
+              <button
+                onClick={() => setElementSourceMode("standalone")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  elementSourceMode === "standalone" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <Video className="w-3.5 h-3.5" /> Bağımsız Video Analizi
+              </button>
+            </div>
+            {linkedTimeStudyId && (
+              <span className="text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2.5 py-1 rounded-full">
+                Time Study Bağlantılı
+              </span>
+            )}
+            {elementSourceMode === "timestudy" && (
+              availableTimeStudies.length === 0 ? (
+                <span className="text-[11px] text-slate-400 italic">Bu müşteri için kayıtlı Time Study çalışması bulunamadı.</span>
+              ) : (
+                <select
+                  value={linkedTimeStudyId || ""}
+                  onChange={(e) => e.target.value && handleImportFromTimeStudy(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="" disabled>Bir Time Study çalışması seçin...</option>
+                  {availableTimeStudies.map((s: any) => (
+                    <option key={s.id} value={s.id}>{s.lineName} — {s.productName} ({s.createdAt})</option>
+                  ))}
+                </select>
+              )
+            )}
+          </div>
+
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-2 mb-1 gap-2">
             <div className="space-y-0.5">
               <h2 className="text-xs font-black uppercase text-slate-800 flex items-center space-x-1.5">
@@ -1818,18 +2167,28 @@ export default function LineBalancing() {
                         </select>
                       </td>
 
-                      {/* Cycle Cycles inputs C/T1 - C/T10 */}
-                      {el.cycles.map((c, cIdx) => (
-                        <td key={cIdx} className="px-0.5 py-2 text-center font-mono font-bold">
-                          <input
-                            type="text"
-                            value={c ?? ""}
-                            placeholder="-"
-                            onChange={(e) => handleCellEdit(el.id, "cycles", e.target.value, cIdx)}
-                            className="bg-slate-50 text-slate-800 border border-slate-200 hover:border-slate-300 focus:border-emerald-500 focus:bg-white w-full text-center p-0.5 text-[11px] rounded transition focus:ring-0 font-bold"
-                          />
-                        </td>
-                      ))}
+                      {/* Cycle Cycles inputs C/T1 - C/T10 — outlier readings (>2 std dev from
+                          this element's own mean) get a red ring so a likely measurement mistake
+                          stands out before it skews the mode/median standard time. */}
+                      {el.cycles.map((c, cIdx) => {
+                        const outlier = isCycleOutlier(c, el.cycles);
+                        return (
+                          <td key={cIdx} className="px-0.5 py-2 text-center font-mono font-bold">
+                            <input
+                              type="text"
+                              value={c ?? ""}
+                              placeholder="-"
+                              title={outlier ? "Aykırı değer: bu ölçüm elemanın ortalamasından 2 standart sapmadan fazla uzaklaşıyor" : undefined}
+                              onChange={(e) => handleCellEdit(el.id, "cycles", e.target.value, cIdx)}
+                              className={`w-full text-center p-0.5 text-[11px] rounded transition focus:ring-0 font-bold ${
+                                outlier
+                                  ? "bg-amber-50 text-amber-800 border-2 border-amber-400"
+                                  : "bg-slate-50 text-slate-800 border border-slate-200 hover:border-slate-300 focus:border-emerald-500 focus:bg-white"
+                              }`}
+                            />
+                          </td>
+                        );
+                      })}
 
                       {/* Rounded standard cycle calculation mode or median */}
                       <td 
@@ -1839,7 +2198,7 @@ export default function LineBalancing() {
                         title={method === "mode" ? t.modeUsed : t.medianUsed}
                       >
                         {el.standardCycleTime.toFixed(2)}s
-                        <span className="block text-[8px] font-black uppercase tracking-widest text-slate-500">
+                        <span className="block text-[11px] font-black uppercase tracking-widest text-slate-500">
                           {method === "mode" ? "mod" : "med"}
                         </span>
                       </td>
@@ -1930,12 +2289,14 @@ export default function LineBalancing() {
               {/* Video Screen Container */}
               <div className="relative bg-black aspect-video max-h-[280px] rounded-xl border border-slate-700 overflow-hidden flex items-center justify-center group">
                 {videoUrl ? (
-                  <video 
+                  <video
                     ref={videoRef}
                     src={videoUrl}
                     className="w-full h-full object-contain"
                     onPlay={() => setIsPlaying(true)}
                     onPause={() => setIsPlaying(false)}
+                    onTimeUpdate={(e) => setCurrentVideoTime(e.currentTarget.currentTime)}
+                    onSeeked={(e) => setCurrentVideoTime(e.currentTarget.currentTime)}
                   />
                 ) : (
                   <div onClick={handleUploadClick} className="p-6 text-center cursor-pointer hover:bg-slate-900/80 w-full h-full flex flex-col items-center justify-center space-y-2 text-slate-400">
@@ -1975,7 +2336,7 @@ export default function LineBalancing() {
                     {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
                     <span>{isPlaying ? "Pause" : "Play"}</span>
                   </button>
-                  <button onClick={() => { if(videoRef.current) { videoRef.current.pause(); videoRef.current.currentTime = 0; setIsPlaying(false); } }} disabled={!videoUrl} title="Durdur & Sıfırla" className="bg-rose-600 hover:bg-rose-500 disabled:opacity-30 text-white px-2.5 py-1.5 rounded-lg font-bold text-xs flex items-center space-x-1 transition cursor-pointer">
+                  <button onClick={() => { if(videoRef.current) { videoRef.current.pause(); videoRef.current.currentTime = 0; setIsPlaying(false); setCurrentVideoTime(0); } }} disabled={!videoUrl} title="Durdur & Sıfırla" className="bg-rose-600 hover:bg-rose-500 disabled:opacity-30 text-white px-2.5 py-1.5 rounded-lg font-bold text-xs flex items-center space-x-1 transition cursor-pointer">
                     <Square className="w-3.5 h-3.5" />
                     <span>Stop</span>
                   </button>
@@ -2010,6 +2371,13 @@ export default function LineBalancing() {
                   <span>Kronometre & Zaman Yakalama</span>
                 </span>
                 <span className="text-[10px] text-slate-400 font-bold">Sequential Time Capture</span>
+              </div>
+
+              {/* Live-running stopwatch readout */}
+              <div className="bg-slate-950 border border-emerald-500/40 rounded-xl py-2.5 text-center">
+                <span className="text-4xl font-black font-mono text-emerald-400 tracking-wider tabular-nums">
+                  {formatStopwatch(currentVideoTime)}
+                </span>
               </div>
 
               <button
@@ -2251,17 +2619,23 @@ export default function LineBalancing() {
                           </select>
                         </td>
 
-                        {el.cycles.map((c, cIdx) => (
-                          <td key={cIdx} className="px-0.5 py-2 text-center font-mono font-bold">
-                            <input
-                              type="text"
-                              value={c ?? ""}
-                              placeholder="-"
-                              onChange={(e) => handleCellEdit(el.id, "cycles", e.target.value, cIdx)}
-                              className="bg-slate-50 text-slate-800 border border-slate-200 w-full text-center p-0.5 text-[11px] rounded font-bold"
-                            />
-                          </td>
-                        ))}
+                        {el.cycles.map((c, cIdx) => {
+                          const outlier = isCycleOutlier(c, el.cycles);
+                          return (
+                            <td key={cIdx} className="px-0.5 py-2 text-center font-mono font-bold">
+                              <input
+                                type="text"
+                                value={c ?? ""}
+                                placeholder="-"
+                                title={outlier ? "Aykırı değer: bu ölçüm elemanın ortalamasından 2 standart sapmadan fazla uzaklaşıyor" : undefined}
+                                onChange={(e) => handleCellEdit(el.id, "cycles", e.target.value, cIdx)}
+                                className={`w-full text-center p-0.5 text-[11px] rounded font-bold ${
+                                  outlier ? "bg-amber-50 text-amber-800 border-2 border-amber-400" : "bg-slate-50 text-slate-800 border border-slate-200"
+                                }`}
+                              />
+                            </td>
+                          );
+                        })}
 
                         <td 
                           className={`px-2 py-2 text-center font-mono font-black border-l border-slate-200 sticky right-0 text-sm ${
@@ -2269,7 +2643,7 @@ export default function LineBalancing() {
                           }`}
                         >
                           {el.standardCycleTime.toFixed(2)}s
-                          <span className="block text-[8px] font-black uppercase text-slate-500">
+                          <span className="block text-[11px] font-black uppercase text-slate-500">
                             {method === "mode" ? "mod" : "med"}
                           </span>
                         </td>
@@ -2312,7 +2686,7 @@ export default function LineBalancing() {
           <span className="text-[10px] font-bold text-slate-400">IEEE Industrial Standard Analytics</span>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 text-center">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 text-center">
           {[
             { label: t.min, val: stats.min + "s", icon: Clock },
             { label: t.max, val: stats.max + "s", icon: Clock },
@@ -2320,11 +2694,14 @@ export default function LineBalancing() {
             { label: t.mode, val: stats.mode + "s", icon: Clock },
             { label: t.average, val: stats.avg + "s", icon: Clock },
             { label: t.sd, val: stats.sd + "s", icon: AlertTriangle },
-            { label: t.cv, val: stats.cv.toFixed(1) + "%", icon: Percent }
+            { label: t.cv, val: stats.cv.toFixed(1) + "%", icon: Percent },
+            { label: "Aykırı Değer", val: `${outlierCount}`, icon: AlertTriangle, warn: outlierCount > 0 }
           ].map((item, idx) => (
-            <div key={idx} className="bg-slate-50 border border-slate-200 p-3 rounded-xl flex flex-col justify-between space-y-1 shadow-xs">
-              <span className="text-[9px] text-slate-500 font-extrabold uppercase tracking-wider block">{item.label}</span>
-              <span className="text-sm font-mono font-black text-slate-900">{item.val}</span>
+            <div key={idx} className={`border p-3 rounded-xl flex flex-col justify-between space-y-1 shadow-xs ${
+              (item as any).warn ? "bg-amber-50 border-amber-300" : "bg-slate-50 border-slate-200"
+            }`}>
+              <span className="text-[11px] text-slate-500 font-extrabold uppercase tracking-wider block">{item.label}</span>
+              <span className={`text-sm font-mono font-black ${(item as any).warn ? "text-amber-800" : "text-slate-900"}`}>{item.val}</span>
             </div>
           ))}
         </div>
@@ -2383,7 +2760,7 @@ export default function LineBalancing() {
                 {/* Center text Ratio summary block */}
                 <div className="absolute flex flex-col justify-center items-center">
                   <span className="text-2xl font-mono font-black text-emerald-600">%{stats.vaRate}</span>
-                  <span className="text-[8px] font-black uppercase text-slate-500 tracking-widest bg-slate-50 border border-slate-200 px-1.5 rounded">
+                  <span className="text-[11px] font-black uppercase text-slate-500 tracking-widest bg-slate-50 border border-slate-200 px-1.5 rounded">
                     Va Ratio
                   </span>
                 </div>
@@ -2466,9 +2843,18 @@ export default function LineBalancing() {
               <p className="text-[10px] text-slate-500 font-bold leading-snug">{t.largestLoss}: <strong className="text-slate-700">{stats.largestLoss}</strong></p>
             </div>
             {stats.max > taktTime && (
-              <span className="text-[9px] bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 font-black rounded block text-center animate-pulse">
-                ⚠️ {t.bottleneckAlert}
-              </span>
+              <>
+                <span className="text-[11px] bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 font-black rounded block text-center animate-pulse">
+                  ⚠️ {t.bottleneckAlert}
+                </span>
+                <button
+                  onClick={handlePushBottleneckToKaizen}
+                  className="w-full text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white px-2 py-1.5 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer transition"
+                  title="Bu darboğazdan CI Proje Yönetimi'nde bir kaizen kartı oluştur"
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> Kaizen Öner
+                </button>
+              </>
             )}
           </div>
 
@@ -2497,7 +2883,7 @@ export default function LineBalancing() {
             </div>
             <div className="space-y-1">
               <span className="text-2xl font-mono font-black text-teal-650">{stats.estNewCt}s</span>
-              <div className="flex items-center space-x-1 text-[9px] text-slate-500 font-black bg-white p-1.5 rounded border border-slate-200">
+              <div className="flex items-center space-x-1 text-[11px] text-slate-500 font-black bg-white p-1.5 rounded border border-slate-200">
                 <ArrowRight className="w-3 h-3 text-emerald-600" />
                 <span>COPQ savings target {stats.savingPercent}% of operations</span>
               </div>
@@ -2507,11 +2893,78 @@ export default function LineBalancing() {
         </div>
       </div>
 
+      {/* ÖNCE/SONRA (CURRENT VS FUTURE) COMPARISON */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+          <h2 className="text-xs font-black uppercase text-slate-800 flex items-center space-x-1.5">
+            <ArrowRight className="w-4 h-4 text-emerald-600" />
+            <span>Önce / Sonra Karşılaştırması</span>
+          </h2>
+          <span className="text-[10px] text-slate-500 font-bold">"Mevcut Durum" ve "Gelecek Durum" olarak etiketlenip kaydedilmiş çalışmalardan seçin</span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <select
+            value={compareCurrentId}
+            onChange={(e) => setCompareCurrentId(e.target.value)}
+            className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:outline-none"
+          >
+            <option value="">Mevcut Durum çalışması seçin...</option>
+            {savedYamazumiStudies.filter((s: any) => s.scenarioLabel === "current").map((s: any) => (
+              <option key={s.id} value={s.id}>{s.studyTitle}</option>
+            ))}
+          </select>
+          <select
+            value={compareFutureId}
+            onChange={(e) => setCompareFutureId(e.target.value)}
+            className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:outline-none"
+          >
+            <option value="">Gelecek Durum çalışması seçin...</option>
+            {savedYamazumiStudies.filter((s: any) => s.scenarioLabel === "future").map((s: any) => (
+              <option key={s.id} value={s.id}>{s.studyTitle}</option>
+            ))}
+          </select>
+        </div>
+
+        {!comparisonCurrent || !comparisonFuture ? (
+          <p className="text-xs text-slate-400 italic">
+            Karşılaştırma görmek için hem "Mevcut Durum" hem "Gelecek Durum" olarak kaydedilmiş birer çalışma seçin. Yukarıdaki "Etiketsiz / Mevcut Durum / Gelecek Durum" seçiciyle bir çalışmayı kaydederken etiketleyebilirsiniz.
+          </p>
+        ) : (() => {
+          const c = comparisonCurrent.stats;
+          const f = comparisonFuture.stats;
+          const ctDelta = c.totalCT > 0 ? ((c.totalCT - f.totalCT) / c.totalCT) * 100 : 0;
+          return (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 space-y-1.5">
+                  <span className="text-[10px] font-black text-rose-700 uppercase">Mevcut Durum</span>
+                  <p className="text-xs font-bold text-slate-700">{comparisonCurrent.studyTitle}</p>
+                  <p className="text-2xl font-mono font-black text-rose-700">{c.totalCT}s</p>
+                  <p className="text-[11px] text-slate-600 font-bold">VA {c.vaRate}% • NVA {c.nvaRate}% • Waste {c.wRate}%</p>
+                  <p className="text-[11px] text-slate-500">Darboğaz: {c.bottleneck}</p>
+                </div>
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-1.5">
+                  <span className="text-[10px] font-black text-emerald-700 uppercase">Gelecek Durum</span>
+                  <p className="text-xs font-bold text-slate-700">{comparisonFuture.studyTitle}</p>
+                  <p className="text-2xl font-mono font-black text-emerald-700">{f.totalCT}s</p>
+                  <p className="text-[11px] text-slate-600 font-bold">VA {f.vaRate}% • NVA {f.nvaRate}% • Waste {f.wRate}%</p>
+                  <p className="text-[11px] text-slate-500">Darboğaz: {f.bottleneck}</p>
+                </div>
+              </div>
+              <div className={`text-center py-2 rounded-xl font-black text-sm ${ctDelta > 0 ? "bg-emerald-50 text-emerald-700" : ctDelta < 0 ? "bg-rose-50 text-rose-700" : "bg-slate-50 text-slate-500"}`}>
+                {ctDelta === 0 ? "Değişim yok" : `Toplam Çevrim Süresi ${ctDelta > 0 ? "%" + ctDelta.toFixed(1) + " azaldı" : "%" + Math.abs(ctDelta).toFixed(1) + " arttı"} (${c.totalCT}s → ${f.totalCT}s)`}
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
       {/* AI LEAN MANUFACTURING ASSISTANT INTEGRATION (Full-Width) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-        
+
         {/* Panel 1: Structured AI Analysis and Recommendations Report */}
-        <div className="lg:col-span-12 xl:col-span-12 bg-white border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 shadow-sm">
+        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-2xl p-5 flex flex-col justify-between space-y-4 shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-1">
             <div className="space-y-0.5">
               <h2 className="text-xs font-black uppercase text-slate-800 flex items-center space-x-1.5">
@@ -2539,25 +2992,27 @@ export default function LineBalancing() {
             </button>
           </div>
 
-          <div className="flex-1 bg-slate-50 rounded-xl border border-slate-200 p-4 font-normal text-xs text-slate-700 overflow-y-auto max-h-120 min-h-[250px] leading-relaxed shadow-inner">
+          {/* Font sizes here are held at text-sm (14px/~10.5pt) minimum or larger — the report is
+              read as a coaching document, not fine print. */}
+          <div className="flex-1 bg-slate-50 rounded-xl border border-slate-200 p-4 font-normal text-sm text-slate-700 overflow-y-auto max-h-120 min-h-[250px] leading-relaxed shadow-inner">
             {aiReport ? (
               <div className="space-y-4 markdown-body font-sans">
                 {aiReport.split("\n").map((line, idx) => {
                   if (line.startsWith("###")) {
-                    return <h3 key={idx} className="text-sm font-black text-emerald-800 mt-4 border-b border-slate-200 pb-1 uppercase">{line.replace("###", "").trim()}</h3>;
+                    return <h3 key={idx} className="text-base font-black text-emerald-800 mt-4 border-b border-slate-200 pb-1 uppercase">{line.replace("###", "").trim()}</h3>;
                   }
                   if (line.startsWith("##")) {
-                    return <h2 key={idx} className="text-base font-black text-indigo-700 mt-5 border-b border-slate-200 pb-1 uppercase">{line.replace("##", "").trim()}</h2>;
+                    return <h2 key={idx} className="text-lg font-black text-indigo-700 mt-5 border-b border-slate-200 pb-1 uppercase">{line.replace("##", "").trim()}</h2>;
                   }
                   if (line.startsWith("-") || line.startsWith("*")) {
                     let txt = line.replace(/^[-*]\s*/, "").trim();
                     let priorityBadge = null;
                     if (txt.toLowerCase().includes("high") || txt.toLowerCase().includes("yüksek")) {
-                      priorityBadge = <span className="bg-red-50 border border-red-200 text-red-700 text-[8px] font-black uppercase px-1.5 py-0.5 rounded ml-2">{t.priorityHigh}</span>;
+                      priorityBadge = <span className="bg-red-50 border border-red-200 text-red-700 text-xs font-black uppercase px-1.5 py-0.5 rounded ml-2">{t.priorityHigh}</span>;
                     } else if (txt.toLowerCase().includes("medium") || txt.toLowerCase().includes("orta")) {
-                      priorityBadge = <span className="bg-amber-50 border border-amber-205 text-amber-800 text-[8px] font-black uppercase px-1.5 py-0.5 rounded ml-2">{t.priorityMedium}</span>;
+                      priorityBadge = <span className="bg-amber-50 border border-amber-205 text-amber-800 text-xs font-black uppercase px-1.5 py-0.5 rounded ml-2">{t.priorityMedium}</span>;
                     } else if (txt.toLowerCase().includes("low") || txt.toLowerCase().includes("düşük")) {
-                      priorityBadge = <span className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-[8px] font-black uppercase px-1.5 py-0.5 rounded ml-2">{t.priorityLow}</span>;
+                      priorityBadge = <span className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-black uppercase px-1.5 py-0.5 rounded ml-2">{t.priorityLow}</span>;
                     }
                     return (
                       <div key={idx} className="flex items-start space-x-2 py-0.5 text-slate-700">
@@ -2574,12 +3029,84 @@ export default function LineBalancing() {
                 <Sparkles className="w-10 h-10 text-slate-350 animate-pulse" />
                 <div className="space-y-1 max-w-sm">
                   <h4 className="font-extrabold text-slate-700 uppercase text-xs tracking-wider">Yalın Yapay Zeka Eksperi Hazır / AI Evaluator Ready</h4>
-                  <p className="text-[11px] text-slate-500 leading-normal font-semibold">
+                  <p className="text-xs text-slate-500 leading-normal font-semibold">
                     Darboğaz tespiti, COPQ maliyet analizi ve hücresel hat dengeleme önerilerini almak için yukarıdaki butona tıklayın.
                   </p>
                 </div>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Panel 2: AI Copilot Chat — chatMessages/handleSendChat/userQuery/chatScrollRef were
+            already fully implemented and wired to a real backend endpoint, but never rendered
+            anywhere, making the entire chat feature invisible and unusable. This panel is that
+            missing UI. */}
+        <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col shadow-sm min-h-[420px]">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-3">
+            <h2 className="text-xs font-black uppercase text-white flex items-center space-x-1.5">
+              <Sparkles className="w-4 h-4 text-sky-400" />
+              <span>{t.aiChatTitle}</span>
+            </h2>
+          </div>
+
+          <div ref={chatScrollRef} className="flex-1 overflow-y-auto space-y-3 pr-1 mb-3">
+            {chatMessages.map((msg, idx) => (
+              <div key={idx} className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
+                  msg.sender === "user"
+                    ? "bg-sky-600 text-white"
+                    : "bg-slate-800 text-slate-100 border border-slate-700"
+                }`}>
+                  <p className="whitespace-pre-wrap">{msg.text}</p>
+                  <span className="text-[10px] opacity-60 block mt-1 font-mono">{msg.time}</span>
+                </div>
+              </div>
+            ))}
+            {isChatLoading && (
+              <div className="flex justify-start">
+                <div className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-300 flex items-center gap-1.5">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Yazıyor...
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Suggested quick questions */}
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {[
+              "Darboğaz neresi ve takt zamanını ne kadar aşıyor?",
+              "En fazla israf hangi elemanda?",
+              "Hat dengeleme için iyileştirme sırası ne olmalı?"
+            ].map((q, i) => (
+              <button
+                key={i}
+                onClick={() => handleSendChat(q)}
+                disabled={isChatLoading}
+                className="text-xs bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700 transition cursor-pointer"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={userQuery}
+              onChange={(e) => setUserQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSendChat(); }}
+              placeholder={t.aiChatPlaceholder}
+              className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-sky-500"
+            />
+            <button
+              onClick={() => handleSendChat()}
+              disabled={isChatLoading || !userQuery.trim()}
+              className="bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white p-2.5 rounded-xl transition cursor-pointer"
+              title="Gönder"
+            >
+              <Send className="w-4 h-4" />
+            </button>
           </div>
         </div>
 

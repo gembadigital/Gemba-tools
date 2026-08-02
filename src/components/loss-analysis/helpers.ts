@@ -198,7 +198,9 @@ export function calculateProcessesData(processes: ProcessItem[], dailyDemand: nu
     const equipmentAvailability = dailyNetWorkingTimeAvailable > 0 ? (dailyActualNetWorkingTime / dailyNetWorkingTimeAvailable) : 0;
 
     // 2. Quality Calculations
-    const defectRate = proc.producedQtyPerDay > 0 ? (proc.defectiveParts / proc.producedQtyPerDay) : 0;
+    // Derived live from scrapQty + reworkQty (both directly user-editable) rather than the stored
+    // `defectiveParts` field, so this stays in sync when the user edits Hurda/Yeniden İşleme Adedi.
+    const defectRate = proc.producedQtyPerDay > 0 ? ((proc.scrapQty + proc.reworkQty) / proc.producedQtyPerDay) : 0;
     const qualityRatio = proc.producedQtyPerDay > 0 ? ((proc.producedQtyPerDay - proc.scrapQty) / proc.producedQtyPerDay) : 0;
 
     // 3. Performance & Capacity
@@ -273,12 +275,16 @@ export function calculateFinancialImpact(
   revenue: number,
   laborRateBase: number = 2200, // TL per day per operator
   rawMaterialCostFactor: number = 0.45,
-  energyCostRate: number = 3.5 // TL per kWh / standard hourly rate
+  energyCostRate: number = 3.5, // TL per kWh / standard hourly rate
+  dailyDemand: number = 1100 // representative daily production volume (units/day)
 ) {
   // 1. Scrap Cost
   const totalScrapQty = calculated.reduce((sum, p) => sum + p.scrapQty, 0);
-  // Scrap item average value derived from proportional material revenue
-  const itemEstCost = (revenue / 280000) * rawMaterialCostFactor; 
+  // Average per-unit item cost = (annual revenue / annual production volume) * material cost
+  // share of price. Previously divided revenue by an unexplained flat "280000" constant, which
+  // meant the per-unit cost estimate had no traceable basis and drifted arbitrarily with revenue.
+  const annualProductionVolume = dailyDemand * 250;
+  const itemEstCost = annualProductionVolume > 0 ? (revenue / annualProductionVolume) * rawMaterialCostFactor : 0;
   const dailyScrapCost = totalScrapQty * itemEstCost * 1.5;
 
   // 2. Rework Cost
@@ -302,12 +308,24 @@ export function calculateFinancialImpact(
   const totalWIP = calculated.reduce((sum, p) => sum + p.interProcessInventory, 0);
   const dailyInventoryCost = totalWIP * (itemEstCost * 0.15) / 365; // standard annual holding rate
 
-  // 7. Late Delivery & Overtime Cost
-  const totalOvertimeLoss = calculated.some(p => p.capacityUtilization > 0.95) ? 4500 : 0;
-  const deliveryFines = calculated.some(p => p.oee < 60) ? 6000 : 1200;
+  // 7. Late Delivery & Overtime Cost — scaled by how many processes are actually strained
+  // (over-capacity / critically low OEE) and by the configured labor rate / revenue, instead of
+  // a flat TL amount that was identical whether one line or the whole plant was at risk.
+  const overCapacityProcessCount = calculated.filter(p => p.capacityUtilization > 0.95).length;
+  const totalOvertimeLoss = overCapacityProcessCount * laborRateBase * 0.5;
+  const criticalOeeProcessCount = calculated.filter(p => p.oee < 60).length;
+  const deliveryFines = revenue * (criticalOeeProcessCount > 0 ? 0.0005 * criticalOeeProcessCount : 0.0001);
+
+  // 8. Energy Cost — driven by actual net production time and the user-configured energy
+  // rate (energyCostRate), instead of a flat constant that ignored the "Enerji Birim Fiyatı"
+  // input entirely. AVG_MACHINE_POWER_KW is a reasonable industrial-average machine power
+  // draw assumption (this module has no per-process kW field to derive it from directly).
+  const AVG_MACHINE_POWER_KW = 12;
+  const totalDailyWorkingHours = calculated.reduce((sum, p) => sum + (p.dailyActualNetWorkingTime / 60), 0);
+  const dailyEnergyCost = totalDailyWorkingHours * AVG_MACHINE_POWER_KW * energyCostRate;
 
   // Sum total operational losses
-  const dailyTotal = dailyScrapCost + dailyReworkCost + dailyDowntimeCost + dailySetupCost + dailyExcessLaborCost + dailyInventoryCost + totalOvertimeLoss + deliveryFines;
+  const dailyTotal = dailyScrapCost + dailyReworkCost + dailyDowntimeCost + dailySetupCost + dailyExcessLaborCost + dailyInventoryCost + totalOvertimeLoss + deliveryFines + dailyEnergyCost;
 
   return {
     scrap: { day: dailyScrapCost, week: dailyScrapCost * 5, month: dailyScrapCost * 22, year: dailyScrapCost * 260 },
@@ -319,7 +337,7 @@ export function calculateFinancialImpact(
     waiting: { day: dailyTotal * 0.12, week: dailyTotal * 0.12 * 5, month: dailyTotal * 0.12 * 22, year: dailyTotal * 0.12 * 260 },
     lateDelivery: { day: deliveryFines, week: deliveryFines * 5, month: deliveryFines * 22, year: deliveryFines * 260 },
     overtime: { day: totalOvertimeLoss, week: totalOvertimeLoss * 5, month: totalOvertimeLoss * 22, year: totalOvertimeLoss * 260 },
-    energy: { day: 850, week: 850 * 5, month: 850 * 22, year: 850 * 260 },
+    energy: { day: dailyEnergyCost, week: dailyEnergyCost * 5, month: dailyEnergyCost * 22, year: dailyEnergyCost * 260 },
     maintenance: { day: downtimeCostPerMinute * 40, week: downtimeCostPerMinute * 40 * 5, month: downtimeCostPerMinute * 40 * 22, year: downtimeCostPerMinute * 40 * 260 },
     totalOperationalLosses: {
       day: dailyTotal,
@@ -344,14 +362,17 @@ export function calculateCOPQ(calculated: CalculatedProcess[], revenue: number, 
   const warrantyCost = internalFailure * 0.15;
   const expeditingCost = financialImpact.lateDelivery.year + financialImpact.overtime.year * 0.5;
   const extraFreight = internalFailure * 0.08;
-  const customerComplaints = 180000;
+  // External-failure and appraisal/prevention cost categories scale with company size (revenue),
+  // not with how much scrap happens to occur — a flat TL amount here meant a small workshop and a
+  // large plant showed the identical "customer complaint handling cost", which isn't realistic.
+  const customerComplaints = revenue * 0.003;
   const lostCapacityCost = financialImpact.downtime.year + financialImpact.setup.year * 0.6;
   const lostSalesCost = calculated.some(p => p.oee < 60) ? (revenue * 0.03) : (revenue * 0.005);
   const excessInventoryCost = financialImpact.inventory.year;
   const lateDeliveryCost = financialImpact.lateDelivery.year;
   const emergencyOvertimeCost = financialImpact.overtime.year;
-  const inspectionCost = 140000;
-  const qualityPersonnelCost = 350000;
+  const inspectionCost = revenue * 0.004;
+  const qualityPersonnelCost = revenue * 0.006;
 
   const totalCOPQ_TL = 
     internalFailure + sortingCost + customerReturns + warrantyCost + expeditingCost + 
@@ -387,13 +408,7 @@ export function calculateCOPQ(calculated: CalculatedProcess[], revenue: number, 
     qualityPersonnelCost,
     totalCOPQ_TL,
     copqPercentOfRevenue,
-    benchmarkStatus,
-    trend: [
-      { month: "Q1 2026", value: copqPercentOfRevenue + 2.1 },
-      { month: "Q2 2026", value: copqPercentOfRevenue + 1.2 },
-      { month: "Q3 2026", value: copqPercentOfRevenue + 0.5 },
-      { month: "Q4 2026", value: copqPercentOfRevenue }
-    ]
+    benchmarkStatus
   };
 }
 
@@ -419,110 +434,3 @@ export function calculateHiddenFactory(calculated: CalculatedProcess[], revenue:
   };
 }
 
-// WCM Cost Deployment Matrix
-export function calculateCostDeployment(calculated: CalculatedProcess[], financialImpact: any) {
-  // Quality, Breakdowns, Setup, Speed Loss, Minor Stops, Labor Loss, Energy Loss, Inventory Loss, Logistics Loss
-  const yr = financialImpact.totalOperationalLosses.year;
-
-  const categories = [
-    { name: "Quality Losses", ratio: 0.18, standardSavings: 0.75, difficulty: "MEDIUM", cost: financialImpact.scrap.year + financialImpact.rework.year },
-    { name: "Breakdowns", ratio: 0.15, standardSavings: 0.65, difficulty: "MEDIUM", cost: financialImpact.downtime.year },
-    { name: "Setup / Changeover", ratio: 0.20, standardSavings: 0.80, difficulty: "LOW", cost: financialImpact.setup.year },
-    { name: "Speed Loss", ratio: 0.11, standardSavings: 0.50, difficulty: "HIGH", cost: yr * 0.11 },
-    { name: "Minor Stops", ratio: 0.10, standardSavings: 0.55, difficulty: "LOW", cost: yr * 0.10 },
-    { name: "Labor Loss (Line Balance)", ratio: 0.14, standardSavings: 0.70, difficulty: "MEDIUM", cost: financialImpact.laborLoss.year },
-    { name: "Energy Loss", ratio: 0.04, standardSavings: 0.35, difficulty: "HIGH", cost: financialImpact.energy.year },
-    { name: "Inventory Loss", ratio: 0.05, standardSavings: 0.60, difficulty: "LOW", cost: financialImpact.inventory.year },
-    { name: "Logistics & Material Handling", ratio: 0.03, standardSavings: 0.40, difficulty: "MEDIUM", cost: yr * 0.03 }
-  ];
-
-  const totalCostCombined = categories.reduce((sum, c) => sum + c.cost, 0);
-
-  return categories.map(c => {
-    const lossPercent = totalCostCombined > 0 ? (c.cost / totalCostCombined) * 100 : 0;
-    const recoveryPotential = c.cost * c.standardSavings;
-    // Priority Index = Loss * PotentialMultiplier / DifficultyScore
-    const diffScore = c.difficulty === "LOW" ? 1 : c.difficulty === "MEDIUM" ? 2 : 3;
-    const priorityIndex = Math.round((lossPercent * c.standardSavings) / diffScore * 10);
-    const roiMultiplier = c.difficulty === "LOW" ? 18 : c.difficulty === "MEDIUM" ? 12 : 5;
-
-    return {
-      category: c.name,
-      lossPercent,
-      lossTL: c.cost,
-      priorityIndex,
-      recoveryPotential,
-      difficultyLevel: c.difficulty,
-      roi: `${roiMultiplier}X`
-    };
-  }).sort((a,b) => b.priorityIndex - a.priorityIndex);
-}
-
-// Predictive Analytics Engine (30 days, 90 days, 12 months)
-export function calculatePredictions(calculated: CalculatedProcess[], period: "30_DAYS" | "90_DAYS" | "12_MONTHS") {
-  const avgOee = calculated.reduce((sum, p) => sum + p.oee, 0) / calculated.length;
-  const totalWip = calculated.reduce((sum, p) => sum + p.interProcessInventory, 0);
-  const totalLabor = calculated.reduce((sum, p) => sum + p.totalOperatorsPerDay, 0);
-
-  // Based on baseline time factor, simulate trend improvements / decay
-  const multiplier = period === "30_DAYS" ? 1 : period === "90_DAYS" ? 3 : 12;
-  const factorOee = period === "30_DAYS" ? 1.02 : period === "90_DAYS" ? 1.05 : 1.12; 
-  const factorWip = period === "30_DAYS" ? 0.95 : period === "90_DAYS" ? 0.88 : 0.75; 
-
-  return {
-    futureCapacity: Math.round(calculated[0]?.plannedQtyPerDay * multiplier * 22 * factorOee),
-    futureOee: Math.min(94, avgOee * factorOee),
-    futureDemand: Math.round(calculated[0]?.plannedQtyPerDay * multiplier * 22 * 1.05),
-    futureBottlenecks: calculated.slice(0, 2).map(p => p.name),
-    futureLaborNeed: Math.round(totalLabor * (1 / factorOee)),
-    futureWip: Math.round(totalWip * factorWip),
-    futureOvertime: period === "12_MONTHS" ? "Eskiye Göre %40 Azalma" : "Sıra Azalımı Aktif",
-    futureCOPQ: `${Math.max(1.8, (calculated.reduce((s,p) => s + p.defectRate, 0) / calculated.length) * 100 * 0.75).toFixed(1)}%`
-  };
-}
-
-// What-If Simulation Engine
-export function simulateWhatIf(
-  calculated: CalculatedProcess[],
-  revenue: number,
-  copqTotal: number,
-  params: {
-    setupReduction: number; // percentage (positive, e.g. 20 for -20%)
-    scrapReduction: number; // percentage (positive, e.g. 15 for -15%)
-    oeeIncrease: number; // addition percentage point (e.g. 5 for +5%)
-    laborAdjustment: number; // integer (e.g. 1 or -1)
-    machineAdjustment: number; // integer (e.g. 1)
-  }
-) {
-  // Baseline rates
-  const baseCapacity = calculated.reduce((sum, p) => sum + p.producedQtyPerDay, 0);
-  
-  // Setup reductions gives capacity & downtime savings
-  const setupMinsSaved = calculated.reduce((sum, p) => sum + (p.setupTimeMinutes * (params.setupReduction / 100)), 0);
-  
-  // Scrap reduction directly saves COPQ
-  const copqSavings = copqTotal * (params.scrapReduction / 100) * 0.65;
-  
-  // OEE increase translates directly into throughput & revenue boost
-  const capacityPctIncrease = (params.oeeIncrease / (calculated.reduce((s,p) => s + p.oee, 0) / calculated.length)) * 100 
-    + (params.setupReduction * 0.15) 
-    + (params.machineAdjustment * 6.5);
-
-  const additionalRevenue = revenue * (capacityPctIncrease / 100) * 0.75; 
-  const leadTimeReductionPercent = (params.setupReduction * 0.45) + (params.oeeIncrease * 0.8);
-  const wipReductionPercent = (params.setupReduction * 0.5) + (params.oeeIncrease * 0.4);
-  const profitIncreaseVal = additionalRevenue * 0.28 + copqSavings; // marginal profit on added sales + direct copq recovery
-
-  const investmentCost = (params.setupReduction * 1200) + (params.machineAdjustment * 150000) + (params.oeeIncrease * 8000);
-  const simulatedROI = investmentCost > 0 ? (profitIncreaseVal / investmentCost) : 15.0;
-
-  return {
-    capacityIncrease: `+${capacityPctIncrease.toFixed(1)}%`,
-    additionalRevenue: additionalRevenue,
-    leadTimeReduction: `-${leadTimeReductionPercent.toFixed(1)}%`,
-    wipReduction: `-${wipReductionPercent.toFixed(1)}%`,
-    copqReduction: `-${params.scrapReduction.toFixed(0)}%`,
-    profitIncrease: profitIncreaseVal,
-    roi: `${simulatedROI.toFixed(1)}X`
-  };
-}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import gembaLogo from "../assets/images/gemba_logo_1785078962201.jpg";
-import { Building2, Sparkles, Key, Mail, User, ShieldCheck, ArrowRight, Check } from "lucide-react";
+import gembaLogo from "../assets/images/gemba_g_icon.png";
+import gembaDigitalWordmark from "../assets/images/gemba_digital_wordmark.png";
+import { Building2, Sparkles, Key, Mail, User, ShieldCheck, ArrowRight, Check, Eye, EyeOff } from "lucide-react";
 
 interface AuthScreenProps {
   onAuthSuccess: (token: string, userData: any, orgData: any) => void;
@@ -14,6 +15,7 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
   const [fullName, setFullName] = useState("");
   const [organizationName, setOrganizationName] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Invitation-specific loading state
   const [invitationData, setInvitationData] = useState<any>(null);
@@ -134,19 +136,17 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-sans antialiased">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
         
-        {/* LOGO FRAMEWORK */}
+        {/* LOGO FRAMEWORK — icon on top, "Gemba Tools" wordmark stacked directly below it */}
         <div className="flex flex-col items-center justify-center mb-6">
-          <div className="bg-white px-6 py-4 rounded-2xl border border-slate-200/60 shadow-sm inline-flex items-center justify-center">
-            <div className="flex items-center space-x-3">
-              <img 
-                src={gembaLogo} 
-                alt="Gemba Tools Logo" 
-                className="h-10 w-auto object-contain select-none"
-              />
-              <span className="text-xl font-black text-gray-900 tracking-tight">Gemba tools</span>
-            </div>
+          <div className="bg-white px-8 py-5 rounded-2xl border border-slate-200/60 shadow-sm inline-flex flex-col items-center justify-center">
+            <img
+              src={gembaLogo}
+              alt="Gemba Tools Logo"
+              className="h-14 w-auto object-contain select-none"
+            />
+            <span className="text-xl font-black text-gray-900 tracking-tight mt-1.5">Gemba Tools</span>
           </div>
-          <span className="text-[9px] text-slate-400 uppercase tracking-widest font-black mt-2">
+          <span className="text-[11px] text-slate-400 uppercase tracking-widest font-black mt-2">
             Yalın CoPX & Çoklu Kiracı Yönetimi
           </span>
         </div>
@@ -191,20 +191,36 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
             <div className="bg-slate-55 border border-slate-150 p-3 rounded-xl mb-5 space-y-1.5 text-[11px] text-slate-600 font-medium">
               <div className="font-bold text-gray-900 text-xs">Hızlı Test Hesapları (Preset Accounts):</div>
               <div className="grid grid-cols-2 gap-2">
-                <button 
+                <button
+                  type="button"
+                  onClick={() => { setEmail("admin@gembapartner.com"); setPassword("gemba123"); }}
+                  className="bg-white border border-slate-300 rounded px-2 py-1 text-left hover:bg-slate-50 truncate"
+                >
+                  <span className="font-bold text-slate-900 block text-[10px]">🛡️ Gemba Partner Admin</span>
+                  admin@gembapartner.com
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setEmail("danisman@gembapartner.com"); setPassword("gemba123"); }}
+                  className="bg-white border border-slate-300 rounded px-2 py-1 text-left hover:bg-slate-50 truncate"
+                >
+                  <span className="font-bold text-indigo-700 block text-[10px]">🧑‍💼 Gemba Danışman</span>
+                  danisman@gembapartner.com
+                </button>
+                <button
                   type="button"
                   onClick={() => { setEmail("admin@arcelik.com"); setPassword("arcelik123"); }}
                   className="bg-white border border-slate-300 rounded px-2 py-1 text-left hover:bg-slate-50 truncate"
                 >
-                  <span className="font-bold text-blue-700 block text-[10px]">🏢 Arçelik Admin</span>
+                  <span className="font-bold text-blue-700 block text-[10px]">🏢 Arçelik Müşteri Kullanıcısı</span>
                   admin@arcelik.com
                 </button>
-                <button 
+                <button
                   type="button"
                   onClick={() => { setEmail("admin@ford.com.tr"); setPassword("ford123"); }}
                   className="bg-white border border-slate-300 rounded px-2 py-1 text-left hover:bg-slate-50 truncate"
                 >
-                  <span className="font-bold text-red-700 block text-[10px]">🏢 Ford Admin</span>
+                  <span className="font-bold text-red-700 block text-[10px]">🏢 Ford Müşteri Kullanıcısı</span>
                   admin@ford.com.tr
                 </button>
               </div>
@@ -245,7 +261,7 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
             {/* EMAIL */}
             {mode !== "invite" && (
               <div className="space-y-1">
-                <label className="block text-slate-655 text-xs font-bold uppercase">Kurumsal E-Posta Adresi (Email)</label>
+                <label className="block text-slate-655 text-xs font-bold uppercase">Kullanıcı Adı (E-posta)</label>
                 <div className="relative rounded-md shadow-xs">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                     <Mail className="h-4 w-4" />
@@ -296,13 +312,22 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
                     <Key className="h-4 w-4" />
                   </div>
                   <input
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="block w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-slate-900 focus:border-slate-900 text-xs font-bold text-slate-800 placeholder-slate-400"
+                    className="block w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-slate-900 focus:border-slate-900 text-xs font-bold text-slate-800 placeholder-slate-400"
                     placeholder="••••••••"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer"
+                    title={showPassword ? "Şifreyi Gizle" : "Şifreyi Göster"}
+                    aria-label={showPassword ? "Şifreyi Gizle" : "Şifreyi Göster"}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
             )}
@@ -363,7 +388,7 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
                   onClick={() => setMode("register")}
                   className="font-bold text-slate-800 hover:underline cursor-pointer"
                 >
-                  Yeni Hesap Açın
+                  Kayıt Ol
                 </button>
               </p>
             ) : mode === "register" || mode === "forgot" ? (
@@ -390,6 +415,18 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
           </div>
 
         </div>
+      </div>
+
+      {/* GEMBA DIGITAL Corporate Brand Signature — bottom of the login screen */}
+      <div className="mt-10 flex flex-col items-center justify-center select-none">
+        <img
+          src={gembaDigitalWordmark}
+          alt="Gemba Digital Logo"
+          className="h-10 w-auto object-contain max-w-[180px] opacity-80"
+        />
+        <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase mt-1.5">
+          Corporate Signature
+        </span>
       </div>
     </div>
   );

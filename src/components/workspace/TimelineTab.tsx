@@ -178,7 +178,7 @@ export default function TimelineTab({ workspace, onUpdateTimeline }: TimelineTab
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
                 <div className="flex items-center gap-2">
                   <h5 className="font-semibold text-gray-900 text-xs">{milestone.title}</h5>
-                  <span className="text-[9px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded-md font-mono uppercase font-bold">
+                  <span className="text-[11px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded-md font-mono uppercase font-bold">
                     {milestone.type}
                   </span>
                 </div>

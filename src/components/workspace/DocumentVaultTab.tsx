@@ -94,17 +94,17 @@ export default function DocumentVaultTab({ workspace, onUpdateDocuments }: Docum
               id={`folder-btn-${folder}`}
               key={folder}
               onClick={() => setSelectedFolder(folder)}
-              className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-all ${
+              className={`flex items-start justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-all text-left ${
                 isSelected
                   ? "bg-zinc-950 text-white"
                   : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
               }`}
             >
-              <div className="flex items-center gap-2">
-                {isSelected ? <FolderOpen className="w-4 h-4" /> : <Folder className="w-4 h-4" />}
+              <div className="flex items-start gap-2">
+                {isSelected ? <FolderOpen className="w-4 h-4 shrink-0 mt-0.5" /> : <Folder className="w-4 h-4 shrink-0 mt-0.5" />}
                 <span>{folder}</span>
               </div>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+              <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-semibold mt-0.5 ${
                 isSelected ? "bg-zinc-800 text-zinc-300" : "bg-gray-100 text-gray-500"
               }`}>
                 {folderFilesCount}

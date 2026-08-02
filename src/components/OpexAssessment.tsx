@@ -84,9 +84,10 @@ const getPreAssessmentMetrics = (preAnswersArray: number[]) => {
 interface OpexAssessmentProps {
   selectedCustomer: any;
   customers: any[];
+  onUpdateCustomer?: (updatedCustomer: any) => void | Promise<void>;
 }
 
-export default function OpexAssessment({ selectedCustomer, customers }: OpexAssessmentProps) {
+export default function OpexAssessment({ selectedCustomer, customers, onUpdateCustomer }: OpexAssessmentProps) {
   const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "usr_arcelik_admin";
 
   const categories = opexCategoriesData as OpexCategory[];
@@ -656,21 +657,28 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
         setAssessments(prev => prev.map(a => a.id === res.data.id ? res.data : a));
         setActiveAssessment(res.data);
 
-        // 2. Sync / Update the customer's core `copexScore` in the main database
+        // 2. Sync / Update the customer's core `copexScore` in the main database.
+        // Goes through App.tsx's onUpdateCustomer so its `customers` state (and every screen
+        // reading from it — CustomerRecords, the factory selector, Executive Dashboard) reflects
+        // the new score immediately instead of staying stale until a full reload.
         const updatedCustomer = {
           ...selectedCustomer,
           copexScore: overallScore,
           assessmentDate: new Date().toISOString().split("T")[0]
         };
 
-        await fetch("/api/business/customers", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify(updatedCustomer)
-        });
+        if (onUpdateCustomer) {
+          await onUpdateCustomer(updatedCustomer);
+        } else {
+          await fetch("/api/business/customers", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`
+            },
+            body: JSON.stringify(updatedCustomer)
+          });
+        }
 
         alert(`Tebrikler! ${res.data.auditName} başarıyla kilitlendi. Genel OpEx puanı %${overallScore} olarak güncellendi.`);
       }
@@ -1086,7 +1094,7 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
             <div className="overflow-x-auto border border-slate-100 rounded-xl max-h-[300px] overflow-y-auto">
               <table className="w-full text-left text-xs border-collapse min-w-[550px]">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 font-extrabold text-[9px] uppercase tracking-wider sticky top-0 z-10">
+                  <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 font-extrabold text-[11px] uppercase tracking-wider sticky top-0 z-10">
                     <th className="p-3 text-center w-12">NO</th>
                     <th className="p-3">SORU</th>
                     <th className="p-3 text-center w-28">AĞIRLIK PUANI</th>
@@ -1136,17 +1144,17 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
               return (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
                   <div className="bg-slate-50 rounded-xl p-3 text-center border border-slate-150">
-                    <span className="text-[9px] text-slate-400 font-bold block uppercase">ÖN DEĞERLENDİRME TOPLAMI</span>
+                    <span className="text-[11px] text-slate-400 font-bold block uppercase">ÖN DEĞERLENDİRME TOPLAMI</span>
                     <span className="text-lg font-black text-slate-800 font-mono">{metrics.totalScore} / 30</span>
                   </div>
                   <div className="bg-slate-50 rounded-xl p-3 text-center border border-slate-150">
-                    <span className="text-[9px] text-slate-400 font-bold block uppercase">HEDEF SINIFI</span>
+                    <span className="text-[11px] text-slate-400 font-bold block uppercase">HEDEF SINIFI</span>
                     <span className={`text-lg font-black font-mono uppercase ${metrics.category === "A" ? "text-emerald-700" : "text-amber-700"}`}>
                       SINIF {metrics.category}
                     </span>
                   </div>
                   <div className="bg-[#2f5597]/5 rounded-xl p-3 text-center border border-[#2f5597]/20">
-                    <span className="text-[9px] text-[#2f5597] font-extrabold block uppercase">OTOMATİK HEDEF PUANI</span>
+                    <span className="text-[11px] text-[#2f5597] font-extrabold block uppercase">OTOMATİK HEDEF PUANI</span>
                     <span className="text-lg font-black text-[#2f5597] font-mono">%{metrics.targetPct}</span>
                   </div>
                 </div>
@@ -1164,7 +1172,7 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
             <div className="overflow-x-auto border border-slate-100 rounded-xl max-h-[400px] overflow-y-auto">
               <table className="w-full text-left text-xs border-collapse min-w-[550px]">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 font-extrabold text-[9px] uppercase tracking-wider sticky top-0 z-10">
+                  <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 font-extrabold text-[11px] uppercase tracking-wider sticky top-0 z-10">
                     <th className="p-3 text-center w-24">KATEGORİ KODU</th>
                     <th className="p-3">KATEGORİ ADI</th>
                     <th className="p-3">YENİ DENETÇİ (ATANAN)</th>
@@ -1473,13 +1481,13 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
 
                       <div className="flex items-center justify-between w-full mt-1.5">
                         {/* Completed / Total ratio progress */}
-                        <span className={`text-[9px] font-mono font-bold ${isSelected ? "text-slate-300" : "text-slate-400"}`}>
+                        <span className={`text-[11px] font-mono font-bold ${isSelected ? "text-slate-300" : "text-slate-400"}`}>
                           {stats.answered}/{stats.total} Soru
                         </span>
 
                         {/* Average score badge */}
                         {stats.answered > 0 && (
-                          <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md ${
+                          <span className={`text-[11px] font-extrabold px-1.5 py-0.5 rounded-md ${
                             isSelected ? "bg-white/20 text-white" : "bg-slate-100 text-slate-700"
                           }`}>
                             Ort: {stats.average.toFixed(1)}/5
@@ -1540,7 +1548,7 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
                       onChange={(e) => setFilterAssignedOnly(e.target.checked)}
                       className="w-3 h-3 text-slate-900 rounded focus:ring-slate-500 border-slate-300"
                     />
-                    <span className="text-[9px] font-bold text-slate-500">Bana Atananları Filtrele</span>
+                    <span className="text-[11px] font-bold text-slate-500">Bana Atananları Filtrele</span>
                   </label>
                 </div>
                 <select
@@ -1562,11 +1570,11 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
               {/* DYNAMIC AUDIT PARTICIPANTS DETAILS STRIP */}
               <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                 <div className="space-y-1">
-                  <span className="text-[9px] font-black text-slate-400 block uppercase tracking-wider">UYGULAYICI FİRMA KATILIMCILARI (DENETÇİLER)</span>
+                  <span className="text-[11px] font-black text-slate-400 block uppercase tracking-wider">UYGULAYICI FİRMA KATILIMCILARI (DENETÇİLER)</span>
                   <span className="font-extrabold text-slate-800">{activeAssessment.assessorParticipants || "Tanımlanmadı"}</span>
                 </div>
                 <div className="space-y-1">
-                  <span className="text-[9px] font-black text-slate-400 block uppercase tracking-wider">DENETLENEN FİRMA KATILIMCILARI (FABRİKA EKİBİ)</span>
+                  <span className="text-[11px] font-black text-slate-400 block uppercase tracking-wider">DENETLENEN FİRMA KATILIMCILARI (FABRİKA EKİBİ)</span>
                   <span className="font-extrabold text-slate-800">{activeAssessment.customerParticipants || "Tanımlanmadı"}</span>
                 </div>
               </div>
@@ -1648,7 +1656,7 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
                   <div className="bg-white border border-purple-100 rounded-xl p-4 overflow-x-auto">
                     <table className="w-full text-left text-xs border-collapse min-w-[600px]">
                       <thead>
-                        <tr className="border-b border-purple-100 text-purple-400 font-black text-[9px] uppercase tracking-wider">
+                        <tr className="border-b border-purple-100 text-purple-400 font-black text-[11px] uppercase tracking-wider">
                           <th className="py-2.5">KOD & SÜREÇ ALANI</th>
                           <th className="py-2.5">HEDEF SEVİYE (0-5)</th>
                           <th className="py-2.5 text-center">ÖNCELİKLİ ALAN</th>
@@ -1821,7 +1829,7 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
                       {/* Editable Rubric / Score Determination Text Box */}
                       {currentScore >= 0 && (
                         <div className="bg-amber-50/55 border border-amber-200/80 rounded-xl p-3.5 space-y-1.5">
-                          <span className="font-black text-amber-950 block text-[9px] uppercase tracking-wider">
+                          <span className="font-black text-amber-950 block text-[11px] uppercase tracking-wider">
                             Skor Tespit Tanımı (Özelleştirilebilir, Saha Tespitini Düzenleyin):
                           </span>
                           <textarea
@@ -2029,7 +2037,7 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
                 <div className="border border-slate-200 rounded-2xl p-5 bg-slate-50/50 flex flex-col items-center justify-center text-center space-y-1">
                   <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">TOPLAM PUAN</span>
                   <span className="text-3xl font-black text-slate-900 font-mono">{totalScore}</span>
-                  <span className="text-[9px] text-slate-400 font-bold uppercase">(6 Soru x Ağırlık 5)</span>
+                  <span className="text-[11px] text-slate-400 font-bold uppercase">(6 Soru x Ağırlık 5)</span>
                 </div>
 
                 {/* Category panel */}
@@ -2038,14 +2046,14 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
                   <span className={`text-3xl font-black font-mono ${category === "A" ? "text-emerald-700" : "text-amber-700"}`}>
                     Sınıf {category}
                   </span>
-                  <span className="text-[9px] text-slate-400 font-bold uppercase">(0-20 Sınıf B, 21-30 Sınıf A)</span>
+                  <span className="text-[11px] text-slate-400 font-bold uppercase">(0-20 Sınıf B, 21-30 Sınıf A)</span>
                 </div>
 
                 {/* Target Score panel */}
                 <div className="border-2 border-[#2f5597] rounded-2xl p-5 bg-blue-50/30 flex flex-col items-center justify-center text-center space-y-1">
                   <span className="text-[10px] text-[#2f5597] font-black uppercase tracking-wider">BELİRLENEN HEDEF ORAN</span>
                   <span className="text-3xl font-black text-[#2f5597] font-mono">%{targetPct}</span>
-                  <span className="text-[9px] text-slate-500 font-extrabold uppercase">
+                  <span className="text-[11px] text-slate-500 font-extrabold uppercase">
                     ({category === "B" ? "Sınıf B Olgunluk - 2.25/5" : "Sınıf A Mükemmellik - 3.50/5"})
                   </span>
                 </div>
@@ -2110,7 +2118,7 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
                         <div className="space-y-0.5">
                           <span className="text-slate-800 text-[11px] font-black uppercase block">{cat.name}</span>
                           {isMyAssignment && (
-                            <span className="inline-flex items-center text-[9px] font-extrabold text-[#2f5597] bg-blue-50 px-1.5 py-0.5 rounded">
+                            <span className="inline-flex items-center text-[11px] font-extrabold text-[#2f5597] bg-blue-50 px-1.5 py-0.5 rounded">
                               Size Atandı
                             </span>
                           )}
@@ -2133,7 +2141,7 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
                       </td>
                       <td className="p-4 text-center w-44">
                         <div className="flex flex-col items-center space-y-1">
-                          <span className={`inline-flex items-center text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${
+                          <span className={`inline-flex items-center text-[11px] font-black uppercase px-2 py-0.5 rounded-full border ${
                             stats.answered === stats.total
                               ? "bg-emerald-50 text-emerald-700 border-emerald-100"
                               : stats.answered > 0
@@ -2200,13 +2208,13 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
               <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
                 <div className="bg-[#2f5597] text-white px-4 py-3 border-b border-slate-200 flex justify-between items-center">
                   <h3 className="text-xs font-black uppercase tracking-tight">KATEGORİ BAZLI ANALİZ TABLOSU</h3>
-                  <span className="text-[9px] font-bold bg-white/20 px-2 py-0.5 rounded">Mevcut Durum</span>
+                  <span className="text-[11px] font-bold bg-white/20 px-2 py-0.5 rounded">Mevcut Durum</span>
                 </div>
                 
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-[11px] border-collapse">
                     <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-black text-[9px] uppercase tracking-wider">
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-black text-[11px] uppercase tracking-wider">
                         <th className="p-2.5 w-16 text-center">Kategori</th>
                         <th className="p-2.5">Kategori Adı</th>
                         <th className="p-2.5 w-16 text-center">Hedef</th>
@@ -2279,7 +2287,7 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
-                        <tr className="bg-[#2f5597] text-white font-extrabold uppercase text-[9px] tracking-wider">
+                        <tr className="bg-[#2f5597] text-white font-extrabold uppercase text-[11px] tracking-wider">
                           <th className="p-3 text-center">Denetleme No</th>
                           <th className="p-3 text-center border-l border-white/10">Hedef</th>
                           <th className="p-3 text-center border-l border-white/10">Sonuç</th>
@@ -2309,7 +2317,7 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
                       </tbody>
                     </table>
                   </div>
-                  <div className="bg-slate-50 p-2 border-t border-slate-100 text-[9px] text-slate-400 font-extrabold text-center uppercase tracking-wider">
+                  <div className="bg-slate-50 p-2 border-t border-slate-100 text-[11px] text-slate-400 font-extrabold text-center uppercase tracking-wider">
                     Ölçüm Geçmişi ve Trend Kayıtları
                   </div>
                 </div>
@@ -2349,7 +2357,7 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
                 <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
                   <div>
                     <h3 className="text-xs font-black text-[#2f5597] uppercase tracking-tight">Mevcut Durum Olgunluk Profili & Bölüm Detayları</h3>
-                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                    <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">
                       Mevcut Denetim Puanı (Gerçekleşen) vs Belirlenen Hedef Puanı ve Bölüm Değerleri
                     </p>
                   </div>
@@ -2373,7 +2381,7 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
                     {/* Section Titles Table Column */}
                     <div className="md:col-span-7 border border-slate-100 rounded-xl overflow-hidden max-h-[280px] overflow-y-auto shadow-3xs">
                       <table className="w-full text-left text-[10px] border-collapse">
-                        <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10 font-black text-slate-500 text-[8px] uppercase tracking-wider">
+                        <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10 font-black text-slate-500 text-[11px] uppercase tracking-wider">
                           <tr>
                             <th className="p-2 w-12 text-center">Bölüm</th>
                             <th className="p-2">Bölüm Başlığı</th>
@@ -2391,7 +2399,7 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
                             return (
                               <tr key={cat.id} className="hover:bg-slate-50/80 transition-colors">
                                 <td className="p-2 text-center font-black text-[#2f5597] border-r border-slate-150 w-12 bg-slate-50/30 font-mono">{cat.id}</td>
-                                <td className="p-2 text-slate-900 font-black uppercase text-[9px] truncate max-w-[150px]" title={cat.name}>{cat.name}</td>
+                                <td className="p-2 text-slate-900 font-black uppercase text-[11px] truncate max-w-[150px]" title={cat.name}>{cat.name}</td>
                                 <td className="p-2 text-center font-mono font-extrabold text-slate-500 border-l border-r border-slate-150 w-16 bg-slate-50/10">%{targetPct}</td>
                                 <td className={`p-2 text-center font-mono font-black border-r border-slate-150 w-16 ${
                                   scorePct >= targetPct 
@@ -2432,13 +2440,13 @@ export default function OpexAssessment({ selectedCustomer, customers }: OpexAsse
                       <div className="md:col-span-7 space-y-3">
                         <div>
                           <h3 className="text-xs font-black text-[#2f5597] uppercase tracking-tight">Gelişim Karşılaştırma Analizi</h3>
-                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                          <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">
                             Bu grafik, mevcut değerlendirme puanları ile bir önceki denetim (Denetleme No: #{previousAssessment.auditNo || 1}) arasındaki gelişimi göstermektedir.
                           </p>
                         </div>
                         <div className="border border-slate-100 rounded-xl overflow-hidden max-h-[180px] overflow-y-auto shadow-3xs">
                           <table className="w-full text-left text-[10px] border-collapse">
-                            <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10 font-black text-slate-500 text-[8px] uppercase tracking-wider">
+                            <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10 font-black text-slate-500 text-[11px] uppercase tracking-wider">
                               <tr>
                                 <th className="p-2 w-12 text-center">Bölüm</th>
                                 <th className="p-2">Önceki Puan</th>

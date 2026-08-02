@@ -461,7 +461,7 @@ export default function YamazumiStackChart({ elements, taktTime, lang }: Yamazum
                         x={svgWidth - rightMargin - 47}
                         y={yTakt + 3}
                         textAnchor="middle"
-                        className="fill-blue-800 font-sans font-black text-[9px] uppercase tracking-wider"
+                        className="fill-blue-800 font-sans font-black text-[11px] uppercase tracking-wider"
                       >
                         ⏱️ Takt: {taktTime.toFixed(1)}s
                       </text>
@@ -504,7 +504,7 @@ export default function YamazumiStackChart({ elements, taktTime, lang }: Yamazum
                             x={xColCenter}
                             y={topMargin + chartHeight + bottomMargin - 12}
                             textAnchor="middle"
-                            className="fill-rose-400 font-sans font-black text-[8px] tracking-wide uppercase animate-pulse"
+                            className="fill-rose-400 font-sans font-black text-[11px] tracking-wide uppercase animate-pulse"
                           >
                             ⚠️ EXCEEDS TAKT
                           </text>
@@ -577,7 +577,7 @@ export default function YamazumiStackChart({ elements, taktTime, lang }: Yamazum
                                       x={xColCenter}
                                       y={yItem + hItem / 2 - (hItem > 28 ? 4 : -3)}
                                       textAnchor="middle"
-                                      className={`font-sans font-extrabold text-[9px] tracking-tight truncate leading-none ${
+                                      className={`font-sans font-extrabold text-[11px] tracking-tight truncate leading-none ${
                                         tier.defaultColor ? "fill-white" : "fill-slate-950"
                                       }`}
                                     >
@@ -592,7 +592,7 @@ export default function YamazumiStackChart({ elements, taktTime, lang }: Yamazum
                                         x={xColCenter}
                                         y={yItem + hItem / 2 + 8}
                                         textAnchor="middle"
-                                        className={`font-mono font-black text-[9px] ${
+                                        className={`font-mono font-black text-[11px] ${
                                           tier.defaultColor ? "fill-white/90" : "fill-slate-950/80"
                                         }`}
                                       >
@@ -636,7 +636,7 @@ export default function YamazumiStackChart({ elements, taktTime, lang }: Yamazum
                               x={colWidth / 2}
                               y={12}
                               textAnchor="middle"
-                              className="fill-slate-950 font-sans font-black text-[8px] uppercase tracking-wider"
+                              className="fill-slate-950 font-sans font-black text-[11px] uppercase tracking-wider"
                             >
                               🔥 {t.bottleneck} (+{bottleneckPctAboveAvg}%)
                             </text>
@@ -667,7 +667,7 @@ export default function YamazumiStackChart({ elements, taktTime, lang }: Yamazum
                               x={4}
                               y={13}
                               textAnchor="start"
-                              className="fill-slate-800 font-mono font-black text-[9px]"
+                              className="fill-slate-800 font-mono font-black text-[11px]"
                             >
                               {group.totalCycleTime.toFixed(1)}s
                             </text>
@@ -676,7 +676,7 @@ export default function YamazumiStackChart({ elements, taktTime, lang }: Yamazum
                                 x={colWidth - 4}
                                 y={12}
                                 textAnchor="end"
-                                className="font-sans font-bold text-[8px]"
+                                className="font-sans font-bold text-[11px]"
                               >
                                 <tspan fill="#10b981">{vaPct}%</tspan>
                                 <tspan fill="#64748b" className="mx-0.5">·</tspan>
@@ -741,21 +741,21 @@ export default function YamazumiStackChart({ elements, taktTime, lang }: Yamazum
 
                 <div className="space-y-1 bg-white">
                   <div>
-                    <span className="text-slate-400 text-[9px] uppercase font-bold block">{t.processName}</span>
+                    <span className="text-slate-400 text-[11px] uppercase font-bold block">{t.processName}</span>
                     <span className="font-sans font-black text-slate-850">{hoveredElement.processName}</span>
                   </div>
                   <div>
-                    <span className="text-slate-400 text-[9px] uppercase font-bold block">{t.elementDetail}</span>
+                    <span className="text-slate-400 text-[11px] uppercase font-bold block">{t.elementDetail}</span>
                     <span className="font-sans font-bold text-slate-700 leading-tight block">{hoveredElement.element.workElement}</span>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100 mt-1 bg-white">
                     <div>
-                      <span className="text-slate-450 text-[9px] uppercase font-bold block">{t.cycleTime}</span>
+                      <span className="text-slate-450 text-[11px] uppercase font-bold block">{t.cycleTime}</span>
                       <span className="font-mono font-black text-emerald-700 text-xs">{hoveredElement.element.standardCycleTime.toFixed(2)}s</span>
                     </div>
                     <div>
-                      <span className="text-slate-450 text-[9px] uppercase font-bold block">{t.percentage}</span>
+                      <span className="text-slate-450 text-[11px] uppercase font-bold block">{t.percentage}</span>
                       <span className="font-mono font-black text-slate-800 text-xs">%{hoveredElement.pct}</span>
                     </div>
                   </div>

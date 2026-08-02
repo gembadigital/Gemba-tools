@@ -6,22 +6,23 @@ import {
   Percent, ShieldAlert, BookOpen, MessageSquare, Compass, 
   Activity, Layout, Sun, Moon, ArrowRight, Zap, Award, BarChart2,
   Save, Loader2, Info, ArrowDownUp, Check, ShieldCheck, Eye, EyeOff,
-  Cpu, Sliders, Filter, Target, X, Building2, Crosshair, PieChart as PieChartIcon
+  Cpu, Sliders, Filter, Target, X, Building2, Crosshair, PieChart as PieChartIcon,
+  FileSpreadsheet, FileText
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Legend, LineChart, AreaChart, Area, BarChart, Treemap } from "recharts";
+import * as XLSX from "xlsx";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 
 import { useFactory } from "../context/FactoryContext";
 import { ProcessItem, CalculatedProcess, IndustryType } from "./loss-analysis/types";
 import { 
   DEFAULT_PROCESS_PRESETS, 
   INDUSTRY_BENCHMARKS,
-  calculateProcessesData, 
-  calculateFinancialImpact, 
-  calculateCOPQ, 
-  calculateHiddenFactory, 
-  calculateCostDeployment, 
-  calculatePredictions, 
-  simulateWhatIf 
+  calculateProcessesData,
+  calculateFinancialImpact,
+  calculateCOPQ,
+  calculateHiddenFactory
 } from "./loss-analysis/helpers";
 
 import AnalysisViews from "./loss-analysis/AnalysisViews";
@@ -61,6 +62,20 @@ export default function LossAnalysis() {
   const [isVsmFilterOpen, setIsVsmFilterOpen] = useState<boolean>(false);
   const [vsmProjects, setVsmProjects] = useState<any[]>([]);
   const [selectedVsmProject, setSelectedVsmProject] = useState<any | null>(null);
+  const [kaizens, setKaizens] = useState<any[]>([]);
+
+  // "Proje Olarak Ata" — lets the manager push a Recovery Matrix / Pareto loss item directly into
+  // CI Proje Yönetimi as a real, assigned Kaizen project, instead of relying only on the passive
+  // opportunity-suggestion cache KaizenManager already reads from localStorage.
+  const [assignModalRow, setAssignModalRow] = useState<any | null>(null);
+  const [assignLeader, setAssignLeader] = useState<string>("");
+  const [assignDepartment, setAssignDepartment] = useState<string>("");
+  const [assignDeadline, setAssignDeadline] = useState<string>("");
+  const [isAssigningProject, setIsAssigningProject] = useState<boolean>(false);
+  const [assignSuccessMessage, setAssignSuccessMessage] = useState<string | null>(null);
+
+  const [copqSnapshots, setCopqSnapshots] = useState<any[]>([]);
+  const [isSavingSnapshot, setIsSavingSnapshot] = useState<boolean>(false);
   const [costModelScope, setCostModelScope] = useState<"factory" | "product_group">("factory");
   const [productVolumeShare, setProductVolumeShare] = useState<number>(100);
 
@@ -70,6 +85,118 @@ export default function LossAnalysis() {
   const [energyRateKwh, setEnergyRateKwh] = useState<number>(3.5); // TL / kWh
   const [machineOverheadHour, setMachineOverheadHour] = useState<number>(500); // TL / Hour overhead
   const [logisticsRateKm, setLogisticsRateKm] = useState<number>(25); // TL / km inside factory
+
+  // Actual Financial Data Override Layer: when the consultant/customer has real annual cost
+  // figures for a loss category (from the customer's own accounting), that real number replaces
+  // this module's revenue-ratio estimate for that category only — categories left untoggled keep
+  // using the ratio-based estimate. This is the opt-in alternative to the "rounded by revenue
+  // share" approach the whole module otherwise relies on.
+  const COST_OVERRIDE_CATEGORIES: { key: string; label: string }[] = [
+    { key: "scrap", label: "Hurda Maliyeti" },
+    { key: "rework", label: "Yeniden İşleme (Rework)" },
+    { key: "downtime", label: "Plansız Duruşlar" },
+    { key: "setup", label: "Setup / Kalıp Değişimi" },
+    { key: "laborLoss", label: "Fazla İşçilik (Norm Fazlası)" },
+    { key: "overtime", label: "Fazla Mesai" },
+    { key: "energy", label: "Enerji Maliyeti" },
+    { key: "maintenance", label: "Bakım Maliyeti" },
+    { key: "inventory", label: "Stok Taşıma Maliyeti" },
+    { key: "lateDelivery", label: "Geç Teslimat / Ceza" }
+  ];
+  const [actualCostOverrides, setActualCostOverrides] = useState<Record<string, { enabled: boolean; annualValue: number }>>({});
+
+  const handleUpdateCostOverride = (key: string, field: "enabled" | "annualValue", value: boolean | number) => {
+    setActualCostOverrides(prev => ({
+      ...prev,
+      [key]: {
+        enabled: field === "enabled" ? (value as boolean) : (prev[key]?.enabled ?? false),
+        annualValue: field === "annualValue" ? Math.max(0, value as number) : (prev[key]?.annualValue ?? 0)
+      }
+    }));
+  };
+
+  // Local reset only — the auto-save effect further down persists the cleared state to the
+  // customer's record automatically (actualCostOverrides is in its dependency list).
+  const handleResetCostOverrides = () => {
+    setActualCostOverrides({});
+  };
+
+  // Whole-module persistence: every tunable the consultant sets for this customer (unit cost
+  // rates, industry benchmark choice, cost-tree %, COPQ/improvement/investment overrides, real
+  // financial data overrides, what-if sliders) is saved to /api/business/loss-capacity-settings
+  // as one blob per customer, and restored here on customer select — so nothing resets on reload
+  // or when the session ends. `settingsReady` gates the auto-save effect below so it never fires
+  // with default values before the real saved settings (or the "nothing saved yet" case) arrive.
+  const [moduleSettingsSaveStatus, setModuleSettingsSaveStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [settingsReady, setSettingsReady] = useState<boolean>(false);
+  const [pendingVsmProjectId, setPendingVsmProjectId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedCustomerId) return;
+    setSettingsReady(false);
+    fetch("/api/business/loss-capacity-settings", {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "x-factory-id": selectedCustomerId
+      }
+    })
+    .then(res => res.json())
+    .then(data => {
+      const s = (data.success && data.data && data.data.settings) ? data.data.settings : null;
+      // Sector benchmark selection
+      setSelectedIndustry(s?.selectedIndustry ?? "Automotive");
+      setCustomIndustryName(s?.customIndustryName ?? "");
+      // VSM product-group cost model scope
+      setCostModelScope(s?.costModelScope ?? "factory");
+      setProductVolumeShare(s?.productVolumeShare ?? 100);
+      setPendingVsmProjectId(s?.selectedVsmProjectId ?? null);
+      if (!s?.selectedVsmProjectId) setSelectedVsmProject(null);
+      // Unit cost component parameters
+      setHourlyLaborRate(s?.hourlyLaborRate ?? 350);
+      setMaterialCostFactor(s?.materialCostFactor ?? 0.45);
+      setEnergyRateKwh(s?.energyRateKwh ?? 3.5);
+      setMachineOverheadHour(s?.machineOverheadHour ?? 500);
+      setLogisticsRateKm(s?.logisticsRateKm ?? 25);
+      // Product cost tree breakdown %
+      setDirectMaterialPercent(s?.directMaterialPercent ?? 40.5);
+      setDirectLaborPercent(s?.directLaborPercent ?? 13.5);
+      setOvertimeBurdenPercent(s?.overtimeBurdenPercent ?? 8.5);
+      setEnergyPercent(s?.energyPercent ?? 18.0);
+      setMaintenancePercent(s?.maintenancePercent ?? 7.2);
+      setOverheadPercent(s?.overheadPercent ?? 10.8);
+      setOperatingProfitPercent(s?.operatingProfitPercent ?? 10.0);
+      // COPQ / Recovery Matrix / ROI rate overrides
+      setCopqRates(s?.copqRates ?? DEFAULT_COPQ_RATES);
+      setCustomImprovementRates(s?.customImprovementRates ?? {});
+      setOpexMaturity(s?.opexMaturity ?? 40);
+      setCustomInvestmentPercent(s?.customInvestmentPercent ?? {});
+      // Real financial data overrides
+      setActualCostOverrides(s?.actualCostOverrides ?? {});
+      // What-if simulation sliders
+      setSimSetup(s?.simSetup ?? 30);
+      setSimScrap(s?.simScrap ?? 25);
+      setSimOee(s?.simOee ?? 8);
+      setSimLaborOpt(s?.simLaborOpt ?? 15);
+      setSimOvertimeRed(s?.simOvertimeRed ?? 40);
+      setSimLeadTimeAccel(s?.simLeadTimeAccel ?? 20);
+      setSettingsReady(true);
+    })
+    .catch(err => {
+      console.error("Failed to load Loss Capacity settings", err);
+      setSettingsReady(true);
+    });
+  }, [selectedCustomerId, token]);
+
+  // Once the customer's VSM projects list has loaded, resolve the saved product-group selection
+  // (stored as just an id) back into the full project object the UI/calculations expect.
+  useEffect(() => {
+    if (!pendingVsmProjectId) return;
+    const match = vsmProjects.find((p: any) => p.id === pendingVsmProjectId);
+    if (match) {
+      setSelectedVsmProject(match);
+      setPendingVsmProjectId(null);
+    }
+  }, [vsmProjects, pendingVsmProjectId]);
 
   const [annualRevenue, setAnnualRevenue] = useState<number>(12000000);
   const [selectedIndustry, setSelectedIndustry] = useState<IndustryType>("Automotive");
@@ -222,6 +349,40 @@ export default function LossAnalysis() {
   const [customImprovementRates, setCustomImprovementRates] = useState<Record<string, { min: number, max: number }>>({});
   const [opexMaturity, setOpexMaturity] = useState<number>(40);
 
+  // Typical implementation (investment) cost of each Lean/WCM tool, expressed as a % of the
+  // subject's own average annual loss. Grounded in the well-known Lean/Six Sigma project-scoping
+  // heuristic that improvement-project investment is normally a fraction of first-year savings
+  // (this is precisely why these projects are attractive) — low-cost behavioral/standard-work
+  // tools sit near 4-6%, tooling/equipment-heavy programs (SMED, TPM) sit near 12-15%. Same
+  // "rounded estimate, editable by the consultant" approach already used for improvement rates,
+  // since — as with COPQ — the customer's real implementation cost line items are not known upfront.
+  const DEFAULT_INVESTMENT_PERCENT: Record<string, number> = {
+    "Hurda Maliyeti": 8,
+    "Fire & Malzeme Kayıpları": 4,
+    "Fazla Mesai Azaltımı": 5,
+    "Yeniden İşleme (Rework)": 7,
+    "Operasyonel Verimsizlik": 4,
+    "Setup Süreleri (SMED)": 12,
+    "Plansız Duruşların Önlenmesi": 15,
+    "OEE İyileştirmesi": 8,
+    "Operatör Verimliliği": 5,
+    "Lead Time (Sipariş Çevrimi)": 10,
+    "WIP (Yarı Mamul) Azaltımı": 6,
+    "Sevkiyat Performansı": 8
+  };
+  const [customInvestmentPercent, setCustomInvestmentPercent] = useState<Record<string, number>>({});
+
+  const handleUpdateInvestmentPercent = (subject: string, val: number) => {
+    setCustomInvestmentPercent(prev => ({
+      ...prev,
+      [subject]: Math.max(0, Math.min(100, val))
+    }));
+  };
+
+  const handleResetInvestmentPercent = () => {
+    setCustomInvestmentPercent({});
+  };
+
   const handleUpdateCopqRate = (subject: string, field: "min" | "max", val: number) => {
     setCopqRates(prev => ({
       ...prev,
@@ -302,29 +463,37 @@ export default function LossAnalysis() {
     .then(data => {
       if (data.success && data.data && data.data.length > 0) {
         // Map ProcessRecord[] to ProcessItem[]
-        const mapped = data.data.map((p: any, idx: number) => ({
-          id: p.id,
-          name: p.name,
-          isCollapsed: true,
-          shiftsPerDay: p.shiftCount || 2,
-          workingHoursPerShift: p.workingHours || 8,
-          breakTimeMinutes: 30,
-          plannedMaintenanceMinutes: 15,
-          workingDaysPerWeek: 5,
-          plannedQtyPerDay: p.capacity ? Math.round(p.capacity * 1.1) : 1000,
-          producedQtyPerDay: p.capacity || 950,
-          totalProdTimePerDayMinutes: (p.shiftCount || 2) * (p.workingHours || 8) * 60,
-          setupTimeMinutes: idx === 3 ? 90 : (idx === 1 ? 60 : 30), // standard defaults matching VSM layout
-          setupFrequencyPerWeek: 3,
-          machineAdjustmentMinutes: 15,
-          breakdownMinutesPerShift: p.downtimeCost > 0 ? Math.min(60, Math.round(p.downtimeCost / 2500)) : 20,
-          defectiveParts: p.scrapCost > 0 ? Math.min(100, Math.round(p.scrapCost / 500)) : 15,
-          reworkQty: p.reworkCost > 0 ? Math.min(100, Math.round(p.reworkCost / 350)) : 10,
-          scrapQty: p.scrapCost > 0 ? Math.min(100, Math.round(p.scrapCost / 800)) : 5,
-          operatorsPerShift: p.operatorCount || 3,
-          interProcessInventory: p.waitingLoss > 0 ? Math.round(p.waitingLoss / 50) : 450,
-          theoreticalCycleTime: p.cycleTime || 35
-        }));
+        const mapped = data.data.map((p: any, idx: number) => {
+          const reworkQty = p.reworkCost > 0 ? Math.min(100, Math.round(p.reworkCost / 350)) : 10;
+          const scrapQty = p.scrapCost > 0 ? Math.min(100, Math.round(p.scrapCost / 800)) : 5;
+          return {
+            id: p.id,
+            name: p.name,
+            isCollapsed: true,
+            shiftsPerDay: p.shiftCount || 2,
+            workingHoursPerShift: p.workingHours || 8,
+            breakTimeMinutes: 30,
+            plannedMaintenanceMinutes: 15,
+            workingDaysPerWeek: 5,
+            plannedQtyPerDay: p.capacity ? Math.round(p.capacity * 1.1) : 1000,
+            producedQtyPerDay: p.capacity || 950,
+            totalProdTimePerDayMinutes: (p.shiftCount || 2) * (p.workingHours || 8) * 60,
+            setupTimeMinutes: idx === 3 ? 90 : (idx === 1 ? 60 : 30), // standard defaults matching VSM layout
+            setupFrequencyPerWeek: 3,
+            machineAdjustmentMinutes: 15,
+            breakdownMinutesPerShift: p.downtimeCost > 0 ? Math.min(60, Math.round(p.downtimeCost / 2500)) : 20,
+            reworkQty,
+            scrapQty,
+            // Total defective units found = scrapped + reworked — matches the relationship already
+            // used in DEFAULT_PROCESS_PRESETS (helpers.ts). Previously this was derived independently
+            // from scrapCost with a third, unrelated unit-cost assumption (÷500) that didn't reconcile
+            // with scrapQty (÷800) or reworkQty (÷350) at all.
+            defectiveParts: scrapQty + reworkQty,
+            operatorsPerShift: p.operatorCount || 3,
+            interProcessInventory: p.waitingLoss > 0 ? Math.round(p.waitingLoss / 50) : 450,
+            theoreticalCycleTime: p.cycleTime || 35
+          };
+        });
         setProcesses(mapped);
       } else {
         setProcesses(DEFAULT_PROCESS_PRESETS);
@@ -358,6 +527,57 @@ export default function LossAnalysis() {
     });
   }, [selectedCustomerId, token]);
 
+  // Fetch Kaizen/CI Projects for the selected customer, to close the loop on realized savings
+  // (Recovery Matrix shows theoretical potential; completed Kaizen projects show what was actually
+  // recovered) and to know which Recovery Matrix subjects already have a project assigned.
+  const fetchKaizens = React.useCallback(() => {
+    if (!selectedCustomerId) return;
+    fetch("/api/business/kaizens", {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "x-factory-id": selectedCustomerId
+      }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.data) {
+        setKaizens(data.data);
+      }
+    })
+    .catch(err => {
+      console.error("Failed to load Kaizen projects in LossAnalysis", err);
+    });
+  }, [selectedCustomerId, token]);
+
+  useEffect(() => {
+    fetchKaizens();
+  }, [fetchKaizens]);
+
+  // Fetch historical COPQ snapshots for the selected customer (real trend tracking — each point is
+  // a manually saved snapshot of the calculated COPQ at that moment, not a fabricated series)
+  const fetchCopqSnapshots = React.useCallback(() => {
+    if (!selectedCustomerId) return;
+    fetch("/api/business/copq-snapshots", {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "x-factory-id": selectedCustomerId
+      }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.data) {
+        setCopqSnapshots(data.data);
+      }
+    })
+    .catch(err => {
+      console.error("Failed to load COPQ snapshots in LossAnalysis", err);
+    });
+  }, [selectedCustomerId, token]);
+
+  useEffect(() => {
+    fetchCopqSnapshots();
+  }, [fetchCopqSnapshots]);
+
   // Compute effective revenue based on Product Group Share (Cost Control Manager Role)
   const effectiveRevenue = costModelScope === "product_group" 
     ? annualRevenue * (productVolumeShare / 100) 
@@ -389,7 +609,11 @@ export default function LossAnalysis() {
   const handleSaveToDatabase = async () => {
     setSaveStatus("saving");
     try {
-      for (const p of processes) {
+      // Iterate over `calculatedProcesses` (not the raw `processes` input) so the persisted `oee`
+      // is the same Availability x Performance x Quality figure this screen already computes and
+      // displays — previously this recomputed a different, cruder produced/planned ratio here and
+      // silently overwrote whatever real OEE VsmPage had calculated for the same process record.
+      for (const p of calculatedProcesses) {
         const payload = {
           id: p.id,
           name: p.name,
@@ -399,8 +623,8 @@ export default function LossAnalysis() {
           shiftCount: p.shiftsPerDay,
           workingHours: p.workingHoursPerShift,
           capacity: p.producedQtyPerDay,
-          oee: Math.round((p.producedQtyPerDay / (p.plannedQtyPerDay || 1)) * 100) || 75,
-          utilizationRate: 85,
+          oee: Math.round(p.oee),
+          utilizationRate: Math.round(p.availability),
           overtimeRatio: 0,
           excessLabor: 0,
           scrapCost: p.scrapQty * 800,
@@ -425,8 +649,10 @@ export default function LossAnalysis() {
         });
       }
       
-      // Dispatch custom event to notify App.tsx and other widgets to reload fresh processes
-      window.dispatchEvent(new CustomEvent("FactoryChanged", { detail: { factoryId: selectedCustomerId } }));
+      // Notify App.tsx to re-fetch processes so Executive Dashboard / VSM / CI Proje Yönetimi
+      // pick up these updates immediately. ("FactoryChanged" dispatched with the SAME factoryId
+      // is a no-op — FactoryContext only reacts when the id actually differs from the current one.)
+      window.dispatchEvent(new CustomEvent("gemba:refresh-factory-data"));
       
       setSaveStatus("success");
       setTimeout(() => setSaveStatus(null), 3000);
@@ -450,10 +676,102 @@ export default function LossAnalysis() {
   const computedTaktTime = defaultDemand > 0 ? parseFloat((dailyNetAvailableSeconds / defaultDemand).toFixed(1)) : 45;
 
   const calculatedProcesses = calculateProcessesData(activeProcesses, defaultDemand, computedTaktTime);
-  const financialImpact = calculateFinancialImpact(calculatedProcesses, annualRevenue, hourlyLaborRate * 8, materialCostFactor, energyRateKwh);
-  const copqData = calculateCOPQ(calculatedProcesses, annualRevenue, financialImpact);
-  const hiddenFactoryData = calculateHiddenFactory(calculatedProcesses, annualRevenue, copqData, financialImpact);
-  const costDeploymentData = calculateCostDeployment(calculatedProcesses, financialImpact);
+  // Always computed at full-factory scale first: the underlying physical process data
+  // (downtime minutes, setup counts, scrap quantities) isn't itself filtered by product group,
+  // so the factory-wide figures are the correct base to scale down from.
+  const financialImpactFactory = calculateFinancialImpact(calculatedProcesses, annualRevenue, hourlyLaborRate * 8, materialCostFactor, energyRateKwh, defaultDemand);
+  const copqDataFactory = calculateCOPQ(calculatedProcesses, annualRevenue, financialImpactFactory);
+  const hiddenFactoryDataFactory = calculateHiddenFactory(calculatedProcesses, annualRevenue, copqDataFactory, financialImpactFactory);
+
+  // Single, consistent revenue-share scaling applied uniformly to every downstream figure — this
+  // is what "costModelScope === product_group" is supposed to mean throughout the whole module,
+  // not just in the Recovery Matrix / Simulation tabs (which previously had their own ad-hoc
+  // re-scaling while the Executive Dashboard headline COPQ card stayed at full-factory scale).
+  const revenueScopeRatio = annualRevenue > 0 ? (effectiveRevenue / annualRevenue) : 1;
+  const scaleMoneyBlock = (block: { day: number; week: number; month: number; year: number }) => ({
+    day: block.day * revenueScopeRatio,
+    week: block.week * revenueScopeRatio,
+    month: block.month * revenueScopeRatio,
+    year: block.year * revenueScopeRatio
+  });
+  const financialImpactBase = {
+    ...financialImpactFactory,
+    scrap: scaleMoneyBlock(financialImpactFactory.scrap),
+    rework: scaleMoneyBlock(financialImpactFactory.rework),
+    downtime: scaleMoneyBlock(financialImpactFactory.downtime),
+    setup: scaleMoneyBlock(financialImpactFactory.setup),
+    laborLoss: scaleMoneyBlock(financialImpactFactory.laborLoss),
+    inventory: scaleMoneyBlock(financialImpactFactory.inventory),
+    waiting: scaleMoneyBlock(financialImpactFactory.waiting),
+    lateDelivery: scaleMoneyBlock(financialImpactFactory.lateDelivery),
+    overtime: scaleMoneyBlock(financialImpactFactory.overtime),
+    energy: scaleMoneyBlock(financialImpactFactory.energy),
+    maintenance: scaleMoneyBlock(financialImpactFactory.maintenance),
+    totalOperationalLosses: scaleMoneyBlock(financialImpactFactory.totalOperationalLosses)
+  };
+  const copqDataBase = {
+    ...copqDataFactory,
+    internalFailure: copqDataFactory.internalFailure * revenueScopeRatio,
+    scrapCost: copqDataFactory.scrapCost * revenueScopeRatio,
+    reworkCost: copqDataFactory.reworkCost * revenueScopeRatio,
+    sortingCost: copqDataFactory.sortingCost * revenueScopeRatio,
+    customerReturns: copqDataFactory.customerReturns * revenueScopeRatio,
+    warrantyCost: copqDataFactory.warrantyCost * revenueScopeRatio,
+    expeditingCost: copqDataFactory.expeditingCost * revenueScopeRatio,
+    extraFreight: copqDataFactory.extraFreight * revenueScopeRatio,
+    customerComplaints: copqDataFactory.customerComplaints * revenueScopeRatio,
+    lostCapacityCost: copqDataFactory.lostCapacityCost * revenueScopeRatio,
+    lostSalesCost: copqDataFactory.lostSalesCost * revenueScopeRatio,
+    excessInventoryCost: copqDataFactory.excessInventoryCost * revenueScopeRatio,
+    lateDeliveryCost: copqDataFactory.lateDeliveryCost * revenueScopeRatio,
+    emergencyOvertimeCost: copqDataFactory.emergencyOvertimeCost * revenueScopeRatio,
+    inspectionCost: copqDataFactory.inspectionCost * revenueScopeRatio,
+    qualityPersonnelCost: copqDataFactory.qualityPersonnelCost * revenueScopeRatio,
+    totalCOPQ_TL: copqDataFactory.totalCOPQ_TL * revenueScopeRatio,
+    copqPercentOfRevenue: effectiveRevenue > 0 ? ((copqDataFactory.totalCOPQ_TL * revenueScopeRatio) / effectiveRevenue) * 100 : 0
+  };
+  const hiddenFactoryDataBase = {
+    ...hiddenFactoryDataFactory,
+    hiddenCostYear: hiddenFactoryDataFactory.hiddenCostYear * revenueScopeRatio,
+    equivalentRevenue: hiddenFactoryDataFactory.equivalentRevenue * revenueScopeRatio
+    // equivalentOperators / equivalentMachineCapacityPercent left as-is: both are physical
+    // (headcount, OEE gap), not financial, so they don't scale with revenue scope.
+  };
+
+  // --- Actual Financial Data Override Layer ---
+  // If the consultant has enabled a real annual figure for a category, it replaces the
+  // ratio-based estimate for that category only; everything else keeps estimating from revenue.
+  // The categories summed into totalOperationalLosses mirror calculateFinancialImpact's own
+  // dailyTotal composition (maintenance and waiting are derived/excluded there too, see helpers.ts).
+  const TOTAL_LOSS_OVERRIDE_KEYS = ["scrap", "rework", "downtime", "setup", "laborLoss", "inventory", "overtime", "lateDelivery", "energy"];
+  const hasActiveCostOverrides = COST_OVERRIDE_CATEGORIES.some(c => actualCostOverrides[c.key]?.enabled);
+  const distributeAnnualValue = (annualValue: number) => ({
+    day: annualValue / 260,
+    week: annualValue / 52,
+    month: annualValue / (260 / 22),
+    year: annualValue
+  });
+
+  const financialImpact: typeof financialImpactBase = !hasActiveCostOverrides ? financialImpactBase : (() => {
+    const merged: any = { ...financialImpactBase };
+    COST_OVERRIDE_CATEGORIES.forEach(({ key }) => {
+      const ov = actualCostOverrides[key];
+      if (ov?.enabled) {
+        merged[key] = distributeAnnualValue(ov.annualValue);
+      }
+    });
+    const totalYear = TOTAL_LOSS_OVERRIDE_KEYS.reduce((sum, key) => sum + (merged[key]?.year || 0), 0);
+    merged.totalOperationalLosses = distributeAnnualValue(totalYear);
+    merged.waiting = distributeAnnualValue(totalYear * 0.12);
+    return merged;
+  })();
+
+  // Recomputed fully from the overridden financialImpact via the same pure calculation functions
+  // (mathematically equivalent to the factory-scale + scaleMoneyBlock path above when no override
+  // is active, since every term in both functions is linear in `revenue` or in a financialImpact
+  // category's .year value — confirmed against helpers.ts before wiring this in).
+  const copqData: typeof copqDataBase = !hasActiveCostOverrides ? copqDataBase : calculateCOPQ(calculatedProcesses, effectiveRevenue, financialImpact);
+  const hiddenFactoryData: typeof hiddenFactoryDataBase = !hasActiveCostOverrides ? hiddenFactoryDataBase : calculateHiddenFactory(calculatedProcesses, effectiveRevenue, copqData, financialImpact);
 
   // Global Lean summaries
   const avgOee = calculatedProcesses.reduce((s, p) => s + p.oee, 0) / Math.max(1, calculatedProcesses.length);
@@ -495,13 +813,53 @@ export default function LossAnalysis() {
     setSimLeadTimeAccel(20);
   };
 
-  const whatIfSimulations = simulateWhatIf(calculatedProcesses, annualRevenue, copqData.totalCOPQ_TL, {
-    setupReduction: simSetup,
-    scrapReduction: simScrap,
-    oeeIncrease: simOee,
-    laborAdjustment: simLaborOpt,
-    machineAdjustment: 1
-  });
+  // Debounced auto-save: whenever any module setting changes for the current customer, persist
+  // the whole bundle ~1s after the last change. Gated on `settingsReady` so this never fires with
+  // stale/default values before the customer's saved settings (or "nothing saved yet") have loaded.
+  useEffect(() => {
+    if (!selectedCustomerId || !settingsReady) return;
+    const settingsToSave = {
+      selectedIndustry, customIndustryName,
+      costModelScope, productVolumeShare, selectedVsmProjectId: selectedVsmProject?.id ?? null,
+      hourlyLaborRate, materialCostFactor, energyRateKwh, machineOverheadHour, logisticsRateKm,
+      directMaterialPercent, directLaborPercent, overtimeBurdenPercent, energyPercent, maintenancePercent, overheadPercent, operatingProfitPercent,
+      copqRates, customImprovementRates, opexMaturity, customInvestmentPercent,
+      actualCostOverrides,
+      simSetup, simScrap, simOee, simLaborOpt, simOvertimeRed, simLeadTimeAccel
+    };
+    const timeoutId = setTimeout(() => {
+      setModuleSettingsSaveStatus("saving");
+      fetch("/api/business/loss-capacity-settings", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "x-factory-id": selectedCustomerId,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ settings: settingsToSave })
+      })
+      .then(res => res.json())
+      .then(data => {
+        setModuleSettingsSaveStatus(data.success ? "success" : "error");
+        setTimeout(() => setModuleSettingsSaveStatus("idle"), 2000);
+      })
+      .catch(err => {
+        console.error("Failed to save Loss Capacity settings", err);
+        setModuleSettingsSaveStatus("error");
+        setTimeout(() => setModuleSettingsSaveStatus("idle"), 2000);
+      });
+    }, 900);
+    return () => clearTimeout(timeoutId);
+  }, [
+    selectedCustomerId, settingsReady, token,
+    selectedIndustry, customIndustryName,
+    costModelScope, productVolumeShare, selectedVsmProject,
+    hourlyLaborRate, materialCostFactor, energyRateKwh, machineOverheadHour, logisticsRateKm,
+    directMaterialPercent, directLaborPercent, overtimeBurdenPercent, energyPercent, maintenancePercent, overheadPercent, operatingProfitPercent,
+    copqRates, customImprovementRates, opexMaturity, customInvestmentPercent,
+    actualCostOverrides,
+    simSetup, simScrap, simOee, simLaborOpt, simOvertimeRed, simLeadTimeAccel
+  ]);
 
   // Format currency output
   const formatMoney = (val: number) => {
@@ -763,6 +1121,281 @@ export default function LossAnalysis() {
       };
     });
   }, [copqMatrixRows, opexMaturity, avgOee, customImprovementRates, effectiveRevenue]);
+
+  // Realized Savings Feedback Loop: sums actualSavings from Completed Kaizen/CI projects that
+  // originated from this Recovery Matrix (linked via opportunityType === row.subject, set when
+  // KaizenManager.generateOpportunities() converts a Loss Capacity opportunity into a real project).
+  // This closes the loop between theoretical improvement potential and what was actually recovered.
+  const realizedSavingsBySubject = React.useMemo(() => {
+    const map: Record<string, number> = {};
+    kaizens.forEach((k) => {
+      if (k.status !== "Completed" || !k.opportunityType) return;
+      map[k.opportunityType] = (map[k.opportunityType] || 0) + (Number(k.actualSavings) || 0);
+    });
+    return map;
+  }, [kaizens]);
+
+  const recoveryMatrixDataWithRealized = React.useMemo(() => {
+    return recoveryMatrixData.map((row) => {
+      const realized = realizedSavingsBySubject[row.subject] || 0;
+
+      const investmentPercent = customInvestmentPercent[row.subject] ?? (DEFAULT_INVESTMENT_PERCENT[row.subject] ?? 8);
+      const investmentCost = row.avgLoss * (investmentPercent / 100);
+      // Payback: how many months of the average recovered gain it takes to earn back the investment.
+      const paybackMonths = row.avgGain > 0 ? (investmentCost / (row.avgGain / 12)) : null;
+      const roiPercent = investmentCost > 0 ? ((row.avgGain - investmentCost) / investmentCost) * 100 : 0;
+      const roiMinPercent = investmentCost > 0 ? ((row.potentialGainMin - investmentCost) / investmentCost) * 100 : 0;
+      const roiMaxPercent = investmentCost > 0 ? ((row.potentialGainMax - investmentCost) / investmentCost) * 100 : 0;
+
+      return {
+        ...row,
+        realizedSavings: realized,
+        remainingPotential: Math.max(0, row.avgGain - realized),
+        investmentPercent,
+        investmentCost,
+        paybackMonths,
+        roiPercent,
+        roiMinPercent,
+        roiMaxPercent,
+        isInvestmentCustom: customInvestmentPercent[row.subject] !== undefined
+      };
+    });
+  }, [recoveryMatrixData, realizedSavingsBySubject, customInvestmentPercent]);
+
+  // How many CI/Kaizen projects (any status) already exist for each Recovery Matrix subject —
+  // shown as a badge so the manager can see at a glance what's already been assigned.
+  const kaizenCountBySubject = React.useMemo(() => {
+    const map: Record<string, number> = {};
+    kaizens.forEach((k) => {
+      if (!k.opportunityType) return;
+      map[k.opportunityType] = (map[k.opportunityType] || 0) + 1;
+    });
+    return map;
+  }, [kaizens]);
+
+  const handleOpenAssignModal = (row: any) => {
+    setAssignModalRow(row);
+    setAssignLeader("");
+    setAssignDepartment(row.costGroup || "");
+    const defaultDeadline = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    setAssignDeadline(defaultDeadline);
+  };
+
+  const handleSubmitAssignProject = async () => {
+    if (!assignModalRow || !selectedCustomerId || !assignLeader.trim()) return;
+    setIsAssigningProject(true);
+    const row = assignModalRow;
+    const today = new Date().toISOString().split("T")[0];
+    const newProject = {
+      id: `kai_${Math.random().toString(36).substr(2, 9)}`,
+      title: `${row.subject} İyileştirme Projesi`,
+      originator: assignLeader.trim(),
+      department: assignDepartment.trim() || row.costGroup,
+      dateProposed: today,
+      impactLevel: (row.severity === "Critical" || row.severity === "High") ? "High" : row.severity === "Medium" ? "Medium" : "Low",
+      estimatedCost: Math.round(row.investmentCost),
+      currentLoss: Math.round(row.avgLoss),
+      actualSavings: 0,
+      status: "In Progress",
+      descriptionBefore: `${row.subject} kaynaklı yıllık kayıp: ${formatMoney(row.avgLoss)} (Maliyet Grubu: ${row.costGroup}).`,
+      descriptionAfter: "Aksiyon planı uygulanıyor, standartlaşma hedefleniyor.",
+      description: `Loss Capacity Analizi Geri Kazanım Matrisi'nden atanan iyileştirme projesi. Önerilen yalın araç: ${row.leanTool}. Ortalama beklenen tasarruf: ${formatMoney(row.avgGain)} (Aralık: ${formatMoney(row.potentialGainMin)} - ${formatMoney(row.potentialGainMax)}).`,
+      projectLeader: assignLeader.trim(),
+      projectTeam: [],
+      projectSponsor: "",
+      plannedFinishDate: assignDeadline,
+      phase: "Faz 1 (1 Ay)",
+      opportunityId: `lc_${selectedCustomerId}_${row.subject.replace(/[^a-zA-Z0-9]+/g, "_")}`,
+      opportunityType: row.subject,
+      kanbanStatus: "PLAN",
+      expectedGain: Math.round(row.avgGain),
+      tasks: [
+        { id: `tsk_1_${Math.random().toString(36).substring(2, 5)}`, name: "Mevcut Durum Standardizasyon Analizi", responsible: assignLeader.trim(), deadline: assignDeadline, priority: "High", progressPercent: 0 },
+        { id: `tsk_2_${Math.random().toString(36).substring(2, 5)}`, name: "Kök Neden Analizi & Aksiyon Tasarımı", responsible: assignLeader.trim(), deadline: assignDeadline, priority: "High", progressPercent: 0 }
+      ],
+      problemDefinition: `${row.subject} kaynaklı yıllık kayıp: ${formatMoney(row.avgLoss)}.`,
+      rootCause: "Kök neden 5 Neden analizi yapılması bekleniyor.",
+      improvementActions: "Belirlenen iyileştirme faaliyetleri planlanacaktır.",
+      responsibles: assignLeader.trim(),
+      actionsTaken: "Proje başlangıç aşamasında."
+    };
+
+    try {
+      const res = await fetch("/api/business/kaizens", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "x-factory-id": selectedCustomerId,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(newProject)
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchKaizens();
+        // CI Proje Yönetimi (KaizenManager) is fed by App.tsx's own kaizens state, fetched once —
+        // it won't know about this new project unless told to refetch (same event VsmPage/the VSM
+        // live editor already use for this exact "wrote to a shared backend row from elsewhere" case).
+        window.dispatchEvent(new CustomEvent("gemba:refresh-factory-data"));
+        setAssignModalRow(null);
+        setAssignSuccessMessage(`"${row.subject}" için proje CI Proje Yönetimi'ne atandı.`);
+        setTimeout(() => setAssignSuccessMessage(null), 4000);
+      }
+    } catch (err) {
+      console.error("Failed to assign Recovery Matrix item as a project", err);
+    }
+    setIsAssigningProject(false);
+  };
+
+  const totalRealizedSavingsExport = recoveryMatrixDataWithRealized.reduce((sum, item) => sum + item.realizedSavings, 0);
+  const totalAverageRecoveryExport = recoveryMatrixDataWithRealized.reduce((sum, item) => sum + item.avgGain, 0);
+  const companyNameExport = selectedCustomer?.companyName || "Fabrika";
+  const scopeLabelExport = costModelScope === "product_group"
+    ? `${selectedVsmProject?.productGroup || "Özel Ürün Grubu"} (%${productVolumeShare} Ciro Payı)`
+    : "Fabrika Geneli (%100 Ciro)";
+
+  const handleExportExcel = () => {
+    const summaryData = [
+      ["Loss Capacity Analizi Raporu", companyNameExport],
+      ["Rapor Tarihi", new Date().toLocaleDateString("tr-TR")],
+      ["Maliyet Modeli Kapsamı", scopeLabelExport],
+      ["Model Cirosu", `${currencySymbol}${effectiveRevenue.toLocaleString()}`],
+      [],
+      ["KPI Metrik Adı", "Değer"],
+      ["Toplam COPQ Kaybı", `${currencySymbol}${copqData.totalCOPQ_TL.toLocaleString()}`],
+      ["COPQ / Ciro Oranı", `%${copqData.copqPercentOfRevenue.toFixed(2)}`],
+      ["Benchmark Durumu", copqData.benchmarkStatus],
+      ["Ortalama Beklenen Kazanç", `${currencySymbol}${totalAverageRecoveryExport.toLocaleString()}`],
+      ["Gerçekleşen Tasarruf (Tamamlanan Kaizen)", `${currencySymbol}${totalRealizedSavingsExport.toLocaleString()}`],
+      ["Gerçekleşme Oranı", `%${(totalAverageRecoveryExport > 0 ? (totalRealizedSavingsExport / totalAverageRecoveryExport) * 100 : 0).toFixed(1)}`]
+    ];
+
+    const copqHeaders = ["Maliyet Konusu", "Fırsat Alanı", "Maliyet Bütçe Grubu", `Min (${currencySymbol})`, `Max (${currencySymbol})`];
+    const copqRows = copqMatrixRows.map(r => [r.subject, r.area, r.costGroup, r.min, r.max]);
+    const copqSheetData = [["COPQ Finansal Kayıp Matrisi (Maliyet Ağacı Kırılımı)"], [], copqHeaders, ...copqRows];
+
+    const recoveryHeaders = ["Fırsat Alanı", "Maliyet Konusu", "Yalın/WCM Aracı", `Ortalama Kayıp (${currencySymbol})`, "İyileştirme Min (%)", "İyileştirme Max (%)", `Ortalama Tasarruf (${currencySymbol})`, `Yatırım Maliyeti (${currencySymbol})`, "Geri Ödeme (Ay)", "ROI (%)", `Gerçekleşen Tasarruf (${currencySymbol})`, `Kalan Potansiyel (${currencySymbol})`, "Önem Derecesi"];
+    const recoveryRows = recoveryMatrixDataWithRealized.map(r => [
+      r.area, r.subject, r.leanTool, r.avgLoss, r.improvementMin, r.improvementMax, r.avgGain, r.investmentCost, r.paybackMonths !== null ? r.paybackMonths.toFixed(1) : "-", r.roiPercent.toFixed(0), r.realizedSavings, r.remainingPotential, r.severity
+    ]);
+    const recoverySheetData = [["Finansal Geri Kazanım ve İyileştirme Fırsatları Matrisi"], [], recoveryHeaders, ...recoveryRows];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryData), "Ozet");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(copqSheetData), "COPQ_Matrisi");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(recoverySheetData), "Geri_Kazanim_Matrisi");
+
+    XLSX.writeFile(wb, `Loss_Capacity_Analizi_${companyNameExport.replace(/\s+/g, "_")}.xlsx`);
+  };
+
+  const handleExportPdf = () => {
+    const doc = new jsPDF();
+    doc.setFont("Helvetica");
+
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, 210, 40, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(18);
+    doc.text("LOSS CAPACITY ANALİZİ RAPORU", 14, 18);
+    doc.setFontSize(10);
+    doc.text(`${companyNameExport} | ${scopeLabelExport}`, 14, 27);
+    doc.text(`Oluşturma Tarihi: ${new Date().toLocaleDateString("tr-TR")}`, 14, 34);
+
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(12);
+    doc.text("1. GENEL ÖZET METRİKLERİ", 14, 52);
+
+    autoTable(doc, {
+      body: [
+        ["Toplam COPQ Kaybı", `${currencySymbol} ${copqData.totalCOPQ_TL.toLocaleString()}`, "COPQ / Ciro Oranı", `%${copqData.copqPercentOfRevenue.toFixed(2)}`],
+        ["Ortalama Beklenen Kazanç", `${currencySymbol} ${totalAverageRecoveryExport.toLocaleString()}`, "Gerçekleşen Tasarruf", `${currencySymbol} ${totalRealizedSavingsExport.toLocaleString()}`],
+        ["Benchmark Durumu", copqData.benchmarkStatus, "Model Cirosu", `${currencySymbol} ${effectiveRevenue.toLocaleString()}`]
+      ],
+      startY: 56,
+      theme: "grid",
+      styles: { fontSize: 8.5, cellPadding: 3 },
+      columnStyles: { 0: { fontStyle: "bold", fillColor: [240, 240, 240] }, 2: { fontStyle: "bold", fillColor: [240, 240, 240] } }
+    });
+
+    doc.text("2. COPQ FİNANSAL KAYIP MATRİSİ", 14, (doc as any).lastAutoTable.finalY + 12);
+    autoTable(doc, {
+      head: [["Maliyet Konusu", "Fırsat Alanı", "Maliyet Bütçe Grubu", `Min (${currencySymbol})`, `Max (${currencySymbol})`]],
+      body: copqMatrixRows.map(r => [r.subject, r.area, r.costGroup, `${Math.round(r.min).toLocaleString()}`, `${Math.round(r.max).toLocaleString()}`]),
+      startY: (doc as any).lastAutoTable.finalY + 16,
+      theme: "striped",
+      styles: { fontSize: 7.5 }
+    });
+
+    doc.addPage();
+    doc.setFontSize(12);
+    doc.text("3. FİNANSAL GERİ KAZANIM VE İYİLEŞTİRME FIRSATLARI MATRİSİ", 14, 16);
+    autoTable(doc, {
+      head: [["Maliyet Konusu", "Yalın/WCM Aracı", `Ort. Kayıp (${currencySymbol})`, `Ort. Tasarruf (${currencySymbol})`, `Yatırım (${currencySymbol})`, "Geri Ödeme", "ROI", `Gerçekleşen (${currencySymbol})`, "Önem"]],
+      body: recoveryMatrixDataWithRealized.map(r => [
+        r.subject, r.leanTool, `${Math.round(r.avgLoss).toLocaleString()}`, `${Math.round(r.avgGain).toLocaleString()}`, `${Math.round(r.investmentCost).toLocaleString()}`, r.paybackMonths !== null ? `${r.paybackMonths.toFixed(1)} Ay` : "-", `${r.roiPercent >= 0 ? "+" : ""}${r.roiPercent.toFixed(0)}%`, `${Math.round(r.realizedSavings).toLocaleString()}`, r.severity
+      ]),
+      startY: 20,
+      theme: "striped",
+      styles: { fontSize: 7.5 }
+    });
+
+    doc.save(`Loss_Capacity_Analizi_${companyNameExport.replace(/\s+/g, "_")}.pdf`);
+  };
+
+  // Saves a point-in-time snapshot of the currently calculated COPQ so the Dashboard can plot a
+  // real historical trend, instead of a fabricated series (see removed calculateCOPQ `trend` field).
+  const handleSaveCopqSnapshot = () => {
+    if (!selectedCustomerId) return;
+    setIsSavingSnapshot(true);
+    const snapshot = {
+      date: new Date().toISOString().slice(0, 10),
+      totalCOPQ: copqData.totalCOPQ_TL,
+      copqPercentOfRevenue: copqData.copqPercentOfRevenue,
+      effectiveRevenue,
+      costModelScope,
+      productFamilyName: scopeLabelExport,
+      internalFailure: copqData.internalFailure,
+      totalRealizedSavings: totalRealizedSavingsExport
+    };
+    fetch("/api/business/copq-snapshots", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "x-factory-id": selectedCustomerId,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(snapshot)
+    })
+    .then(res => res.json())
+    .then(() => {
+      fetchCopqSnapshots();
+    })
+    .catch(err => {
+      console.error("Failed to save COPQ snapshot", err);
+    })
+    .finally(() => {
+      setIsSavingSnapshot(false);
+    });
+  };
+
+  // Real historical COPQ trend data, sorted chronologically, deduplicated to the latest snapshot
+  // saved per calendar day (repeated saves on the same day update that day's point, not add noise).
+  const copqTrendData = React.useMemo(() => {
+    const byDate: Record<string, any> = {};
+    copqSnapshots.forEach((s) => {
+      const existing = byDate[s.date];
+      if (!existing || new Date(s.created_at) >= new Date(existing.created_at)) {
+        byDate[s.date] = s;
+      }
+    });
+    return Object.values(byDate)
+      .sort((a: any, b: any) => a.date.localeCompare(b.date))
+      .map((s: any) => ({
+        date: s.date,
+        "COPQ Toplam": Math.round(s.totalCOPQ),
+        "COPQ / Ciro %": parseFloat((s.copqPercentOfRevenue || 0).toFixed(2))
+      }));
+  }, [copqSnapshots]);
 
   // COPQ - Ürün Maliyet Grubu İyileştirme Özeti
   const costGroupCopqSummary = React.useMemo(() => {
@@ -1075,7 +1708,7 @@ export default function LossAnalysis() {
 
   // 7. Faaliyet Karı Öncesi / Sonrası (Waterfall veya Column)
   const operatingProfitBeforeAfter = React.useMemo(() => {
-    const currentProfit = annualRevenue * (operatingProfitPercent / 100);
+    const currentProfit = effectiveRevenue * (operatingProfitPercent / 100);
     const totalAverageRecovery = recoveryMatrixData.reduce((sum, item) => sum + item.avgGain, 0);
     const afterOperatingProfit = currentProfit + totalAverageRecovery;
 
@@ -1084,7 +1717,7 @@ export default function LossAnalysis() {
       { name: "Geri Kazanım Etkisi", [`Tutar (Bin ${currencySymbol})`]: Math.round(totalAverageRecovery / 1000), fill: "#6366f1" },
       { name: "İyileştirilmiş Kâr", [`Tutar (Bin ${currencySymbol})`]: Math.round(afterOperatingProfit / 1000), fill: "#10b981" }
     ];
-  }, [annualRevenue, operatingProfitPercent, recoveryMatrixData, currencySymbol]);
+  }, [effectiveRevenue, operatingProfitPercent, recoveryMatrixData, currencySymbol]);
 
   // 8. En Büyük İlk 5 Fırsat (Pareto)
   const first5Pareto = React.useMemo(() => {
@@ -1117,12 +1750,12 @@ export default function LossAnalysis() {
     
     return [
       { stage: "Mevcut", "Faaliyet Kâr Marjı %": parseFloat(operatingProfitPercent.toFixed(1)) },
-      { stage: "Faz 1: 5S", "Faaliyet Kâr Marjı %": parseFloat((operatingProfitPercent + (totalAverageRecovery * 0.20 / annualRevenue) * 100).toFixed(1)) },
-      { stage: "Faz 2: SMED", "Faaliyet Kâr Marjı %": parseFloat((operatingProfitPercent + (totalAverageRecovery * 0.55 / annualRevenue) * 100).toFixed(1)) },
-      { stage: "Faz 3: TPM", "Faaliyet Kâr Marjı %": parseFloat((operatingProfitPercent + (totalAverageRecovery * 0.85 / annualRevenue) * 100).toFixed(1)) },
-      { stage: "Hedef", "Faaliyet Kâr Marjı %": parseFloat((operatingProfitPercent + (totalAverageRecovery / annualRevenue) * 100).toFixed(1)) }
+      { stage: "Faz 1: 5S", "Faaliyet Kâr Marjı %": parseFloat((operatingProfitPercent + (totalAverageRecovery * 0.20 / effectiveRevenue) * 100).toFixed(1)) },
+      { stage: "Faz 2: SMED", "Faaliyet Kâr Marjı %": parseFloat((operatingProfitPercent + (totalAverageRecovery * 0.55 / effectiveRevenue) * 100).toFixed(1)) },
+      { stage: "Faz 3: TPM", "Faaliyet Kâr Marjı %": parseFloat((operatingProfitPercent + (totalAverageRecovery * 0.85 / effectiveRevenue) * 100).toFixed(1)) },
+      { stage: "Hedef", "Faaliyet Kâr Marjı %": parseFloat((operatingProfitPercent + (totalAverageRecovery / effectiveRevenue) * 100).toFixed(1)) }
     ];
-  }, [annualRevenue, operatingProfitPercent, recoveryMatrixData]);
+  }, [effectiveRevenue, operatingProfitPercent, recoveryMatrixData]);
 
   const CustomPieTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
@@ -1166,6 +1799,33 @@ export default function LossAnalysis() {
 
         {/* Global Configuration Controls */}
         <div className="flex flex-wrap items-center gap-3 shrink-0">
+          {moduleSettingsSaveStatus !== "idle" && (
+            <span className={`text-[11px] font-bold flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg ${
+              moduleSettingsSaveStatus === "saving" ? "text-slate-500 bg-slate-100 dark:bg-slate-800 dark:text-slate-400" :
+              moduleSettingsSaveStatus === "success" ? "text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-400" :
+              "text-rose-700 bg-rose-50 dark:bg-rose-950/40 dark:text-rose-400"
+            }`}>
+              {moduleSettingsSaveStatus === "saving" && <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Ayarlar Kaydediliyor...</>}
+              {moduleSettingsSaveStatus === "success" && <><Check className="w-3.5 h-3.5" /> Müşteri Kaydına Kaydedildi</>}
+              {moduleSettingsSaveStatus === "error" && "Kaydedilemedi"}
+            </span>
+          )}
+          <button
+            onClick={handleExportExcel}
+            className="flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Excel (XLS)</span>
+          </button>
+
+          <button
+            onClick={handleExportPdf}
+            className="flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100"
+          >
+            <FileText className="w-4 h-4" />
+            <span>PDF Raporu</span>
+          </button>
+
           <button
             onClick={() => setIsEditorOpen(!isEditorOpen)}
             className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all ${
@@ -1382,7 +2042,7 @@ export default function LossAnalysis() {
                   <AlertTriangle className="w-4 h-4 text-rose-500" />
                 </div>
                 <div className="text-xl font-black font-mono tracking-tight text-rose-400">{formatMoney(financialImpact.totalOperationalLosses.year)}</div>
-                <div className="text-[10px] opacity-80 text-rose-350 font-black">Cironun %{((financialImpact.totalOperationalLosses.year / annualRevenue)*100).toFixed(1)} kadarını israflarla kaybediyorsunuz</div>
+                <div className="text-[10px] opacity-80 text-rose-350 font-black">Cironun %{((financialImpact.totalOperationalLosses.year / effectiveRevenue)*100).toFixed(1)} kadarını israflarla kaybediyorsunuz</div>
               </div>
 
               <div className="bg-white border rounded-2xl p-5 shadow-xs flex flex-col justify-between h-32 border-slate-200 text-slate-900">
@@ -1394,7 +2054,12 @@ export default function LossAnalysis() {
                   <div className="text-xl font-black font-mono tracking-tight text-slate-850">{formatMoney(copqData.totalCOPQ_TL)}</div>
                   <div className="text-[10.5px] font-black text-rose-700 font-mono mt-0.5">COPQ Oranı: %{copqData.copqPercentOfRevenue.toFixed(1)}</div>
                 </div>
-                <div className="text-[9.5px] font-bold text-rose-800 bg-rose-50 px-2 py-0.5 border rounded-md self-start">Kategori: {copqData.benchmarkStatus}</div>
+                <div className="flex items-center gap-1.5 self-start">
+                  <span className="text-[9.5px] font-bold text-rose-800 bg-rose-50 px-2 py-0.5 border rounded-md">Kategori: {copqData.benchmarkStatus}</span>
+                  {hasActiveCostOverrides && (
+                    <span className="text-[9.5px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 border border-amber-300 rounded-md">Gerçek Veri Dahil</span>
+                  )}
+                </div>
               </div>
 
               <div className="bg-white border rounded-2xl p-5 shadow-xs flex flex-col justify-between h-32 border-slate-200 text-slate-900">
@@ -1449,6 +2114,62 @@ export default function LossAnalysis() {
               </div>
             </div>
 
+            {/* HISTORICAL COPQ TREND (REAL SNAPSHOTS, NOT SIMULATED) */}
+            <div className="bg-white border rounded-xl p-5 shadow-xs border-slate-200">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3 mb-4">
+                <div>
+                  <h3 className="text-sm font-black tracking-tight text-rose-800 uppercase flex items-center">
+                    <TrendingUp className="w-4 h-4 mr-1.5 text-rose-700" />
+                    Tarihsel COPQ Trend Analizi
+                  </h3>
+                  <p className="text-[10px] text-slate-400">
+                    Her nokta, o tarihte kaydedilen gerçek bir COPQ anlık görüntüsüdür. Fabrikanızın kalitesizlik maliyetindeki gerçek zaman içindeki değişimi izler.
+                  </p>
+                </div>
+                <button
+                  onClick={handleSaveCopqSnapshot}
+                  disabled={isSavingSnapshot}
+                  className="flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all bg-rose-700 border-rose-800 text-white hover:bg-rose-800 disabled:opacity-60 shrink-0"
+                >
+                  {isSavingSnapshot ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  <span>Bugünün Anlık Görüntüsünü Kaydet</span>
+                </button>
+              </div>
+
+              {copqTrendData.length >= 2 ? (
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={copqTrendData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="date" tick={{ fill: "#475569", fontSize: 9 }} />
+                      <YAxis yAxisId="left" tick={{ fill: "#475569", fontSize: 9 }} label={{ value: `COPQ (${currencySymbol})`, angle: -90, position: 'insideLeft', fill: "#475569", fontSize: 10 }} />
+                      <YAxis yAxisId="right" orientation="right" tick={{ fill: "#475569", fontSize: 9 }} label={{ value: 'COPQ / Ciro %', angle: 90, position: 'insideRight', fill: "#475569", fontSize: 10 }} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: "#ffffff", borderColor: "#e2e8f0", borderRadius: "0.75rem" }}
+                        itemStyle={{ fontSize: "11px" }}
+                        labelStyle={{ fontWeight: "bold", fontSize: "11px" }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: "10px" }} />
+                      <Line yAxisId="left" type="monotone" dataKey="COPQ Toplam" stroke="#be123c" strokeWidth={2.5} dot={{ r: 3 }} />
+                      <Line yAxisId="right" type="monotone" dataKey="COPQ / Ciro %" stroke="#4f46e5" strokeWidth={2} strokeDasharray="4 3" dot={{ r: 3 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center text-center py-10 bg-slate-50/70 rounded-xl border border-dashed border-slate-200">
+                  <Info className="w-6 h-6 text-slate-350 mb-2" />
+                  <p className="text-xs font-bold text-slate-500">
+                    {copqTrendData.length === 0
+                      ? "Henüz kayıtlı bir COPQ anlık görüntüsü yok."
+                      : "Trend grafiği için en az 2 anlık görüntü gerekli (şu an: 1)."}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-1 max-w-md">
+                    Zaman içindeki gerçek COPQ değişimini görmek için düzenli aralıklarla (örn. her ay) "Anlık Görüntüyü Kaydet" butonuna basın.
+                  </p>
+                </div>
+              )}
+            </div>
+
             {/* BENCHMARK DATABASE COMPARISON */}
             <div className="bg-white border rounded-xl p-5 shadow-xs border-slate-200">
               <div className="flex justify-between items-center border-b border-slate-100 pb-3 mb-4">
@@ -1465,7 +2186,7 @@ export default function LossAnalysis() {
 
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="p-4 border rounded-lg bg-slate-50">
-                  <span className="text-[9px] text-slate-400 font-extrabold uppercase">OEE GAP</span>
+                  <span className="text-[11px] text-slate-400 font-extrabold uppercase">OEE GAP</span>
                   <div className="text-base font-black font-mono mt-1 text-slate-800">
                     Current: %{avgOee.toFixed(1)} / BM: %{benchmark.oee}
                   </div>
@@ -1475,7 +2196,7 @@ export default function LossAnalysis() {
                 </div>
 
                 <div className="p-4 border rounded-lg bg-slate-50">
-                  <span className="text-[9px] text-slate-400 font-extrabold uppercase">SETUP GAP</span>
+                  <span className="text-[11px] text-slate-400 font-extrabold uppercase">SETUP GAP</span>
                   <div className="text-base font-black font-mono mt-1 text-slate-800">
                     Current: {Math.round(calculatedProcesses.reduce((sum, p) => sum + p.setupTimeMinutes, 0) / calculatedProcesses.length)} dk / BM: {benchmark.setup} dk
                   </div>
@@ -1485,17 +2206,17 @@ export default function LossAnalysis() {
                 </div>
 
                 <div className="p-4 border rounded-lg bg-slate-50">
-                  <span className="text-[9px] text-slate-400 font-extrabold uppercase">COPQ GAP</span>
+                  <span className="text-[11px] text-slate-400 font-extrabold uppercase">COPQ GAP</span>
                   <div className="text-base font-black font-mono mt-1 text-slate-800">
                     Current: %{copqData.copqPercentOfRevenue.toFixed(1)} / BM: %{benchmark.copq}
                   </div>
                   <span className="text-[10px] text-rose-600 font-bold block mt-1">
-                    Yıllık Kayıp: {formatMoney(Math.max(0, copqData.totalCOPQ_TL - (annualRevenue * (benchmark.copq / 100))))}
+                    Yıllık Kayıp: {formatMoney(Math.max(0, copqData.totalCOPQ_TL - (effectiveRevenue * (benchmark.copq / 100))))}
                   </span>
                 </div>
 
                 <div className="p-4 border rounded-lg bg-slate-50">
-                  <span className="text-[9px] text-slate-400 font-extrabold uppercase">STOK TUR GAP</span>
+                  <span className="text-[11px] text-slate-400 font-extrabold uppercase">STOK TUR GAP</span>
                   <div className="text-base font-black font-mono mt-1 text-slate-800">
                     Current: 12 Devir / BM: {benchmark.inventoryTurns} Devir
                   </div>
@@ -1518,7 +2239,7 @@ export default function LossAnalysis() {
                     OEE ve VSM kayıplarının geri kazanım süreçleriyle birleştiğinde fabrikanın mali tablolarına ve kâr marjlarına olan kümülatif etkisini gösteren dinamik analitik paneli.
                   </p>
                 </div>
-                <span className="text-[9px] bg-slate-100 font-extrabold px-2.5 py-1 rounded text-slate-600 uppercase tracking-wide">
+                <span className="text-[11px] bg-slate-100 font-extrabold px-2.5 py-1 rounded text-slate-600 uppercase tracking-wide">
                   10 Kritik Finansal Rapor
                 </span>
               </div>
@@ -1713,15 +2434,16 @@ export default function LossAnalysis() {
             </div>
 
             {/* 🤖 GEMBA AI COPILOT SECTION */}
-            <CopilotEngine 
+            <CopilotEngine
               calculated={calculatedProcesses}
-              revenue={annualRevenue}
+              revenue={effectiveRevenue}
               copq={copqData}
               financialImpact={financialImpact}
               hiddenFactory={hiddenFactoryData}
               currency={currencySymbol}
               isDarkMode={isDarkMode}
               recoveryData={recoveryMatrixData}
+              factoryId={selectedCustomerId}
             />
 
           </div>
@@ -1820,17 +2542,17 @@ export default function LossAnalysis() {
                   <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60 space-y-1">
                     <span className="text-[10px] text-amber-400 font-extrabold uppercase font-sans block">Yıllık VSM Kayıp Toleransı</span>
                     <span className="text-sm font-black text-rose-400 block">
-                      {formatMoney(financialImpact.totalOperationalLosses.year * (effectiveRevenue / annualRevenue))}
+                      {formatMoney(financialImpact.totalOperationalLosses.year)}
                     </span>
                     <span className="text-[9.5px] text-slate-400 block font-sans">
-                      Cironun %{((financialImpact.totalOperationalLosses.year / annualRevenue)*100).toFixed(1)} erimesi
+                      Cironun %{((financialImpact.totalOperationalLosses.year / effectiveRevenue)*100).toFixed(1)} erimesi
                     </span>
                   </div>
 
                   <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60 space-y-1">
                     <span className="text-[10px] text-emerald-400 font-extrabold uppercase font-sans block">Net Kâr İyileştirme Hedefi</span>
                     <span className="text-sm font-black text-emerald-400 block">
-                      +{formatMoney((financialImpact.totalOperationalLosses.year * (effectiveRevenue / annualRevenue)) * 0.50)}
+                      +{formatMoney(financialImpact.totalOperationalLosses.year * 0.50)}
                     </span>
                     <span className="text-[9.5px] text-slate-400 block font-sans">
                       %50 Kayıp Azaltım Senaryosu
@@ -1840,10 +2562,10 @@ export default function LossAnalysis() {
                   <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60 space-y-1">
                     <span className="text-[10px] text-indigo-300 font-extrabold uppercase font-sans block">Hedeflenen Yeni Kâr Marjı</span>
                     <span className="text-sm font-black text-indigo-300 block">
-                      %{((operatingProfitPercent + (financialImpact.totalOperationalLosses.year / annualRevenue)*50)).toFixed(1)}
+                      %{((operatingProfitPercent + (financialImpact.totalOperationalLosses.year / effectiveRevenue)*50)).toFixed(1)}
                     </span>
                     <span className="text-[9.5px] text-slate-400 block font-sans">
-                      Mevcut: %{operatingProfitPercent.toFixed(1)} -&gt; Hedef: +%{(financialImpact.totalOperationalLosses.year / annualRevenue * 50).toFixed(1)}
+                      Mevcut: %{operatingProfitPercent.toFixed(1)} -&gt; Hedef: +%{(financialImpact.totalOperationalLosses.year / effectiveRevenue * 50).toFixed(1)}
                     </span>
                   </div>
                 </div>
@@ -1885,7 +2607,7 @@ export default function LossAnalysis() {
                     
                     {/* Central Text inside Donut */}
                     <div className="absolute flex flex-col items-center justify-center text-center px-2">
-                      <span className="text-[9px] text-slate-400 font-extrabold uppercase">Model Ciro</span>
+                      <span className="text-[11px] text-slate-400 font-extrabold uppercase">Model Ciro</span>
                       <span className="text-xs font-black font-mono text-slate-800">{formatMoney(effectiveRevenue)}</span>
                     </div>
                   </div>
@@ -1907,7 +2629,7 @@ export default function LossAnalysis() {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <span className="text-[9px] bg-rose-50 text-rose-800 border border-rose-200 font-black px-2.5 py-1 rounded-md uppercase">
+                        <span className="text-[11px] bg-rose-50 text-rose-800 border border-rose-200 font-black px-2.5 py-1 rounded-md uppercase">
                           Finansal &amp; Operasyonel Paralellik (VSM)
                         </span>
                         <h3 className="text-xs font-black text-slate-800 uppercase mt-2">
@@ -1923,29 +2645,29 @@ export default function LossAnalysis() {
                       <strong>Operasyonel Maliyet Kontrol Özeti:</strong>
                       <br />
                       Saha VSM (Değer Akış Haritalama) ve kayıp verilerimiz doğrudan bu finansal modelle paralel çalışmaktadır. 
-                      Hesaplanan yıllık toplam kaybımız <span className="font-bold text-rose-600 font-mono">{formatMoney(financialImpact.totalOperationalLosses.year * (effectiveRevenue / annualRevenue))}</span> olup, bu durum ciromuzun <span className="font-bold font-mono">%{((financialImpact.totalOperationalLosses.year / annualRevenue)*100).toFixed(1)}</span> oranında erimesine yol açmaktadır. 
-                      Yalın projelerle bu kayıpları geri kazanmak, faaliyet kârımızı <span className="font-black text-emerald-600 font-mono">%{operatingProfitPercent.toFixed(1)}</span> seviyesinden teorik olarak <span className="font-black text-indigo-600 font-mono">%{((operatingProfitPercent + (financialImpact.totalOperationalLosses.year / annualRevenue)*100)).toFixed(1)}</span> oranına taşıyabilir.
+                      Hesaplanan yıllık toplam kaybımız <span className="font-bold text-rose-600 font-mono">{formatMoney(financialImpact.totalOperationalLosses.year)}</span> olup, bu durum ciromuzun <span className="font-bold font-mono">%{((financialImpact.totalOperationalLosses.year / effectiveRevenue)*100).toFixed(1)}</span> oranında erimesine yol açmaktadır.
+                      Yalın projelerle bu kayıpları geri kazanmak, faaliyet kârımızı <span className="font-black text-emerald-600 font-mono">%{operatingProfitPercent.toFixed(1)}</span> seviyesinden teorik olarak <span className="font-black text-indigo-600 font-mono">%{((operatingProfitPercent + (financialImpact.totalOperationalLosses.year / effectiveRevenue)*100)).toFixed(1)}</span> oranına taşıyabilir.
                     </p>
 
                     <div className="grid grid-cols-3 gap-2.5">
                       <div className="p-2 bg-white border border-slate-200 rounded-lg">
-                        <span className="text-[9px] text-slate-400 font-bold uppercase block">VSM Model Kayıp</span>
+                        <span className="text-[11px] text-slate-400 font-bold uppercase block">VSM Model Kayıp</span>
                         <span className="text-[11px] font-black font-mono text-rose-600 mt-0.5 block truncate">
-                          {formatMoney(financialImpact.totalOperationalLosses.year * (effectiveRevenue / annualRevenue))}
+                          {formatMoney(financialImpact.totalOperationalLosses.year)}
                         </span>
                       </div>
 
                       <div className="p-2 bg-white border border-slate-200 rounded-lg">
-                        <span className="text-[9px] text-slate-400 font-bold uppercase block">Mevcut Kâr Hedefi</span>
+                        <span className="text-[11px] text-slate-400 font-bold uppercase block">Mevcut Kâr Hedefi</span>
                         <span className="text-[11px] font-black font-mono text-slate-800 mt-0.5 block truncate">
                           {formatMoney(effectiveRevenue * (operatingProfitPercent / 100))}
                         </span>
                       </div>
 
                       <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg">
-                        <span className="text-[9px] text-emerald-800 font-black uppercase block">Maksimum Potansiyel</span>
+                        <span className="text-[11px] text-emerald-800 font-black uppercase block">Maksimum Potansiyel</span>
                         <span className="text-[11px] font-black font-mono text-emerald-600 mt-0.5 block truncate">
-                          {formatMoney((effectiveRevenue * (operatingProfitPercent / 100)) + (financialImpact.totalOperationalLosses.year * (effectiveRevenue / annualRevenue)))}
+                          {formatMoney((effectiveRevenue * (operatingProfitPercent / 100)) + financialImpact.totalOperationalLosses.year)}
                         </span>
                       </div>
                     </div>
@@ -2272,6 +2994,80 @@ export default function LossAnalysis() {
               </div>
             </div>
 
+            {/* ACTUAL FINANCIAL DATA OVERRIDE LAYER */}
+            <div className={`border rounded-2xl p-6 space-y-4 transition-all ${
+              isDarkMode ? "bg-slate-900 border-amber-900/40" : "bg-amber-50/20 border-amber-200"
+            }`}>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-amber-200 dark:border-amber-900/40 pb-3">
+                <div>
+                  <h3 className="text-sm font-black text-amber-800 dark:text-amber-400 uppercase flex items-center">
+                    <DollarSign className="w-4 h-4 mr-1.5" />
+                    Gerçek Mali Veriler (Opsiyonel — Ciro Oranı Yerine)
+                  </h3>
+                  <p className="text-xs text-slate-500 max-w-3xl mt-0.5">
+                    Bu modülün tüm hesaplamaları varsayılan olarak fabrikanın cirosuna oranlanarak tahmin edilir. Eğer müşterinin muhasebesinden aşağıdaki kalemler için <strong className="text-amber-800 dark:text-amber-400">gerçek yıllık tutarlar</strong> biliniyorsa, ilgili kalemi açıp gerçek değeri girin — o kalem ciro tahmini yerine bu değeri kullanır. Açılmayan kalemler ciro oranlı tahminde kalmaya devam eder.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] text-slate-400 italic">Değişiklikler otomatik kaydedilir</span>
+                  {hasActiveCostOverrides && (
+                    <button
+                      onClick={handleResetCostOverrides}
+                      className="text-xs bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 font-bold px-3 py-1.5 rounded-lg border border-amber-300 dark:border-amber-800 transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      Tümünü Tahmine Döndür
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {COST_OVERRIDE_CATEGORIES.map(({ key, label }) => {
+                  const override = actualCostOverrides[key] || { enabled: false, annualValue: 0 };
+                  const estimatedYear = (financialImpactBase as any)[key]?.year || 0;
+                  return (
+                    <div
+                      key={key}
+                      className={`p-3 rounded-xl border transition-all ${
+                        override.enabled
+                          ? "bg-amber-100/60 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800"
+                          : "bg-white dark:bg-slate-950/40 border-slate-200 dark:border-slate-800"
+                      }`}
+                    >
+                      <label className="flex items-center justify-between gap-2 cursor-pointer">
+                        <span className="text-[11px] font-black text-slate-700 dark:text-slate-300 uppercase tracking-wide">{label}</span>
+                        <input
+                          type="checkbox"
+                          checked={override.enabled}
+                          onChange={(e) => handleUpdateCostOverride(key, "enabled", e.target.checked)}
+                          className="w-4 h-4 accent-amber-700 cursor-pointer"
+                        />
+                      </label>
+                      <div className="mt-2 flex items-center gap-1.5">
+                        <span className="text-[10px] text-slate-400 shrink-0">{currencySymbol}/yıl</span>
+                        <input
+                          type="number"
+                          min={0}
+                          disabled={!override.enabled}
+                          value={override.enabled ? override.annualValue : Math.round(estimatedYear)}
+                          onChange={(e) => handleUpdateCostOverride(key, "annualValue", parseFloat(e.target.value) || 0)}
+                          className={`w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 ${
+                            override.enabled
+                              ? "bg-white dark:bg-slate-900 border-amber-300 dark:border-amber-700 font-bold text-amber-800 dark:text-amber-300"
+                              : "bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500"
+                          }`}
+                        />
+                      </div>
+                      {!override.enabled && (
+                        <div className="text-[9.5px] text-slate-400 mt-1">Tahmin (ciro oranlı): {formatMoney(estimatedYear)}</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* PROCESS COST TABLE */}
             <div className={`border rounded-2xl p-6 space-y-4 transition-all ${
               isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 shadow-sm"
@@ -2283,7 +3079,7 @@ export default function LossAnalysis() {
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs font-mono">
                   <thead>
-                    <tr className={`border-b text-[9px] font-extrabold uppercase font-sans ${
+                    <tr className={`border-b text-[11px] font-extrabold uppercase font-sans ${
                       isDarkMode ? "bg-slate-950/40 text-slate-400" : "bg-slate-50 text-slate-500"
                     }`}>
                       <th className="py-2.5 px-3">İstasyon (VSM Prosesi)</th>
@@ -2298,12 +3094,15 @@ export default function LossAnalysis() {
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
                     {calculatedProcesses.map((p) => {
-                      const directMaterial = (annualRevenue / 300000) * materialCostFactor;
+                      // Same grounded per-unit cost basis as calculateFinancialImpact's itemEstCost:
+                      // (annual revenue / annual production volume) * material cost share of price.
+                      const unitItemCost = (annualRevenue / (defaultDemand * 250)) * materialCostFactor;
+                      const directMaterial = unitItemCost;
                       const directLabor = (p.actualCycleTimeSeconds / 3600) * hourlyLaborRate * p.operatorsPerShift;
                       const directEnergy = (p.actualCycleTimeSeconds / 3600) * 15 * energyRateKwh;
                       const machineOverhead = (p.actualCycleTimeSeconds / 3600) * machineOverheadHour;
                       const logisticsCost = (p.interProcessInventory * 0.005) * logisticsRateKm;
-                      const scrapCostAllocated = p.scrapQty * 800 / p.producedQtyPerDay;
+                      const scrapCostAllocated = p.scrapQty * unitItemCost / p.producedQtyPerDay;
                       const totalUnitCost = directMaterial + directLabor + directEnergy + machineOverhead + logisticsCost + scrapCostAllocated;
 
                       return (
@@ -2382,9 +3181,9 @@ export default function LossAnalysis() {
             </div>
 
             {/* HIGH-FIDELITY RENDER OF ECONOMIC LOSS TREE & WATERFALL */}
-            <AnalysisViews 
+            <AnalysisViews
               calculated={calculatedProcesses}
-              revenue={annualRevenue}
+              revenue={effectiveRevenue}
               copq={copqData}
               financialImpact={financialImpact}
               industry={selectedIndustry}
@@ -2621,15 +3420,20 @@ export default function LossAnalysis() {
           const totalPotentialGainMin = recoveryMatrixData.reduce((sum, item) => sum + item.potentialGainMin, 0);
           const totalPotentialGainMax = recoveryMatrixData.reduce((sum, item) => sum + item.potentialGainMax, 0);
           const totalAverageRecovery = recoveryMatrixData.reduce((sum, item) => sum + item.avgGain, 0);
-          
-          const currentOperatingProfit = annualRevenue * (operatingProfitPercent / 100);
+          const totalRealizedSavings = recoveryMatrixDataWithRealized.reduce((sum, item) => sum + item.realizedSavings, 0);
+          const realizedVsPotentialPercent = totalAverageRecovery > 0 ? (totalRealizedSavings / totalAverageRecovery) * 100 : 0;
+          const totalInvestmentCost = recoveryMatrixDataWithRealized.reduce((sum, item) => sum + item.investmentCost, 0);
+          const blendedPaybackMonths = totalAverageRecovery > 0 ? (totalInvestmentCost / (totalAverageRecovery / 12)) : null;
+          const blendedRoiPercent = totalInvestmentCost > 0 ? ((totalAverageRecovery - totalInvestmentCost) / totalInvestmentCost) * 100 : 0;
+
+          const currentOperatingProfit = effectiveRevenue * (operatingProfitPercent / 100);
           const newOperatingProfit = currentOperatingProfit + totalAverageRecovery;
           const operatingProfitPercentIncrease = currentOperatingProfit > 0 ? (totalAverageRecovery / currentOperatingProfit) * 100 : 0;
 
           const areaGroupings = [
-            { id: "direct", name: "Doğrudan Maliyet Azaltma", items: recoveryMatrixData.filter(r => r.area === "Doğrudan Maliyet Azaltma") },
-            { id: "capacity", name: "Kapasite Yaratma", items: recoveryMatrixData.filter(r => r.area === "Kapasite Yaratma") },
-            { id: "strategic", name: "Stratejik Operasyonel Kazanç", items: recoveryMatrixData.filter(r => r.area === "Stratejik Operasyonel Kazanç") }
+            { id: "direct", name: "Doğrudan Maliyet Azaltma", items: recoveryMatrixDataWithRealized.filter(r => r.area === "Doğrudan Maliyet Azaltma") },
+            { id: "capacity", name: "Kapasite Yaratma", items: recoveryMatrixDataWithRealized.filter(r => r.area === "Kapasite Yaratma") },
+            { id: "strategic", name: "Stratejik Operasyonel Kazanç", items: recoveryMatrixDataWithRealized.filter(r => r.area === "Stratejik Operasyonel Kazanç") }
           ];
 
           return (
@@ -2679,7 +3483,7 @@ export default function LossAnalysis() {
 
                     {/* Factory OEE (Fetched from VSM, non-editable) */}
                     <div className="bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800/80 px-4 py-2.5 rounded-xl flex flex-col justify-center">
-                      <span className="text-[9px] font-extrabold uppercase text-slate-450 dark:text-slate-400 tracking-wider">
+                      <span className="text-[11px] font-extrabold uppercase text-slate-450 dark:text-slate-400 tracking-wider">
                         Fabrika OEE (VSM Analizi)
                       </span>
                       <span className="text-lg font-black text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
@@ -2691,13 +3495,13 @@ export default function LossAnalysis() {
               </div>
 
               {/* POWER BI KPI GRIDS */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+
                 {/* CARD 1 */}
                 <div className={`p-4 rounded-2xl border flex flex-col justify-between ${
                   isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 shadow-xs"
                 }`}>
-                  <div className="text-slate-450 dark:text-slate-400 text-[9px] font-black uppercase tracking-wider">
+                  <div className="text-slate-450 dark:text-slate-400 text-[11px] font-black uppercase tracking-wider">
                     Toplam COPQ Kaybı
                   </div>
                   <div className="text-lg font-black text-slate-850 dark:text-slate-100 mt-2 font-mono">
@@ -2712,7 +3516,7 @@ export default function LossAnalysis() {
                 <div className={`p-4 rounded-2xl border flex flex-col justify-between ${
                   isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 shadow-xs"
                 }`}>
-                  <div className="text-slate-450 dark:text-slate-400 text-[9px] font-black uppercase tracking-wider">
+                  <div className="text-slate-450 dark:text-slate-400 text-[11px] font-black uppercase tracking-wider">
                     Geri Kazanım Aralığı
                   </div>
                   <div className="text-base font-black text-indigo-600 dark:text-indigo-400 mt-2 font-mono tracking-tight leading-tight">
@@ -2727,7 +3531,7 @@ export default function LossAnalysis() {
                 <div className={`p-4 rounded-2xl border flex flex-col justify-between ${
                   isDarkMode ? "bg-slate-950 border-rose-500/20" : "bg-rose-50/20 border-rose-100"
                 }`}>
-                  <div className="text-rose-800 dark:text-rose-450 text-[9px] font-black uppercase tracking-wider">
+                  <div className="text-rose-800 dark:text-rose-450 text-[11px] font-black uppercase tracking-wider">
                     Ortalama Beklenen Kazanç
                   </div>
                   <div className="text-lg font-black text-rose-700 dark:text-rose-400 mt-2 font-mono">
@@ -2742,7 +3546,7 @@ export default function LossAnalysis() {
                 <div className={`p-4 rounded-2xl border flex flex-col justify-between ${
                   isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 shadow-xs"
                 }`}>
-                  <div className="text-slate-450 dark:text-slate-400 text-[9px] font-black uppercase tracking-wider">
+                  <div className="text-slate-450 dark:text-slate-400 text-[11px] font-black uppercase tracking-wider">
                     Mevcut Faaliyet Kârı
                   </div>
                   <div className="text-lg font-black text-slate-700 dark:text-slate-300 mt-2 font-mono">
@@ -2757,9 +3561,9 @@ export default function LossAnalysis() {
                 <div className={`p-4 rounded-2xl border flex flex-col justify-between ${
                   isDarkMode ? "bg-slate-900 border-emerald-500/20" : "bg-emerald-50/20 border-emerald-100"
                 }`}>
-                  <div className="text-emerald-800 dark:text-emerald-400 text-[9px] font-black uppercase tracking-wider flex justify-between items-center">
+                  <div className="text-emerald-800 dark:text-emerald-400 text-[11px] font-black uppercase tracking-wider flex justify-between items-center">
                     <span>Yeni Faaliyet Kârı</span>
-                    <span className="bg-emerald-500 text-white font-black text-[9px] px-1.5 py-0.5 rounded-md">
+                    <span className="bg-emerald-500 text-white font-black text-[11px] px-1.5 py-0.5 rounded-md">
                       +{operatingProfitPercentIncrease.toFixed(1)}%
                     </span>
                   </div>
@@ -2768,6 +3572,24 @@ export default function LossAnalysis() {
                   </div>
                   <div className="text-[10px] text-emerald-600/70 dark:text-emerald-450/70 mt-1">
                     Tasarruf Dahil EBITDA Etkisi
+                  </div>
+                </div>
+
+                {/* CARD 6: REALIZED SAVINGS FEEDBACK LOOP */}
+                <div className={`p-4 rounded-2xl border flex flex-col justify-between ${
+                  isDarkMode ? "bg-slate-900 border-teal-500/20" : "bg-teal-50/20 border-teal-100"
+                }`}>
+                  <div className="text-teal-800 dark:text-teal-400 text-[11px] font-black uppercase tracking-wider flex justify-between items-center">
+                    <span>Gerçekleşen Tasarruf</span>
+                    <span className="bg-teal-500 text-white font-black text-[11px] px-1.5 py-0.5 rounded-md">
+                      %{realizedVsPotentialPercent.toFixed(1)}
+                    </span>
+                  </div>
+                  <div className="text-lg font-black text-teal-600 dark:text-teal-400 mt-2 font-mono">
+                    {formatMoney(totalRealizedSavings)}
+                  </div>
+                  <div className="text-[10px] text-teal-600/70 dark:text-teal-400/70 mt-1">
+                    Tamamlanan Kaizen Projelerinden (Potansiyelin %{realizedVsPotentialPercent.toFixed(1)}'i)
                   </div>
                 </div>
 
@@ -2838,18 +3660,29 @@ export default function LossAnalysis() {
                       Finansal Geri Kazanım ve İyileştirme Fırsatları Matrisi
                     </h4>
                     <p className="text-[10px] text-slate-500 mt-0.5">
-                      Kayıpların COPQ sayfasındaki maliyet dağılım modeline göre kurgulanmış, Lean/WCM uygulamaları ile finansal olarak geri kazanılabilecek kazanç potansiyelleri. <strong className="text-slate-700 dark:text-slate-300">Tablodaki İyileştirme Oranı (%) değerlerini elle değiştirebilirsiniz.</strong>
+                      Kayıpların COPQ sayfasındaki maliyet dağılım modeline göre kurgulanmış, Lean/WCM uygulamaları ile finansal olarak geri kazanılabilecek kazanç potansiyelleri. <strong className="text-slate-700 dark:text-slate-300">Tablodaki İyileştirme Oranı (%) ve Yatırım Maliyeti (%) değerlerini elle değiştirebilirsiniz.</strong>
                     </p>
                   </div>
-                  {Object.keys(customImprovementRates).length > 0 && (
-                    <button
-                      onClick={handleResetImprovementRates}
-                      className="text-xs bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 font-bold px-3 py-1.5 rounded-lg border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      Oranları Otomatik Hesaplamaya Döndür
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {Object.keys(customImprovementRates).length > 0 && (
+                      <button
+                        onClick={handleResetImprovementRates}
+                        className="text-xs bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 font-bold px-3 py-1.5 rounded-lg border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        İyileştirme Oranlarını Sıfırla
+                      </button>
+                    )}
+                    {Object.keys(customInvestmentPercent).length > 0 && (
+                      <button
+                        onClick={handleResetInvestmentPercent}
+                        className="text-xs bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-bold px-3 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 transition-all flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        Yatırım Maliyetlerini Sıfırla
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
@@ -2861,8 +3694,12 @@ export default function LossAnalysis() {
                         <th className="py-3 px-3 border-r border-slate-800 text-right">Ortalama Kayıp ({currencySymbol})</th>
                         <th className="py-3 px-3 border-r border-slate-800 text-center w-[170px]">İyileştirme Oranı (%) [Elle Düzenlenebilir]</th>
                         <th className="py-3 px-3 border-r border-slate-800 text-right">Ortalama Tasarruf ({currencySymbol})</th>
+                        <th className="py-3 px-3 border-r border-slate-800 text-right w-[140px]">Yatırım Maliyeti (Tahmini)</th>
+                        <th className="py-3 px-3 border-r border-slate-800 text-center">Geri Ödeme / ROI</th>
+                        <th className="py-3 px-3 border-r border-slate-800 text-right">Gerçekleşen Tasarruf ({currencySymbol})</th>
                         <th className="py-3 px-3 border-r border-slate-800 text-center">EBITDA Katkısı</th>
-                        <th className="py-3 px-3 text-center">Önem Derecesi</th>
+                        <th className="py-3 px-3 border-r border-slate-800 text-center">Önem Derecesi</th>
+                        <th className="py-3 px-3 text-center">Aksiyon</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2887,7 +3724,7 @@ export default function LossAnalysis() {
                                   <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                                     {row.subject}
                                     {row.isCustom && (
-                                      <span className="text-[9px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 px-1.5 py-0.2 rounded font-black border border-amber-200 dark:border-amber-800">Elle Değiştirildi</span>
+                                      <span className="text-[11px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 px-1.5 py-0.2 rounded font-black border border-amber-200 dark:border-amber-800">Elle Değiştirildi</span>
                                     )}
                                   </div>
                                   <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
@@ -2929,19 +3766,76 @@ export default function LossAnalysis() {
                                   <div className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
                                     {formatMoney(row.avgGain)}
                                   </div>
-                                  <div className="text-[9px] font-mono text-slate-400 mt-0.5">
+                                  <div className="text-[11px] font-mono text-slate-400 mt-0.5">
                                     Min: {formatMoney(row.potentialGainMin)} | Max: {formatMoney(row.potentialGainMax)}
                                   </div>
+                                </td>
+                                <td className="py-3 px-3 border-r border-slate-200 dark:border-slate-800 text-right bg-amber-50/20 dark:bg-amber-950/10">
+                                  <div className="font-mono font-bold text-amber-700 dark:text-amber-400">
+                                    {formatMoney(row.investmentCost)}
+                                  </div>
+                                  <div className="flex items-center justify-end gap-1 mt-1">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={100}
+                                      value={Math.round(row.investmentPercent * 10) / 10}
+                                      onChange={(e) => handleUpdateInvestmentPercent(row.subject, parseFloat(e.target.value) || 0)}
+                                      className="w-12 text-center border rounded-md py-0.5 text-[11px] font-bold bg-white dark:bg-slate-900 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                    />
+                                    <span className="text-slate-400 text-[10px]">% kayıp</span>
+                                    {row.isInvestmentCustom && (
+                                      <span className="text-[9px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 px-1 py-0.2 rounded font-black border border-amber-200 dark:border-amber-800">Elle</span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="py-3 px-3 border-r border-slate-200 dark:border-slate-800 text-center">
+                                  <div className="font-mono font-black text-slate-800 dark:text-slate-200">
+                                    {row.paybackMonths !== null ? `${row.paybackMonths < 0.1 ? "<0.1" : row.paybackMonths.toFixed(1)} Ay` : "—"}
+                                  </div>
+                                  <div className={`text-[10px] font-bold mt-0.5 ${row.roiPercent >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                                    ROI: {row.roiPercent >= 0 ? "+" : ""}{row.roiPercent.toFixed(0)}%
+                                  </div>
+                                </td>
+                                <td className="py-3 px-3 border-r border-slate-200 dark:border-slate-800 text-right bg-teal-50/10 dark:bg-teal-950/10">
+                                  {row.realizedSavings > 0 ? (
+                                    <>
+                                      <div className="font-mono font-bold text-teal-700 dark:text-teal-400">
+                                        {formatMoney(row.realizedSavings)}
+                                      </div>
+                                      <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+                                        Kalan: {formatMoney(row.remainingPotential)}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <span className="text-[11px] font-mono text-slate-400">—</span>
+                                  )}
                                 </td>
                                 <td className="py-3 px-3 border-r border-slate-200 dark:border-slate-800 text-center font-mono">
                                   <span className="inline-block text-[10px] font-black text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
                                     +{row.ebitdaImpactPercent.toFixed(2)}% EBITDA
                                   </span>
                                 </td>
-                                <td className="py-3 px-3 text-center">
+                                <td className="py-3 px-3 border-r border-slate-200 dark:border-slate-800 text-center">
                                   <span className={`inline-flex items-center px-2 py-0.5 border text-[10px] font-bold rounded-md ${severityColors[row.severity as keyof typeof severityColors] || severityColors.Low}`}>
                                     {row.severity}
                                   </span>
+                                </td>
+                                <td className="py-3 px-3 text-center">
+                                  <div className="flex flex-col items-center gap-1">
+                                    <button
+                                      onClick={() => handleOpenAssignModal(row)}
+                                      className="text-[10px] font-black px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                                    >
+                                      <Target className="w-3 h-3" />
+                                      Proje Olarak Ata
+                                    </button>
+                                    {kaizenCountBySubject[row.subject] > 0 && (
+                                      <span className="text-[9px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                                        {kaizenCountBySubject[row.subject]} Proje Açık
+                                      </span>
+                                    )}
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -2960,13 +3854,28 @@ export default function LossAnalysis() {
                         <td className="py-3.5 px-4 text-center font-mono font-black text-indigo-700 dark:text-indigo-400 bg-indigo-50/20 dark:bg-indigo-950/20">
                           %{(totalAverageRecovery / totalCopqLoss * 100).toFixed(1)} Ortalama İyileştirme
                         </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-black text-emerald-700 dark:text-emerald-400 bg-emerald-50/30 dark:bg-emerald-950/30 border-r border-slate-200 dark:border-slate-800">
+                        <td className="py-3.5 px-4 text-right font-mono font-black text-emerald-700 dark:text-emerald-400 bg-emerald-50/30 dark:bg-emerald-950/30">
                           {formatMoney(totalAverageRecovery)}
-                          <div className="text-[9px] font-normal text-emerald-800/80 dark:text-emerald-300/80">
+                          <div className="text-[11px] font-normal text-emerald-800/80 dark:text-emerald-300/80">
                             Aralık: {formatMoney(totalPotentialGainMin)} - {formatMoney(totalPotentialGainMax)}
                           </div>
                         </td>
-                        <td colSpan={2} className="py-3.5 px-4 text-center font-sans font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/40">
+                        <td className="py-3.5 px-4 text-right font-mono font-black text-amber-700 dark:text-amber-400 bg-amber-50/30 dark:bg-amber-950/30">
+                          {formatMoney(totalInvestmentCost)}
+                        </td>
+                        <td className="py-3.5 px-4 text-center font-mono font-black text-slate-800 dark:text-slate-200">
+                          {blendedPaybackMonths !== null ? `${blendedPaybackMonths.toFixed(1)} Ay` : "—"}
+                          <div className={`text-[11px] font-normal ${blendedRoiPercent >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}>
+                            ROI: {blendedRoiPercent >= 0 ? "+" : ""}{blendedRoiPercent.toFixed(0)}%
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-black text-teal-700 dark:text-teal-400 bg-teal-50/30 dark:bg-teal-950/30 border-r border-slate-200 dark:border-slate-800">
+                          {formatMoney(totalRealizedSavings)}
+                          <div className="text-[11px] font-normal text-teal-800/80 dark:text-teal-300/80">
+                            %{realizedVsPotentialPercent.toFixed(1)} Gerçekleşme
+                          </div>
+                        </td>
+                        <td colSpan={3} className="py-3.5 px-4 text-center font-sans font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/40">
                           Net EBITDA Katkısı: +{operatingProfitPercentIncrease.toFixed(1)}% (Kâr Marjı: %{operatingProfitPercent.toFixed(1)} &rarr; %{(operatingProfitPercent + (effectiveRevenue > 0 ? (totalAverageRecovery / effectiveRevenue * 100) : 0)).toFixed(1)})
                         </td>
                       </tr>
@@ -2987,7 +3896,7 @@ export default function LossAnalysis() {
                     <div>
                       <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
                         <span>Dipnot: İyileştirme Oranlarının Kaynağı ve Güvenilir Veri Metodolojisi</span>
-                        <span className="text-[9px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded font-extrabold border border-indigo-200 dark:border-indigo-800">
+                        <span className="text-[11px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded font-extrabold border border-indigo-200 dark:border-indigo-800">
                           Akademik & Sanayi Standartları
                         </span>
                       </h4>
@@ -3702,7 +4611,7 @@ export default function LossAnalysis() {
                             <div className="min-w-0">
                               <div className="flex items-center space-x-2">
                                 <h4 className="text-xs font-black text-slate-900 truncate uppercase">{proj.projectName || proj.name}</h4>
-                                <span className="text-[9px] bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-md font-bold shrink-0">
+                                <span className="text-[11px] bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-md font-bold shrink-0">
                                   {proj.productGroup || "Ürün Grubu"}
                                 </span>
                               </div>
@@ -3738,6 +4647,101 @@ export default function LossAnalysis() {
             </div>
 
           </div>
+        </div>
+      )}
+
+      {/* ASSIGN RECOVERY MATRIX ITEM AS A CI PROJECT */}
+      {assignModalRow && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+
+            <div className="p-6 bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white flex justify-between items-center shrink-0">
+              <div className="flex items-center space-x-3">
+                <span className="p-2 bg-white/10 rounded-xl">
+                  <Target className="w-5 h-5 text-indigo-200" />
+                </span>
+                <div>
+                  <h3 className="text-base font-black uppercase tracking-tight">
+                    İyileştirme Projesi Olarak Ata
+                  </h3>
+                  <p className="text-xs text-indigo-200/80">
+                    {assignModalRow.subject} — CI Proje Yönetimi&apos;ne gerçek bir proje olarak oluşturulacak
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setAssignModalRow(null)}
+                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <div className="bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900 rounded-xl p-3.5 text-xs text-slate-700 dark:text-slate-300 space-y-1">
+                <div><strong>Yıllık Kayıp:</strong> {formatMoney(assignModalRow.avgLoss)}</div>
+                <div><strong>Ortalama Beklenen Tasarruf:</strong> {formatMoney(assignModalRow.avgGain)}</div>
+                <div><strong>Önerilen Yalın Araç:</strong> {assignModalRow.leanTool}</div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">Sorumlu Kişi *</label>
+                <input
+                  type="text"
+                  value={assignLeader}
+                  onChange={(e) => setAssignLeader(e.target.value)}
+                  placeholder="Örn. Mustafa Çelik (Usta)"
+                  className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-transparent dark:border-slate-700 text-slate-800 dark:text-slate-100"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">Departman</label>
+                <input
+                  type="text"
+                  value={assignDepartment}
+                  onChange={(e) => setAssignDepartment(e.target.value)}
+                  className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-transparent dark:border-slate-700 text-slate-800 dark:text-slate-100"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">Hedef Bitiş Tarihi</label>
+                <input
+                  type="date"
+                  value={assignDeadline}
+                  onChange={(e) => setAssignDeadline(e.target.value)}
+                  className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-transparent dark:border-slate-700 text-slate-800 dark:text-slate-100"
+                />
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 dark:bg-slate-950/40 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2 shrink-0">
+              <button
+                onClick={() => setAssignModalRow(null)}
+                className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-black text-xs rounded-xl transition-all cursor-pointer"
+              >
+                İptal
+              </button>
+              <button
+                onClick={handleSubmitAssignProject}
+                disabled={!assignLeader.trim() || isAssigningProject}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {isAssigningProject ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                Projeyi Oluştur ve Ata
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ASSIGN SUCCESS TOAST */}
+      {assignSuccessMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-emerald-600 text-white text-xs font-bold px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2 animate-in fade-in duration-200">
+          <Check className="w-4 h-4" />
+          {assignSuccessMessage}
         </div>
       )}
 

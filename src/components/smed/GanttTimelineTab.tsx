@@ -208,7 +208,7 @@ export default function GanttTimelineTab({ activities, onChangeActivities }: Gan
                 className="absolute top-0 bottom-0 border-l border-slate-200/70"
                 style={{ left: `${leftOffset + 200}px` }}
               >
-                <span className="absolute left-1.5 top-1.5 text-[8px] font-black text-slate-400 whitespace-nowrap font-mono uppercase tracking-wider">
+                <span className="absolute left-1.5 top-1.5 text-[11px] font-black text-slate-400 whitespace-nowrap font-mono uppercase tracking-wider">
                   {formatTickLabel(tick)}
                 </span>
               </div>
@@ -222,7 +222,7 @@ export default function GanttTimelineTab({ activities, onChangeActivities }: Gan
             className="absolute top-5 bottom-5 z-20 pointer-events-none flex flex-col items-center"
             style={{ left: `${totalExternalDur * pxPerMin + 200}px` }}
           >
-            <div className="bg-red-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-sm uppercase tracking-wider -translate-x-1/2 -translate-y-3 whitespace-nowrap z-30">
+            <div className="bg-red-600 text-white text-[11px] font-black px-1.5 py-0.5 rounded shadow-sm uppercase tracking-wider -translate-x-1/2 -translate-y-3 whitespace-nowrap z-30">
               MAKİNE DURDURULDU 🛑 {totalExternalDur}. dk
             </div>
             <div className="h-full border-l-2 border-dashed border-red-600" />
@@ -299,11 +299,11 @@ export default function GanttTimelineTab({ activities, onChangeActivities }: Gan
                           position: "absolute",
                         }}
                       >
-                        <span className="text-[9px] font-black text-white truncate">
+                        <span className="text-[11px] font-black text-white truncate">
                           {act.dur} dk
                         </span>
                         {act.ecrsSteps && act.ecrsSteps.length > 0 && (
-                          <span className="text-[8px] bg-purple-950/80 text-purple-100 font-extrabold px-1 rounded-sm ml-1 shrink-0">
+                          <span className="text-[11px] bg-purple-950/80 text-purple-100 font-extrabold px-1 rounded-sm ml-1 shrink-0">
                             {act.ecrsSteps.join("")}
                           </span>
                         )}
@@ -390,7 +390,7 @@ export default function GanttTimelineTab({ activities, onChangeActivities }: Gan
                       {isEliminated ? (
                         <button
                           onClick={() => setSelectedActivityId(act.id)}
-                          className={`h-6 border border-dashed border-slate-300 rounded-lg flex items-center px-2.5 text-slate-400 text-[8px] font-bold cursor-pointer hover:bg-slate-100 absolute`}
+                          className={`h-6 border border-dashed border-slate-300 rounded-lg flex items-center px-2.5 text-slate-400 text-[11px] font-bold cursor-pointer hover:bg-slate-100 absolute`}
                           style={{ left: `${leftOffset}px` }}
                         >
                           Elimine Edildi (-100%)
@@ -407,11 +407,11 @@ export default function GanttTimelineTab({ activities, onChangeActivities }: Gan
                             position: "absolute",
                           }}
                         >
-                          <span className="text-[9px] font-black text-white truncate">
+                          <span className="text-[11px] font-black text-white truncate">
                             {act.improvedDur} dk
                           </span>
                           {act.ecrsSteps && act.ecrsSteps.length > 0 && (
-                            <span className="text-[8px] bg-purple-950/80 text-purple-100 font-extrabold px-1 rounded-sm ml-1 shrink-0">
+                            <span className="text-[11px] bg-purple-950/80 text-purple-100 font-extrabold px-1 rounded-sm ml-1 shrink-0">
                               {act.ecrsSteps.join("")}
                             </span>
                           )}
@@ -672,14 +672,14 @@ export default function GanttTimelineTab({ activities, onChangeActivities }: Gan
                       />
                       <div className="flex flex-col">
                         <span className="text-xs font-black text-purple-950">E — Eleme (Eliminate)</span>
-                        <span className="text-[9px] text-slate-400 font-bold">Faaliyeti tamamen ortadan kaldırın</span>
+                        <span className="text-[11px] text-slate-400 font-bold">Faaliyeti tamamen ortadan kaldırın</span>
                       </div>
                     </label>
 
                     {(selectedActivity.ecrsSteps || []).includes("E") && (
                       <div className="mt-3 pl-8 space-y-3 border-t border-dashed border-purple-200 pt-3">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-[9px] text-purple-850 font-extrabold uppercase">Süre Kazancı (dk):</span>
+                          <span className="text-[11px] text-purple-850 font-extrabold uppercase">Süre Kazancı (dk):</span>
                           <input
                             type="number"
                             min={0}
@@ -691,7 +691,7 @@ export default function GanttTimelineTab({ activities, onChangeActivities }: Gan
                           />
                         </div>
                         <div>
-                          <label className="text-[9px] text-purple-850 font-extrabold uppercase block mb-1">Eleme İyileştirme Tanımı:</label>
+                          <label className="text-[11px] text-purple-850 font-extrabold uppercase block mb-1">Eleme İyileştirme Tanımı:</label>
                           <textarea
                             rows={2}
                             className="w-full px-3 py-1.5 border border-purple-200 rounded-lg text-xs text-purple-950 bg-white placeholder-purple-300"
@@ -717,14 +717,14 @@ export default function GanttTimelineTab({ activities, onChangeActivities }: Gan
                       />
                       <div className="flex flex-col">
                         <span className="text-xs font-black text-purple-950">C — Birleştirme (Combine)</span>
-                        <span className="text-[9px] text-slate-440 font-bold">Aynı anda paralel yapılacak işleri birleştirin</span>
+                        <span className="text-[11px] text-slate-440 font-bold">Aynı anda paralel yapılacak işleri birleştirin</span>
                       </div>
                     </label>
 
                     {(selectedActivity.ecrsSteps || []).includes("C") && (
                       <div className="mt-3 pl-8 space-y-3 border-t border-dashed border-purple-200 pt-3">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-[9px] text-purple-850 font-extrabold uppercase">Süre Kazancı (dk):</span>
+                          <span className="text-[11px] text-purple-850 font-extrabold uppercase">Süre Kazancı (dk):</span>
                           <input
                             type="number"
                             min={0}
@@ -736,7 +736,7 @@ export default function GanttTimelineTab({ activities, onChangeActivities }: Gan
                           />
                         </div>
                         <div>
-                          <label className="text-[9px] text-purple-850 font-extrabold uppercase block mb-1">Birleştirme İyileştirme Tanımı:</label>
+                          <label className="text-[11px] text-purple-850 font-extrabold uppercase block mb-1">Birleştirme İyileştirme Tanımı:</label>
                           <textarea
                             rows={2}
                             className="w-full px-3 py-1.5 border border-purple-200 rounded-lg text-xs text-purple-950 bg-white placeholder-purple-300"
@@ -762,14 +762,14 @@ export default function GanttTimelineTab({ activities, onChangeActivities }: Gan
                       />
                       <div className="flex flex-col">
                         <span className="text-xs font-black text-purple-950">R — Yeniden Düzenleme (Rearrange)</span>
-                        <span className="text-[9px] text-slate-440 font-bold">Operasyonların sırasını veya yerini optimize edin</span>
+                        <span className="text-[11px] text-slate-440 font-bold">Operasyonların sırasını veya yerini optimize edin</span>
                       </div>
                     </label>
 
                     {(selectedActivity.ecrsSteps || []).includes("R") && (
                       <div className="mt-3 pl-8 space-y-3 border-t border-dashed border-purple-200 pt-3">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-[9px] text-purple-850 font-extrabold uppercase">Süre Kazancı (dk):</span>
+                          <span className="text-[11px] text-purple-850 font-extrabold uppercase">Süre Kazancı (dk):</span>
                           <input
                             type="number"
                             min={0}
@@ -781,7 +781,7 @@ export default function GanttTimelineTab({ activities, onChangeActivities }: Gan
                           />
                         </div>
                         <div>
-                          <label className="text-[9px] text-purple-850 font-extrabold uppercase block mb-1">Düzenleme İyileştirme Tanımı:</label>
+                          <label className="text-[11px] text-purple-850 font-extrabold uppercase block mb-1">Düzenleme İyileştirme Tanımı:</label>
                           <textarea
                             rows={2}
                             className="w-full px-3 py-1.5 border border-purple-200 rounded-lg text-xs text-purple-950 bg-white placeholder-purple-300"
@@ -807,14 +807,14 @@ export default function GanttTimelineTab({ activities, onChangeActivities }: Gan
                       />
                       <div className="flex flex-col">
                         <span className="text-xs font-black text-purple-950">S — Basitleştirme (Simplify)</span>
-                        <span className="text-[9px] text-slate-440 font-bold">Aparat, pin, hızlı kaplin, hızlı kelepçe kullanın</span>
+                        <span className="text-[11px] text-slate-440 font-bold">Aparat, pin, hızlı kaplin, hızlı kelepçe kullanın</span>
                       </div>
                     </label>
 
                     {(selectedActivity.ecrsSteps || []).includes("S") && (
                       <div className="mt-3 pl-8 space-y-3 border-t border-dashed border-purple-200 pt-3">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-[9px] text-purple-850 font-extrabold uppercase">Süre Kazancı (dk):</span>
+                          <span className="text-[11px] text-purple-850 font-extrabold uppercase">Süre Kazancı (dk):</span>
                           <input
                             type="number"
                             min={0}
@@ -826,7 +826,7 @@ export default function GanttTimelineTab({ activities, onChangeActivities }: Gan
                           />
                         </div>
                         <div>
-                          <label className="text-[9px] text-purple-850 font-extrabold uppercase block mb-1">Basitleştirme İyileştirme Tanımı:</label>
+                          <label className="text-[11px] text-purple-850 font-extrabold uppercase block mb-1">Basitleştirme İyileştirme Tanımı:</label>
                           <textarea
                             rows={2}
                             className="w-full px-3 py-1.5 border border-purple-200 rounded-lg text-xs text-purple-950 bg-white placeholder-purple-300"

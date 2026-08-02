@@ -5,9 +5,8 @@ import {
   ShieldAlert, 
   Lock, 
   X, 
-  LogOut, 
-  CheckCircle, 
-  Users, 
+  LogOut,
+  Users,
   Settings, 
   Trash2, 
   RotateCcw,
@@ -30,6 +29,8 @@ interface UserProfileModalProps {
   onUpdateUser: (updatedUser: any) => void;
   onSignOut: () => void;
   activeCustomerId?: string;
+  currentLang?: "tr" | "en" | "de";
+  onChangeLanguage?: (lang: "tr" | "en" | "de") => void;
 }
 
 export default function UserProfileModal({
@@ -40,8 +41,17 @@ export default function UserProfileModal({
   token,
   onUpdateUser,
   onSignOut,
-  activeCustomerId
+  activeCustomerId,
+  currentLang,
+  onChangeLanguage
 }: UserProfileModalProps) {
+  const roleLabels: Record<string, Record<string, string>> = {
+    tr: { Admin: "Yönetici (Admin)", Consultant: "Danışman", "Customer User": "Müşteri Kullanıcısı" },
+    en: { Admin: "Administrator", Consultant: "Consultant", "Customer User": "Customer User" },
+    de: { Admin: "Administrator", Consultant: "Berater", "Customer User": "Kundenbenutzer" }
+  };
+  const roleLabel = (role?: string) => roleLabels[currentLang || "tr"][role || "Customer User"] || role;
+
   const [activeSubTab, setActiveSubTab] = useState<"profile" | "language" | "mail" | "password" | "users" | "settings">("profile");
 
   const [fullName, setFullName] = useState(currentUser?.full_name || "");
@@ -131,10 +141,9 @@ export default function UserProfileModal({
       setErrorPassword(null);
       setSuccessPassword(null);
 
-      // Load language preference
-      const langKey = `gemba_user_language_${currentUser.id}`;
-      const savedLang = localStorage.getItem(langKey) || localStorage.getItem("app_language") || "tr";
-      setSelectedLang(savedLang);
+      // Load language preference from the app's real, active language state (App.tsx's
+      // `currentLang`, persisted under "gemba_lang") rather than a separate, disconnected key.
+      setSelectedLang(currentLang || "tr");
 
       // Load mail settings
       const mailKey = `gemba_mail_config_${currentUser.id}`;
@@ -273,13 +282,10 @@ export default function UserProfileModal({
   };
 
   const handleSaveLanguage = () => {
-    if (!currentUser) return;
-    const langKey = `gemba_user_language_${currentUser.id}`;
-    localStorage.setItem(langKey, selectedLang);
-    localStorage.setItem("app_language", selectedLang);
-    setLangSuccess("Dil tercihiniz başarıyla kaydedildi.");
-    window.dispatchEvent(new CustomEvent("LanguageChanged", { detail: { language: selectedLang } }));
-    setTimeout(() => setLangSuccess(null), 3000);
+    if (!onChangeLanguage) return;
+    onChangeLanguage(selectedLang as "tr" | "en" | "de");
+    setLangSuccess("Dil tercihiniz kaydedildi. Not: Şu an yalnızca sol menü etiketleri bu dile çevriliyor, modül içerikleri henüz Türkçedir.");
+    setTimeout(() => setLangSuccess(null), 4000);
   };
 
   const handleSaveMailConfig = (e: React.FormEvent) => {
@@ -303,8 +309,8 @@ export default function UserProfileModal({
       updatedAt: new Date().toISOString()
     };
     localStorage.setItem(key, JSON.stringify(config));
-    setMailSuccess("E-Posta sunucu yapılandırması başarıyla kaydedildi.");
-    setTimeout(() => setMailSuccess(null), 3500);
+    setMailSuccess("Ayarlar bu tarayıcıda yerel olarak kaydedildi. Not: Sunucu tarafında henüz gerçek bir SMTP/Exchange bağlantısı kurulmadı — bu bilgiler şu an hiçbir e-posta göndermek için kullanılmıyor.");
+    setTimeout(() => setMailSuccess(null), 6000);
   };
 
   const handleTestMailConnection = () => {
@@ -313,47 +319,19 @@ export default function UserProfileModal({
 
     setTimeout(() => {
       setIsTestingMail(false);
-      if (mailProvider === "smtp") {
-        if (!smtpHost || !smtpUser) {
-          setMailTestStatus({
-            type: "error",
-            message: "Lütfen SMTP sunucu adresi ve kullanıcı e-posta bilgisini giriniz."
-          });
-        } else {
-          setMailTestStatus({
-            type: "success",
-            message: `✅ SMTP Bağlantısı Başarılı! Sunucu: ${smtpHost}:${smtpPort} (${smtpEncryption.toUpperCase()}) bağlantısı doğrulandı.`
-          });
-        }
-      } else if (mailProvider === "exchange") {
-        if (!exchangeServer || !exchangeUser) {
-          setMailTestStatus({
-            type: "error",
-            message: "Lütfen Exchange sunucu adresi ve e-posta kullanıcı adını giriniz."
-          });
-        } else {
-          setMailTestStatus({
-            type: "success",
-            message: `✅ Exchange (${exchangeProtocol.toUpperCase()}) Oturumu Başarılı! Sunucu: ${exchangeServer}:${exchangePort} erişimi doğrulandı.`
-          });
-        }
-      } else {
-        setMailTestStatus({
-          type: "info",
-          message: "E-Posta entegrasyonu şu anda pasif durumdadır."
-        });
-      }
+      setMailTestStatus({
+        type: "info",
+        message: "Bağlantı testi yapılamadı: bu workspace'te gerçek bir mail sunucusu entegrasyonu yok. Girilen bilgiler sadece tarayıcıda saklanıyor, sunucuya iletilmiyor."
+      });
     }, 900);
   };
 
   const isUsersTab = activeSubTab === "users";
+  const canUseMail = currentUser?.role !== "Customer User";
 
   const languageOptions = [
-    { id: "tr", name: "Türkçe", flag: "🇹🇷", subtitle: "Varsayılan Arayüz Dili" },
-    { id: "en", name: "English", flag: "🇬🇧", subtitle: "Global Business English" },
-    { id: "de", name: "Deutsch", flag: "🇩🇪", subtitle: "German Operational Interface" },
-    { id: "fr", name: "Français", flag: "🇫🇷", subtitle: "French Manufacturing System" },
-    { id: "es", name: "Español", flag: "🇪🇸", subtitle: "Spanish Industrial Interface" }
+    { id: "tr", name: "Türkçe", flag: "🇹🇷" },
+    { id: "en", name: "English", flag: "🇬🇧" }
   ];
 
   return (
@@ -408,17 +386,19 @@ export default function UserProfileModal({
             <span>Dil & Bölge</span>
           </button>
 
-          <button
-            onClick={() => setActiveSubTab("mail")}
-            className={`pb-2 px-0.5 font-black text-[11px] transition-all border-b-2 uppercase tracking-wider flex items-center space-x-1.5 cursor-pointer ${
-              activeSubTab === "mail" 
-                ? "border-slate-900 text-slate-900" 
-                : "border-transparent text-slate-400 hover:text-slate-600"
-            }`}
-          >
-            <Mail className="w-3.5 h-3.5" />
-            <span>E-Posta Entegrasyonu</span>
-          </button>
+          {canUseMail && (
+            <button
+              onClick={() => setActiveSubTab("mail")}
+              className={`pb-2 px-0.5 font-black text-[11px] transition-all border-b-2 uppercase tracking-wider flex items-center space-x-1.5 cursor-pointer ${
+                activeSubTab === "mail"
+                  ? "border-slate-900 text-slate-900"
+                  : "border-transparent text-slate-400 hover:text-slate-600"
+              }`}
+            >
+              <Mail className="w-3.5 h-3.5" />
+              <span>E-Posta Entegrasyonu</span>
+            </button>
+          )}
 
           <button
             onClick={() => setActiveSubTab("password")}
@@ -474,8 +454,8 @@ export default function UserProfileModal({
                   <h4 className="font-extrabold text-sm text-gray-900 leading-tight">{currentUser?.full_name}</h4>
                   <p className="text-[11px] text-slate-500 font-medium">{currentUser?.email}</p>
                   <div className="flex items-center space-x-2 mt-1">
-                    <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700 text-[9px] font-bold uppercase">
-                      {currentUser?.role === "Admin" ? "Yönetici (Admin)" : "Standart Kullanıcı"}
+                    <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700 text-[11px] font-bold uppercase">
+                      {roleLabel(currentUser?.role)}
                     </span>
                     <span className="text-[10px] text-slate-400 font-medium">| {currentOrg?.organization_name}</span>
                   </div>
@@ -526,7 +506,7 @@ export default function UserProfileModal({
                     </div>
                     <div className="bg-slate-50 border border-slate-150 p-3.5 rounded-xl">
                       <span className="text-slate-400 font-bold uppercase text-[10px] block mb-1">Sistem Yetkisi:</span>
-                      <span className="font-bold text-slate-900 text-xs">{currentUser?.role === "Admin" ? "Sistem Yöneticisi" : "Kullanıcı"}</span>
+                      <span className="font-bold text-slate-900 text-xs">{roleLabel(currentUser?.role)}</span>
                     </div>
                   </div>
                 ) : (
@@ -586,35 +566,23 @@ export default function UserProfileModal({
                     <span>Dil Tercihleri ve Arayüz Bölge Ayarları</span>
                   </h4>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Sistem genelinde kullanılacak varsayılan dil tercihinizi seçiniz. Raporlar ve AI analizleri seçilen dile uygun üretilecektir.
+                    Sistem genelinde kullanılacak varsayılan dil tercihinizi seçiniz.
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
-                  {languageOptions.map((lang) => (
-                    <div
-                      key={lang.id}
-                      onClick={() => setSelectedLang(lang.id)}
-                      className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
-                        selectedLang === lang.id
-                          ? "border-slate-900 bg-slate-900 text-white shadow-md"
-                          : "border-slate-200 bg-slate-50 text-slate-800 hover:border-slate-300 hover:bg-white"
-                      }`}
-                    >
-                      <div className="flex items-center space-x-3">
-                        <span className="text-2xl">{lang.flag}</span>
-                        <div>
-                          <div className="font-extrabold text-xs">{lang.name}</div>
-                          <div className={`text-[10px] ${selectedLang === lang.id ? "text-slate-300" : "text-slate-400"}`}>
-                            {lang.subtitle}
-                          </div>
-                        </div>
-                      </div>
-                      {selectedLang === lang.id && (
-                        <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
-                      )}
-                    </div>
-                  ))}
+                <div className="pt-2 space-y-1 max-w-xs">
+                  <label className="block text-[10px] font-bold uppercase text-slate-600">Arayüz Dili</label>
+                  <select
+                    value={selectedLang}
+                    onChange={(e) => setSelectedLang(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-slate-900 cursor-pointer"
+                  >
+                    {languageOptions.map((lang) => (
+                      <option key={lang.id} value={lang.id}>
+                        {lang.flag} {lang.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="pt-3 border-t border-slate-100 flex justify-end">
@@ -631,7 +599,7 @@ export default function UserProfileModal({
           )}
 
           {/* TAB CONTENT: MAIL CONNECTION (EXCHANGE & SMTP) */}
-          {activeSubTab === "mail" && (
+          {activeSubTab === "mail" && canUseMail && (
             <div className="space-y-4">
               {mailSuccess && (
                 <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl font-medium flex items-center space-x-2">
@@ -650,6 +618,22 @@ export default function UserProfileModal({
                   </p>
                 </div>
               </div>
+
+              {currentUser?.role === "Admin" ? (
+                <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl p-3.5 flex items-start space-x-3 text-indigo-900">
+                  <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                  <p className="text-[11px] leading-relaxed">
+                    <strong>Sistem Genel Kutusu:</strong> Yönetici hesabından yapılandırılan bu bağlantı, sistemin ortak proje kutusu içindir (örn. <span className="font-mono">proje@gembapartner.com</span>). Danışmanlar ise kendi kişisel kurumsal e-posta adreslerini bu ekrandan ayrıca bağlayabilir.
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl p-3.5 flex items-start space-x-3 text-indigo-900">
+                  <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                  <p className="text-[11px] leading-relaxed">
+                    Burada yalnızca kendi kişisel e-posta hesabınızı bağlayabilirsiniz. Sistemin ortak proje kutusu (<span className="font-mono">proje@gembapartner.com</span>) Yönetici hesabından ayrıca yapılandırılır.
+                  </p>
+                </div>
+              )}
 
               <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs">
                 <div className="flex justify-between items-center border-b border-slate-100 pb-2">

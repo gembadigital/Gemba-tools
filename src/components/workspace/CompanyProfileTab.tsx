@@ -195,28 +195,6 @@ export default function CompanyProfileTab({ workspace, onSave }: CompanyProfileT
               </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-gray-500">Vergi Numarası</label>
-              <input
-                id="input-taxNumber"
-                type="text"
-                disabled={!isEditing}
-                value={editedWorkspace.taxNumber || ""}
-                onChange={(e) => handleFieldChange(null, "taxNumber", e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden focus:border-zinc-400 disabled:bg-gray-50 disabled:text-gray-600 transition-all"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-gray-500">Vergi Dairesi</label>
-              <input
-                id="input-taxOffice"
-                type="text"
-                disabled={!isEditing}
-                value={editedWorkspace.taxOffice || ""}
-                onChange={(e) => handleFieldChange(null, "taxOffice", e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden focus:border-zinc-400 disabled:bg-gray-50 disabled:text-gray-600 transition-all"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
               <label className="text-xs font-semibold text-gray-500">Kuruluş Yılı</label>
               <input
                 id="input-yearEstablished"
@@ -246,18 +224,6 @@ export default function CompanyProfileTab({ workspace, onSave }: CompanyProfileT
                 disabled={!isEditing}
                 value={editedWorkspace.city || ""}
                 onChange={(e) => handleFieldChange(null, "city", e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden focus:border-zinc-400 disabled:bg-gray-50 disabled:text-gray-600 transition-all"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-gray-500">GPS Koordinatları (Enlem, Boylam)</label>
-              <input
-                id="input-gpsCoordinates"
-                type="text"
-                disabled={!isEditing}
-                placeholder="Örn. 40.7329, 31.5833"
-                value={editedWorkspace.gpsCoordinates || ""}
-                onChange={(e) => handleFieldChange(null, "gpsCoordinates", e.target.value)}
                 className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden focus:border-zinc-400 disabled:bg-gray-50 disabled:text-gray-600 transition-all"
               />
             </div>

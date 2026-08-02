@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useMemo } from "react";
 import Markdown from "react-markdown";
-import { 
-  Plus, Trash2, Edit2, Download, Upload, RefreshCw, 
-  Clock, Check, X, Maximize2, Minimize2, Save, FileText, 
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+import { ProcessRecord } from "../types";
+import {
+  Plus, Trash2, Edit2, Download, Upload, RefreshCw,
+  Clock, Check, X, Maximize2, Minimize2, Save, FileText,
   TrendingUp, Award, HelpCircle, ChevronDown, ListFilter,
   Activity, AlertTriangle, Eye, Sparkles, CheckSquare, Square,
   BarChart3, Printer, Database, Info, Settings, ArrowRight, RotateCcw,
-  GripVertical
+  GripVertical, Link2, Unlink
 } from "lucide-react";
 
 interface Customer {
@@ -51,10 +54,17 @@ interface StudyRecord {
   ccAvail: number;
   ccDemand: number;
   ccEls: WorkElement[];
+  // Traceability link back to the VSM process/station this study drills into — undefined for a
+  // standalone study taken outside of any VSM map.
+  linkedVsmProcessId?: string | null;
 }
 
 interface TimeStudyPageProps {
   selectedCustomer: Customer;
+  // The customer's real, backend-synced VSM process/station list (same data VsmPage itself
+  // reads/writes) — lets a study be picked from and traced back to a specific VSM station instead
+  // of always being a disconnected standalone measurement.
+  vsmProcesses?: ProcessRecord[];
 }
 
 const TYPE_CONFIG = {
@@ -66,7 +76,8 @@ const TYPE_CONFIG = {
   parallel: { label: "Paralel İşlem (Parallel Work)", color: "#0D9488", bg: "bg-teal-50 text-teal-700 border-teal-200", marker: "P" }
 };
 
-export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) {
+export default function TimeStudyPage({ selectedCustomer, vsmProcesses = [] }: TimeStudyPageProps) {
+  const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
   const [activeTab, setActiveTab] = useState<"study" | "combination">("study");
   const [lineName, setLineName] = useState<string>("Montaj Hattı A");
   const [productName, setProductName] = useState<string>("Ütü Masası");
@@ -156,6 +167,11 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
   const [showHistoryDropdown, setShowHistoryDropdown] = useState<boolean>(false);
   const [showResetConfirm, setShowResetConfirm] = useState<boolean>(false);
 
+  // VSM linkage: whether this study is being taken against a real, saved VSM process/station
+  // ("vsm") or as a standalone measurement outside any VSM map ("standalone").
+  const [studySourceMode, setStudySourceMode] = useState<"vsm" | "standalone">("standalone");
+  const [linkedVsmProcessId, setLinkedVsmProcessId] = useState<string | null>(null);
+
   // Full screen toggle
   const [isMaximized, setIsMaximized] = useState<boolean>(false);
   const [isTableMaximized, setIsTableMaximized] = useState<boolean>(false);
@@ -235,18 +251,20 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
     return processes.find(p => p.id === selectedProcessId) || processes[0];
   }, [processes, selectedProcessId]);
 
-  // Local Storage Load
+  // Load saved studies for this customer from the backend
   useEffect(() => {
-    const raw = localStorage.getItem("gemba_time_studies");
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as StudyRecord[];
-        setSavedStudies(parsed);
-      } catch (e) {
-        console.error("Error parsing saved studies", e);
+    fetch("/api/business/time-studies", {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "x-factory-id": selectedCustomer.id
       }
-    }
-  }, []);
+    })
+      .then(res => res.json())
+      .then(res => {
+        if (res.success) setSavedStudies(res.data as StudyRecord[]);
+      })
+      .catch(err => console.error("Failed to load Time Study records", err));
+  }, [selectedCustomer.id, token]);
 
   // Filter studies belonging to the active customer
   const currentCustomerStudies = useMemo(() => {
@@ -311,6 +329,21 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
     });
     return { maxCT, id: bnProc ? (bnProc as ProcessStep).id : null, name: bnProc ? (bnProc as ProcessStep).name : "" };
   }, [processes]);
+
+  // VSM-linked C/T trend: every saved study taken against the currently linked VSM process,
+  // oldest first, so improvement (or regression) in the bottleneck C/T can be tracked over time.
+  const vsmLinkedTrend = useMemo(() => {
+    if (!linkedVsmProcessId) return [];
+    return currentCustomerStudies
+      .filter(s => s.linkedVsmProcessId === linkedVsmProcessId)
+      .map(s => ({
+        id: s.id,
+        createdAt: s.createdAt,
+        taktTime: s.taktTime,
+        bottleneckCT: s.processes.reduce((max, p) => Math.max(max, getProcessCT(p)), 0)
+      }))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }, [currentCustomerStudies, linkedVsmProcessId]);
 
   // Add Cycle measurement
   const handleAddCycle = () => {
@@ -683,7 +716,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${localStorage.getItem("opex_auth_token") || ""}`
+          "Authorization": `Bearer ${localStorage.getItem("gemba_token") || ""}`
         },
         body: JSON.stringify({
           elements: ccEls,
@@ -699,6 +732,51 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
       setAiError(err.message || "Bilinmeyen bir hata oluştu.");
     } finally {
       setIsAiAnalyzing(false);
+    }
+  };
+
+  // Pushes the detected bottleneck straight into CI Proje Yönetimi as a prefilled kaizen card —
+  // same direct-POST + refresh-event pattern VsmPage uses to push its own simulated opportunities,
+  // so the new card shows up immediately in KaizenManager without any extra prop threading.
+  const handlePushBottleneckToKaizen = async () => {
+    if (!bottleneckInfo.name) return;
+    const gapSeconds = parseFloat((bottleneckInfo.maxCT - taktTime).toFixed(1));
+    const impactLevel = bottleneckInfo.maxCT > taktTime * 1.5 ? "High" : bottleneckInfo.maxCT > taktTime * 1.15 ? "Medium" : "Low";
+
+    const payload = {
+      title: `[Zaman Etüdü] ${bottleneckInfo.name} Darboğaz İyileştirmesi`,
+      originator: "Zaman Etüdü Modülü",
+      department: lineName,
+      dateProposed: new Date().toISOString().split("T")[0],
+      impactLevel,
+      estimatedCost: 0,
+      actualSavings: 0,
+      status: "Draft",
+      descriptionBefore: `${productName} ürünü / ${lineName} hattında "${bottleneckInfo.name}" prosesinin çevrim süresi ${bottleneckInfo.maxCT.toFixed(1)} sn, hedef takt zamanı olan ${taktTime.toFixed(1)} sn'yi ${gapSeconds.toFixed(1)} sn aşmaktadır ve hattın darboğazını oluşturmaktadır.`,
+      descriptionAfter: "",
+      factory_id: selectedCustomer.id
+    };
+
+    try {
+      const res = await fetch("/api/business/kaizens", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+          "x-factory-id": selectedCustomer.id
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.success) {
+        window.dispatchEvent(new CustomEvent("gemba:refresh-factory-data"));
+        alert(`"${bottleneckInfo.name}" darboğazı için CI Proje Yönetimi'nde bir kaizen kartı oluşturuldu.`);
+      } else {
+        alert("Kaizen kartı oluşturulamadı.");
+      }
+    } catch (err) {
+      console.error("Failed to push bottleneck to Kaizen", err);
+      alert("Kaizen kartı oluşturulurken bir hata oluştu.");
     }
   };
 
@@ -729,7 +807,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
     }));
   };
 
-  // Metot Mühendisliği - Process Flowchart Diagram Renderer
+  // Process Flowchart Diagram Renderer
   const renderProcessFlowchart = (maximized: boolean) => {
     if (processes.length === 0) return null;
 
@@ -740,7 +818,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
 
     return (
       <div className="bg-slate-900 text-white rounded-2xl p-4 sm:p-6 shadow-xl border border-slate-800 space-y-4">
-        {/* Header / Metot Mühendisi Identity */}
+        {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3">
           <div className="space-y-1">
             <div className="flex items-center space-x-2.5">
@@ -749,11 +827,8 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
               </span>
               <div className="flex items-center space-x-2">
                 <h3 className="text-sm font-black tracking-tight uppercase font-sans text-sky-400">
-                  METOT MÜHENDİSLİĞİ • PROSES İŞ AKIŞ ŞEMASI
+                  PROSES İŞ AKIŞ ŞEMASI
                 </h3>
-                <span className="text-[9px] bg-sky-950 text-sky-300 border border-sky-800 px-2 py-0.5 rounded-full font-extrabold uppercase">
-                  Metot Mühendisi Modu
-                </span>
               </div>
             </div>
             <p className="text-xs text-slate-400 max-w-3xl leading-relaxed">
@@ -774,29 +849,38 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
           </div>
         </div>
 
-        {/* Metot Mühendisi KPI summary chips */}
+        {/* KPI summary chips */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-slate-950/80 p-3 rounded-xl border border-slate-800/80 text-xs">
           <div className="flex flex-col">
-            <span className="text-[9px] font-black text-slate-400 uppercase">Toplam İş Adımı</span>
+            <span className="text-[11px] font-black text-slate-400 uppercase">Toplam İş Adımı</span>
             <span className="text-sm font-black text-white font-mono mt-0.5">{totalSteps} Adım</span>
           </div>
           <div className="flex flex-col">
-            <span className="text-[9px] font-black text-sky-400 uppercase">Proses (Dikdörtgen)</span>
+            <span className="text-[11px] font-black text-sky-400 uppercase">Proses (Dikdörtgen)</span>
             <span className="text-sm font-black text-sky-300 font-mono mt-0.5">{processCount} Adım</span>
           </div>
           <div className="flex flex-col">
-            <span className="text-[9px] font-black text-amber-400 uppercase">Kalite Kontrol (Üçgen)</span>
+            <span className="text-[11px] font-black text-amber-400 uppercase">Kalite Kontrol (Üçgen)</span>
             <span className="text-sm font-black text-amber-300 font-mono mt-0.5">{inspectionCount} Adım</span>
           </div>
           <div className="flex flex-col">
-            <span className="text-[9px] font-black text-emerald-400 uppercase">Toplam Akış Süresi</span>
+            <span className="text-[11px] font-black text-emerald-400 uppercase">Toplam Akış Süresi</span>
             <span className="text-sm font-black text-emerald-300 font-mono mt-0.5">{totalLeadTime.toFixed(1)} sn</span>
           </div>
           <div className="flex flex-col col-span-2 sm:col-span-1">
-            <span className="text-[9px] font-black text-rose-400 uppercase">Darboğaz Operasyonu</span>
+            <span className="text-[11px] font-black text-rose-400 uppercase">Darboğaz Operasyonu</span>
             <span className="text-xs font-black text-rose-300 truncate mt-0.5">
               {bottleneckInfo.name ? `${bottleneckInfo.name} (${bottleneckInfo.maxCT}s)` : "—"}
             </span>
+            {bottleneckInfo.name && bottleneckInfo.maxCT > taktTime && (
+              <button
+                onClick={handlePushBottleneckToKaizen}
+                className="mt-1.5 text-[10px] font-bold bg-rose-600 hover:bg-rose-500 text-white px-2 py-1 rounded-lg flex items-center gap-1 w-fit cursor-pointer transition"
+                title="Bu darboğazdan CI Proje Yönetimi'nde bir kaizen kartı oluştur"
+              >
+                <Sparkles className="w-3 h-3" /> Kaizen Öner
+              </button>
+            )}
           </div>
         </div>
 
@@ -811,7 +895,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
               </div>
               <div className="flex flex-col">
                 <span className="text-xs font-black uppercase tracking-wider text-emerald-100">İş Başlangıcı</span>
-                <span className="text-[9px] font-semibold text-emerald-200/80">Ham Malzeme / Girdi</span>
+                <span className="text-[11px] font-semibold text-emerald-200/80">Ham Malzeme / Girdi</span>
               </div>
             </div>
 
@@ -833,7 +917,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                     /* PROSES (DİKDÖRTGEN) */
                     <div
                       onClick={() => setSelectedProcessId(p.id)}
-                      className={`relative shrink-0 flex flex-col justify-between p-3 rounded-xl border-2 transition-all cursor-pointer min-w-[150px] max-w-[180px] h-[82px] shadow-md group ${
+                      className={`relative shrink-0 flex flex-col justify-between p-3 rounded-xl border-2 transition-all cursor-pointer min-w-[168px] max-w-[198px] h-[92px] shadow-md group ${
                         isSelected
                           ? "bg-sky-950 border-sky-400 ring-2 ring-sky-400/50 text-white scale-[1.03]"
                           : isBn
@@ -844,27 +928,27 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                     >
                       {/* Top bar */}
                       <div className="flex items-center justify-between">
-                        <span className={`text-[9.5px] font-black px-1.5 py-0.5 rounded-md uppercase ${
+                        <span className={`text-[10.5px] font-black px-1.5 py-0.5 rounded-md uppercase ${
                           isBn ? "bg-rose-600 text-white" : "bg-sky-500/20 text-sky-300 border border-sky-500/30"
                         }`}>
                           #{idx + 1}
                         </span>
-                        <span className="text-[11px] font-black font-mono text-emerald-400">
+                        <span className="text-xs font-black font-mono text-emerald-400">
                           {ct > 0 ? `${ct.toFixed(1)}s` : "—"}
                         </span>
                       </div>
 
                       {/* Name */}
-                      <div className="text-[10.5px] font-extrabold uppercase leading-tight line-clamp-2 text-slate-100 my-1">
+                      <div className="text-xs font-extrabold uppercase leading-tight line-clamp-2 text-white my-1">
                         {p.name}
                       </div>
 
                       {/* Bottom status line */}
-                      <div className="flex items-center justify-between border-t border-slate-700/60 pt-1 text-[8.5px] text-slate-400">
+                      <div className="flex items-center justify-between border-t border-slate-700/60 pt-1 text-[10.5px] text-slate-300">
                         <span className="font-semibold">{p.mct > 0 ? `Mak: ${p.mct}s` : "Operasyon"}</span>
                         <button
                           onClick={(e) => handleToggleStepShape(p.id, e)}
-                          className="hover:text-amber-300 text-slate-400 transition flex items-center space-x-0.5"
+                          className="hover:text-amber-300 text-slate-300 transition flex items-center space-x-0.5"
                           title="Bu adımı Kalite Kontrol (Üçgen) yap"
                         >
                           <span>🔺 Kontrol Yap</span>
@@ -875,7 +959,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                     /* KALİTE KONTROL (ÜÇGEN) */
                     <div
                       onClick={() => setSelectedProcessId(p.id)}
-                      className={`relative shrink-0 flex flex-col items-center justify-center cursor-pointer select-none min-w-[155px] h-[92px] transition-all group ${
+                      className={`relative shrink-0 flex flex-col items-center justify-center cursor-pointer select-none min-w-[172px] h-[104px] transition-all group ${
                         isSelected ? "scale-[1.03]" : ""
                       }`}
                       title={`${idx + 1}. Kalite Kontrol: ${p.name}`}
@@ -893,18 +977,18 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
 
                       {/* Content inside Triangle */}
                       <div className="relative z-10 flex flex-col items-center justify-center text-center px-3 pt-3.5 text-amber-200">
-                        <span className="text-[8.5px] font-black uppercase tracking-wider bg-amber-500/30 text-amber-300 px-1.5 py-0.2 rounded-full border border-amber-500/40">
+                        <span className="text-[10px] font-black uppercase tracking-wider bg-amber-500/30 text-amber-300 px-1.5 py-0.2 rounded-full border border-amber-500/40">
                           #{idx + 1} • Kontrol
                         </span>
-                        <span className="text-[10px] font-black uppercase tracking-tight leading-tight line-clamp-2 my-0.5 max-w-[105px] text-amber-100">
+                        <span className="text-[11.5px] font-black uppercase tracking-tight leading-tight line-clamp-2 my-0.5 max-w-[120px] text-white">
                           {p.name}
                         </span>
-                        <span className="text-[10px] font-bold font-mono text-emerald-400">
+                        <span className="text-[11.5px] font-bold font-mono text-emerald-400">
                           {ct > 0 ? `${ct.toFixed(1)}s` : "—"}
                         </span>
                         <button
                           onClick={(e) => handleToggleStepShape(p.id, e)}
-                          className="text-[8px] text-amber-400/80 hover:text-white transition mt-0.5"
+                          className="text-[11px] text-amber-300 hover:text-white transition mt-0.5"
                           title="Bu adımı Proses (Dikdörtgen) yap"
                         >
                           🟦 Proses Yap
@@ -928,7 +1012,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
               </div>
               <div className="flex flex-col">
                 <span className="text-xs font-black uppercase tracking-wider text-rose-100">İş Bitişi</span>
-                <span className="text-[9px] font-semibold text-rose-200/80">Tamamlanan Ürün</span>
+                <span className="text-[11px] font-semibold text-rose-200/80">Tamamlanan Ürün</span>
               </div>
             </div>
 
@@ -1006,7 +1090,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
             return (
               <g key={idx}>
                 <line x1={paddingLeft} y1={y} x2={svgWidth - paddingRight} y2={y} stroke="#E2E8F0" strokeWidth={1} strokeDasharray="3,3" />
-                <text x={paddingLeft - 8} y={y + 3} textAnchor="end" className="text-[9px] font-semibold font-mono fill-slate-400">
+                <text x={paddingLeft - 8} y={y + 3} textAnchor="end" className="text-[11px] font-semibold font-mono fill-slate-400">
                   {Math.round(level)}
                 </text>
               </g>
@@ -1025,7 +1109,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                 strokeWidth={1.5} 
                 strokeDasharray="4,2" 
               />
-              <text x={svgWidth - paddingRight + 4} y={paddingTop + chartHeight - taktTime * scaleY + 3} className="text-[8px] font-extrabold fill-red-650">
+              <text x={svgWidth - paddingRight + 4} y={paddingTop + chartHeight - taktTime * scaleY + 3} className="text-[11px] font-extrabold fill-red-650">
                 Takt {taktTime}s
               </text>
             </g>
@@ -1043,7 +1127,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                 strokeWidth={1.5} 
                 strokeDasharray="4,2" 
               />
-              <text x={svgWidth - paddingRight + 4} y={paddingTop + chartHeight - modeVal * scaleY + 3} className="text-[8px] font-extrabold fill-blue-650">
+              <text x={svgWidth - paddingRight + 4} y={paddingTop + chartHeight - modeVal * scaleY + 3} className="text-[11px] font-extrabold fill-blue-650">
                 Mod {modeVal}s
               </text>
             </g>
@@ -1072,7 +1156,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                   opacity={0.8}
                   className="transition-all hover:opacity-100" 
                 />
-                <text x={barX + barWidth / 2} y={barY - 5} textAnchor="middle" className="text-[9px] font-black font-mono" fill={fillCol}>
+                <text x={barX + barWidth / 2} y={barY - 5} textAnchor="middle" className="text-[11px] font-black font-mono" fill={fillCol}>
                   {val}
                 </text>
 
@@ -1085,7 +1169,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                   </g>
                 )}
 
-                <text x={barX + barWidth / 2} y={paddingTop + chartHeight + 14} textAnchor="middle" className="text-[8px] font-black fill-slate-400">
+                <text x={barX + barWidth / 2} y={paddingTop + chartHeight + 14} textAnchor="middle" className="text-[11px] font-black fill-slate-400">
                   Ö{idx + 1}
                 </text>
               </g>
@@ -1159,7 +1243,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
             return (
               <g key={idx}>
                 <line x1={paddingLeft} y1={y} x2={svgWidth - paddingRight} y2={y} stroke="#E2E8F0" strokeWidth={1} strokeDasharray="3,3" />
-                <text x={paddingLeft - 8} y={y + 3} textAnchor="end" className="text-[9px] font-semibold font-mono fill-slate-400">
+                <text x={paddingLeft - 8} y={y + 3} textAnchor="end" className="text-[11px] font-semibold font-mono fill-slate-400">
                   {Math.round(level)}
                 </text>
               </g>
@@ -1178,7 +1262,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                 strokeWidth={1.5} 
                 strokeDasharray="4,2" 
               />
-              <text x={svgWidth - paddingRight + 4} y={paddingTop + chartHeight - taktTime * scaleY + 3} className="text-[8px] font-extrabold fill-red-650">
+              <text x={svgWidth - paddingRight + 4} y={paddingTop + chartHeight - taktTime * scaleY + 3} className="text-[11px] font-extrabold fill-red-650">
                 Takt {taktTime}s
               </text>
             </g>
@@ -1196,7 +1280,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                 strokeWidth={1} 
                 strokeDasharray="2,2" 
               />
-              <text x={svgWidth - paddingRight + 4} y={paddingTop + chartHeight - maxCT * scaleY + 3} className="text-[8px] font-bold fill-red-500">
+              <text x={svgWidth - paddingRight + 4} y={paddingTop + chartHeight - maxCT * scaleY + 3} className="text-[11px] font-bold fill-red-500">
                 Darboğaz {maxCT.toFixed(1)}s
               </text>
             </g>
@@ -1214,7 +1298,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                 strokeWidth={1} 
                 strokeDasharray="2,2" 
               />
-              <text x={svgWidth - paddingRight + 4} y={paddingTop + chartHeight - minCT * scaleY + 3} className="text-[8px] font-bold fill-emerald-600">
+              <text x={svgWidth - paddingRight + 4} y={paddingTop + chartHeight - minCT * scaleY + 3} className="text-[11px] font-bold fill-emerald-600">
                 En Hızlı {minCT.toFixed(1)}s
               </text>
             </g>
@@ -1265,7 +1349,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                     x={barX + barWidth / 2} 
                     y={barY - 4} 
                     textAnchor="middle" 
-                    className="text-[8px] font-black font-mono" 
+                    className="text-[11px] font-black font-mono" 
                     fill={fillCol}
                   >
                     {c.ct > 0 ? c.ct.toFixed(0) : "0"}
@@ -1275,7 +1359,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                   x={barX + barWidth / 2} 
                   y={paddingTop + chartHeight + 11} 
                   textAnchor="middle" 
-                  className={`text-[7px] font-bold ${isActive ? 'fill-blue-600 font-black' : 'fill-slate-400'}`}
+                  className={`text-[11px] font-bold ${isActive ? 'fill-blue-600 font-black' : 'fill-slate-400'}`}
                 >
                   P{idx + 1}
                 </text>
@@ -1366,7 +1450,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
             return (
               <g key={t}>
                 <line x1={tx} y1={paddingTop} x2={tx} y2={paddingTop + chartHeight} stroke="#E2E8F0" strokeWidth={1} />
-                <text x={tx} y={paddingTop + chartHeight + 14} textAnchor="middle" className="text-[9px] font-bold fill-slate-450 font-mono">
+                <text x={tx} y={paddingTop + chartHeight + 14} textAnchor="middle" className="text-[11px] font-bold fill-slate-450 font-mono">
                   {t}s
                 </text>
               </g>
@@ -1620,9 +1704,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
 
   // Save study to historical list
   const handleSaveStudy = () => {
-    const studyId = `std_${Date.now()}`;
-    const newStudy: StudyRecord = {
-      id: studyId,
+    const newStudy: Omit<StudyRecord, "id"> = {
       customerId: selectedCustomer.id,
       lineName: lineName.trim() || "Hat A",
       productName: productName.trim() || "Ürün 1",
@@ -1632,13 +1714,32 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
       processes,
       ccAvail,
       ccDemand,
-      ccEls
+      ccEls,
+      linkedVsmProcessId
     };
 
-    const updated = [newStudy, ...savedStudies];
-    setSavedStudies(updated);
-    localStorage.setItem("gemba_time_studies", JSON.stringify(updated));
-    alert("Zaman etüdü çalışması başarıyla kaydedildi!");
+    fetch("/api/business/time-studies", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "x-factory-id": selectedCustomer.id,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(newStudy)
+    })
+      .then(res => res.json())
+      .then(res => {
+        if (res.success) {
+          setSavedStudies(prev => [res.data as StudyRecord, ...prev]);
+          alert("Zaman etüdü çalışması başarıyla kaydedildi!");
+        } else {
+          alert("Kaydetme başarısız oldu.");
+        }
+      })
+      .catch(err => {
+        console.error("Failed to save Time Study record", err);
+        alert("Kaydetme sırasında bir hata oluştu.");
+      });
   };
 
   // Load study from history
@@ -1654,16 +1755,53 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
     if (record.processes.length > 0) {
       setSelectedProcessId(record.processes[0].id);
     }
+    setLinkedVsmProcessId(record.linkedVsmProcessId || null);
+    setStudySourceMode(record.linkedVsmProcessId ? "vsm" : "standalone");
     setShowHistoryDropdown(false);
+  };
+
+  // Selecting a VSM-saved process/station: if a study was already taken for it before, load the
+  // most recent one so its detailed step-by-step breakdown can be examined/continued; otherwise
+  // start a fresh blank study pre-filled from the VSM record (name, recorded cycle time), keeping
+  // the traceability link so improvements here map back to that exact VSM process.
+  const handleSelectVsmProcess = (processId: string) => {
+    const vsmProc = vsmProcesses.find(p => p.id === processId);
+    if (!vsmProc) return;
+
+    const existing = currentCustomerStudies.find(s => s.linkedVsmProcessId === processId);
+    if (existing) {
+      handleLoadStudy(existing);
+      return;
+    }
+
+    setLineName(vsmProc.name);
+    setProductName(vsmProc.name);
+    setShiftHours(8);
+    setTaktTime(vsmProc.cycleTime > 0 ? vsmProc.cycleTime : 60);
+    setCcAvail(28800);
+    setCcDemand(480);
+    setProcesses([{ id: 1, name: "1. OPERASYON", mct: 0, co: 0, cy: [] }]);
+    setSelectedProcessId(1);
+    setCcEls([]);
+    setLinkedVsmProcessId(processId);
   };
 
   // Delete saved study from history
   const handleDeleteStudy = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!window.confirm("Bu kayıtlı zaman etüdünü silmek istediğinize emin misiniz?")) return;
-    const updated = savedStudies.filter(s => s.id !== id);
-    setSavedStudies(updated);
-    localStorage.setItem("gemba_time_studies", JSON.stringify(updated));
+    fetch(`/api/business/time-studies/${id}`, {
+      method: "DELETE",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "x-factory-id": selectedCustomer.id
+      }
+    })
+      .then(res => res.json())
+      .then(res => {
+        if (res.success) setSavedStudies(prev => prev.filter(s => s.id !== id));
+      })
+      .catch(err => console.error("Failed to delete Time Study record", err));
   };
 
   // New Time Study Action
@@ -1675,28 +1813,12 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
     setCcAvail(28800);
     setCcDemand(480);
     setProcesses([
-      { id: 1, name: "SÜNGER + KOMPONENT HAZ", mct: 0, co: 0, cy: [] },
-      { id: 2, name: "ÖRTÜ GEÇİRME", mct: 0, co: 0, cy: [] },
-      { id: 3, name: "YAY", mct: 0, co: 0, cy: [] },
-      { id: 4, name: "KISA AYAK + ETİKET", mct: 0, co: 0, cy: [] },
-      { id: 5, name: "SUB AYAK PLASTİK", mct: 0, co: 0, cy: [] },
-      { id: 6, name: "AYAK PLASTİK + GENİŞ", mct: 0, co: 0, cy: [] },
-      { id: 7, name: "SUB GENİŞ AYAK PLASTİK", mct: 0, co: 0, cy: [] },
-      { id: 8, name: "PUL TAKMA", mct: 0, co: 0, cy: [] },
-      { id: 9, name: "MİL GEÇİRME", mct: 0, co: 0, cy: [] },
-      { id: 10, name: "MİL PLASTİK PARÇA", mct: 0, co: 0, cy: [] },
-      { id: 11, name: "BURÇ ÇAKMA", mct: 0, co: 0, cy: [] },
-      { id: 12, name: "KALİTE KONTROL", mct: 0, co: 0, cy: [] },
-      { id: 13, name: "ETİKET", mct: 0, co: 0, cy: [] },
-      { id: 14, name: "SHRİNK KONVEYOR", mct: 0, co: 0, cy: [] },
-      { id: 15, name: "SHRİNK", mct: 0, co: 0, cy: [] },
-      { id: 16, name: "VAKUM", mct: 0, co: 0, cy: [] },
-      { id: 17, name: "ETİKET + KUTUYA HAZ.", mct: 0, co: 0, cy: [] },
-      { id: 18, name: "KUTULAMA", mct: 0, co: 0, cy: [] },
-      { id: 19, name: "PAKET", mct: 0, co: 0, cy: [] }
+      { id: 1, name: "1. OPERASYON", mct: 0, co: 0, cy: [] }
     ]);
     setSelectedProcessId(1);
     setCcEls([]);
+    setLinkedVsmProcessId(null);
+    setStudySourceMode("standalone");
     setShowResetConfirm(false);
   };
 
@@ -1824,6 +1946,165 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
     document.body.removeChild(link);
   };
 
+  // Standard Work Combination sheet with a real time-unit Gantt grid, matching the firm's actual
+  // "STANDART ÇALIŞMA" template layout (Parça No/Adı/Tarih header, Hedef C/T & Takt Time, then a
+  // No./Proses Adı/Manuel/Otomatik/Yürüme table followed by a colored time-grid — one column per
+  // time unit, one row per work element, cells shaded by activity type across the span it occupies)
+  // rather than just a flat row-per-element table.
+  const handleExportSwctGanttXls = () => {
+    if (ccEls.length === 0) return;
+    const fileName = `${productName.replace(/\s+/g, "_")}_Standart_Is_Kombinasyon_Semasi.xls`;
+    const numColumns = 44;
+    const totalDuration = Math.max(ccTotals.total, taktTime, 1);
+    const unitPerColumn = totalDuration / numColumns;
+    const sorted = [...resolvedElements].sort((a, b) => a.seq - b.seq);
+
+    let html = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta http-equiv="content-type" content="application/vnd.ms-excel; charset=UTF-8">
+        <style>
+          table { border-collapse: collapse; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+          th { background-color: #0f172a; color: #ffffff; font-weight: bold; border: 1px solid #cbd5e1; padding: 4px; font-size: 9px; }
+          td { border: 1px solid #e2e8f0; padding: 3px; font-size: 9px; }
+          .title { font-size: 16px; font-weight: bold; color: #0f172a; }
+          .metadata { font-size: 11px; color: #334155; }
+          .gcell { width: 10px; }
+        </style>
+      </head>
+      <body>
+        <table>
+          <tr><td colspan="4" class="title">STANDART İŞ KOMBİNASYON TABLOSU</td></tr>
+          <tr><td class="metadata"><b>Parça No.:</b></td><td class="metadata">${selectedCustomer.id}</td><td class="metadata"><b>Tarih:</b></td><td class="metadata">${new Date().toLocaleDateString("tr-TR")}</td></tr>
+          <tr><td class="metadata"><b>Parça Adı:</b></td><td class="metadata">${productName}</td><td class="metadata"><b>Hat:</b></td><td class="metadata">${lineName}</td></tr>
+          <tr><td class="metadata"><b>Hedef C/T:</b></td><td class="metadata">${bottleneckInfo.maxCT.toFixed(1)} sn</td><td class="metadata"><b>Takt Time:</b></td><td class="metadata">${taktTime} sn</td></tr>
+          <tr><td colspan="4"></td></tr>
+          <tr>
+            <th>No.</th>
+            <th style="text-align:left;">Proses Adı</th>
+            <th>Süre (sn)</th>
+            <th>Tip</th>
+            ${Array.from({ length: numColumns }, (_, i) => `<th class="gcell">${((i + 1) * unitPerColumn).toFixed(0)}</th>`).join("")}
+          </tr>
+    `;
+
+    sorted.forEach(el => {
+      const cfg = TYPE_CONFIG[el.type];
+      html += `<tr><td style="text-align:center;">${el.seq}</td><td style="font-weight:bold;color:#334155;">${el.desc}</td><td style="text-align:right;font-family:monospace;">${el.time}</td><td style="text-align:center;">${cfg?.marker || "?"}</td>`;
+      for (let i = 0; i < numColumns; i++) {
+        const colStart = i * unitPerColumn;
+        const colEnd = colStart + unitPerColumn;
+        const isFilled = el.startTime < colEnd && el.endTime > colStart;
+        html += `<td class="gcell" style="background-color:${isFilled ? cfg?.color || "#94a3b8" : "#ffffff"};"></td>`;
+      }
+      html += `</tr>`;
+    });
+
+    html += `
+          <tr><td colspan="4" style="text-align:right;font-weight:bold;">Toplam / Gerçek C/T =</td><td colspan="${numColumns}" style="font-weight:bold;font-family:monospace;">${ccTotals.total.toFixed(1)} sn</td></tr>
+        </table>
+      </body>
+      </html>
+    `;
+
+    const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.setAttribute("download", fileName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Real, styled PDF report (replaces the previous browser-print-only "PDF" button) — mirrors the
+  // dark-header + autoTable pattern used by the other modules' exports (e.g. Loss Capacity Analizi).
+  const handleExportPdf = () => {
+    const doc = new jsPDF();
+    doc.setFont("Helvetica");
+
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, 210, 40, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(16);
+    doc.text("ZAMAN ETÜDÜ & STANDART İŞ ANALİZ RAPORU", 14, 16);
+    doc.setFontSize(10);
+    doc.text(`${selectedCustomer.companyName} | Hat: ${lineName} | Ürün: ${productName}`, 14, 25);
+    doc.text(`Vardiya: ${shiftHours} Saat • Hedef Takt: ${taktTime} sn • Oluşturma Tarihi: ${new Date().toLocaleDateString("tr-TR")}`, 14, 32);
+    if (linkedVsmProcessId) {
+      const vsmName = vsmProcesses.find(p => p.id === linkedVsmProcessId)?.name;
+      doc.setFontSize(9);
+      doc.text(`VSM Bağlantılı Proses: ${vsmName || linkedVsmProcessId}`, 14, 38);
+    }
+
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(12);
+    doc.text("1. PROSES ZAMAN ETÜDÜ & KAPASİTE TABLOSU", 14, 52);
+    autoTable(doc, {
+      head: [["#", "Proses Adımı", "CT (sn)", "Mak. CT (sn)", "C/O Setup (sn)", "Saatlik Kap.", "Vardiya Kap.", "C/O Kayıp (ad)"]],
+      body: processes.map((p, idx) => {
+        const ct = getProcessCT(p);
+        return [
+          `${idx + 1}`,
+          p.name,
+          ct > 0 ? ct.toFixed(1) : "—",
+          p.mct > 0 ? p.mct.toFixed(1) : "—",
+          p.co > 0 ? p.co.toFixed(1) : "—",
+          getHourlyCapacity(ct) > 0 ? `${getHourlyCapacity(ct)} ad` : "—",
+          getShiftCapacity(ct) > 0 ? `${getShiftCapacity(ct)} ad` : "—",
+          getCoLossAmount(p) > 0 ? `${getCoLossAmount(p)} ad` : "—"
+        ];
+      }),
+      startY: 56,
+      theme: "striped",
+      styles: { fontSize: 7.5 },
+      headStyles: { fillColor: [15, 23, 42] }
+    });
+
+    let nextY = (doc as any).lastAutoTable.finalY + 12;
+    doc.setFontSize(12);
+    doc.text(`2. DARBOĞAZ: ${bottleneckInfo.name || "—"} (${bottleneckInfo.maxCT.toFixed(1)} sn)`, 14, nextY);
+
+    if (ccEls.length > 0) {
+      doc.addPage();
+      doc.setFontSize(12);
+      doc.text("3. STANDART İŞ KOMBİNASYON TABLOSU (SWCC)", 14, 16);
+      autoTable(doc, {
+        head: [["Sıra", "Açıklama", "Başlangıç (sn)", "Bitiş (sn)", "Süre (sn)", "Aktivite Tipi", "Mak. Beklemesi"]],
+        body: resolvedElements.map(el => [
+          `${el.seq}`,
+          el.desc,
+          el.startTime.toFixed(1),
+          el.endTime.toFixed(1),
+          el.time.toFixed(1),
+          TYPE_CONFIG[el.type]?.label.split(" (")[0] || el.type,
+          el.hasMachineWaiting ? "Evet" : "Hayır"
+        ]),
+        startY: 20,
+        theme: "striped",
+        styles: { fontSize: 7.5 },
+        headStyles: { fillColor: [15, 23, 42] }
+      });
+
+      const swctY = (doc as any).lastAutoTable.finalY + 12;
+      doc.setFontSize(11);
+      doc.text("Özet Metrikler", 14, swctY);
+      autoTable(doc, {
+        body: [
+          ["Toplam Çevrim Süresi", `${ccTotals.total.toFixed(1)} sn`, "Katma Değerli Oran (VA)", `%${vaPercent.toFixed(1)}`],
+          ["Katma Değersiz Oran (NVA)", `%${nvaPercent.toFixed(1)}`, "Operatör Kullanım Oranı", `%${utilizationPercent.toFixed(1)}`],
+          ["Operatör Boşta Süresi", `${operatorIdleTime.toFixed(1)} sn`, "Makine Bekleme Süresi", `${machineWaitingTime.toFixed(1)} sn`]
+        ],
+        startY: swctY + 4,
+        theme: "grid",
+        styles: { fontSize: 8.5, cellPadding: 3 },
+        columnStyles: { 0: { fontStyle: "bold", fillColor: [240, 240, 240] }, 2: { fontStyle: "bold", fillColor: [240, 240, 240] } }
+      });
+    }
+
+    doc.save(`${productName.replace(/\s+/g, "_")}_Zaman_Etudu_Raporu.pdf`);
+  };
+
   return (
     <div className="space-y-6">
       
@@ -1884,10 +2165,15 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
+                      {study.linkedVsmProcessId && (
+                        <span className="text-[9.5px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.2 rounded-full w-fit mt-0.5 flex items-center gap-0.5">
+                          <Link2 className="w-2.5 h-2.5" /> VSM Bağlantılı
+                        </span>
+                      )}
                       <span className="text-[10px] font-medium text-slate-600 mt-0.5">
                         Ürün: {study.productName} • Takt: {study.taktTime}sn
                       </span>
-                      <span className="text-[9px] text-slate-450 font-semibold mt-1">
+                      <span className="text-[11px] text-slate-450 font-semibold mt-1">
                         Tarih: {study.createdAt}
                       </span>
                     </div>
@@ -1933,6 +2219,99 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
         </div>
       </div>
 
+      {/* STUDY SOURCE: pick a real VSM-saved process/station to trace this study back to, or work
+          standalone outside of any VSM map */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Kaynak:</span>
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+              <button
+                onClick={() => setStudySourceMode("vsm")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  studySourceMode === "vsm" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <Link2 className="w-3.5 h-3.5" /> VSM Prosesinden Seç
+              </button>
+              <button
+                onClick={() => setStudySourceMode("standalone")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  studySourceMode === "standalone" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <Unlink className="w-3.5 h-3.5" /> Bağımsız Çalışma
+              </button>
+            </div>
+          </div>
+          {linkedVsmProcessId && (
+            <span className="text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2.5 py-1 rounded-full flex items-center gap-1">
+              <Link2 className="w-3 h-3" /> VSM Bağlantılı: {vsmProcesses.find(p => p.id === linkedVsmProcessId)?.name || linkedVsmProcessId}
+            </span>
+          )}
+        </div>
+
+        {studySourceMode === "vsm" && (
+          vsmProcesses.length === 0 ? (
+            <p className="text-xs text-slate-400 italic">
+              Bu müşteri için VSM'de kayıtlı proses/istasyon bulunamadı. Önce VSM Kapasite Analizi modülünde bir akış oluşturun.
+            </p>
+          ) : (
+            <select
+              value={linkedVsmProcessId || ""}
+              onChange={(e) => e.target.value && handleSelectVsmProcess(e.target.value)}
+              className="w-full sm:w-auto px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-sky-500 focus:bg-white"
+            >
+              <option value="" disabled>VSM'de kayıtlı bir proses/istasyon seçin...</option>
+              {vsmProcesses.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name} {p.cycleTime > 0 ? `(C/T: ${p.cycleTime}s)` : ""}
+                </option>
+              ))}
+            </select>
+          )
+        )}
+      </div>
+
+      {/* VSM-LINKED C/T TREND: shows how the bottleneck cycle time for this VSM process changed
+          across every study taken against it over time, so kaizen impact is visible directly. */}
+      {vsmLinkedTrend.length >= 2 && (() => {
+        const maxVal = Math.max(...vsmLinkedTrend.map(t => Math.max(t.bottleneckCT, t.taktTime)), 1);
+        const first = vsmLinkedTrend[0];
+        const last = vsmLinkedTrend[vsmLinkedTrend.length - 1];
+        const changePercent = first.bottleneckCT > 0 ? ((last.bottleneckCT - first.bottleneckCT) / first.bottleneckCT) * 100 : 0;
+        return (
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-sky-600" />
+                <span className="text-xs font-black text-slate-900 uppercase">VSM Bağlantılı Darboğaz C/T Trendi</span>
+              </div>
+              <span className={`text-[11px] font-black px-2 py-0.5 rounded-full ${
+                changePercent < 0 ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : changePercent > 0 ? "bg-rose-50 text-rose-700 border border-rose-200" : "bg-slate-50 text-slate-500 border border-slate-200"
+              }`}>
+                {changePercent === 0 ? "Değişim yok" : `${changePercent > 0 ? "+" : ""}${changePercent.toFixed(1)}% (${first.bottleneckCT.toFixed(1)}s → ${last.bottleneckCT.toFixed(1)}s)`}
+              </span>
+            </div>
+            <div className="flex items-end gap-3 h-32 pt-2 overflow-x-auto">
+              {vsmLinkedTrend.map((t, i) => (
+                <div key={t.id} className="flex flex-col items-center gap-1 shrink-0 w-16">
+                  <span className="text-[10px] font-black font-mono text-slate-700">{t.bottleneckCT.toFixed(1)}s</span>
+                  <div className="w-8 bg-slate-100 rounded-t-md relative flex items-end" style={{ height: "80px" }}>
+                    <div
+                      className={`w-full rounded-t-md ${t.bottleneckCT > t.taktTime ? "bg-rose-500" : "bg-emerald-500"}`}
+                      style={{ height: `${Math.max(4, (t.bottleneckCT / maxVal) * 80)}px` }}
+                    />
+                  </div>
+                  <span className="text-[9px] text-slate-400 font-mono">#{i + 1}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-400">Kırmızı = darboğaz C/T takt zamanının üzerinde • Yeşil = takt zamanı içinde. Her çubuk bu VSM prosesi için kaydedilmiş bir zaman etüdü çalışmasını temsil eder (soldan sağa kronolojik).</p>
+          </div>
+        );
+      })()}
+
       {/* PARAMETERS CONFIGURATION BAR */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div>
@@ -1973,7 +2352,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
         </div>
       </div>
 
-      {/* METOT MÜHENDİSLİĞİ - PROSES İŞ AKIŞ ŞEMASI (PROCESS FLOWCHART - AT THE TOP OF THE PAGE) */}
+      {/* PROSES İŞ AKIŞ ŞEMASI (PROCESS FLOWCHART - AT THE TOP OF THE PAGE) */}
       {renderProcessFlowchart(false)}
 
       {/* MAIN TWO TABS */}
@@ -2043,7 +2422,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
             {/* Quick Process Step Adder Row (Moved above list table) */}
             <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 flex flex-wrap gap-3 items-end">
               <div className="flex-1 min-w-[160px]">
-                <label className="text-[9px] font-black uppercase text-slate-400">Proses Adı</label>
+                <label className="text-[11px] font-black uppercase text-slate-400">Proses Adı</label>
                 <input
                   type="text"
                   placeholder="örn: BURÇ ÇAKMA"
@@ -2053,7 +2432,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                 />
               </div>
               <div className="w-24">
-                <label className="text-[9px] font-black uppercase text-slate-400">Mak. CT (sn)</label>
+                <label className="text-[11px] font-black uppercase text-slate-400">Mak. CT (sn)</label>
                 <input
                   type="number"
                   placeholder="0"
@@ -2063,7 +2442,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                 />
               </div>
               <div className="w-24">
-                <label className="text-[9px] font-black uppercase text-slate-400">C/O (sn)</label>
+                <label className="text-[11px] font-black uppercase text-slate-400">C/O (sn)</label>
                 <input
                   type="number"
                   placeholder="0"
@@ -2083,7 +2462,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
             {/* List Table */}
             <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white max-h-120 shadow-inner">
               <table className="w-full text-left border-collapse text-xs text-slate-800">
-                <thead className="bg-slate-50 text-slate-500 font-extrabold sticky top-0 uppercase text-[9px] tracking-widest border-b border-slate-200 z-10">
+                <thead className="bg-slate-50 text-slate-500 font-extrabold sticky top-0 uppercase text-[11px] tracking-widest border-b border-slate-200 z-10">
                   <tr>
                     <th className="p-3 w-12 text-center">#</th>
                     <th className="p-3 w-10 text-center">Sırala</th>
@@ -2147,15 +2526,15 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                         </td>
                         <td className="p-3 text-center">
                           {isBn ? (
-                            <span className="text-[9px] bg-red-100 text-red-800 px-2.5 py-0.5 rounded-full font-extrabold uppercase">
+                            <span className="text-[11px] bg-red-100 text-red-800 px-2.5 py-0.5 rounded-full font-extrabold uppercase">
                               Darboğaz
                             </span>
                           ) : ct > taktTime ? (
-                            <span className="text-[9px] bg-amber-100 text-amber-850 px-2.5 py-0.5 rounded-full font-extrabold uppercase">
+                            <span className="text-[11px] bg-amber-100 text-amber-850 px-2.5 py-0.5 rounded-full font-extrabold uppercase">
                               Kritik
                             </span>
                           ) : (
-                            <span className="text-[9px] bg-emerald-100 text-emerald-850 px-2.5 py-0.5 rounded-full font-extrabold uppercase">
+                            <span className="text-[11px] bg-emerald-100 text-emerald-850 px-2.5 py-0.5 rounded-full font-extrabold uppercase">
                               Normal
                             </span>
                           )}
@@ -2199,7 +2578,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                   <h5 className="text-[10px] font-black uppercase text-slate-800 tracking-wide">
                     Tüm Proseslerin Çevrim Süreleri Karşılaştırması
                   </h5>
-                  <span className="text-[9px] text-slate-450 block font-semibold">
+                  <span className="text-[11px] text-slate-450 block font-semibold">
                     Darboğaz ve En Hızlı Proses Arasındaki Gapler (Seçmek için sütunlara tıklayın)
                   </span>
                 </div>
@@ -2229,7 +2608,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                   <h5 className="text-[10px] font-black uppercase text-slate-800 tracking-wide">
                     Aktif Proses Çevrim Dağılım Grafiği
                   </h5>
-                  <span className="text-[9px] text-slate-450 block font-semibold font-sans">Min/Max Sapma &amp; En Çok Tekrar Eden Çevrim Süresi (Mod)</span>
+                  <span className="text-[11px] text-slate-450 block font-semibold font-sans">Min/Max Sapma &amp; En Çok Tekrar Eden Çevrim Süresi (Mod)</span>
                 </div>
                 {activeProcess && activeProcess.cy.length > 0 && (
                   <button
@@ -2264,25 +2643,25 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
               {/* Stats Panel */}
               <div className="grid grid-cols-4 gap-1 text-center bg-slate-50 p-2 rounded-xl border border-slate-200/80">
                 <div className="border-r border-slate-200 last:border-0 py-1">
-                  <span className="text-[9px] font-extrabold text-slate-400 uppercase">Min</span>
+                  <span className="text-[11px] font-extrabold text-slate-400 uppercase">Min</span>
                   <div className="text-xs font-black text-emerald-600 font-mono mt-0.5">
                     {activeProcess?.cy.length > 0 ? `${Math.min(...activeProcess.cy)}s` : "—"}
                   </div>
                 </div>
                 <div className="border-r border-slate-200 last:border-0 py-1">
-                  <span className="text-[9px] font-extrabold text-slate-400 uppercase">Max</span>
+                  <span className="text-[11px] font-extrabold text-slate-400 uppercase">Max</span>
                   <div className="text-xs font-black text-red-500 font-mono mt-0.5">
                     {activeProcess?.cy.length > 0 ? `${Math.max(...activeProcess.cy)}s` : "—"}
                   </div>
                 </div>
                 <div className="border-r border-slate-200 last:border-0 py-1">
-                  <span className="text-[9px] font-extrabold text-slate-400 uppercase">Ort</span>
+                  <span className="text-[11px] font-extrabold text-slate-400 uppercase">Ort</span>
                   <div className="text-xs font-black text-slate-700 font-mono mt-0.5">
                     {activeProcess?.cy.length > 0 ? `${getAvg(activeProcess.cy).toFixed(1)}s` : "—"}
                   </div>
                 </div>
                 <div className="py-1">
-                  <span className="text-[9px] font-extrabold text-slate-400 uppercase">Gözlem</span>
+                  <span className="text-[11px] font-extrabold text-slate-400 uppercase">Gözlem</span>
                   <div className="text-xs font-black text-rose-600 font-mono mt-0.5">
                     {activeProcess?.cy.length || 0}
                   </div>
@@ -2291,7 +2670,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
 
               {/* Mode indicator */}
               <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-center">
-                <span className="text-[9px] font-black text-slate-400 uppercase block tracking-widest">Mod Değeri (CT Referansı)</span>
+                <span className="text-[11px] font-black text-slate-400 uppercase block tracking-widest">Mod Değeri (CT Referansı)</span>
                 <span className="text-2xl font-black text-indigo-600 font-mono block mt-0.5">
                   {getMode(activeProcess?.cy) || "—"}<span className="text-xs font-semibold ml-0.5">sn</span>
                 </span>
@@ -2300,8 +2679,8 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
               {/* Chip list of cycles with removal */}
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center">
-                  <span className="text-[9px] font-black uppercase text-slate-400">Gözlem Listesi</span>
-                  <span className="text-[9px] text-slate-400 italic">Yıldızlı = Referans Mod</span>
+                  <span className="text-[11px] font-black uppercase text-slate-400">Gözlem Listesi</span>
+                  <span className="text-[11px] text-slate-400 italic">Yıldızlı = Referans Mod</span>
                 </div>
                 {activeProcess?.cy.length === 0 ? (
                   <span className="text-xs text-slate-400 italic block">Henüz ölçüm girilmemiş.</span>
@@ -2319,7 +2698,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                           }`}
                         >
                           <span>{val}sn</span>
-                          {isMode && <span className="text-[9px] text-blue-500">★</span>}
+                          {isMode && <span className="text-[11px] text-blue-500">★</span>}
                           <button
                             onClick={() => handleRemoveCycle(idx)}
                             className="hover:text-red-600 font-bold ml-1 text-slate-400"
@@ -2363,7 +2742,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
               <div className="pt-3 border-t border-slate-100 space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[9px] font-black text-slate-450 uppercase block">Makine CT (sn)</label>
+                    <label className="text-[11px] font-black text-slate-450 uppercase block">Makine CT (sn)</label>
                     <input
                       type="number"
                       className="w-full mt-1 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs font-mono"
@@ -2372,7 +2751,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                     />
                   </div>
                   <div>
-                    <label className="text-[9px] font-black text-slate-450 uppercase block">C/O Setup (sn)</label>
+                    <label className="text-[11px] font-black text-slate-450 uppercase block">C/O Setup (sn)</label>
                     <input
                       type="number"
                       className="w-full mt-1 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs font-mono"
@@ -2387,37 +2766,37 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
             {/* Metrics Bento grid */}
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-white border border-slate-200 p-3.5 rounded-2xl shadow-xs">
-                <span className="text-[9px] font-black uppercase text-blue-500 tracking-wider">Manuel CT</span>
+                <span className="text-[11px] font-black uppercase text-blue-500 tracking-wider">Manuel CT</span>
                 <div className="text-base font-black font-mono text-blue-700 mt-1">
                   {getMode(activeProcess?.cy) ? `${getMode(activeProcess?.cy)} sn` : "—"}
                 </div>
-                <span className="text-[9px] text-slate-400 font-semibold block mt-1">Operatör çevrimi</span>
+                <span className="text-[11px] text-slate-400 font-semibold block mt-1">Operatör çevrimi</span>
               </div>
               <div className="bg-white border border-slate-200 p-3.5 rounded-2xl shadow-xs">
-                <span className="text-[9px] font-black uppercase text-cyan-600 tracking-wider">Makine CT</span>
+                <span className="text-[11px] font-black uppercase text-cyan-600 tracking-wider">Makine CT</span>
                 <div className="text-base font-black font-mono text-cyan-700 mt-1">
                   {activeProcess?.mct ? `${activeProcess.mct} sn` : "—"}
                 </div>
-                <span className="text-[9px] text-slate-400 font-semibold block mt-1">Otomatik makine</span>
+                <span className="text-[11px] text-slate-400 font-semibold block mt-1">Otomatik makine</span>
               </div>
               <div className="bg-white border border-slate-200 p-3.5 rounded-2xl shadow-xs">
-                <span className="text-[9px] font-black uppercase text-emerald-600 tracking-wider">Saatlik Kapasite</span>
+                <span className="text-[11px] font-black uppercase text-emerald-600 tracking-wider">Saatlik Kapasite</span>
                 <div className="text-base font-black font-mono text-emerald-700 mt-1">
                   {getProcessCT(activeProcess) ? `${getHourlyCapacity(getProcessCT(activeProcess))} ad` : "—"}
                 </div>
               </div>
               <div className="bg-white border border-slate-200 p-3.5 rounded-2xl shadow-xs">
-                <span className="text-[9px] font-black uppercase text-purple-600 tracking-wider">Vardiya Kapasite</span>
+                <span className="text-[11px] font-black uppercase text-purple-600 tracking-wider">Vardiya Kapasite</span>
                 <div className="text-base font-black font-mono text-purple-700 mt-1">
                   {getProcessCT(activeProcess) ? `${getShiftCapacity(getProcessCT(activeProcess))} ad` : "—"}
                 </div>
               </div>
               <div className="bg-white border border-slate-200 p-3.5 rounded-2xl shadow-xs col-span-2">
-                <span className="text-[9px] font-black uppercase text-orange-600 tracking-wider">C/O Kayıp Miktar</span>
+                <span className="text-[11px] font-black uppercase text-orange-600 tracking-wider">C/O Kayıp Miktar</span>
                 <div className="text-base font-black font-mono text-orange-700 mt-1">
                   {getCoLossAmount(activeProcess) ? `${getCoLossAmount(activeProcess)} adet` : "—"}
                 </div>
-                <span className="text-[9px] text-slate-450 font-semibold block mt-1">Setup / Model değişiminde kaybedilen üretim</span>
+                <span className="text-[11px] text-slate-450 font-semibold block mt-1">Setup / Model değişiminde kaybedilen üretim</span>
               </div>
             </div>
           </div>
@@ -2445,7 +2824,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[9px] font-black text-slate-400 uppercase">Çalışma Süresi (sn/var.)</label>
+                  <label className="text-[11px] font-black text-slate-400 uppercase">Çalışma Süresi (sn/var.)</label>
                   <input
                     type="number"
                     className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-black"
@@ -2454,7 +2833,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                   />
                 </div>
                 <div>
-                  <label className="text-[9px] font-black text-slate-400 uppercase">Müşteri Talebi (ad/var.)</label>
+                  <label className="text-[11px] font-black text-slate-400 uppercase">Müşteri Talebi (ad/var.)</label>
                   <input
                     type="number"
                     className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-black"
@@ -2530,7 +2909,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
 
                   <div className="grid grid-cols-3 gap-2">
                     <div className="col-span-1">
-                      <label className="text-[9px] font-bold text-slate-500 block">Sıra No</label>
+                      <label className="text-[11px] font-bold text-slate-500 block">Sıra No</label>
                       <input
                         type="number"
                         placeholder="Sıra"
@@ -2540,7 +2919,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                       />
                     </div>
                     <div className="col-span-2">
-                      <label className="text-[9px] font-bold text-slate-500 block">Süre (sn)</label>
+                      <label className="text-[11px] font-bold text-slate-500 block">Süre (sn)</label>
                       <input
                         type="number"
                         step="0.1"
@@ -2553,7 +2932,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                   </div>
 
                   <div>
-                    <label className="text-[9px] font-bold text-slate-500 block">İş Açıklaması</label>
+                    <label className="text-[11px] font-bold text-slate-500 block">İş Açıklaması</label>
                     <input
                       type="text"
                       placeholder="örn: Gövde parçasını yerleştirme"
@@ -2565,7 +2944,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-[9px] font-bold text-slate-500 block">Aktivite Tipi</label>
+                      <label className="text-[11px] font-bold text-slate-500 block">Aktivite Tipi</label>
                       <select
                         className="w-full mt-1 px-2 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:border-rose-500 cursor-pointer"
                         value={elType}
@@ -2581,7 +2960,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                     </div>
 
                     <div>
-                      <label className="text-[9px] font-bold text-slate-500 block">Çalışma Modu</label>
+                      <label className="text-[11px] font-bold text-slate-500 block">Çalışma Modu</label>
                       <select
                         className="w-full mt-1 px-2 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:border-rose-500 cursor-pointer"
                         value={elOperationMode}
@@ -2595,7 +2974,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-[9px] font-bold text-slate-500 block">Operatör</label>
+                      <label className="text-[11px] font-bold text-slate-500 block">Operatör</label>
                       <input
                         type="text"
                         placeholder="Örn: Operatör 1"
@@ -2605,7 +2984,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                       />
                     </div>
                     <div>
-                      <label className="text-[9px] font-bold text-slate-500 block">İstasyon</label>
+                      <label className="text-[11px] font-bold text-slate-500 block">İstasyon</label>
                       <input
                         type="text"
                         placeholder="Örn: İstasyon A"
@@ -2618,7 +2997,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
 
                   {elOperationMode === "parallel" && (
                     <div className="bg-sky-50 border border-sky-150 p-2.5 rounded-xl">
-                      <label className="text-[9px] font-extrabold text-sky-800 block uppercase">Başlangıç Zamanı Override (sn)</label>
+                      <label className="text-[11px] font-extrabold text-sky-800 block uppercase">Başlangıç Zamanı Override (sn)</label>
                       <input
                         type="number"
                         step="0.1"
@@ -2634,7 +3013,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                   {elType === "machine" && (
                     <div className="space-y-2 bg-slate-100 border border-slate-250 p-2.5 rounded-xl">
                       <div>
-                        <label className="text-[9px] font-bold text-slate-500 block">Makine / Robot İsmi</label>
+                        <label className="text-[11px] font-bold text-slate-500 block">Makine / Robot İsmi</label>
                         <input
                           type="text"
                           placeholder="Örn: CNC Pres, Robot A"
@@ -2745,7 +3124,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                     <span className="text-2xl font-black text-emerald-700 block mt-1">
                       {vaPercent}%
                     </span>
-                    <span className="text-[9px] text-slate-500 font-semibold block mt-1">
+                    <span className="text-[11px] text-slate-500 font-semibold block mt-1">
                       Katma Değerli: {(ccTotals.manual + ccTotals.parallel).toFixed(1)} sn
                     </span>
                   </div>
@@ -2755,7 +3134,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                     <span className="text-2xl font-black text-red-700 block mt-1">
                       {nvaPercent}%
                     </span>
-                    <span className="text-[9px] text-slate-500 font-semibold block mt-1">
+                    <span className="text-[11px] text-slate-500 font-semibold block mt-1">
                       İsraf / Kayıplar: {(ccTotals.walking + ccTotals.waiting + ccTotals.inspection).toFixed(1)} sn
                     </span>
                   </div>
@@ -2812,11 +3191,11 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
             {comboSubTab === "insights" && (
               <div className="p-4 space-y-4 flex-1 overflow-y-auto">
                 <div className="flex justify-between items-center">
-                  <span className="text-[10px] font-black uppercase text-slate-450 tracking-wider">Metod Mühendisliği Kaizen Önerileri</span>
+                  <span className="text-[10px] font-black uppercase text-slate-450 tracking-wider">AI Kaizen Önerileri</span>
                   <button
                     onClick={handleAnalyzeSwctWithAi}
                     disabled={isAiAnalyzing || ccEls.length === 0}
-                    className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-extrabold text-[9px] py-1 px-2.5 rounded-lg transition-colors flex items-center space-x-1 uppercase"
+                    className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-extrabold text-[11px] py-1 px-2.5 rounded-lg transition-colors flex items-center space-x-1 uppercase"
                   >
                     <Sparkles className="w-3 h-3 text-indigo-200" />
                     <span>{isAiAnalyzing ? "Analiz Ediliyor..." : "AI Mühendis Analizi"}</span>
@@ -2828,7 +3207,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                   <div className="bg-indigo-50/50 border border-indigo-200/80 rounded-2xl p-3.5 space-y-2 text-slate-800">
                     <div className="flex items-center space-x-1.5 text-xs text-indigo-850 font-extrabold uppercase border-b border-indigo-150 pb-1.5 mb-1.5">
                       <Sparkles className="w-4 h-4 text-indigo-600 animate-pulse" />
-                      <span>Gemini AI Metod Mühendisi Raporu</span>
+                      <span>Gemini AI Analiz Raporu</span>
                     </div>
                     <div className="prose prose-sm prose-indigo text-[11px] leading-relaxed max-h-72 overflow-y-auto pr-1 select-text scrollbar-thin">
                       <Markdown>{swctAiReport}</Markdown>
@@ -2899,32 +3278,32 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
             {/* KPI statistics panel */}
             <div className="grid grid-cols-2 sm:grid-cols-5 lg:grid-cols-5 xl:grid-cols-7 gap-3">
               <div className="bg-white border border-slate-200 p-3 rounded-2xl shadow-xs">
-                <span className="text-[9px] font-black uppercase text-blue-500 block leading-none">Manuel</span>
+                <span className="text-[11px] font-black uppercase text-blue-500 block leading-none">Manuel</span>
                 <span className="text-sm font-black text-slate-800 font-mono block mt-1.5">{ccTotals.manual.toFixed(1)}s</span>
                 <span className="text-[8.5px] text-slate-450 font-bold block mt-1">{ccTotals.total > 0 ? ((ccTotals.manual / ccTotals.total) * 100).toFixed(1) : 0}%</span>
               </div>
               <div className="bg-white border border-slate-200 p-3 rounded-2xl shadow-xs">
-                <span className="text-[9px] font-black uppercase text-purple-600 block leading-none">Yürüme</span>
+                <span className="text-[11px] font-black uppercase text-purple-600 block leading-none">Yürüme</span>
                 <span className="text-sm font-black text-slate-800 font-mono block mt-1.5">{ccTotals.walking.toFixed(1)}s</span>
                 <span className="text-[8.5px] text-slate-450 font-bold block mt-1">{ccTotals.total > 0 ? ((ccTotals.walking / ccTotals.total) * 100).toFixed(1) : 0}%</span>
               </div>
               <div className="bg-white border border-slate-200 p-3 rounded-2xl shadow-xs">
-                <span className="text-[9px] font-black uppercase text-cyan-600 block leading-none">Makine</span>
+                <span className="text-[11px] font-black uppercase text-cyan-600 block leading-none">Makine</span>
                 <span className="text-sm font-black text-slate-800 font-mono block mt-1.5">{ccTotals.machine.toFixed(1)}s</span>
                 <span className="text-[8.5px] text-slate-450 font-bold block mt-1">{ccTotals.total > 0 ? ((ccTotals.machine / ccTotals.total) * 100).toFixed(1) : 0}%</span>
               </div>
               <div className="bg-white border border-slate-200 p-3 rounded-2xl shadow-xs">
-                <span className="text-[9px] font-black uppercase text-rose-500 block leading-none">Bekleme</span>
+                <span className="text-[11px] font-black uppercase text-rose-500 block leading-none">Bekleme</span>
                 <span className="text-sm font-black text-slate-800 font-mono block mt-1.5">{ccTotals.waiting.toFixed(1)}s</span>
                 <span className="text-[8.5px] text-slate-450 font-bold block mt-1">{ccTotals.total > 0 ? ((ccTotals.waiting / ccTotals.total) * 100).toFixed(1) : 0}%</span>
               </div>
               <div className="bg-white border border-slate-200 p-3 rounded-2xl shadow-xs">
-                <span className="text-[9px] font-black uppercase text-amber-500 block leading-none">Kontrol</span>
+                <span className="text-[11px] font-black uppercase text-amber-500 block leading-none">Kontrol</span>
                 <span className="text-sm font-black text-slate-800 font-mono block mt-1.5">{ccTotals.inspection.toFixed(1)}s</span>
                 <span className="text-[8.5px] text-slate-450 font-bold block mt-1">{ccTotals.total > 0 ? ((ccTotals.inspection / ccTotals.total) * 100).toFixed(1) : 0}%</span>
               </div>
               <div className="bg-white border border-slate-200 p-3 rounded-2xl shadow-xs">
-                <span className="text-[9px] font-black uppercase text-emerald-500 block leading-none">Paralel</span>
+                <span className="text-[11px] font-black uppercase text-emerald-500 block leading-none">Paralel</span>
                 <span className="text-sm font-black text-slate-800 font-mono block mt-1.5">{ccTotals.parallel.toFixed(1)}s</span>
                 <span className="text-[8.5px] text-slate-450 font-bold block mt-1">{ccTotals.total > 0 ? ((ccTotals.parallel / ccTotals.total) * 100).toFixed(1) : 0}%</span>
               </div>
@@ -2939,11 +3318,11 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                       ? "bg-amber-50 border-amber-200 text-amber-800"
                       : "bg-emerald-50 border-emerald-200 text-emerald-800"
               }`}>
-                <span className="text-[9px] font-black uppercase block tracking-wider leading-none">Takt Durumu</span>
+                <span className="text-[11px] font-black uppercase block tracking-wider leading-none">Takt Durumu</span>
                 <span className="text-sm font-black block mt-1.5 font-mono">
                   {ccTotals.total.toFixed(1)}s
                 </span>
-                <span className="text-[8px] font-extrabold block mt-1">
+                <span className="text-[11px] font-extrabold block mt-1">
                   {ccTotals.total === 0 
                     ? "Eleman ekle"
                     : ccTotals.total > calcTakt * 1.02
@@ -2998,7 +3377,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
 
                   {/* Zoom Controller */}
                   <div className="flex items-center space-x-2 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
-                    <span className="text-[9px] font-black text-slate-500 font-mono">ZOOM: {zoomLevel}%</span>
+                    <span className="text-[11px] font-black text-slate-500 font-mono">ZOOM: {zoomLevel}%</span>
                     <input 
                       type="range" 
                       min="50" 
@@ -3032,14 +3411,14 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
 
             {/* Actions Bar */}
             <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-xs flex flex-wrap gap-2.5 justify-between items-center">
-              <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Metod Mühendisliği İşlemleri:</span>
+              <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Rapor İşlemleri:</span>
               <div className="flex flex-wrap gap-2">
                 <button
-                  onClick={() => window.print()}
+                  onClick={handleExportPdf}
                   className="bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold text-xs py-1.5 px-3.5 rounded-xl flex items-center space-x-1 shadow-2xs transition"
                 >
                   <Printer className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Yazdır / PDF Raporu</span>
+                  <span>PDF Raporu İndir</span>
                 </button>
                 <button
                   onClick={handleDownloadXLS}
@@ -3047,6 +3426,15 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                 >
                   <Download className="w-3.5 h-3.5 text-slate-500" />
                   <span>Kombinasyon XLS Çıktısı</span>
+                </button>
+                <button
+                  onClick={handleExportSwctGanttXls}
+                  disabled={ccEls.length === 0}
+                  className="bg-indigo-50 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed text-indigo-700 border border-indigo-200 font-bold text-xs py-1.5 px-3.5 rounded-xl flex items-center space-x-1 shadow-2xs transition"
+                  title="Firma standart 'Standart İş Kombinasyon Tablosu' şablonuyla birebir uyumlu, zaman birimli Gantt ızgaralı XLS çıktısı"
+                >
+                  <BarChart3 className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Standart İş Kombinasyon Şeması (Gantt XLS)</span>
                 </button>
               </div>
             </div>
@@ -3094,7 +3482,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
               <div className="grid grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-1">
                 {Array.from({ length: modalCycleCount }).map((_, idx) => (
                   <div key={idx}>
-                    <label className="text-[9px] font-black text-slate-450 uppercase">Çevrim {idx + 1}</label>
+                    <label className="text-[11px] font-black text-slate-450 uppercase">Çevrim {idx + 1}</label>
                     <input
                       type="number"
                       placeholder="sn"
@@ -3172,7 +3560,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
               {/* Quick Process Step Adder Row */}
               <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 flex flex-wrap gap-3 items-end">
                 <div className="flex-1 min-w-[200px]">
-                  <label className="text-[9px] font-black uppercase text-slate-450">Proses Adı</label>
+                  <label className="text-[11px] font-black uppercase text-slate-450">Proses Adı</label>
                   <input
                     type="text"
                     placeholder="örn: BURÇ ÇAKMA"
@@ -3182,7 +3570,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                   />
                 </div>
                 <div className="w-28">
-                  <label className="text-[9px] font-black uppercase text-slate-450">Mak. CT (sn)</label>
+                  <label className="text-[11px] font-black uppercase text-slate-450">Mak. CT (sn)</label>
                   <input
                     type="number"
                     placeholder="0"
@@ -3192,7 +3580,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                   />
                 </div>
                 <div className="w-28">
-                  <label className="text-[9px] font-black uppercase text-slate-450">C/O (sn)</label>
+                  <label className="text-[11px] font-black uppercase text-slate-450">C/O (sn)</label>
                   <input
                     type="number"
                     placeholder="0"
@@ -3212,7 +3600,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
               {/* Table list */}
               <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-inner">
                 <table className="w-full text-left border-collapse text-xs text-slate-800">
-                  <thead className="bg-slate-50 text-slate-500 font-extrabold sticky top-0 uppercase text-[9px] tracking-widest border-b border-slate-200 z-10">
+                  <thead className="bg-slate-50 text-slate-500 font-extrabold sticky top-0 uppercase text-[11px] tracking-widest border-b border-slate-200 z-10">
                     <tr>
                       <th className="p-4 w-12 text-center">#</th>
                       <th className="p-4 w-10 text-center">Sırala</th>
@@ -3276,15 +3664,15 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
                           </td>
                           <td className="p-4 text-center">
                             {isBn ? (
-                              <span className="text-[9px] bg-red-100 text-red-800 px-2.5 py-0.5 rounded-full font-extrabold uppercase">
+                              <span className="text-[11px] bg-red-100 text-red-800 px-2.5 py-0.5 rounded-full font-extrabold uppercase">
                                 Darboğaz
                               </span>
                             ) : ct > taktTime ? (
-                              <span className="text-[9px] bg-amber-100 text-amber-850 px-2.5 py-0.5 rounded-full font-extrabold uppercase">
+                              <span className="text-[11px] bg-amber-100 text-amber-850 px-2.5 py-0.5 rounded-full font-extrabold uppercase">
                                 Kritik
                               </span>
                             ) : (
-                              <span className="text-[9px] bg-emerald-100 text-emerald-850 px-2.5 py-0.5 rounded-full font-extrabold uppercase">
+                              <span className="text-[11px] bg-emerald-100 text-emerald-850 px-2.5 py-0.5 rounded-full font-extrabold uppercase">
                                 Normal
                               </span>
                             )}
@@ -3356,7 +3744,7 @@ export default function TimeStudyPage({ selectedCustomer }: TimeStudyPageProps) 
           <div className="bg-slate-900 text-white p-4 flex justify-between items-center shrink-0 border-b border-slate-800">
             <div className="space-y-0.5">
               <h4 className="text-sm font-black uppercase tracking-tight text-sky-400">
-                METOT MÜHENDİSLİĞİ • PROSES İŞ AKIŞ ŞEMASI (TAM EKRAN GÖRÜNÜM)
+                PROSES İŞ AKIŞ ŞEMASI (TAM EKRAN GÖRÜNÜM)
               </h4>
               <p className="text-[10px] text-slate-400 font-semibold">
                 Ürün: {productName} • Hat: {lineName} • Toplam {processes.length} Operasyon

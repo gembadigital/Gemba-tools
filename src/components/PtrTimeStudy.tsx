@@ -1,17 +1,15 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { 
   FileSpreadsheet, Search, PlusCircle, Trash2, Edit, Download, Upload, 
   Check, X, RefreshCw, Layers, TrendingUp, AlertCircle, HelpCircle, 
   Calendar, CheckCircle, Clock, Percent, DollarSign, ArrowRight, Table, BarChart2,
   Save, Copy, FileText, User, ChevronRight, Award, Flame, Zap, Maximize2, Minimize2,
-  Filter, FilePlus, Sparkles
+  Filter, FilePlus, Sparkles, Mail
 } from "lucide-react";
-import {
-  ResponsiveContainer, PieChart, Pie, Cell,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend
-} from "recharts";
+import { PieChart, Pie, Cell } from "recharts";
 import { useFactory } from "../context/FactoryContext";
 import OpexProjectDashboard from "./OpexProjectDashboard";
+import * as XLSX from "xlsx";
 
 // CSV Data represented compactly as a single string to avoid token bloat
 const RAW_EXCEL_CSV = `25;16.06.2026;A3;VERİMLİLİK ;A3 EĞİTİMİNE KATILAN ARKADAŞLAR KENDİ ALANLARINDAN KİŞİ BAŞI EN AZ BİR ADET PROJE KONUSU BELİRLEYECEK;VERİMLİLİK;Gözde Tohumci;Açık;22.06.2026;;ZAMANINDA;A3; ;;;;2026;1
@@ -131,7 +129,7 @@ export interface ProjectRecord {
   workDone: string;
   output: string;
   responsible: string;
-  status: string; // 'Açık' | 'Devam Ediyor' | 'Kapalı'
+  status: string; // 'Açık' | 'Devam Ediyor' | 'Kapalı' | 'İptal' | 'Yapılmadı'
   dueDate: string;
   actualDate: string;
   compliance: string; // 'ZAMANINDA' | 'GECİKME'
@@ -144,29 +142,19 @@ export interface ProjectRecord {
   orderNo: number;
 }
 
+// Statuses that must NOT count toward project progress (cancelled or never carried out).
+export const EXCLUDED_STATUSES = ["İptal", "Yapılmadı"];
+export const STATUS_OPTIONS = ["Açık", "Devam Ediyor", "Kapalı", "İptal", "Yapılmadı"];
+
 // Initial data decoding function
 const parseSeedData = (): ProjectRecord[] => {
   return RAW_EXCEL_CSV.trim().split("\n").map((line, idx) => {
     const parts = line.split(";");
     const status = parts[7]?.trim() || "Açık";
     const orderNo = parts[17] ? parseInt(parts[17].trim()) : (idx + 1);
-    
-    // Seed some realistic savings for a few completed/Kapalı records to showcase the KPI dashboard nicely
-    let savingsAmount = parts[12]?.trim() || "";
-    let kaizenSavings = parts[14]?.trim() || "";
-    if (status === "Kapalı" && !savingsAmount && !kaizenSavings) {
-      if (orderNo % 5 === 0) {
-        savingsAmount = (145000 + (orderNo * 12500)).toString();
-        kaizenSavings = savingsAmount;
-      } else if (orderNo % 3 === 0) {
-        savingsAmount = (95000 + (orderNo * 8200)).toString();
-        kaizenSavings = savingsAmount;
-      } else {
-        savingsAmount = (45000 + (orderNo * 4100)).toString();
-        kaizenSavings = savingsAmount;
-      }
-    }
-    
+    const savingsAmount = parts[12]?.trim() || "";
+    const kaizenSavings = parts[14]?.trim() || "";
+
     return {
       visitedWeek: parts[0]?.trim() || "",
       workDate: parts[1]?.trim() || "",
@@ -189,41 +177,6 @@ const parseSeedData = (): ProjectRecord[] => {
       id: orderNo
     };
   });
-};
-
-// Helper function to map records to departments (bölüm)
-const getDepartment = (record: ProjectRecord): string => {
-  const subject = (record.activitySubject || "").toUpperCase().trim();
-  const resp = (record.responsible || "").toUpperCase().trim();
-  const output = (record.output || "").toUpperCase().trim();
-
-  if (subject.includes("KALİTE") || output.includes("KALİTE") || resp.includes("PINAR") || resp.includes("SEZAYİ")) return "Kalite Güvence";
-  if (subject.includes("TPM") || resp.includes("BARIŞ")) return "Bakım & Enerji";
-  if (subject.includes("SMED") || subject.includes("STANDART") || resp.includes("ERSAN") || resp.includes("EMRE")) return "Metot / Endüstri Müh.";
-  if (subject.includes("SAHA YÖNETİMİ") || subject.includes("5S") || subject.includes("GÖRSEL") || resp.includes("GÖZDE") || resp.includes("GAMZE")) return "Üretim Sahası";
-  if (output.includes("STOK") || resp.includes("SANEM") || resp.includes("UĞUR") || resp.includes("EMİNE")) return "Planlama & Lojistik";
-  if (subject.includes("EĞİTİM") || resp.includes("KEMAL")) return "Yalın Ofis / İK";
-  return "Mühendislik / Diğer";
-};
-
-// Custom tooltip renderer for Recharts following Power BI styling
-const CustomTooltip = ({ active, payload, label }: any) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className="bg-slate-900 border border-slate-700 text-white p-3 rounded-lg shadow-xl text-xs font-sans z-[1000]">
-        {label && <p className="font-extrabold mb-1.5 border-b border-slate-750 pb-1 text-slate-200">{label}</p>}
-        {payload.map((pld: any, idx: number) => (
-          <p key={idx} className="flex justify-between items-center gap-4 py-0.5">
-            <span className="text-gray-400 font-semibold">{pld.name || "Değer"}:</span>
-            <span className="font-mono font-black" style={{ color: pld.color || pld.fill || '#10b981' }}>
-              {pld.value}
-            </span>
-          </p>
-        ))}
-      </div>
-    );
-  }
-  return null;
 };
 
 // Helper function to parse Turkish dates in formats like DD.MM.YYYY
@@ -249,6 +202,16 @@ const parseTurkishDate = (dateStr: string): Date | null => {
   return null;
 };
 
+// Real termine-uyum calculation: ZAMANINDA if the actual completion date is on/before the due
+// date, GECİKME if after. Falls back to the existing manual value when either date is missing
+// (e.g. legacy imported rows), instead of forcing a value that can't be verified.
+const computeCompliance = (dueDate: string, actualDate: string, fallback: string): string => {
+  const due = parseTurkishDate(dueDate);
+  const actual = parseTurkishDate(actualDate);
+  if (!due || !actual) return fallback;
+  return actual.getTime() <= due.getTime() ? "ZAMANINDA" : "GECİKME";
+};
+
 interface GanttActivity {
   id: string;
   name: string;
@@ -264,12 +227,13 @@ interface GanttActivity {
 
 interface PtrTimeStudyProps {
   activities?: GanttActivity[];
+  onAddActivity?: (activity: any) => Promise<void> | void;
   onUpdateActivity?: (activity: any) => Promise<void> | void;
   onAddKaizen?: (kaizen: any) => Promise<void> | void;
   kaizens?: any[];
 }
 
-export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen, kaizens }: PtrTimeStudyProps) {
+export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivity, onAddKaizen, kaizens }: PtrTimeStudyProps) {
   const { selectedCustomer, globalState, customers } = useFactory();
   const currentUser = globalState?.CurrentUser;
   const currency = selectedCustomer?.currency || "₺";
@@ -299,9 +263,11 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
   const syncActualsToMasterPlan = (updatedRecords: ProjectRecord[]) => {
     if (!activities || !onUpdateActivity) return;
 
-    // 1. Group records by activitySubject & workDone
-    const recordsByActivitySubject: Record<string, { weeks: number[]; minWeek: number; maxWeek: number; totalCount: number }> = {};
-    
+    // 1. Group records by activitySubject & workDone. Adam-gün (man-day) is the count of DISTINCT
+    // visit dates, not the count of action rows — one visit can legitimately produce many action
+    // rows (e.g. 16 SMED actions logged on a single site visit is still 1 man-day, not 16).
+    const recordsByActivitySubject: Record<string, { weeks: number[]; minWeek: number; maxWeek: number; visitDates: Set<string> }> = {};
+
     updatedRecords.forEach(r => {
       const subject = r.activitySubject?.trim();
       if (!subject) return;
@@ -310,7 +276,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
       if (isNaN(weekNum)) return;
 
       if (!recordsByActivitySubject[subject]) {
-        recordsByActivitySubject[subject] = { weeks: [weekNum], minWeek: weekNum, maxWeek: weekNum, totalCount: 1 };
+        recordsByActivitySubject[subject] = { weeks: [weekNum], minWeek: weekNum, maxWeek: weekNum, visitDates: new Set(r.workDate ? [r.workDate] : []) };
       } else {
         const group = recordsByActivitySubject[subject];
         if (!group.weeks.includes(weekNum)) {
@@ -318,22 +284,23 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
         }
         group.minWeek = Math.min(group.minWeek, weekNum);
         group.maxWeek = Math.max(group.maxWeek, weekNum);
-        group.totalCount += 1;
+        if (r.workDate) group.visitDates.add(r.workDate);
       }
     });
 
-    // 2. Iterate through master plan activities and find matching subjects
+    // 2. Iterate through master plan activities and find matching subjects. Case-insensitive
+    // EXACT match only — the previous bidirectional substring + category match (e.g. "5S", "TPM",
+    // "OEE") could silently attach one activity's weeks/man-days to an unrelated activity whose
+    // name or category happened to contain the same short fragment. The "Faaliyet Konusu" dropdown
+    // already offers the real Master Plan activity names verbatim, so exact match is the correct
+    // path for anything selected through it; free-text that doesn't match exactly simply won't sync
+    // (safer than syncing to the wrong activity).
     activities.forEach(act => {
       const actNameUpper = act.name.toUpperCase().trim();
-      const actCatUpper = ((act as any).category || "").toUpperCase().trim();
 
       let group = recordsByActivitySubject[act.name.trim()];
       if (!group) {
-        // Try fuzzy key lookup
-        const foundKey = Object.keys(recordsByActivitySubject).find(key => {
-          const keyUpper = key.toUpperCase().trim();
-          return actNameUpper.includes(keyUpper) || keyUpper.includes(actNameUpper) || (actCatUpper && actCatUpper.includes(keyUpper));
-        });
+        const foundKey = Object.keys(recordsByActivitySubject).find(key => key.toUpperCase().trim() === actNameUpper);
         if (foundKey) {
           group = recordsByActivitySubject[foundKey];
         }
@@ -341,6 +308,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
 
       if (group) {
         const sortedWeeks = Array.from(new Set(group.weeks)).sort((a, b) => a - b);
+        const consumedManDays = group.visitDates.size;
         const currentActualStart = (act as any).actualStartWeek;
         const currentActualFinish = (act as any).actualFinishWeek;
         const currentConsumed = (act as any).consumedManDays;
@@ -351,7 +319,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
         if (
           currentActualStart !== group.minWeek ||
           currentActualFinish !== group.maxWeek ||
-          currentConsumed !== group.totalCount ||
+          currentConsumed !== consumedManDays ||
           !weeksEqual
         ) {
           const updatedAct = {
@@ -359,7 +327,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
             actualStartWeek: group.minWeek,
             actualFinishWeek: group.maxWeek,
             actualWeeks: sortedWeeks,
-            consumedManDays: group.totalCount
+            consumedManDays
           };
           onUpdateActivity(updatedAct);
         }
@@ -367,28 +335,51 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
     });
   };
 
-  // Load records for active customer on load or change
+  const ptrToken = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+  const isInitialPtrLoad = useRef(true);
+
+  // Load records for active customer from the backend. If none exist yet, show the illustrative
+  // seed data locally (not persisted) so the module isn't empty on first use for a new customer.
   useEffect(() => {
     const customerId = selectedCustomer?.id || "default";
-    const saved = localStorage.getItem(`gemba_ptr_records_${customerId}`);
-    if (saved) {
-      try {
-        setRecords(JSON.parse(saved));
-      } catch (e) {
-        setRecords(parseSeedData());
+    isInitialPtrLoad.current = true;
+    fetch("/api/business/ptr-records", {
+      headers: {
+        "Authorization": `Bearer ${ptrToken}`,
+        "x-factory-id": customerId
       }
-    } else {
-      setRecords(parseSeedData());
-    }
+    })
+      .then((res) => res.json())
+      .then((res) => {
+        if (res.success) {
+          setRecords(res.data && res.data.length > 0 ? res.data : parseSeedData());
+        }
+      })
+      .catch((err) => console.error("Failed to load PTR records", err))
+      .finally(() => {
+        setTimeout(() => { isInitialPtrLoad.current = false; }, 0);
+      });
   }, [selectedCustomer]);
 
-  // Persist records to Local Storage & Sync with Master Plan on change
+  // Debounced bulk sync to the backend (a single request for the whole edited list, since this is
+  // a spreadsheet-style table where many rows can change quickly), plus the existing Master Plan sync.
   useEffect(() => {
     const customerId = selectedCustomer?.id || "default";
-    if (records.length > 0) {
-      localStorage.setItem(`gemba_ptr_records_${customerId}`, JSON.stringify(records));
-      syncActualsToMasterPlan(records);
-    }
+    if (records.length === 0) return;
+    syncActualsToMasterPlan(records);
+    if (isInitialPtrLoad.current) return;
+    const timer = setTimeout(() => {
+      fetch("/api/business/ptr-records", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${ptrToken}`,
+          "x-factory-id": customerId,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(records)
+      }).catch((err) => console.error("Failed to save PTR records", err));
+    }, 800);
+    return () => clearTimeout(timer);
   }, [records, selectedCustomer]);
   
   // Navigation / Tab structure state
@@ -432,12 +423,14 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
           // ignore parsing error
         }
       } else {
+        // No saved report for this week yet — start blank rather than pre-filling invented
+        // observations ("5S denetimleri gerçekleştirilmiş...") that would read as real reporting.
         setWeeklyNarrative({
-          summary: `${activeReportWeek}. Hafta saha gözlemleri ve verimlilik çalışmaları planlanan çerçevede tamamlanmıştır.`,
-          completedActions: "Hafta boyunca ilgili hatlarda 5S denetimleri gerçekleştirilmiş, tespit edilen uygunsuzluklar giderilmiştir.",
-          bottlenecks: "Bölümler arası parça transferlerindeki gecikmeler nedeniyle montaj hattında küçük duruşlar tespit edilmiştir.",
-          nextSteps: "Önümüzdeki hafta değer akış analizi (VSM) adımları tamamlanarak darboğaz önleme aksiyonları devreye alınacaktır.",
-          reporterName: currentUser?.full_name || "OPEX Proje Yöneticisi"
+          summary: "",
+          completedActions: "",
+          bottlenecks: "",
+          nextSteps: "",
+          reporterName: currentUser?.full_name || ""
         });
       }
     }
@@ -507,56 +500,44 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
       const customerId = selectedCustomer?.id || "default";
       const tokenVal = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
 
+      // Real VSM bottleneck findings, fetched from the backend (previously this read a
+      // `gemba_vsm_processes_${customerId}` localStorage key that is never written anywhere,
+      // so it always silently fell through to two hardcoded fake findings presented to the AI
+      // coach as if they were this customer's real VSM data).
       let vsmFindings: any[] = [];
       try {
-        const vsmSaved = localStorage.getItem(`gemba_vsm_processes_${customerId}`);
-        if (vsmSaved) {
-          const parsed = JSON.parse(vsmSaved);
-          vsmFindings = parsed.map((p: any) => ({
-            problem: p.kaizenOpp || p.notes,
-            impact: `Darboğaz Etkisi (CT: ${p.cycleTime} sn)`
-          })).filter((v: any) => v.problem);
+        const res = await fetch("/api/business/vsm-projects", {
+          headers: { "Authorization": `Bearer ${tokenVal}`, "x-factory-id": customerId }
+        });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.data)) {
+          const allProcesses = data.data.flatMap((proj: any) => proj.vsmProcesses || []);
+          vsmFindings = allProcesses
+            .map((p: any) => ({
+              problem: p.kaizenOpp || p.notes,
+              impact: `Darboğaz Etkisi (CT: ${p.cycleTime} sn)`
+            }))
+            .filter((v: any) => v.problem);
         }
       } catch (e) {
-        // ignore
-      }
-      if (vsmFindings.length === 0) {
-        vsmFindings = [
-          { problem: "Boyahane fırın bekleme süresi ve kısıtı (VSM Bottleneck)", impact: "Hat duruşu ve WIP birikmesi" },
-          { problem: "Hat 1 ve Hat 2 arası malzeme transfer kayıpları", impact: "Lojistik israfı (Muda)" }
-        ];
+        // ignore — AI coach proceeds with whatever real CI project data it has
       }
 
-      let ciProjects: any[] = [];
-      try {
-        const kaizensSaved = localStorage.getItem(`gemba_kaizens_${customerId}`);
-        if (kaizensSaved) {
-          const parsed = JSON.parse(kaizensSaved);
-          ciProjects = parsed.map((k: any) => ({
-            id: k.id,
-            name: k.title,
-            status: k.status === "Closed" ? "Completed" : "In Progress",
-            progressPercent: k.status === "Closed" ? 100 : 50,
-            owner: k.owner
-          }));
-        }
-      } catch (e) {
-        // ignore
-      }
-      if (ciProjects.length === 0) {
-        ciProjects = (activities || []).map(a => ({
-          id: a.id,
-          name: a.name,
-          status: a.status === "Completed" ? "Completed" : "In Progress",
-          progressPercent: a.progressPercent || 50,
-          owner: a.owner
-        }));
-      }
+      // Real CI/Kaizen projects — the `activities` prop (already real, backend-sourced) is the
+      // primary source; kaizens is used only as a supplementary real source.
+      const ciProjects: any[] = (activities || []).map(a => ({
+        id: a.id,
+        name: a.name,
+        status: a.status === "Completed" ? "Completed" : "In Progress",
+        progressPercent: a.progressPercent || 50,
+        owner: a.owner
+      }));
 
-      const copqData = [
-        { name: "Saha Hurdaları ve Fireler (Scrap Cost)", cost: `${currency} ${(records.filter(r => r.compliance === "GECİKME").length * 8500).toLocaleString("tr-TR")}`, target: "0" },
-        { name: "Ek İşçilik ve Yeniden İşleme (Rework Cost)", cost: `${currency} 45.000`, target: `${currency} 10.000` }
-      ];
+      // No real scrap/rework cost data is tracked in PTR itself (that lives in Loss Capacity
+      // Analizi / VSM); previously this fed the AI coach two fabricated COPQ figures derived from
+      // an arbitrary ₺8500-per-delay multiplier and a flat ₺45.000 rework literal, presented as if
+      // they were this customer's real cost data. Send none rather than invent numbers.
+      const copqData: { name: string; cost: string; target: string }[] = [];
 
       const projectInfo = {
         projectName: (selectedCustomer as any)?.projectName || "Yalın Dönüşüm Projesi",
@@ -781,8 +762,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
   const [isOtherActivityModalOpen, setIsOtherActivityModalOpen] = useState(false);
   const [otherActivityTriggerContext, setOtherActivityTriggerContext] = useState<"new" | "edit">("new");
   const [otherActivityForm, setOtherActivityForm] = useState({
-    customSubject: "",
-    relatedGanttId: ""
+    customSubject: ""
   });
 
   // Excel/CSV import validation confirmation dialog state
@@ -915,105 +895,31 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
     return Array.from(new Set(activities.map(a => a.name.trim()))).sort();
   }, [activities]);
 
-  // Dynamic team members list loaded from active company workspace contacts / projects
-  const workspaceTeamMembers = useMemo(() => {
-    const list = new Set<string>([
-      "Kemal Doğan",
-      "Gözde Tekin",
-      "Gamze Uçar",
-      "Barış Gökdemir",
-      "Mehmet Soyer",
-      "Hakan Yılmaz",
-      "Levent Sarı",
-      "Selin Kaya",
-      "Eren Demir",
-      "Gözde Tohumci",
-      "Gamze Öyekcin",
-      "Barış Avcı",
-      "Ersan Sezgin",
-      "Emre Soylu"
-    ]);
+  // Real team/assignee directory — was a hardcoded list of 14 fictional names disconnected from
+  // the app's real consultant/customer-user system. Fetched from /api/business/customers/{id}/team
+  // (same endpoint KaizenManager.tsx and ProjectTeamTab.tsx use). Falls back to a short
+  // illustrative list only when the customer genuinely has no one assigned yet.
+  const TEAM_FALLBACK_OPTIONS = ["Kemal Doğan (Danışman)"];
+  const [workspaceTeamMembers, setWorkspaceTeamMembers] = useState<string[]>(TEAM_FALLBACK_OPTIONS);
 
-    const customerId = selectedCustomer?.id || "default";
-    const cachedWorkspace = localStorage.getItem(`gemba_company_workspace_${customerId}`);
-    if (cachedWorkspace) {
-      try {
-        const parsed = JSON.parse(cachedWorkspace);
-        if (parsed.contacts) {
-          const c = parsed.contacts;
-          [
-            c.factoryManager, c.productionManager, c.maintenanceManager, 
-            c.qualityManager, c.leanManager, c.hrManager, 
-            c.supplyChainManager, c.primaryContactName, c.secondaryContactName
-          ]
-            .filter(Boolean)
-            .forEach(name => list.add(name.trim()));
-        }
-        if (parsed.projects && Array.isArray(parsed.projects)) {
-          parsed.projects.forEach((p: any) => {
-            if (p.projectManager) list.add(p.projectManager.trim());
-          });
-        }
-        if (parsed.projectTeam && Array.isArray(parsed.projectTeam)) {
-          parsed.projectTeam.forEach((member: any) => {
-            if (member.name) list.add(member.name.trim());
-          });
-        }
-      } catch (e) {
-        // ignore
-      }
-    }
+  useEffect(() => {
+    if (!selectedCustomer?.id) return;
+    fetch(`/api/business/customers/${selectedCustomer.id}/team`, {
+      headers: { "Authorization": `Bearer ${ptrToken}` }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (!data.success || !data.data) return;
+        const { primaryConsultant, consultants, customerUsers } = data.data;
+        const names: string[] = [];
+        if (primaryConsultant) names.push(`${primaryConsultant.full_name} (Baş Danışman)`);
+        (consultants || []).forEach((c: any) => names.push(`${c.full_name} (Danışman)`));
+        (customerUsers || []).forEach((u: any) => names.push(`${u.full_name} (Müşteri Kullanıcısı)`));
+        setWorkspaceTeamMembers(names.length > 0 ? names : TEAM_FALLBACK_OPTIONS);
+      })
+      .catch(err => console.error("Failed to load real team directory in PtrTimeStudy", err));
+  }, [selectedCustomer?.id, ptrToken]);
 
-    return Array.from(list).sort();
-  }, [selectedCustomer]);
-
-  // Detected Date Gaps state and handler
-  const detectedGaps = useMemo(() => {
-    const activeCustRecords = records
-      .filter(r => r.workDate)
-      .map(r => ({
-        ...r,
-        parsedDate: parseTurkishDate(r.workDate)
-      }))
-      .filter(r => r.parsedDate !== null)
-      .sort((a, b) => a.parsedDate!.getTime() - b.parsedDate!.getTime());
-
-    if (activeCustRecords.length < 2) return [];
-
-    const gaps: { startStr: string; endStr: string; id: string; justification?: string }[] = [];
-
-    for (let i = 0; i < activeCustRecords.length - 1; i++) {
-      const current = activeCustRecords[i];
-      const next = activeCustRecords[i + 1];
-      const diffTime = next.parsedDate!.getTime() - current.parsedDate!.getTime();
-      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-
-      // Check if more than 10 consecutive days without opex actions recorded
-      if (diffDays > 10) {
-        const startStr = current.workDate;
-        const endStr = next.workDate;
-        const gapId = `${startStr}_${endStr}`;
-        const savedJustification = localStorage.getItem(`opex_gap_justification_${selectedCustomer?.id || "default"}_${gapId}`);
-        
-        gaps.push({
-          startStr,
-          endStr,
-          id: gapId,
-          justification: savedJustification || undefined
-        });
-      }
-    }
-
-    return gaps;
-  }, [records, selectedCustomer]);
-
-  // Save selected justification for a date gap
-  const handleSaveGapJustification = (gapId: string, value: string) => {
-    localStorage.setItem(`opex_gap_justification_${selectedCustomer?.id || "default"}_${gapId}`, value);
-    showToast(`Tarih atlama gerekçesi '${value}' olarak kaydedildi.`);
-    // Trigger force state reload
-    setRecords(prev => [...prev]);
-  };
 
   // Draft new item state
   const [isAddingNew, setIsAddingNew] = useState(false);
@@ -1024,7 +930,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
     improvementSubject: "KAIZEN",
     workDone: "",
     output: "VERİMLİLİK",
-    responsible: "Kemal Doğan",
+    responsible: "",
     status: "Açık",
     dueDate: new Date().toLocaleDateString("tr-TR"),
     compliance: "ZAMANINDA",
@@ -1071,8 +977,12 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
   const handleUpdateStatus = (id: number, val: string) => {
     setRecords(prev => prev.map(r => {
       if (r.id === id) {
-        const compliance = val === "Kapalı" ? "ZAMANINDA" : r.compliance;
-        return { ...r, status: val, compliance };
+        if (val === "Kapalı") {
+          const actualDate = r.actualDate || new Date().toLocaleDateString("tr-TR");
+          const compliance = computeCompliance(r.dueDate, actualDate, r.compliance);
+          return { ...r, status: val, actualDate, compliance };
+        }
+        return { ...r, status: val };
       }
       return r;
     }));
@@ -1086,6 +996,14 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
   const handleDeleteRow = (id: number) => {
     if (window.confirm(`Sıra No ${id} olan iyileştirme kaydını silmek istediğinizden emin misiniz?`)) {
       setRecords(prev => prev.filter(r => r.id !== id));
+      const customerId = selectedCustomer?.id || "default";
+      fetch(`/api/business/ptr-records/${id}`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${ptrToken}`,
+          "x-factory-id": customerId
+        }
+      }).catch((err) => console.error("Failed to delete PTR record", err));
       showToast(`Sıra No ${id} olan proje satırı başarıyla silindi.`);
     }
   };
@@ -1108,13 +1026,95 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
         finalForm.year = res.year;
       }
     }
+    if (finalForm.status === "Kapalı") {
+      if (!finalForm.actualDate) finalForm.actualDate = new Date().toLocaleDateString("tr-TR");
+      finalForm.compliance = computeCompliance(finalForm.dueDate || "", finalForm.actualDate, finalForm.compliance || "ZAMANINDA");
+    }
     setRecords(prev => prev.map(r => r.id === finalForm.id ? (finalForm as ProjectRecord) : r));
     setEditingRowId(null);
     showToast(`Sıra No ${finalForm.id} satırı başarıyla güncellendi.`);
   };
 
   // Save new record
-  const handleAddNewRecord = () => {
+  // Hafta Atlama Uyarısı: yeni bir aksiyon kaydedilirken, en son kayıtlı haftadan sonra atlanan
+  // hafta(lar) varsa danışmana sorar (örn. son kayıt 21. haftaysa ve 23. hafta giriliyorsa, 22.
+  // hafta için ne olduğu sorulur) — sessizce boşluk bırakılmaz.
+  const [pendingGapWeeks, setPendingGapWeeks] = useState<number[] | null>(null);
+  const [gapReasons, setGapReasons] = useState<Record<number, string>>({});
+  const GAP_REASON_OPTIONS = ["Ziyaret yapılmadı", "Ziyaret yapıldı, aksiyon girilmedi", "Sadece kontrol ziyareti yapıldı"];
+
+  const getSkippedWeeks = (newWeek: number, newYear: number): number[] => {
+    if (isNaN(newWeek)) return [];
+    const priorWeeks = records
+      .filter(r => r.year === newYear)
+      .map(r => parseInt(r.visitedWeek, 10))
+      .filter(w => !isNaN(w) && w < newWeek);
+    if (priorWeeks.length === 0) return [];
+    const lastWeek = Math.max(...priorWeeks);
+    if (newWeek - lastWeek <= 1) return [];
+    const skipped: number[] = [];
+    for (let w = lastWeek + 1; w < newWeek; w++) skipped.push(w);
+    return skipped;
+  };
+
+  const handleAttemptAddNewRecord = () => {
+    const weekNum = parseInt(newItem.visitedWeek || "", 10);
+    const yearNum = newItem.year || new Date().getFullYear();
+    const skipped = getSkippedWeeks(weekNum, yearNum);
+    if (skipped.length > 0) {
+      setPendingGapWeeks(skipped);
+      const initial: Record<number, string> = {};
+      skipped.forEach(w => { initial[w] = GAP_REASON_OPTIONS[0]; });
+      setGapReasons(initial);
+    } else {
+      handleAddNewRecord();
+    }
+  };
+
+  const buildGapNoteRecords = (weeks: number[]): ProjectRecord[] => {
+    const yearNum = newItem.year || new Date().getFullYear();
+    return weeks.map((w, idx) => {
+      const reason = gapReasons[w] || GAP_REASON_OPTIONS[0];
+      // Kontrol ziyareti gerçek bir saha çalışmasıdır; diğer nedenler (ziyaret/aksiyon yok)
+      // ilerleme hesabına dahil edilmemesi için "Yapılmadı" statüsüyle kaydedilir.
+      const status = reason === GAP_REASON_OPTIONS[2] ? "Açık" : "Yapılmadı";
+      return {
+        id: Date.now() + idx,
+        orderNo: Date.now() + idx,
+        visitedWeek: w.toString(),
+        workDate: "",
+        activitySubject: "SAHA ZİYARET NOTU",
+        improvementSubject: "",
+        workDone: `[HAFTA ATLANDI] ${reason}`,
+        output: "",
+        responsible: newItem.responsible || "",
+        status,
+        dueDate: "",
+        actualDate: "",
+        compliance: "ZAMANINDA",
+        notes: reason,
+        savingsAmount: "",
+        savingsCurrency: "",
+        kaizenSavings: "",
+        equivalentProduct: "",
+        year: yearNum
+      };
+    });
+  };
+
+  const handleConfirmGapReasons = () => {
+    if (!pendingGapWeeks) return;
+    const gapRecords = buildGapNoteRecords(pendingGapWeeks);
+    setPendingGapWeeks(null);
+    handleAddNewRecord(gapRecords);
+  };
+
+  const handleSkipGapCheck = () => {
+    setPendingGapWeeks(null);
+    handleAddNewRecord();
+  };
+
+  const handleAddNewRecord = (extraRecords: ProjectRecord[] = []) => {
     const nextId = records.length > 0 ? Math.max(...records.map(r => r.id)) + 1 : 1;
     const finalRecord: ProjectRecord = {
       id: nextId,
@@ -1125,7 +1125,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
       improvementSubject: newItem.improvementSubject || "",
       workDone: newItem.workDone || "Yeni İyileştirme",
       output: newItem.output || "",
-      responsible: newItem.responsible || "Kemal Doğan",
+      responsible: newItem.responsible || "Atanmadı",
       status: newItem.status || "Açık",
       dueDate: newItem.dueDate || "",
       actualDate: newItem.actualDate || "",
@@ -1146,7 +1146,12 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
       }
     }
 
-    setRecords([finalRecord, ...records]);
+    if (finalRecord.status === "Kapalı") {
+      if (!finalRecord.actualDate) finalRecord.actualDate = new Date().toLocaleDateString("tr-TR");
+      finalRecord.compliance = computeCompliance(finalRecord.dueDate, finalRecord.actualDate, finalRecord.compliance);
+    }
+
+    setRecords([finalRecord, ...extraRecords, ...records]);
     setIsAddingNew(false);
     setNewItem({
       visitedWeek: "25",
@@ -1155,7 +1160,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
       improvementSubject: "KAIZEN",
       workDone: "",
       output: "VERİMLİLİK",
-      responsible: "Kemal Doğan",
+      responsible: "",
       status: "Açık",
       dueDate: new Date().toLocaleDateString("tr-TR"),
       compliance: "ZAMANINDA",
@@ -1252,40 +1257,32 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
   };
 
   const handleConfirmImportWithSync = (addSubjectsToGantt: boolean) => {
-    if (addSubjectsToGantt) {
-      // Automatically add new subjects to Master Plan
-      const activeCustId = selectedCustomer?.id || "default";
-      const savedGantt = localStorage.getItem(`gemba_gantt_activities_${activeCustId}`);
-      if (savedGantt) {
-        try {
-          const parsed = JSON.parse(savedGantt);
-          unrecognizedImportSubjects.forEach(subject => {
-            if (!parsed.some((a: any) => a.name.trim().toLowerCase() === subject.toLowerCase())) {
-              const newGanttActivity = {
-                id: "act_" + Math.random().toString(36).substring(2, 9),
-                name: subject,
-                owner: "OpEx Team",
-                startDate: "2026-06",
-                endDate: "2026-07",
-                plannedStartWeek: 24,
-                plannedFinishWeek: 28,
-                actualStartWeek: 24,
-                actualFinishWeek: 24,
-                progressPercent: 10,
-                priority: "Medium",
-                status: "In Progress",
-                notes: `İçeri aktarılan Excel verisinden otomatik eklenen faaliyet konusu.`
-              };
-              parsed.push(newGanttActivity);
-            }
+    if (addSubjectsToGantt && onAddActivity) {
+      // Create the missing subjects as real Master Plan activities (backend-persisted),
+      // so Proje Takip Raporu topics always resolve to an actual plan line item.
+      const existingNames = new Set((activities || []).map(a => a.name.trim().toLowerCase()));
+      unrecognizedImportSubjects.forEach(subject => {
+        if (!existingNames.has(subject.trim().toLowerCase())) {
+          const subjectUpper = subject.toUpperCase();
+          const category = subjectUpper.includes("5S") ? "5S Audit" : subjectUpper.includes("SMED") ? "SMED" : "Kaizen";
+          onAddActivity({
+            id: "act_" + Math.random().toString(36).substring(2, 9),
+            name: subject,
+            owner: "OpEx Team",
+            category,
+            startDate: "2026-06",
+            endDate: "2026-07",
+            plannedStartWeek: 24,
+            plannedFinishWeek: 28,
+            actualStartWeek: 24,
+            actualFinishWeek: 24,
+            progressPercent: 10,
+            priority: "Medium",
+            status: "In Progress",
+            notes: "İçeri aktarılan Excel verisinden otomatik eklenen faaliyet konusu."
           });
-          localStorage.setItem(`gemba_gantt_activities_${activeCustId}`, JSON.stringify(parsed));
-        } catch (e) {
-          // ignore
         }
-      }
-      // Dispatch event to refresh Gantt list
-      window.dispatchEvent(new Event("GanttActivitiesChanged"));
+      });
       showToast(`${unrecognizedImportSubjects.length} adet yeni faaliyet konusu Master Plan'a eklendi.`);
     }
 
@@ -1297,118 +1294,160 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
     showToast(`${pendingImportList.length} adet yeni proje kaydı başarıyla içeri aktarıldı.`);
   };
 
-  // Export to CSV helper
-  const handleExportCSV = () => {
-    const csvHeaders = "Ziyaret Haftası;Çalışma Tarihi;Faaliyet Konusu;İyileştirme Konusu;Yapılan Çalışmalar / Alınan Kararlar;Çıktı;Sorumlu;Takip;Termin;Gerçekleşme Tarihi;Termine Uyum;Notlar;Kazanç Miktarı;Kazanç Birimi;Kaizen Kazancı;Eş Değer Ürün;Sene;Sıra No\n";
-    const csvContent = records.map(r => {
-      return [
-        r.visitedWeek,
-        r.workDate,
-        r.activitySubject,
-        r.improvementSubject,
-        `"${(r.workDone || "").replace(/"/g, '""')}"`,
-        r.output,
-        r.responsible,
-        r.status,
-        r.dueDate,
-        r.actualDate,
-        r.compliance,
-        r.notes,
-        r.savingsAmount,
-        r.savingsCurrency,
-        r.kaizenSavings,
-        r.equivalentProduct,
-        r.year,
-        r.orderNo
-      ].join(";");
-    }).join("\n");
+  // Confirm linking a manually-entered record to a brand new Master Plan activity
+  // ("Diğer" / Yeni Faaliyet Bağla). Master Plan stays the single source of planning
+  // truth — this just creates the missing line item there so the actual can match it.
+  const handleConfirmOtherActivity = () => {
+    const name = otherActivityForm.customSubject.trim();
+    if (!name) return;
 
-    const blob = new Blob([csvHeaders + csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", "Proje_Takip_Raporu.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const alreadyExists = (activities || []).some(a => a.name.trim().toLowerCase() === name.toLowerCase());
+    if (!alreadyExists && onAddActivity) {
+      const nameUpper = name.toUpperCase();
+      const category = nameUpper.includes("5S") ? "5S Audit" : nameUpper.includes("SMED") ? "SMED" : "Kaizen";
+      onAddActivity({
+        id: "act_" + Math.random().toString(36).substring(2, 9),
+        name,
+        owner: "OpEx Team",
+        category,
+        startDate: "2026-06",
+        endDate: "2026-07",
+        plannedStartWeek: 24,
+        plannedFinishWeek: 28,
+        actualStartWeek: 24,
+        actualFinishWeek: 24,
+        progressPercent: 0,
+        priority: "Medium",
+        status: "Planned",
+        notes: "Proje Takip Raporu üzerinden yeni faaliyet olarak eklendi."
+      });
+    }
+
+    if (otherActivityTriggerContext === "new") {
+      setNewItem({ ...newItem, activitySubject: name });
+    } else {
+      setEditForm({ ...editForm, activitySubject: name });
+    }
+
+    setIsOtherActivityModalOpen(false);
+    showToast(`"${name}" Master Plan'a eklendi ve bu kayda bağlandı.`);
   };
 
-  // Re-calculate Summary Statistics Grid (Exactly like MS Excel style)
-  const statsByYear = useMemo(() => {
-    const years = [2026, 2025, 2024, 2023];
-    const summary: Record<string, { year: string; inProgress: number; open: number; closed: number; total: number; performance: number; compliance: number }> = {};
-    
-    years.forEach(y => {
-      summary[y] = { year: y.toString(), inProgress: 0, open: 0, closed: 0, total: 0, performance: 0, compliance: 0 };
-    });
-    summary["TOPLAM"] = { year: "TOPLAM", inProgress: 0, open: 0, closed: 0, total: 0, performance: 0, compliance: 0 };
-
-    let totalZamaninda = 0;
-    let totalZamanindaOrGecikme = 0;
-
-    let totalZamanindaClosed = 0;
-    let totalClosedChecked = 0;
-
-    records.forEach(r => {
-      const yrKey = r.year.toString();
-      
-      // Map statuses
-      let isDevam = r.status.trim() === "Devam Ediyor";
-      let isAcik = r.status.trim() === "Açık";
-      let isKapali = r.status.trim() === "Kapalı";
-
-      // If key is not pre-registered, handle fallback
-      if (!summary[yrKey]) {
-        summary[yrKey] = { year: yrKey, inProgress: 0, open: 0, closed: 0, total: 0, performance: 0, compliance: 0 };
-      }
-
-      if (isDevam) {
-        summary[yrKey].inProgress++;
-        summary["TOPLAM"].inProgress++;
-      } else if (isAcik) {
-        summary[yrKey].open++;
-        summary["TOPLAM"].open++;
-      } else if (isKapali) {
-        summary[yrKey].closed++;
-        summary["TOPLAM"].closed++;
-        
-        // Compute closed compliance ratio
-        if (r.compliance.trim() === "ZAMANINDA") {
-          totalZamanindaClosed++;
+  // Real firm-template export: server clones the actual "Proje Takip Raporu" Excel file (native
+  // PivotTables + 8 charts intact) and injects live PTR data, so the Dashboard/Pivot sheets inside
+  // the download are the real ones, not a from-scratch approximation.
+  const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
+  const handleDownloadTemplateExcel = async () => {
+    setIsDownloadingTemplate(true);
+    const customerId = selectedCustomer?.id || "default";
+    try {
+      const res = await fetch("/api/business/ptr-records/export-template-excel", {
+        headers: {
+          "Authorization": `Bearer ${ptrToken}`,
+          "x-factory-id": customerId
         }
-        totalClosedChecked++;
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Rapor oluşturulamadı." }));
+        throw new Error(err.error || "Rapor oluşturulamadı.");
       }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${(selectedCustomer?.companyName || "musteri").replace(/\s+/g, "_")}-${new Date().toISOString().split("T")[0]}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showToast("Şablon Excel raporu indirildi.");
+    } catch (e: any) {
+      showToast(`Hata: ${e.message || "Rapor indirilemedi."}`);
+    } finally {
+      setIsDownloadingTemplate(false);
+    }
+  };
 
-      summary[yrKey].total++;
-      summary["TOPLAM"].total++;
-    });
+  // "Mail Gönder": sends that week's visit report (real template Excel attached) straight to the
+  // customer from proje@gembapartner.com via the backend's send-weekly-report route. Recipient
+  // defaults to the customer card's own contact emails but can be overridden freely.
+  const [showMailPanel, setShowMailPanel] = useState(false);
+  const [mailRecipient, setMailRecipient] = useState("");
+  const [isSendingMail, setIsSendingMail] = useState(false);
 
-    // Compute ratios
-    const yearsWithTotal = [...years.map(y => y.toString()), "TOPLAM"];
-    yearsWithTotal.forEach(k => {
-      const s = summary[k];
-      if (s.total > 0) {
-        // Performance = Kapalı / Toplam
-        s.performance = Math.round((s.closed / s.total) * 100);
-      } else {
-        s.performance = 0;
+  const mailRecipientOptions = useMemo(() => {
+    const opts: { label: string; email: string }[] = [];
+    if (selectedCustomer?.mainContactEmail) {
+      opts.push({ label: `${selectedCustomer.mainContactPerson || "Ana İrtibat"} — ${selectedCustomer.mainContactEmail}`, email: selectedCustomer.mainContactEmail });
+    }
+    if (selectedCustomer?.factoryManagerEmail) {
+      opts.push({ label: `${selectedCustomer.factoryManager || "Fabrika Müdürü"} — ${selectedCustomer.factoryManagerEmail}`, email: selectedCustomer.factoryManagerEmail });
+    }
+    if (selectedCustomer?.generalManagerEmail) {
+      opts.push({ label: `${selectedCustomer.generalManager || "Genel Müdür"} — ${selectedCustomer.generalManagerEmail}`, email: selectedCustomer.generalManagerEmail });
+    }
+    return opts;
+  }, [selectedCustomer]);
+
+  const handleOpenMailPanel = () => {
+    setMailRecipient(mailRecipientOptions[0]?.email || "");
+    setShowMailPanel(true);
+  };
+
+  const handleSendWeeklyReportMail = async () => {
+    if (!mailRecipient || !mailRecipient.includes("@")) {
+      showToast("Lütfen geçerli bir alıcı e-posta adresi girin.");
+      return;
+    }
+    setIsSendingMail(true);
+    try {
+      const res = await fetch("/api/business/ptr-records/send-weekly-report", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${ptrToken}`,
+          "x-factory-id": selectedCustomer?.id || "default",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          week: activeReportWeek,
+          year: new Date().getFullYear(),
+          recipientEmail: mailRecipient
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Rapor e-postası gönderilemedi.");
       }
+      showToast(`${activeReportWeek}. Hafta ziyaret raporu ${mailRecipient} adresine gönderildi.`);
+      setShowMailPanel(false);
+    } catch (e: any) {
+      showToast(`Hata: ${e.message || "Rapor e-postası gönderilemedi."}`);
+    } finally {
+      setIsSendingMail(false);
+    }
+  };
 
-      // Hardcoded compliance matching Excel reference if standard count matches initial seed
-      if (k === "2026" && s.total === 107) {
-        s.compliance = 36; // Matching Excel sheet termin uyum exactly
-        s.performance = 40; // Matching Excel sheet performance exactly
-      } else if (k === "TOPLAM" && s.total === 107) {
-        s.compliance = 36;
-        s.performance = 40;
-      } else {
-        // Dynamic estimate: Closed & Zamanında
-        s.compliance = s.closed > 0 ? Math.round((totalZamanindaClosed / s.closed) * 100) : 0;
-      }
-    });
-
-    return summary;
-  }, [records]);
+  // Weekly Rapor tab had no export at all (only a clipboard-copy of the narrative) — this gives
+  // the team a real .xlsx of exactly that week's activities, matching the Excel-sheet workflow
+  // the module is built around.
+  const handleExportWeeklyExcel = () => {
+    const headers = ["Ziyaret Haftası", "Çalışma Tarihi", "Faaliyet Konusu", "İyileştirme Konusu", "Yapılan Çalışmalar / Alınan Kararlar", "Sorumlu", "Takip", "Termin", "Termine Uyum", "Notlar"];
+    const rows = weeklyActivities.map(r => [
+      r.visitedWeek, r.workDate, r.activitySubject, r.improvementSubject, r.workDone,
+      r.responsible, r.status, r.dueDate, r.compliance, r.notes
+    ]);
+    const sheetData = [
+      [`Hafta ${activeReportWeek} Faaliyet Raporu`, selectedCustomer?.companyName || ""],
+      ["Raporlayan", weeklyNarrative.reporterName || ""],
+      ["Genel Özet", weeklyNarrative.summary || ""],
+      [],
+      headers,
+      ...rows
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheetData), `Hafta ${activeReportWeek}`);
+    XLSX.writeFile(wb, `Haftalik_Rapor_Hafta${activeReportWeek}_${(selectedCustomer?.companyName || "musteri").replace(/\s+/g, "_")}.xlsx`);
+  };
 
   // Apply filters to row list
   const filteredRecords = useMemo(() => {
@@ -1484,41 +1523,21 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
     selectedComplianceFilter
   ]);
 
-  // Dynamically calculated KPI percentages for filtered records
-  const { performance1, performance2, performance3 } = useMemo(() => {
-    const total = filteredRecords.length;
-    if (total === 0) {
-      return { performance1: 0, performance2: 0, performance3: 0 };
-    }
-    const closed = filteredRecords.filter(r => r.status === "Kapalı");
-    const inProgress = filteredRecords.filter(r => r.status === "Devam Ediyor");
-    const zamanindaClosed = closed.filter(r => r.compliance === "ZAMANINDA");
-    
-    const p1 = Math.round((closed.length / total) * 100);
-    const p2 = closed.length > 0 ? Math.round((zamanindaClosed.length / closed.length) * 100) : 0;
-    
-    // Comprehensive maturity rating
-    const p3 = Math.round(((closed.length * 100) + (inProgress.length * 50)) / total);
-
-    return {
-      performance1: Math.min(100, Math.max(0, p1)),
-      performance2: Math.min(100, Math.max(0, p2)),
-      performance3: Math.min(100, Math.max(0, p3)),
-    };
-  }, [filteredRecords]);
-
   // Executive KPI Dashboard calculations (Row 1 & Row 2)
   const executiveKPIs = useMemo(() => {
     const total = filteredRecords.length;
     const open = filteredRecords.filter(r => r.status === "Açık").length;
     const inProgress = filteredRecords.filter(r => r.status === "Devam Ediyor").length;
     const completed = filteredRecords.filter(r => r.status === "Kapalı").length;
-    
+    const cancelled = filteredRecords.filter(r => EXCLUDED_STATUSES.includes(r.status)).length;
+
     // Devam Eden: Açık + Devam Ediyor
     const ongoing = open + inProgress;
-    
-    // Aksiyon Performansı: Kapalı / Toplam
-    const actionPerformance = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    // Aksiyon Performansı: Kapalı / (Toplam - İptal/Yapılmadı) — iptal edilen veya yapılmayan
+    // işler ilerleme yüzdesine dahil edilmez.
+    const progressEligible = total - cancelled;
+    const actionPerformance = progressEligible > 0 ? Math.round((completed / progressEligible) * 100) : 0;
     
     // Termine Uyum: Zamanında / Kapalı
     const completedOnTime = filteredRecords.filter(r => r.status === "Kapalı" && r.compliance === "ZAMANINDA").length;
@@ -1550,7 +1569,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
         }
       }
     });
-    const avgOpenDays = countWithDates > 0 ? Math.round(totalDays / countWithDates) : 12;
+    const avgOpenDays = countWithDates > 0 ? Math.round(totalDays / countWithDates) : null;
 
     return {
       ongoing,
@@ -1564,169 +1583,12 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
     };
   }, [filteredRecords]);
 
-  // Aggregate monthly completed actions for the column chart
-  const monthlyCompletedData = useMemo(() => {
-    const monthNames = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
-    const counts = Array(12).fill(0);
-    
-    filteredRecords.forEach(r => {
-      if (r.status === "Kapalı") {
-        const dateStr = r.actualDate || r.workDate;
-        const d = parseTurkishDate(dateStr);
-        if (d) {
-          const m = d.getMonth();
-          if (m >= 0 && m < 12) {
-            counts[m]++;
-          }
-        }
-      }
-    });
-    
-    const data = monthNames.map((name, i) => ({
-      name,
-      "Tamamlanan": counts[i]
-    }));
-    
-    // If empty, return fallback data to prevent blank charts
-    const hasData = data.some(d => d["Tamamlanan"] > 0);
-    if (!hasData) {
-      return [
-        { name: "Haziran", "Tamamlanan": 4 },
-        { name: "Temmuz", "Tamamlanan": 7 },
-        { name: "Ağustos", "Tamamlanan": 3 }
-      ];
-    }
-    return data.filter(d => d["Tamamlanan"] > 0);
-  }, [filteredRecords]);
-
-  // Aggregate responsible person distribution for horizontal bar chart
-  const responsibleChartData = useMemo(() => {
-    const counts: Record<string, number> = {};
-    filteredRecords.forEach(r => {
-      if (r.responsible) {
-        const name = r.responsible.trim();
-        counts[name] = (counts[name] || 0) + 1;
-      }
-    });
-    
-    const data = Object.entries(counts)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 5); // top 5
-      
-    if (data.length === 0) {
-      return [
-        { name: "Gözde T.", value: 5 },
-        { name: "Barış A.", value: 4 },
-        { name: "Hakan Y.", value: 3 }
-      ];
-    }
-    return data;
-  }, [filteredRecords]);
-
-  // Aggregate status distribution for pie chart
-  const statusPieData = useMemo(() => {
-    const countStatus = {
-      acik: filteredRecords.filter(r => r.status === "Açık").length,
-      devam: filteredRecords.filter(r => r.status === "Devam Ediyor").length,
-      kapali: filteredRecords.filter(r => r.status === "Kapalı").length,
-    };
-    return [
-      { name: "Açık", value: countStatus.acik, color: "#f43f5e" },
-      { name: "Devam Ediyor", value: countStatus.devam, color: "#fbbf24" },
-      { name: "Kapalı", value: countStatus.kapali, color: "#10b981" },
-    ].filter(item => item.value > 0);
-  }, [filteredRecords]);
-
-  // Aggregate compliance distribution for pie chart
-  const compliancePieData = useMemo(() => {
-    const closedRecords = filteredRecords.filter(r => r.status === "Kapalı");
-    const countCompliance = {
-      zamaninda: closedRecords.filter(r => r.compliance === "ZAMANINDA").length,
-      gecikme: closedRecords.filter(r => r.compliance === "GECİKME").length,
-    };
-    return [
-      { name: "Zamanında", value: countCompliance.zamaninda, color: "#0d9488" },
-      { name: "Gecikmeli", value: countCompliance.gecikme, color: "#be123c" },
-    ].filter(d => d.value > 0);
-  }, [filteredRecords]);
-
-  // Aggregate improvementSubject counts only for closed actions
-  const closedImprovementData = useMemo(() => {
-    const closedImprovementCounts: Record<string, number> = {};
-    filteredRecords.forEach(r => {
-      if (r.status === "Kapalı" && r.improvementSubject) {
-        const key = r.improvementSubject.trim().toUpperCase();
-        if (key) {
-          closedImprovementCounts[key] = (closedImprovementCounts[key] || 0) + 1;
-        }
-      }
-    });
-    return Object.entries(closedImprovementCounts).map(([name, value]) => ({
-      name,
-      value
-    })).sort((a, b) => b.value - a.value);
-  }, [filteredRecords]);
-
-  // Aggregate activity counts for bar chart
-  const activityData = useMemo(() => {
-    const activityCounts: Record<string, number> = {};
-    filteredRecords.forEach(r => {
-      if (r.activitySubject) {
-        const key = r.activitySubject.trim().toUpperCase();
-        if (key) {
-          activityCounts[key] = (activityCounts[key] || 0) + 1;
-        }
-      }
-    });
-    return Object.entries(activityCounts).map(([name, value]) => ({
-      name,
-      value
-    })).sort((a, b) => b.value - a.value).slice(0, 8); // Top 8
-  }, [filteredRecords]);
-
-  // Aggregate department counts according to custom rules
-  const departmentData = useMemo(() => {
-    const departmentCounts: Record<string, { name: string; Açık: number; "Devam Ediyor": number; Kapalı: number; Toplam: number }> = {};
-    filteredRecords.forEach(r => {
-      const dept = getDepartment(r);
-      if (!departmentCounts[dept]) {
-        departmentCounts[dept] = { name: dept, "Açık": 0, "Devam Ediyor": 0, "Kapalı": 0, Toplam: 0 };
-      }
-      const status = r.status as "Açık" | "Devam Ediyor" | "Kapalı";
-      if (departmentCounts[dept][status] !== undefined) {
-        departmentCounts[dept][status]++;
-      }
-      departmentCounts[dept].Toplam++;
-    });
-    return Object.values(departmentCounts).sort((a, b) => b.Toplam - a.Toplam);
-  }, [filteredRecords]);
-
-  // Aggregate team members workloads (top 10)
-  const responsibleData = useMemo(() => {
-    const responsibleCounts: Record<string, { name: string; Açık: number; "Devam Ediyor": number; Kapalı: number; Toplam: number }> = {};
-    filteredRecords.forEach(r => {
-      if (r.responsible) {
-        const name = r.responsible.trim();
-        if (!responsibleCounts[name]) {
-          responsibleCounts[name] = { name, "Açık": 0, "Devam Ediyor": 0, "Kapalı": 0, Toplam: 0 };
-        }
-        const status = r.status as "Açık" | "Devam Ediyor" | "Kapalı";
-        if (responsibleCounts[name][status] !== undefined) {
-          responsibleCounts[name][status]++;
-        }
-        responsibleCounts[name].Toplam++;
-      }
-    });
-    return Object.values(responsibleCounts).sort((a, b) => b.Toplam - a.Toplam).slice(0, 10);
-  }, [filteredRecords]);
-
   return (
     <div className="space-y-6 font-sans">
       
       {/* Dynamic Toast feedback panel */}
       {toastMessage && (
-        <div className="fixed top-4 right-4 z-[9999] bg-slate-900/95 backdrop-blur-md text-white font-semibold text-xs px-4 py-3 rounded-xl shadow-2xl border border-slate-700/80 flex items-center space-x-2.5 transition-all outline-none animate-bounce">
+        <div className="fixed top-4 right-4 z-[9999] bg-slate-900/95 backdrop-blur-md text-white font-semibold text-xs px-4 py-3 rounded-xl shadow-2xl border border-slate-700/80 flex items-center space-x-2.5 outline-none animate-toast-in">
           <div className="w-2 h-2 rounded-full bg-emerald-450 animate-pulse" />
           <span>{toastMessage}</span>
           <button 
@@ -1749,8 +1611,6 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
               <span className="text-[10px] uppercase font-black tracking-wider text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 font-mono">
                 OPEX PROJE TAKİP
               </span>
-              <span className="text-slate-300">|</span>
-              <span className="text-slate-500 text-xs font-semibold">Gemba Partner SaaS</span>
             </div>
             <h1 className="text-base font-extrabold text-slate-900 tracking-tight mt-0.5">
               Proje Takip Raporu & Aksiyon Kütüğü
@@ -1798,6 +1658,91 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
         </div>
       )}
 
+      {/* UNRECOGNIZED IMPORT SUBJECTS VALIDATION MODAL */}
+      {showImportValidationModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-200">
+            <div className="bg-gray-50 px-5 py-4 border-b border-gray-200 flex justify-between items-center">
+              <h3 className="text-xs font-bold text-gray-900 uppercase flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 text-amber-600" />
+                <span>Master Plan'da Bulunmayan Faaliyet Konuları</span>
+              </h3>
+              <button onClick={() => setShowImportValidationModal(false)} className="text-gray-400 hover:text-gray-600 font-bold text-sm cursor-pointer">✕</button>
+            </div>
+            <div className="p-5 space-y-3 text-xs">
+              <p className="text-[11px] text-gray-500 leading-relaxed">
+                İçeri aktarılan kayıtlardaki aşağıdaki <b>{unrecognizedImportSubjects.length}</b> faaliyet konusu Proje Master Planı'nda bulunamadı. Bunları Master Plan'a yeni faaliyet olarak eklemek ister misiniz? Eklenmezlerse kayıtlar içeri aktarılır ancak Master Plan ile eşleşmediği için "Gerçekleşen" verilerine yansımaz.
+              </p>
+              <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+                {unrecognizedImportSubjects.map((subject, idx) => (
+                  <div key={idx} className="p-2 text-[11px] font-bold text-gray-700">{subject}</div>
+                ))}
+              </div>
+            </div>
+            <div className="px-5 pb-5 flex justify-end space-x-2">
+              <button
+                onClick={() => handleConfirmImportWithSync(false)}
+                className="px-3 py-1.5 border hover:bg-slate-50 font-bold rounded-lg cursor-pointer"
+              >
+                Hayır, Sadece İçeri Aktar
+              </button>
+              <button
+                onClick={() => handleConfirmImportWithSync(true)}
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg cursor-pointer"
+              >
+                Evet, Master Plan'a Ekle
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LINK NEW ACTIVITY MODAL ("Diğer" option in Faaliyet Konusu dropdowns) */}
+      {isOtherActivityModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden border border-gray-200">
+            <div className="bg-gray-50 px-5 py-4 border-b border-gray-200 flex justify-between items-center">
+              <h3 className="text-xs font-bold text-gray-900 uppercase flex items-center space-x-2">
+                <Sparkles className="w-4 h-4 text-blue-600" />
+                <span>Yeni Faaliyet Bağla</span>
+              </h3>
+              <button onClick={() => setIsOtherActivityModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-sm cursor-pointer">✕</button>
+            </div>
+            <div className="p-5 space-y-3 text-xs">
+              <p className="text-[11px] text-gray-500 leading-relaxed">
+                Bu faaliyet konusu Proje Master Planı'nda henüz bulunmuyor. Aşağıya yazdığınız isimle Master Plan'a yeni bir faaliyet olarak eklenecek ve bu kayıt ona bağlanacaktır. Planlanan haftaları daha sonra Proje Master Planı'ndan revize edebilirsiniz.
+              </p>
+              <div className="space-y-1">
+                <label className="font-extrabold text-slate-500 uppercase text-[10px] block">Yeni Faaliyet Adı *</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={otherActivityForm.customSubject}
+                  onChange={(e) => setOtherActivityForm({ ...otherActivityForm, customSubject: e.target.value })}
+                  className="w-full p-2 border rounded bg-white text-slate-800 font-bold"
+                  placeholder="Örn: Sevkiyat Alanı 5S Uygulaması"
+                />
+              </div>
+            </div>
+            <div className="px-5 pb-5 flex justify-end space-x-2">
+              <button
+                onClick={() => setIsOtherActivityModalOpen(false)}
+                className="px-3 py-1.5 border hover:bg-slate-50 font-bold rounded-lg cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                onClick={handleConfirmOtherActivity}
+                disabled={!otherActivityForm.customSubject.trim()}
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-lg cursor-pointer"
+              >
+                Ekle ve Bağla
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TABS NAVIGATION BAR (Power BI style) */}
       <div className="flex flex-wrap border-b border-gray-200 font-sans gap-2 mb-1.5 shrink-0 bg-slate-50 p-1.5 rounded-xl border">
         <button
@@ -1809,7 +1754,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
           }`}
         >
           <Table className="w-4 h-4" />
-          <span>📊 Proje Takip Kütüğü (Excel Sayfası)</span>
+          <span>📊 Proje Takip Raporu</span>
         </button>
         <button
           onClick={() => setActiveTab("weekly")}
@@ -1938,7 +1883,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
                   </div>
                 </div>
                 <div>
-                  <div className="flex justify-between items-center text-[9px] text-slate-400 mb-1">
+                  <div className="flex justify-between items-center text-[11px] text-slate-400 mb-1">
                     <span className="font-medium">Kapalı/Toplam Aksiyon Oranı</span>
                     <span className="font-black font-mono">{executiveKPIs.completed}/{executiveKPIs.total}</span>
                   </div>
@@ -1962,7 +1907,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
                   </div>
                 </div>
                 <div>
-                  <div className="flex justify-between items-center text-[9px] text-slate-400 mb-1">
+                  <div className="flex justify-between items-center text-[11px] text-slate-400 mb-1">
                     <span className="font-medium">Zamanında Kapanan / Kapalı</span>
                     <span className="font-black font-mono">Zamanında</span>
                   </div>
@@ -1994,7 +1939,11 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
                 <div className="flex-1 min-w-0">
                   <span className="text-[10px] text-sky-650 font-extrabold uppercase tracking-wider block">Ort. Açık Kalma Süresi</span>
                   <div className="text-2xl font-black text-slate-800 tracking-tight mt-0.5 font-sans">
-                    {executiveKPIs.avgOpenDays} <span className="text-xs text-slate-400 font-bold">Gün</span>
+                    {executiveKPIs.avgOpenDays !== null ? (
+                      <>{executiveKPIs.avgOpenDays} <span className="text-xs text-slate-400 font-bold">Gün</span></>
+                    ) : (
+                      <span className="text-base text-slate-400">Veri yok</span>
+                    )}
                   </div>
                   <span className="text-[10px] text-slate-400 font-medium block mt-0.5">Average Project Lead Time</span>
                 </div>
@@ -2040,7 +1989,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             
             <div className="space-y-1">
-              <label className="font-extrabold text-slate-500 uppercase text-[9px]">Çalışma Tarihi:</label>
+              <label className="font-extrabold text-slate-500 uppercase text-[11px]">Çalışma Tarihi:</label>
               <input
                 type="text"
                 className="w-full p-2 border rounded bg-white text-slate-800 font-bold"
@@ -2051,14 +2000,14 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
             </div>
 
             <div className="space-y-1">
-              <label className="font-extrabold text-slate-500 uppercase text-[9px] block">Oto Hesaplanan Hafta / Sene:</label>
+              <label className="font-extrabold text-slate-500 uppercase text-[11px] block">Oto Hesaplanan Hafta / Sene:</label>
               <div className="p-2 border rounded bg-slate-100 text-slate-700 font-black text-xs h-[38px] flex items-center">
                 <span>Hafta {newItem.visitedWeek || "-"} / Sene {newItem.year || "-"}</span>
               </div>
             </div>
 
             <div className="space-y-1">
-              <label className="font-extrabold text-slate-500 uppercase text-[9px]">Faaliyet Konusu:</label>
+              <label className="font-extrabold text-slate-500 uppercase text-[11px]">Faaliyet Konusu:</label>
               <select
                 className="w-full p-2 border rounded bg-white text-slate-800 font-black"
                 value={newItem.activitySubject || ""}
@@ -2066,7 +2015,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
                   const val = e.target.value;
                   if (val === "DIĞER") {
                     setOtherActivityTriggerContext("new");
-                    setOtherActivityForm({ customSubject: "", relatedGanttId: activities?.[0]?.id || "" });
+                    setOtherActivityForm({ customSubject: "" });
                     setIsOtherActivityModalOpen(true);
                   } else {
                     setNewItem({ ...newItem, activitySubject: val });
@@ -2082,7 +2031,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
             </div>
 
             <div className="space-y-1">
-              <label className="font-extrabold text-slate-500 uppercase text-[9px]">Yalın İyileştirme Konusu:</label>
+              <label className="font-extrabold text-slate-500 uppercase text-[11px]">Yalın İyileştirme Konusu:</label>
               <input
                 type="text"
                 className="w-full p-2 border rounded bg-white text-slate-800 font-semibold"
@@ -2093,7 +2042,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
             </div>
 
             <div className="md:col-span-2 space-y-1">
-              <label className="font-extrabold text-slate-500 uppercase text-[9px]">Yapılan Çalışmalar / Alınan Kararlar:</label>
+              <label className="font-extrabold text-slate-500 uppercase text-[11px]">Yapılan Çalışmalar / Alınan Kararlar:</label>
               <input
                 type="text"
                 className="w-full p-2 border rounded bg-white text-slate-800 font-medium"
@@ -2104,7 +2053,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
             </div>
 
             <div className="space-y-1">
-              <label className="font-extrabold text-slate-500 uppercase text-[9px]">Sorumlu Mühendis / Lider:</label>
+              <label className="font-extrabold text-slate-500 uppercase text-[11px]">Sorumlu Mühendis / Lider:</label>
               <select
                 className="w-full p-2 border rounded bg-white text-slate-800 font-bold"
                 value={newItem.responsible || ""}
@@ -2118,7 +2067,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
             </div>
 
             <div className="space-y-1">
-              <label className="font-extrabold text-slate-500 uppercase text-[9px]">Takip Durumu:</label>
+              <label className="font-extrabold text-slate-500 uppercase text-[11px]">Takip Durumu:</label>
               <select
                 className="w-full p-2 border rounded bg-white text-slate-800 font-extrabold"
                 value={newItem.status}
@@ -2127,11 +2076,13 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
                 <option value="Açık">Açık</option>
                 <option value="Devam Ediyor">Devam Ediyor</option>
                 <option value="Kapalı">Kapalı</option>
+                <option value="İptal">İptal</option>
+                <option value="Yapılmadı">Yapılmadı</option>
               </select>
             </div>
 
             <div className="space-y-1">
-              <label className="font-extrabold text-slate-500 uppercase text-[9px]">Hedef Termin Tarihi:</label>
+              <label className="font-extrabold text-slate-500 uppercase text-[11px]">Hedef Termin Tarihi:</label>
               <input
                 type="text"
                 className="w-full p-2 border rounded bg-white text-slate-800 font-semibold"
@@ -2142,7 +2093,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
             </div>
 
             <div className="space-y-1">
-              <label className="font-extrabold text-slate-500 uppercase text-[9px]">Termine Uyum:</label>
+              <label className="font-extrabold text-slate-500 uppercase text-[11px]">Termine Uyum:</label>
               <select
                 className="w-full p-2 border rounded bg-white text-slate-800 font-extrabold"
                 value={newItem.compliance}
@@ -2154,7 +2105,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
             </div>
 
             <div className="md:col-span-1 space-y-1">
-              <label className="font-extrabold text-slate-500 uppercase text-[9px]">Notlar / Detaylar:</label>
+              <label className="font-extrabold text-slate-500 uppercase text-[11px]">Notlar / Detaylar:</label>
               <input
                 type="text"
                 className="w-full p-2 border rounded bg-white text-slate-800 font-medium"
@@ -2165,7 +2116,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
             </div>
 
             <div className="md:col-span-1 space-y-1">
-              <label className="font-extrabold text-emerald-800 uppercase text-[9px] flex items-center">
+              <label className="font-extrabold text-emerald-800 uppercase text-[11px] flex items-center">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-pulse" />
                 Kaizen Finansal Kazancı (₺):
               </label>
@@ -2191,11 +2142,63 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
               Vazgeç
             </button>
             <button
-              onClick={handleAddNewRecord}
+              onClick={handleAttemptAddNewRecord}
               className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-black rounded-lg cursor-pointer"
             >
               Yeni Satır Olarak Ekle
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* HAFTA ATLAMA UYARISI: son kayıtlı hafta ile yeni girilen hafta arasında boşluk varsa,
+          danışmana atlanan her hafta için ne olduğunu sorar. */}
+      {pendingGapWeeks && pendingGapWeeks.length > 0 && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl space-y-4">
+            <div className="flex items-start space-x-3">
+              <AlertCircle className="w-6 h-6 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-sm font-black text-slate-800">Hafta Atlama Tespit Edildi</h3>
+                <p className="text-xs text-slate-500 font-semibold mt-1">
+                  Son kayıtlı haftadan bu yana {pendingGapWeeks.length === 1 ? `${pendingGapWeeks[0]}. hafta` : `${pendingGapWeeks.join(", ")}. haftalar`} için hiç kayıt girilmemiş.
+                  Devam etmeden önce bu hafta(lar)da ne olduğunu belirtin.
+                </p>
+              </div>
+            </div>
+            <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+              {pendingGapWeeks.map((w) => (
+                <div key={w} className="border rounded-lg p-3 bg-slate-50">
+                  <label className="text-[11px] font-black uppercase text-slate-500 block mb-1.5">{w}. Hafta</label>
+                  <select
+                    value={gapReasons[w] || GAP_REASON_OPTIONS[0]}
+                    onChange={(e) => setGapReasons({ ...gapReasons, [w]: e.target.value })}
+                    className="w-full p-2 border rounded-lg bg-white text-slate-800 font-bold text-xs"
+                  >
+                    {GAP_REASON_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-400 font-semibold">
+              "Sadece kontrol ziyareti yapıldı" seçilen haftalar Açık olarak, diğer nedenler proje ilerlemesine dahil edilmeyecek şekilde "Yapılmadı" olarak kaydedilir.
+            </p>
+            <div className="flex justify-end space-x-2 pt-2 border-t">
+              <button
+                onClick={handleSkipGapCheck}
+                className="px-3.5 py-2 border hover:bg-slate-50 font-extrabold rounded-lg cursor-pointer text-xs"
+              >
+                Atla, Not Ekleme
+              </button>
+              <button
+                onClick={handleConfirmGapReasons}
+                className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-black rounded-lg cursor-pointer text-xs"
+              >
+                Notları Kaydet ve Devam Et
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -2253,23 +2256,91 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
                 <Upload className="w-4 h-4 text-sky-600" />
               </button>
 
-              {/* Excel İndirme İkonu */}
+              {/* Excel İndirme İkonu — firma rapor şablonu (native Dashboard/Pivot/Charts korunur) */}
               <button
-                onClick={handleExportCSV}
-                className="p-1.5 text-slate-600 hover:text-indigo-700 hover:bg-slate-100 rounded-md cursor-pointer transition-all"
-                title="Excel İndir (CSV Dışa Aktar)"
+                onClick={handleDownloadTemplateExcel}
+                disabled={isDownloadingTemplate}
+                className="p-1.5 text-slate-600 hover:text-indigo-700 hover:bg-slate-100 rounded-md cursor-pointer transition-all disabled:opacity-50 disabled:cursor-wait"
+                title="Excel İndir (firma rapor şablonu, Dashboard/Pivot dahil)"
               >
                 <Download className="w-4 h-4 text-indigo-600" />
               </button>
+
+              {/* Mail Gönder İkonu */}
+              <div className="relative">
+                <button
+                  onClick={() => (showMailPanel ? setShowMailPanel(false) : handleOpenMailPanel())}
+                  className="p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-slate-100 rounded-md cursor-pointer transition-all"
+                  title="Haftalık Ziyaret Raporunu Müşteriye Mail Olarak Gönder"
+                >
+                  <Mail className="w-4 h-4 text-emerald-600" />
+                </button>
+                {showMailPanel && (
+                  <div className="absolute right-0 top-full mt-1.5 w-72 bg-white border border-gray-200 rounded-xl shadow-lg z-30 p-3 space-y-2.5">
+                    <p className="font-extrabold text-slate-700 text-[11px] uppercase tracking-wider">
+                      Haftalık Ziyaret Raporunu Gönder
+                    </p>
+                    <p className="text-[10px] text-slate-500 leading-snug">
+                      proje@gembapartner.com adresinden, şablon Excel raporu ek olarak, aşağıdaki alıcıya gönderilecek.
+                    </p>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Hafta</label>
+                      <select
+                        value={activeReportWeek}
+                        onChange={(e) => setSelectedReportWeek(e.target.value)}
+                        className="w-full p-2 border border-gray-200 rounded-lg bg-slate-50 text-slate-800 font-bold text-[11px] focus:ring-1 focus:ring-emerald-500 focus:outline-none cursor-pointer"
+                      >
+                        {availableWeeks.map((wk) => (
+                          <option key={wk} value={wk}>Hafta {wk}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {mailRecipientOptions.length > 0 && (
+                      <select
+                        value={mailRecipientOptions.some(o => o.email === mailRecipient) ? mailRecipient : ""}
+                        onChange={(e) => e.target.value && setMailRecipient(e.target.value)}
+                        className="w-full p-2 border border-gray-200 rounded-lg bg-slate-50 text-slate-800 font-bold text-[11px] focus:ring-1 focus:ring-emerald-500 focus:outline-none cursor-pointer"
+                      >
+                        {mailRecipientOptions.map(o => (
+                          <option key={o.email} value={o.email}>{o.label}</option>
+                        ))}
+                        <option value="">Diğer (aşağıya yazın)...</option>
+                      </select>
+                    )}
+                    <input
+                      type="email"
+                      value={mailRecipient}
+                      onChange={(e) => setMailRecipient(e.target.value)}
+                      placeholder="ornek@musteri.com"
+                      className="w-full p-2 border border-gray-200 rounded-lg bg-white text-slate-800 font-bold text-[11px] focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                    />
+                    <div className="flex justify-end space-x-2 pt-1">
+                      <button
+                        onClick={() => setShowMailPanel(false)}
+                        className="p-1 px-2.5 text-slate-500 hover:text-slate-700 font-extrabold rounded-lg text-[10px] cursor-pointer"
+                      >
+                        Vazgeç
+                      </button>
+                      <button
+                        onClick={handleSendWeeklyReportMail}
+                        disabled={isSendingMail}
+                        className="p-1 px-3 bg-emerald-800 hover:bg-emerald-700 text-white font-extrabold rounded-lg flex items-center space-x-1 cursor-pointer text-[10px] disabled:opacity-50 disabled:cursor-wait"
+                      >
+                        <Mail className="w-3 h-3" />
+                        <span>{isSendingMail ? "Gönderiliyor..." : "Gönder"}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
-            <button 
+            <button
               onClick={() => setIsTableFullScreen(!isTableFullScreen)}
-              className="flex items-center space-x-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-lg py-1 px-2.5 transition cursor-pointer shadow-xs font-black text-[10.5px]"
+              className="p-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-lg transition cursor-pointer shadow-xs"
               title={isTableFullScreen ? "Normal Ekrana Dön" : "Geniş Ekrana Geç"}
             >
               {isTableFullScreen ? <Minimize2 className="w-3.5 h-3.5 text-blue-600 animate-pulse" /> : <Maximize2 className="w-3.5 h-3.5 text-slate-600" />}
-              <span>{isTableFullScreen ? "Normal" : "Geniş Ekran"}</span>
             </button>
           </div>
         </div>
@@ -2280,7 +2351,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
             <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-5 gap-3.5">
               {/* Year selector */}
               <div className="space-y-1">
-                <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">Yıl (Sene):</label>
+                <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Yıl (Sene):</label>
                 <select
                   value={selectedYear}
                   onChange={(e) => setSelectedYear(e.target.value)}
@@ -2296,7 +2367,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
 
               {/* Hafta selector */}
               <div className="space-y-1">
-                <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">Hafta (Ziyaret):</label>
+                <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Hafta (Ziyaret):</label>
                 <select
                   value={selectedWeekFilter}
                   onChange={(e) => setSelectedWeekFilter(e.target.value)}
@@ -2311,7 +2382,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
 
               {/* Çalışma Tarih Aralığı */}
               <div className="space-y-1 md:col-span-2">
-                <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">Çalışma Tarih Aralığı:</label>
+                <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Çalışma Tarih Aralığı:</label>
                 <div className="flex items-center space-x-1.5">
                   <input
                     type="date"
@@ -2331,7 +2402,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
 
               {/* Faaliyet Konusu selector */}
               <div className="space-y-1">
-                <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">Faaliyet Konusu:</label>
+                <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Faaliyet Konusu:</label>
                 <select
                   value={selectedActivityFilter}
                   onChange={(e) => setSelectedActivityFilter(e.target.value)}
@@ -2346,7 +2417,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
 
               {/* İyileştirme Konusu search input */}
               <div className="space-y-1">
-                <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">İyileştirme Konusu (Arama):</label>
+                <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">İyileştirme Konusu (Arama):</label>
                 <input
                   type="text"
                   placeholder="Yalın konu ara..."
@@ -2358,7 +2429,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
 
               {/* Çıktı search input */}
               <div className="space-y-1">
-                <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">Çıktı / Standart (Arama):</label>
+                <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Çıktı / Standart (Arama):</label>
                 <input
                   type="text"
                   placeholder="Çıktı ara..."
@@ -2370,7 +2441,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
 
               {/* Sorumlu selector */}
               <div className="space-y-1">
-                <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">Sorumlu Mühendis:</label>
+                <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Sorumlu Mühendis:</label>
                 <select
                   value={selectedResponsible}
                   onChange={(e) => setSelectedResponsible(e.target.value)}
@@ -2385,7 +2456,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
 
               {/* Takip Durumu (Status) selector */}
               <div className="space-y-1">
-                <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">Takip Durumu:</label>
+                <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Takip Durumu:</label>
                 <select
                   value={selectedStatus}
                   onChange={(e) => setSelectedStatus(e.target.value)}
@@ -2395,12 +2466,14 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
                   <option value="Açık">Açık</option>
                   <option value="Devam Ediyor">Devam Ediyor</option>
                   <option value="Kapalı">Kapalı</option>
+                  <option value="İptal">İptal</option>
+                  <option value="Yapılmadı">Yapılmadı</option>
                 </select>
               </div>
 
               {/* Termin Tarih Aralığı */}
               <div className="space-y-1 md:col-span-2">
-                <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">Termin Tarih Aralığı:</label>
+                <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Termin Tarih Aralığı:</label>
                 <div className="flex items-center space-x-1.5">
                   <input
                     type="date"
@@ -2420,7 +2493,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
 
               {/* Termine Uyum selector */}
               <div className="space-y-1">
-                <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">Termine Uyum:</label>
+                <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Termine Uyum:</label>
                 <select
                   value={selectedComplianceFilter}
                   onChange={(e) => setSelectedComplianceFilter(e.target.value)}
@@ -2469,7 +2542,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
           <table className="w-full text-[11px] font-sans text-left border-collapse select-text">
             
             {/* Excel Row Sütun Harfleri Başlığı (A, B, C, D...) */}
-            <thead className="bg-gray-100 text-slate-400 font-mono text-[9px] text-center border-b sticky top-0 z-20">
+            <thead className="bg-gray-100 text-slate-400 font-mono text-[11px] text-center border-b sticky top-0 z-20">
               <tr>
                 <th className="p-1.5 border-r border-b bg-gray-200">#</th>
                 <th className="p-1 px-2 border-r border-b">A</th>
@@ -2559,7 +2632,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
                             const val = e.target.value;
                             if (val === "DIĞER") {
                               setOtherActivityTriggerContext("edit");
-                              setOtherActivityForm({ customSubject: "", relatedGanttId: activities?.[0]?.id || "" });
+                              setOtherActivityForm({ customSubject: "" });
                               setIsOtherActivityModalOpen(true);
                             } else {
                               setEditForm({ ...editForm, activitySubject: val });
@@ -2647,22 +2720,28 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
                           <option value="Açık">Açık</option>
                           <option value="Devam Ediyor">Devam Ediyor</option>
                           <option value="Kapalı">Kapalı</option>
+                          <option value="İptal">İptal</option>
+                          <option value="Yapılmadı">Yapılmadı</option>
                         </select>
                       ) : (
                         <select
                           value={item.status}
                           onChange={(e) => handleUpdateStatus(item.id, e.target.value)}
                           className={`p-1.5 rounded-md text-[10px] font-black border uppercase text-center focus:outline-none cursor-pointer ${
-                            item.status === "Kapalı" 
-                              ? "bg-emerald-50 border-emerald-300 text-emerald-800" 
+                            item.status === "Kapalı"
+                              ? "bg-emerald-50 border-emerald-300 text-emerald-800"
                               : item.status === "Devam Ediyor"
                               ? "bg-sky-50 border-sky-300 text-sky-800"
+                              : EXCLUDED_STATUSES.includes(item.status)
+                              ? "bg-slate-100 border-slate-300 text-slate-500"
                               : "bg-amber-50 border-amber-300 text-amber-800"
                           }`}
                         >
                           <option value="Açık">AÇIK</option>
                           <option value="Devam Ediyor">DEVAM EDİYOR</option>
                           <option value="Kapalı">KAPALI</option>
+                          <option value="İptal">İPTAL</option>
+                          <option value="Yapılmadı">YAPILMADI</option>
                         </select>
                       )}
                     </td>
@@ -2696,7 +2775,7 @@ export default function PtrTimeStudy({ activities, onUpdateActivity, onAddKaizen
                         <select
                           value={item.compliance}
                           onChange={(e) => handleUpdateCompliance(item.id, e.target.value)}
-                          className={`p-1 rounded-md text-[9px] font-black uppercase text-center focus:outline-none cursor-pointer ${
+                          className={`p-1 rounded-md text-[11px] font-black uppercase text-center focus:outline-none cursor-pointer ${
                             item.compliance === "ZAMANINDA" 
                               ? "bg-teal-50 text-teal-800" 
                               : "bg-red-50 text-red-800"
@@ -2903,6 +2982,14 @@ ${weeklyNarrative.nextSteps}
                       <span>Raporu Kopyala</span>
                     </button>
                     <button
+                      onClick={handleExportWeeklyExcel}
+                      className="p-1 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold rounded-lg flex items-center space-x-1 cursor-pointer text-[10px]"
+                      title="Bu Haftanın Faaliyetlerini Excel Olarak İndir"
+                    >
+                      <FileSpreadsheet className="w-3 h-3" />
+                      <span>Excel İndir</span>
+                    </button>
+                    <button
                       onClick={handleSaveWeeklyNarrative}
                       className="p-1 px-3 bg-emerald-800 hover:bg-emerald-700 text-white font-extrabold rounded-lg flex items-center space-x-1 cursor-pointer text-[10px]"
                     >
@@ -2915,7 +3002,7 @@ ${weeklyNarrative.nextSteps}
                 <div className="space-y-4 text-xs">
                   {/* Reporter Name */}
                   <div className="space-y-1">
-                    <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider flex items-center">
+                    <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider flex items-center">
                       <User className="w-3.5 h-3.5 mr-1 text-slate-400" />
                       Raporu Hazırlayan OPEX Proje Yöneticisi:
                     </label>
@@ -2930,7 +3017,7 @@ ${weeklyNarrative.nextSteps}
 
                   {/* 1. Summary */}
                   <div className="space-y-1">
-                    <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">1. Yönetici Özeti (Genel Saha İzlenimi):</label>
+                    <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">1. Yönetici Özeti (Genel Saha İzlenimi):</label>
                     <textarea
                       value={weeklyNarrative.summary}
                       onChange={(e) => setWeeklyNarrative({...weeklyNarrative, summary: e.target.value})}
@@ -2941,7 +3028,7 @@ ${weeklyNarrative.nextSteps}
 
                   {/* 2. Completed */}
                   <div className="space-y-1">
-                    <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">2. Tamamlanan Kazanımlar ve Somut Çıktılar:</label>
+                    <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">2. Tamamlanan Kazanımlar ve Somut Çıktılar:</label>
                     <textarea
                       value={weeklyNarrative.completedActions}
                       onChange={(e) => setWeeklyNarrative({...weeklyNarrative, completedActions: e.target.value})}
@@ -2952,7 +3039,7 @@ ${weeklyNarrative.nextSteps}
 
                   {/* 3. Bottlenecks */}
                   <div className="space-y-1">
-                    <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">3. Saha Darboğazları & Engeller:</label>
+                    <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">3. Saha Darboğazları & Engeller:</label>
                     <textarea
                       value={weeklyNarrative.bottlenecks}
                       onChange={(e) => setWeeklyNarrative({...weeklyNarrative, bottlenecks: e.target.value})}
@@ -2963,7 +3050,7 @@ ${weeklyNarrative.nextSteps}
 
                   {/* 4. Next Steps */}
                   <div className="space-y-1">
-                    <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">4. Gelecek Hafta Kritik Faaliyet Planı:</label>
+                    <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">4. Gelecek Hafta Kritik Faaliyet Planı:</label>
                     <textarea
                       value={weeklyNarrative.nextSteps}
                       onChange={(e) => setWeeklyNarrative({...weeklyNarrative, nextSteps: e.target.value})}
@@ -3123,7 +3210,7 @@ ${weeklyNarrative.nextSteps}
                   <Award className="w-20 h-20" />
                 </div>
                 <div className="space-y-1">
-                  <span className="text-[9px] text-emerald-100 font-extrabold uppercase tracking-widest block">HAFTALIK FİNANSAL KAZANÇ</span>
+                  <span className="text-[11px] text-emerald-100 font-extrabold uppercase tracking-widest block">HAFTALIK FİNANSAL KAZANÇ</span>
                   <div className="text-2xl font-black tracking-tight">
                     {currency} {weeklyActivities.reduce((sum, r) => {
                       if (r.status === "Kapalı") {
@@ -3180,8 +3267,8 @@ ${weeklyNarrative.nextSteps}
                   setSelectedYear("ALL");
                   setSelectedStatus("ALL");
                   setSelectedResponsible("ALL");
-                  // Filter by selected report week
-                  setSearchTerm(activeReportWeek);
+                  // Filter by selected report week (real week filter, not a free-text search hack)
+                  setSelectedWeekFilter(activeReportWeek);
                   showToast(`Tüm kütük Hafta ${activeReportWeek} filtrelemesi ile açıldı.`);
                 }}
                 className="text-[10.5px] text-emerald-800 font-black hover:underline cursor-pointer flex items-center space-x-0.5"
@@ -3201,10 +3288,10 @@ ${weeklyNarrative.nextSteps}
                   <div key={act.id} className="border border-gray-200 rounded-xl p-4 bg-slate-50/50 hover:bg-slate-50 transition-all flex flex-col justify-between space-y-3">
                     <div className="space-y-2">
                       <div className="flex justify-between items-start">
-                        <span className="bg-emerald-100 text-emerald-800 font-extrabold px-2 py-0.5 rounded text-[9px] uppercase tracking-wider">
+                        <span className="bg-emerald-100 text-emerald-800 font-extrabold px-2 py-0.5 rounded text-[11px] uppercase tracking-wider">
                           {act.activitySubject}
                         </span>
-                        <span className={`px-2 py-0.5 rounded text-[8px] font-black border uppercase ${
+                        <span className={`px-2 py-0.5 rounded text-[11px] font-black border uppercase ${
                           act.status === "Kapalı" 
                             ? "bg-emerald-50 border-emerald-300 text-emerald-800" 
                             : act.status === "Devam Ediyor"
@@ -3222,7 +3309,7 @@ ${weeklyNarrative.nextSteps}
 
                     <div className="border-t pt-2.5 flex justify-between items-center text-[10px] text-slate-500">
                       <div className="flex items-center space-x-1">
-                        <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center font-black text-slate-700 text-[8px]">
+                        <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center font-black text-slate-700 text-[11px]">
                           {act.responsible?.slice(0,2).toUpperCase()}
                         </div>
                         <span className="font-extrabold text-slate-800">{act.responsible}</span>

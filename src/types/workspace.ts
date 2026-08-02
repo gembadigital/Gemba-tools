@@ -31,15 +31,6 @@ export interface ExecutiveContact {
   email: string;
 }
 
-export interface ProjectConsultant {
-  id: string;
-  userId?: string;
-  name: string;
-  email: string;
-  role: "Primary" | "Secondary"; // 1. Danışman vs İlave Danışman
-  permissions: "FullAccess"; // Read, Write, Share, Delete eşit yetkili
-}
-
 export interface WorkforceInfo {
   totalEmployees: number;
   blueCollar: number;
@@ -182,5 +173,4 @@ export interface CompanyWorkspaceExtended {
   kpiHistory: KpiHistoryPoint[];
   aiSummaryCached?: string;
   projectTeam?: ProjectTeamMember[];
-  projectConsultants?: ProjectConsultant[];
 }

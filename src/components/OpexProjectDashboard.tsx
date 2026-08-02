@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Customer, GanttActivity, KaizenCard } from "../types";
-import { ProjectRecord } from "./PtrTimeStudy";
+import { ProjectRecord, EXCLUDED_STATUSES } from "./PtrTimeStudy";
 
 interface OpexProjectDashboardProps {
   records: ProjectRecord[];
@@ -37,8 +37,12 @@ export default function OpexProjectDashboard({
   const [filterConsultant, setFilterConsultant] = useState<string>("ALL");
   const [filterResponsible, setFilterResponsible] = useState<string>("ALL");
 
-  const [isPrintMode, setIsPrintMode] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
+
+  // Real, user-editable investment input for ROI/payback — was a hardcoded ₺85.000/340%/3.5 ay,
+  // presented to management as if measured. No investment tracking exists elsewhere in PTR, so
+  // this is the consultant's own estimate, kept explicit and editable.
+  const [investmentAmount, setInvestmentAmount] = useState<number>(0);
 
   // Fallback / Load records dynamically depending on customer filter
   const currentRecords = useMemo(() => {
@@ -87,7 +91,7 @@ export default function OpexProjectDashboard({
     const consultants = Array.from(new Set([
       ...activities.map(a => a.owner?.trim()),
       ...currentRecords.map(r => r.responsible?.trim())
-    ])).filter(r => r && ["Kemal Doğan", "Gözde Tohumci", "Atakan Zehir"].includes(r)).sort();
+    ])).filter(Boolean).sort();
 
     const responsibles = Array.from(new Set([
       ...currentRecords.map(r => r.responsible?.trim()),
@@ -180,17 +184,25 @@ export default function OpexProjectDashboard({
   const metrics = useMemo(() => {
     const totalActions = filteredData.records.length;
     const completedActions = filteredData.records.filter(r => r.status === "Kapalı").length;
-    const openActions = filteredData.records.filter(r => r.status !== "Kapalı").length;
-    
-    const actionPerformance = totalActions > 0 ? Math.round((completedActions / totalActions) * 100) : 0;
+    const cancelledActions = filteredData.records.filter(r => EXCLUDED_STATUSES.includes(r.status)).length;
+    const openActions = filteredData.records.filter(r => r.status !== "Kapalı" && !EXCLUDED_STATUSES.includes(r.status)).length;
+
+    // İptal edilen veya yapılmayan aksiyonlar ilerleme yüzdesine dahil edilmez.
+    const progressEligibleActions = totalActions - cancelledActions;
+    const actionPerformance = progressEligibleActions > 0 ? Math.round((completedActions / progressEligibleActions) * 100) : 0;
     
     const completedOnTime = filteredData.records.filter(r => r.status === "Kapalı" && r.compliance === "ZAMANINDA").length;
-    const dueDateCompliance = completedActions > 0 ? Math.round((completedOnTime / completedActions) * 100) : 100;
+    const dueDateCompliance = completedActions > 0 ? Math.round((completedOnTime / completedActions) * 100) : null;
 
-    // Consultant Man-Days calculations
-    const totalPlannedManDays = filteredData.activities.reduce((sum, a) => sum + ((a as any).plannedManDays || 8), 0) || 120;
-    const totalCompletedManDays = filteredData.activities.reduce((sum, a) => sum + ((a as any).consumedManDays || 0), 0) || 92;
-    const projectProgress = Math.min(100, Math.round((totalCompletedManDays / totalPlannedManDays) * 100));
+    // Consultant Man-Days calculations — real Master Plan data only, no fabricated fallbacks.
+    // plannedManDays default of 5 matches MasterPlanGantt.tsx's own default (was inconsistently 8 here).
+    const totalPlannedManDays = filteredData.activities.reduce((sum, a) => sum + ((a as any).plannedManDays || 5), 0);
+    const totalCompletedManDays = filteredData.activities.reduce((sum, a) => sum + ((a as any).consumedManDays || 0), 0);
+    const projectProgress = totalPlannedManDays > 0 ? Math.min(100, Math.round((totalCompletedManDays / totalPlannedManDays) * 100)) : null;
+
+    // Toplam Ziyaret Sayısı: distinct visit dates logged in PTR, independent of Master Plan
+    // activity matching — this is the real "adam gün" the consultant physically spent on site.
+    const totalVisitDays = new Set(filteredData.records.map(r => r.workDate).filter(Boolean)).size;
 
     // CI Kaizen calculations
     const totalKaizens = filteredData.kaizens.length;
@@ -205,33 +217,36 @@ export default function OpexProjectDashboard({
       .filter(k => k.status === "Completed")
       .reduce((sum, k) => sum + (k.actualSavings || 0), 0);
 
-    // Expected Savings
+    // Expected Savings — only real recorded amounts; no fabricated ₺15.000 substitute for records
+    // without a savings figure, and real kaizen expectedGain instead of estimatedCost*2.5.
     const expectedSavings = filteredData.records
       .reduce((sum, r) => {
-        const val = parseFloat((r.savingsAmount || "15000").toString().replace(/[^0-9.-]+/g, ""));
+        const val = parseFloat((r.savingsAmount || "0").toString().replace(/[^0-9.-]+/g, ""));
         return sum + (isNaN(val) ? 0 : val);
       }, 0) + filteredData.kaizens
-      .reduce((sum, k) => sum + (k.estimatedCost || 12000) * 2.5, 0);
+      .reduce((sum, k) => sum + (k.expectedGain || 0), 0);
 
-    // Trainings duration and unique participants count
-    const trainingRecords = filteredData.records.filter(r => r.activitySubject === "EĞİTİM");
-    const totalTrainingHours = trainingRecords.length * 4; // assume 4 hours per session
-    const totalParticipants = trainingRecords.length * 12; // assume 12 per session avg
+    // Real training session count — no fabricated duration/attendance multipliers
+    // (ProjectRecord doesn't track real session hours or participant counts).
+    const trainingSessions = filteredData.records.filter(r => r.activitySubject === "EĞİTİM").length;
 
     return {
       totalActions,
       completedActions,
       openActions,
+      cancelledActions,
+      progressEligibleActions,
       actionPerformance,
       dueDateCompliance,
+      completedOnTime,
       totalPlannedManDays,
       totalCompletedManDays,
       projectProgress,
+      totalVisitDays,
       totalKaizens,
       verifiedKaizenSavings,
       expectedSavings,
-      totalTrainingHours,
-      totalParticipants
+      trainingSessions
     };
   }, [filteredData]);
 
@@ -242,10 +257,12 @@ export default function OpexProjectDashboard({
     const openCount = filteredData.records.filter(r => r.status === "Açık").length;
     const inProgressCount = filteredData.records.filter(r => r.status === "Devam Ediyor").length;
     const completedCount = filteredData.records.filter(r => r.status === "Kapalı").length;
+    const cancelledCount = filteredData.records.filter(r => EXCLUDED_STATUSES.includes(r.status)).length;
     return [
       { name: "Açık (Başlanmadı)", value: openCount, color: "#ef4444" },
       { name: "Devam Ediyor", value: inProgressCount, color: "#f97316" },
-      { name: "Kapalı (Tamamlandı)", value: completedCount, color: "#10b981" }
+      { name: "Kapalı (Tamamlandı)", value: completedCount, color: "#10b981" },
+      { name: "İptal / Yapılmadı", value: cancelledCount, color: "#94a3b8" }
     ].filter(d => d.value > 0);
   }, [filteredData.records]);
 
@@ -363,36 +380,19 @@ export default function OpexProjectDashboard({
     })).sort((a, b) => b.value - a.value);
   }, [filteredData.records]);
 
-  // 6. Training Topics and duration
+  // 6. Training Topics — real session counts per topic (no fabricated hours-per-session assumption;
+  // ProjectRecord doesn't track real session duration/attendance).
   const trainingTopicData = useMemo(() => {
     const topicMap: { [key: string]: number } = {};
     filteredData.records.filter(r => r.activitySubject === "EĞİTİM").forEach(r => {
       const topic = r.improvementSubject || "Genel Yalın Üretim";
-      topicMap[topic] = (topicMap[topic] || 0) + 4; // Hours
+      topicMap[topic] = (topicMap[topic] || 0) + 1;
     });
     return Object.keys(topicMap).map(name => ({
       name,
-      "Eğitim Süresi (Saat)": topicMap[name]
-    })).sort((a, b) => b["Eğitim Süresi (Saat)"] - a["Eğitim Süresi (Saat)"]);
+      "Eğitim Seans Sayısı": topicMap[name]
+    })).sort((a, b) => b["Eğitim Seans Sayısı"] - a["Eğitim Seans Sayısı"]);
   }, [filteredData.records]);
-
-  // Section 3 - Operational Excellence Performance (Maturity radar simulation)
-  const opexPerformanceMetrics = useMemo(() => {
-    // We scale improvements dynamically according to the number of completed actions
-    const scaleFactor = Math.min(1.5, 1 + (metrics.completedActions / 100));
-    
-    return [
-      { metric: "Yalın Olgunluk Skoru", baseline: 65, current: Math.min(98, Math.round(65 * scaleFactor)), unit: "%", better: "up" },
-      { metric: "OEE (Ekipman Etkinliği)", baseline: 58, current: Math.min(95, Math.round(58 * scaleFactor)), unit: "%", better: "up" },
-      { metric: "Lead Time (Akış Süresi)", baseline: 12, current: Math.max(4, Math.round(12 / scaleFactor)), unit: "Gün", better: "down" },
-      { metric: "Hurda ve Fire Oranı (Scrap)", baseline: 4.2, current: parseFloat(Math.max(0.5, 4.2 / scaleFactor).toFixed(1)), unit: "%", better: "down" },
-      { metric: "Yeniden İşleme (Rework)", baseline: 5.5, current: parseFloat(Math.max(0.8, 5.5 / scaleFactor).toFixed(1)), unit: "%", better: "down" },
-      { metric: "Setup Değişim Süresi (SMED)", baseline: 45, current: Math.max(12, Math.round(45 / scaleFactor)), unit: "Dk", better: "down" },
-      { metric: "Stok Seviyesi (WIP)", baseline: 1.4, current: parseFloat(Math.max(0.4, 1.4 / scaleFactor).toFixed(1)), unit: "M ₺", better: "down" },
-      { metric: "Enerji Tüketim İndeksi", baseline: 140, current: Math.max(105, Math.round(140 / scaleFactor)), unit: "kWh/ton", better: "down" },
-      { metric: "İş Güvenliği (Ramak Kala)", baseline: 8, current: Math.max(0, Math.round(8 - (metrics.completedActions / 4))), unit: "Adet", better: "down" }
-    ];
-  }, [metrics.completedActions]);
 
   // Excel Exporter
   const handleExportToExcel = () => {
@@ -410,14 +410,14 @@ export default function OpexProjectDashboard({
       [],
       ["TEMEL PROJE PERFORMANS GÖSTERGELERİ (KPI SUMMARY)"],
       ["Gösterge Adı", "Formül / Hedef", "Filtrelenmiş Sonuç", "Performans Oranı"],
-      ["Proje İlerleme Seviyesi", "Kapanan Man-Day / Toplam Planlanan", `${metrics.totalCompletedManDays} / ${metrics.totalPlannedManDays} Adam-Gün`, `%${metrics.projectProgress}`],
+      ["Proje İlerleme Seviyesi", "Kapanan Man-Day / Toplam Planlanan", `${metrics.totalCompletedManDays} / ${metrics.totalPlannedManDays} Adam-Gün`, metrics.projectProgress !== null ? `%${metrics.projectProgress}` : "Veri yok"],
+      ["Sahada Kayıtlı Ziyaret Sayısı", "Farklı Ziyaret Tarihi Sayısı", `${metrics.totalVisitDays} Gün`, "-"],
       ["Toplam Aksiyon Sıklığı", "Atanan saha görev havuzu", `${metrics.totalActions} Adet`, "-"],
       ["Tamamlanan Aksiyon Oranı", "Kapalı Aksiyonlar / Toplam", `${metrics.completedActions} Adet`, `%${metrics.actionPerformance}`],
-      ["Termin Sadakat Başarısı", "Süresinde Kapatılan / Kapatılanlar", `${metrics.completedActions - metrics.totalActions + metrics.completedActions} Adet`, `%${metrics.dueDateCompliance}`],
+      ["Termin Sadakat Başarısı", "Süresinde Kapatılan / Kapatılanlar", `${metrics.completedOnTime} Adet`, metrics.dueDateCompliance !== null ? `%${metrics.dueDateCompliance}` : "Veri yok"],
       ["Sürekli İyileştirme Kaizen Sayısı", "Kanban Panosu Kart Havuzu", `${metrics.totalKaizens} Proje`, "-"],
       ["Doğrulanmış Kaizen Finansal Tasarrufu", "Doğrulanmış Yıllık Kazanç", `₺${metrics.verifiedKaizenSavings.toLocaleString("tr-TR")}`, "-"],
-      ["Toplam Eğitim Yatırımı", "Saha Eğitim Süresi", `${metrics.totalTrainingHours} Saat`, "-"],
-      ["Toplam Eğitim Katılımcı", "Eğitilen Operatör / Mühendis", `${metrics.totalParticipants} Katılımcı`, "-"]
+      ["Toplam Eğitim Seansı", "Saha Eğitim Faaliyeti Kaydı", `${metrics.trainingSessions} Seans`, "-"]
     ];
     const ws1 = XLSX.utils.aoa_to_sheet(dashboardRows);
     ws1["!cols"] = [{ wch: 30 }, { wch: 30 }, { wch: 25 }, { wch: 20 }];
@@ -471,8 +471,15 @@ export default function OpexProjectDashboard({
     const finRows = [
       ["FİNANSAL DEĞER OLUŞTURMA VE KAZANÇ ANALİZİ"],
       [],
-      ["Finansal Gösterge", "Yıllık Öngörülen Kazanç", "Doğrulanmış Kazanç", "EBITDA Katkısı (Tahmini)", "ROI Oranı", "Yatırım Geri Dönüşü"],
-      ["Kaizen Finansal Havuzu", `₺${metrics.expectedSavings.toLocaleString()}`, `₺${metrics.verifiedKaizenSavings.toLocaleString()}`, `₺${Math.round(metrics.verifiedKaizenSavings * 0.85).toLocaleString()}`, `340%`, "3.5 Ay"],
+      ["Finansal Gösterge", "Yıllık Öngörülen Kazanç", "Doğrulanmış Kazanç", "Tahmini Yatırım", "ROI Oranı", "Yatırım Geri Dönüşü"],
+      [
+        "Kaizen Finansal Havuzu",
+        `₺${metrics.expectedSavings.toLocaleString()}`,
+        `₺${metrics.verifiedKaizenSavings.toLocaleString()}`,
+        investmentAmount > 0 ? `₺${investmentAmount.toLocaleString()}` : "Girilmedi",
+        investmentAmount > 0 ? `%${Math.round(((metrics.verifiedKaizenSavings - investmentAmount) / investmentAmount) * 100)}` : "Veri yok",
+        investmentAmount > 0 && metrics.verifiedKaizenSavings > 0 ? `${((investmentAmount / metrics.verifiedKaizenSavings) * 12).toFixed(1)} Ay` : "Veri yok"
+      ],
       [],
       ["HAFTALIK DEĞER ÜRETİMİ VE BİRİKİMLİ KAZANÇ GRAFİĞİ"],
       ["Hafta No", "Haftalık Kazanç (₺)", "Birikimli Toplam Değer (₺)"],
@@ -486,11 +493,11 @@ export default function OpexProjectDashboard({
     const trRows = [
       ["SAHA EĞİTİMLERİ VE YETKİNLİK MATRİSİ ÖZETİ"],
       [],
-      ["Eğitim Konusu / Yalın Metot", "Toplam Eğitim Saati", "Katılımcı Sıklığı", "Toplam Adam-Saat Katkısı"],
-      ...trainingTopicData.map(t => [t.name, t["Eğitim Süresi (Saat)"], Math.round(t["Eğitim Süresi (Saat)"] * 3), Math.round(t["Eğitim Süresi (Saat)"] * 12)])
+      ["Eğitim Konusu / Yalın Metot", "Seans Sayısı"],
+      ...trainingTopicData.map(t => [t.name, t["Eğitim Seans Sayısı"]])
     ];
     const ws6 = XLSX.utils.aoa_to_sheet(trRows);
-    ws6["!cols"] = [{ wch: 35 }, { wch: 20 }, { wch: 20 }, { wch: 25 }];
+    ws6["!cols"] = [{ wch: 35 }, { wch: 20 }];
     XLSX.utils.book_append_sheet(wb, ws6, "Training Summary");
 
     // 7. Raw Data
@@ -510,11 +517,7 @@ export default function OpexProjectDashboard({
 
   // Printing trigger
   const handlePrintReport = () => {
-    setIsPrintMode(true);
-    setTimeout(() => {
-      window.print();
-      setIsPrintMode(false);
-    }, 400);
+    window.print();
   };
 
   return (
@@ -560,7 +563,7 @@ export default function OpexProjectDashboard({
           
           {/* 1. Customer Select */}
           <div className="space-y-1">
-            <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">Fabrika / Müşteri:</label>
+            <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Fabrika / Müşteri:</label>
             <select
               value={filterCustomer}
               onChange={(e) => setFilterCustomer(e.target.value)}
@@ -575,7 +578,7 @@ export default function OpexProjectDashboard({
 
           {/* 2. Year Select */}
           <div className="space-y-1">
-            <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">Planlama Yılı:</label>
+            <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Planlama Yılı:</label>
             <select
               value={filterYear}
               onChange={(e) => setFilterYear(e.target.value)}
@@ -590,7 +593,7 @@ export default function OpexProjectDashboard({
 
           {/* 3. Month Select */}
           <div className="space-y-1">
-            <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">Aktivite Ayı:</label>
+            <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Aktivite Ayı:</label>
             <select
               value={filterMonth}
               onChange={(e) => setFilterMonth(e.target.value)}
@@ -605,7 +608,7 @@ export default function OpexProjectDashboard({
 
           {/* 4. Department Select */}
           <div className="space-y-1">
-            <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">Yalın Metot / Bölüm:</label>
+            <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Yalın Metot / Bölüm:</label>
             <select
               value={filterDepartment}
               onChange={(e) => setFilterDepartment(e.target.value)}
@@ -620,7 +623,7 @@ export default function OpexProjectDashboard({
 
           {/* 5. Consultant Select */}
           <div className="space-y-1">
-            <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">Sorumlu Lider / Danışman:</label>
+            <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Sorumlu Lider / Danışman:</label>
             <select
               value={filterConsultant}
               onChange={(e) => setFilterConsultant(e.target.value)}
@@ -635,7 +638,7 @@ export default function OpexProjectDashboard({
 
           {/* 6. Responsible Select */}
           <div className="space-y-1">
-            <label className="font-extrabold text-slate-500 uppercase text-[9px] tracking-wider block">Saha Sorumlusu:</label>
+            <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Saha Sorumlusu:</label>
             <select
               value={filterResponsible}
               onChange={(e) => setFilterResponsible(e.target.value)}
@@ -698,13 +701,20 @@ export default function OpexProjectDashboard({
         <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-xs flex flex-col justify-between relative overflow-hidden">
           <div className="space-y-1 z-10">
             <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">Proje İlerleme Oranı</span>
-            <span className="text-3xl font-mono font-black text-indigo-700">%{metrics.projectProgress}</span>
-            <div className="text-[9px] text-slate-500 font-bold mt-1">
-              {metrics.totalCompletedManDays} / {metrics.totalPlannedManDays} Danışman Adam-Gün
+            {metrics.projectProgress !== null ? (
+              <span className="text-3xl font-mono font-black text-indigo-700">%{metrics.projectProgress}</span>
+            ) : (
+              <span className="text-lg text-slate-400 font-bold">Master Plan bağlı değil</span>
+            )}
+            <div className="text-[11px] text-slate-500 font-bold mt-1">
+              {metrics.totalCompletedManDays} / {metrics.totalPlannedManDays} Master Plan Adam-Gün
+            </div>
+            <div className="text-[10px] text-slate-400 font-semibold">
+              Sahada Kayıtlı Ziyaret: {metrics.totalVisitDays} gün
             </div>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-3">
-            <div className="bg-indigo-600 h-1.5 rounded" style={{ width: `${metrics.projectProgress}%` }} />
+            <div className="bg-indigo-600 h-1.5 rounded" style={{ width: `${metrics.projectProgress ?? 0}%` }} />
           </div>
           <Layers className="absolute right-3 top-3 w-8 h-8 text-indigo-100 opacity-60 pointer-events-none" />
         </div>
@@ -740,13 +750,17 @@ export default function OpexProjectDashboard({
         <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-xs flex flex-col justify-between relative overflow-hidden">
           <div className="space-y-1 z-10">
             <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">Termine Uyum Oranı</span>
-            <span className={`${metrics.dueDateCompliance >= 80 ? "text-emerald-600" : "text-amber-500"} text-3xl font-mono font-black`}>
-              %{metrics.dueDateCompliance}
-            </span>
+            {metrics.dueDateCompliance !== null ? (
+              <span className={`${metrics.dueDateCompliance >= 80 ? "text-emerald-600" : "text-amber-500"} text-3xl font-mono font-black`}>
+                %{metrics.dueDateCompliance}
+              </span>
+            ) : (
+              <span className="text-lg text-slate-400 font-bold">Henüz kapatılan aksiyon yok</span>
+            )}
             <div className="text-[9.5px] text-slate-500 font-semibold mt-1">Zamanında / Tamamlanan</div>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-3">
-            <div className={`${metrics.dueDateCompliance >= 80 ? "bg-emerald-500" : "bg-amber-500"} h-1.5 rounded`} style={{ width: `${metrics.dueDateCompliance}%` }} />
+            <div className={`${(metrics.dueDateCompliance ?? 0) >= 80 ? "bg-emerald-500" : "bg-amber-500"} h-1.5 rounded`} style={{ width: `${metrics.dueDateCompliance ?? 0}%` }} />
           </div>
           <Clock className="absolute right-3 top-3 w-8 h-8 text-amber-100 opacity-65 pointer-events-none" />
         </div>
@@ -754,11 +768,11 @@ export default function OpexProjectDashboard({
         {/* KPI 5: Verified Kaizen Savings */}
         <div className="bg-emerald-800 border border-emerald-900 rounded-2xl p-4 shadow-xs flex flex-col justify-between relative overflow-hidden text-white">
           <div className="space-y-1 z-10">
-            <span className="text-[9px] text-emerald-100 font-extrabold uppercase tracking-widest block">Doğrulanmış Net Kazanç</span>
+            <span className="text-[11px] text-emerald-100 font-extrabold uppercase tracking-widest block">Doğrulanmış Net Kazanç</span>
             <span className="text-2xl font-mono font-black text-white">
               {currencySymbol}{metrics.verifiedKaizenSavings.toLocaleString("tr-TR")}
             </span>
-            <div className="text-[9px] text-emerald-100 font-semibold mt-1">
+            <div className="text-[11px] text-emerald-100 font-semibold mt-1">
               Yıllık Gerçekleşen Kaizen Tasarrufu
             </div>
           </div>
@@ -865,67 +879,6 @@ export default function OpexProjectDashboard({
 
       </div>
 
-      {/* SECTION 3 – OPERATIONAL EXCELLENCE PERFORMANCE */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
-        <div className="border-b pb-3.5 mb-4.5 flex justify-between items-center">
-          <div>
-            <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight flex items-center">
-              <Zap className="w-4.5 h-4.5 mr-1.5 text-indigo-600" />
-              Bölüm 3 – Operasyonel Mükemmellik (OpEx) Olgunluk İndeksi
-            </h3>
-            <span className="text-[10.5px] text-slate-500 block">Saha yalın çalışmalarının süreç bazlı temel performans indikatörlerine ve israf azaltım havuzuna yansıyan etkileri</span>
-          </div>
-          <span className="bg-indigo-50 border border-indigo-200 text-indigo-700 font-extrabold text-[9px] px-2.5 py-1 rounded-lg uppercase tracking-wider">
-            Saha Değer Akış Göstergeleri
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4.5">
-          {opexPerformanceMetrics.map((op, idx) => {
-            const isUp = op.better === "up";
-            const diff = op.current - op.baseline;
-            const diffPct = Math.round((Math.abs(diff) / op.baseline) * 100);
-            const isImproved = (isUp && diff >= 0) || (!isUp && diff <= 0);
-
-            return (
-              <div key={idx} className="bg-slate-50/50 hover:bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex flex-col justify-between space-y-2 transition-all">
-                <div className="flex justify-between items-start">
-                  <span className="text-[11px] font-black text-slate-700">{op.metric}</span>
-                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
-                    isImproved ? "bg-emerald-100 text-emerald-800 border border-emerald-200" : "bg-rose-100 text-rose-800 border border-rose-200"
-                  }`}>
-                    {isImproved ? "Gelişme" : "İzleniyor"}
-                  </span>
-                </div>
-                
-                <div className="flex justify-between items-end">
-                  <div className="space-y-0.5">
-                    <span className="text-[9.5px] text-slate-400 block font-semibold">Mevcut Seviye</span>
-                    <span className="text-xl font-mono font-black text-slate-900">{op.current} {op.unit}</span>
-                  </div>
-                  
-                  <div className="text-right space-y-0.5">
-                    <span className="text-[9.5px] text-slate-400 block font-semibold">Önceki (Baseline)</span>
-                    <span className="text-xs font-mono font-bold text-slate-500">{op.baseline} {op.unit}</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-1 text-[10px] pt-1.5 border-t border-slate-150">
-                  {isImproved ? (
-                    <ArrowUpRight className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  ) : (
-                    <ArrowDownRight className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                  )}
-                  <span className={`${isImproved ? "text-emerald-700" : "text-rose-700"} font-black`}>
-                    Önceye Göre %{diffPct} {isImproved ? "İyileşme Sağlandı" : "Değişim"}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
       {/* SECTION 4 & SECTION 5 – TEAM PERFORMANCE & IMPROVEMENT DISTRIBUTION */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
@@ -1006,26 +959,14 @@ export default function OpexProjectDashboard({
               <span className="bg-blue-100 text-blue-800 text-[8.5px] px-2 py-0.5 rounded-full font-extrabold uppercase">Saha Matrisi</span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-center">
+            <div className="grid grid-cols-2 gap-3 mb-4 text-center">
               <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Eğitim Adeti</span>
-                <span className="text-lg font-mono font-black text-indigo-700">
-                  {filteredData.records.filter(r => r.activitySubject === "EĞİTİM").length} Seans
-                </span>
+                <span className="text-lg font-mono font-black text-indigo-700">{metrics.trainingSessions} Seans</span>
               </div>
               <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Eğitim Süresi</span>
-                <span className="text-lg font-mono font-black text-slate-800">{metrics.totalTrainingHours} Saat</span>
-              </div>
-              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Katılımcı Sıklığı</span>
-                <span className="text-lg font-mono font-black text-slate-800">{metrics.totalParticipants} Kişi</span>
-              </div>
-              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Toplam Katkı</span>
-                <span className="text-lg font-mono font-black text-emerald-700">
-                  {metrics.totalTrainingHours * 12} Adam-Saat
-                </span>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Konu Sayısı</span>
+                <span className="text-lg font-mono font-black text-slate-800">{trainingTopicData.length} Konu</span>
               </div>
             </div>
           </div>
@@ -1038,7 +979,7 @@ export default function OpexProjectDashboard({
                   <XAxis dataKey="name" stroke="#94a3b8" fontSize={8} fontStyle="bold" />
                   <YAxis stroke="#94a3b8" fontSize={8} fontStyle="bold" />
                   <Tooltip />
-                  <Bar dataKey="Eğitim Süresi (Saat)" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Eğitim Seans Sayısı" fill="#6366f1" radius={[4, 4, 0, 0]} />
                 </RechartsBarChart>
               </ResponsiveContainer>
             ) : (
@@ -1053,7 +994,7 @@ export default function OpexProjectDashboard({
             <div className="border-b pb-3 mb-4 flex justify-between items-center">
               <h3 className="text-xs font-black text-slate-800 uppercase tracking-tight flex items-center">
                 <DollarSign className="w-4 h-4 mr-1.5 text-slate-500" />
-                Bölüm 7 – Proje Yatırım Geri Dönüşü (ROI) ve EBITDA Etkisi
+                Bölüm 7 – Proje Yatırım Geri Dönüşü (ROI)
               </h3>
               <span className="bg-emerald-100 text-emerald-800 text-[8.5px] px-2 py-0.5 rounded-full font-extrabold uppercase">Tasarruf Havuzu</span>
             </div>
@@ -1069,9 +1010,9 @@ export default function OpexProjectDashboard({
 
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex justify-between items-center">
                 <div className="space-y-0.5">
-                  <span className="text-[10px] text-emerald-800 font-extrabold uppercase tracking-wider block">EBITDA Net Katkısı</span>
+                  <span className="text-[10px] text-emerald-800 font-extrabold uppercase tracking-wider block">Doğrulanmış Kazanç</span>
                   <span className="text-base font-mono font-black text-emerald-800">
-                    {currencySymbol}{Math.round(metrics.verifiedKaizenSavings * 0.85).toLocaleString("tr-TR")}
+                    {currencySymbol}{metrics.verifiedKaizenSavings.toLocaleString("tr-TR")}
                   </span>
                 </div>
                 <Award className="w-7 h-7 text-emerald-600" />
@@ -1081,18 +1022,28 @@ export default function OpexProjectDashboard({
 
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-4.5 space-y-3">
             <span className="text-[10px] text-slate-500 font-extrabold uppercase block tracking-wider">Yatırım ve Finansal ROI Analizi</span>
-            <div className="grid grid-cols-3 gap-2.5 text-center text-xs">
-              <div className="space-y-1">
-                <strong className="text-slate-500 text-[10px] uppercase font-bold block">Tahmini Yatırım</strong>
-                <span className="font-mono font-black text-slate-850">₺85.000</span>
-              </div>
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] text-slate-500 font-bold uppercase shrink-0">Tahmini Yatırım ({currencySymbol})</label>
+              <input
+                type="number"
+                value={investmentAmount || ""}
+                onChange={(e) => setInvestmentAmount(parseFloat(e.target.value) || 0)}
+                placeholder="0"
+                className="w-full px-2 py-1 border border-slate-200 rounded-lg text-xs font-bold text-slate-800"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2.5 text-center text-xs pt-1">
               <div className="space-y-1 border-l">
                 <strong className="text-emerald-800 text-[10px] uppercase font-extrabold block">ROI Oranı</strong>
-                <span className="font-mono font-black text-emerald-700">340%</span>
+                <span className="font-mono font-black text-emerald-700">
+                  {investmentAmount > 0 ? `%${Math.round(((metrics.verifiedKaizenSavings - investmentAmount) / investmentAmount) * 100)}` : "Yatırım girin"}
+                </span>
               </div>
               <div className="space-y-1 border-l">
                 <strong className="text-indigo-800 text-[10px] uppercase font-extrabold block">Geri Ödeme Süresi</strong>
-                <span className="font-mono font-black text-indigo-700">3.5 Ay</span>
+                <span className="font-mono font-black text-indigo-700">
+                  {investmentAmount > 0 && metrics.verifiedKaizenSavings > 0 ? `${((investmentAmount / metrics.verifiedKaizenSavings) * 12).toFixed(1)} Ay` : "Veri yok"}
+                </span>
               </div>
             </div>
           </div>

@@ -1,4 +1,4 @@
-import { SmedProject, ActionCard } from "./smedTypes";
+import { SmedProject } from "./smedTypes";
 
 export function calculateDurationFromTimes(start: string, end: string): number {
   if (!start || !end) return 0;
@@ -38,6 +38,18 @@ export const initialSmedProjects: SmedProject[] = [
       { id: 8, sequence: 8, name: "Malzeme hazırlama", startTime: "15:03", endTime: "15:11", dur: 8, type: "external", originalType: "external", operatorCount: 1, operator: "Op.3", category: "Hazırlık", waste: "—", opportunity: "⭐", ecrsSteps: [], ecrsGains: {} },
       { id: 9, sequence: 9, name: "İlk parça deneme koşumu", startTime: "15:11", endTime: "15:16", dur: 5, type: "internal", originalType: "internal", operatorCount: 1, operator: "Op.1", category: "Deneme", waste: "—", opportunity: "—", ecrsSteps: [], ecrsGains: {} },
       { id: 10, sequence: 10, name: "Ölçüm ve doğrulama", startTime: "15:16", endTime: "15:18", dur: 2, type: "internal", originalType: "internal", operatorCount: 1, operator: "Op.1", category: "Doğrulama", waste: "—", opportunity: "—", ecrsSteps: [], ecrsGains: {} },
+    ],
+    actions: [
+      { id: 1, title: "Setup arabası tasarımı", priority: "High", assignee: "M. Yılmaz", dueDate: "30 Haz 2026", benefit: "-15 dk", column: "open" },
+      { id: 2, title: "Quick clamp tedarik", priority: "High", assignee: "S. Kaya", dueDate: "15 Tem 2026", benefit: "-10 dk", column: "open" },
+      { id: 3, title: "Görsel kontrol listesi", priority: "Medium", assignee: "T. Demir", dueDate: "25 Haz 2026", benefit: "-5 dk", column: "open" },
+      { id: 4, title: "Operatör SMED eğitimi", priority: "Medium", assignee: "K. Arslan", dueDate: "05 Tem 2026", benefit: "Standart", column: "progress" },
+      { id: 5, title: "Standart iş talimatı yazılması", priority: "Medium", assignee: "M. Yılmaz", dueDate: "12 Tem 2026", benefit: "Doküman", column: "progress" },
+      { id: 6, title: "Yeni forklift yolu planlaması", priority: "Medium", assignee: "Bakım Ekibi", dueDate: "20 Tem 2026", benefit: "Lojistik", column: "hold" },
+      { id: 7, title: "Otomatik ısıtma ünitesi", priority: "Low", assignee: "Mühendislik", dueDate: "15 Ağu 2026", benefit: "-10 dk", column: "hold" },
+      { id: 8, title: "5S setup bölgesi markalama", priority: "High", assignee: "Yalın Ekip", dueDate: "Tamamlandı", benefit: "-8 dk", column: "done" },
+      { id: 9, title: "Takım etiketleme panosu", priority: "Medium", assignee: "Gözlemci", dueDate: "Tamamlandı", benefit: "-3 dk", column: "done" },
+      { id: 10, title: "Robotik otomatik kalıp değişimi", priority: "Low", assignee: "Mühendislik", dueDate: "İptal Edildi", benefit: "Yüksek Maliyet", column: "cancel" },
     ]
   },
   {
@@ -64,7 +76,8 @@ export const initialSmedProjects: SmedProject[] = [
       { id: 15, sequence: 5, name: "Hortumların bağlanması", startTime: "10:05", endTime: "10:15", dur: 10, type: "internal", originalType: "internal", operatorCount: 1, operator: "Op.2", category: "Kurulum", waste: "—", opportunity: "⭐⭐", ecrsSteps: [], ecrsGains: {} },
       { id: 16, sequence: 6, name: "Isıtma ve parametre kontrolü", startTime: "10:15", endTime: "10:35", dur: 20, type: "internal", originalType: "internal", operatorCount: 1, operator: "Op.1", category: "Ayarlama", waste: "Bekleme", opportunity: "⭐⭐", ecrsSteps: [], ecrsGains: {} },
       { id: 17, sequence: 7, name: "Deneme basımı ve ilk parça onayı", startTime: "10:35", endTime: "10:45", dur: 10, type: "internal", originalType: "internal", operatorCount: 1, operator: "Op.1", category: "İlk Parça Onayı", waste: "—", opportunity: "—", ecrsSteps: [], ecrsGains: {} },
-    ]
+    ],
+    actions: []
   },
   {
     id: "proj-3",
@@ -88,7 +101,8 @@ export const initialSmedProjects: SmedProject[] = [
       { id: 23, sequence: 3, name: "Yeni renk hammaddenin yüklenmesi", startTime: "11:30", endTime: "11:40", dur: 10, type: "external", originalType: "external", operatorCount: 1, operator: "Op.2", category: "Hazırlık", waste: "—", opportunity: "⭐", ecrsSteps: [], ecrsGains: {} },
       { id: 24, sequence: 4, name: "Sıcaklık ve enjeksiyon parametre ayarı", startTime: "11:40", endTime: "11:55", dur: 15, type: "internal", originalType: "internal", operatorCount: 1, operator: "Op.1", category: "Ayarlama", waste: "—", opportunity: "⭐⭐", ecrsSteps: [], ecrsGains: {} },
       { id: 25, sequence: 5, name: "Deneme üretimi ve renk kontrolü", startTime: "11:55", endTime: "12:15", dur: 20, type: "internal", originalType: "internal", operatorCount: 2, operator: "Op.1 & Op.2", category: "Deneme", waste: "Hata", opportunity: "⭐", ecrsSteps: [], ecrsGains: {} },
-    ]
+    ],
+    actions: []
   },
   {
     id: "proj-4",
@@ -112,19 +126,7 @@ export const initialSmedProjects: SmedProject[] = [
       { id: 33, sequence: 3, name: "Yeni model aparatlarının takılması", startTime: "13:55", endTime: "14:20", dur: 25, type: "internal", originalType: "internal", operatorCount: 2, operator: "Op.1 & Op.2", category: "Kurulum", waste: "Aşırı İşlem", opportunity: "⭐⭐⭐", ecrsSteps: [], ecrsGains: {} },
       { id: 34, sequence: 4, name: "Sensör ve pnömatik ayarları", startTime: "14:20", endTime: "14:35", dur: 15, type: "internal", originalType: "internal", operatorCount: 1, operator: "Op.2", category: "Ayarlama", waste: "—", opportunity: "⭐⭐", ecrsSteps: [], ecrsGains: {} },
       { id: 35, sequence: 5, name: "İlk parça üretimi ve fikstür kontrolü", startTime: "14:35", endTime: "14:45", dur: 10, type: "internal", originalType: "internal", operatorCount: 1, operator: "Op.1", category: "İlk Parça Onayı", waste: "—", opportunity: "—", ecrsSteps: [], ecrsGains: {} },
-    ]
+    ],
+    actions: []
   }
-];
-
-export const defaultActions: ActionCard[] = [
-  { id: 1, title: "Setup arabası tasarımı", priority: "High", assignee: "M. Yılmaz", dueDate: "30 Haz 2026", benefit: "-15 dk", column: "open" },
-  { id: 2, title: "Quick clamp tedarik", priority: "High", assignee: "S. Kaya", dueDate: "15 Tem 2026", benefit: "-10 dk", column: "open" },
-  { id: 3, title: "Görsel kontrol listesi", priority: "Medium", assignee: "T. Demir", dueDate: "25 Haz 2026", benefit: "-5 dk", column: "open" },
-  { id: 4, title: "Operatör SMED eğitimi", priority: "Medium", assignee: "K. Arslan", dueDate: "05 Tem 2026", benefit: "Standart", column: "progress" },
-  { id: 5, title: "Standart iş talimatı yazılması", priority: "Medium", assignee: "M. Yılmaz", dueDate: "12 Tem 2026", benefit: "Doküman", column: "progress" },
-  { id: 6, title: "Yeni forklift yolu planlaması", priority: "Medium", assignee: "Bakım Ekibi", dueDate: "20 Tem 2026", benefit: "Lojistik", column: "hold" },
-  { id: 7, title: "Otomatik ısıtma ünitesi", priority: "Low", assignee: "Mühendislik", dueDate: "15 Ağu 2026", benefit: "-10 dk", column: "hold" },
-  { id: 8, title: "5S setup bölgesi markalama", priority: "High", assignee: "Yalın Ekip", dueDate: "Tamamlandı", benefit: "-8 dk", column: "done" },
-  { id: 9, title: "Takım etiketleme panosu", priority: "Medium", assignee: "Gözlemci", dueDate: "Tamamlandı", benefit: "-3 dk", column: "done" },
-  { id: 10, title: "Robotik otomatik kalıp değişimi", priority: "Low", assignee: "Mühendislik", dueDate: "İptal Edildi", benefit: "Yüksek Maliyet", column: "cancel" },
 ];

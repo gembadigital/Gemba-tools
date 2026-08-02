@@ -5,11 +5,11 @@ import {
 import { 
   Building2, Users, BarChart3, Clock, Settings, HelpCircle, 
   CheckCircle2, ChevronRight, Loader2, RefreshCw, FileText,
-  User, Percent, GitCommit, Layers, Trash2, Plus, AlertTriangle, 
+  User, Percent, GitCommit, Trash2, Plus, AlertTriangle,
   ChevronDown, ChevronUp, Activity, ArrowRight, Play, Save, Check, Award,
   Info, Sparkles, LayoutDashboard, Sliders, PlayCircle, ClipboardList, Zap, ArrowDownUp,
   Maximize2, Minimize2, ZoomIn, ZoomOut, Move, Download, Share2, Printer, CheckCircle,
-  Cpu, ArrowUp, ArrowDown, GripVertical, Sun, Moon, DollarSign
+  Cpu, ArrowUp, ArrowDown, GripVertical, Sun, Moon, DollarSign, Home
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -25,8 +25,24 @@ import {
   Cell as RechartsCell
 } from "recharts";
 import { ProcessRecord, Customer } from "../types";
+import { domToCanvas } from "modern-screenshot";
+import { jsPDF } from "jspdf";
 
 // --- VSM-SPECIFIC TYPES ---
+
+// Connection types between processes in the flow graph. Only "Normal" is drawn/handled specially
+// today — the union is intentionally wide open so future types can be added without a schema
+// change (they'd just fall back to "Normal" styling until specific handling is written for them).
+type VsmConnectionType =
+  | "Normal"
+  | "Parallel"
+  | "Merge"
+  | "Split"
+  | "Rework"
+  | "Kanban"
+  | "Supermarket"
+  | "External Supplier";
+
 interface VsmProcess {
   id: string;
   name: string;
@@ -56,6 +72,15 @@ interface VsmProcess {
   prevProcessId?: string;
   nextProcessId?: string;
 
+  // Graph-based process relationships (multi-successor). When undefined/empty on every
+  // process in the project, the flow is treated as a legacy linear chain and renders/derives
+  // successors from array order exactly as before (full backward compatibility, no migration).
+  nextProcessIds?: string[];
+  // Connection type per outgoing edge, keyed by target process id. Only "Normal" is used by the
+  // drawing engine today; the type is kept open-ended so future types (Kanban, Supermarket,
+  // Rework, External Supplier, ...) can be added without touching the data model again.
+  connectionTypes?: Record<string, VsmConnectionType>;
+
   // Tab 3 Production & Capacity data entry fields
   plannedQuantity?: number;
   actualQuantity?: number;
@@ -78,6 +103,183 @@ interface VsmProcess {
   changeoverMinutes?: number;
 }
 
+// --- GRAPH-BASED PROCESS FLOW HELPERS ---
+// Pure functions turning the flat `vsmProcesses` array into a directed graph, so the drawing
+// engine and the lead-time rollup can support branching/parallel flows. When no process in a
+// project has `nextProcessIds` set, every helper below falls back to the legacy index-based
+// linear chain — existing single-chain VSM projects keep rendering and calculating exactly as
+// before (see isLinearFlow), with zero migration needed.
+
+interface VsmGraphEdge {
+  fromId: string;
+  toId: string;
+  type: VsmConnectionType;
+}
+
+function getEffectiveSuccessorIds(process: VsmProcess, allProcesses: VsmProcess[], idx: number): string[] {
+  if (process.nextProcessIds && process.nextProcessIds.length > 0) {
+    const validIds = new Set(allProcesses.map(p => p.id));
+    return process.nextProcessIds.filter(id => validIds.has(id) && id !== process.id);
+  }
+  // Legacy fallback: sequential chain, same as today's array order.
+  return idx < allProcesses.length - 1 ? [allProcesses[idx + 1].id] : [];
+}
+
+function buildProcessGraph(processes: VsmProcess[]): { edges: VsmGraphEdge[] } {
+  const edges: VsmGraphEdge[] = [];
+  processes.forEach((p, idx) => {
+    getEffectiveSuccessorIds(p, processes, idx).forEach(toId => {
+      edges.push({ fromId: p.id, toId, type: (p.connectionTypes && p.connectionTypes[toId]) || "Normal" });
+    });
+  });
+  return { edges };
+}
+
+// True when the effective graph is a single straight chain (every process has at most one
+// predecessor and at most one successor) — no branching exists yet, so the classic single-row
+// rendering and flat lead-time sum are already exactly correct and must be used unchanged.
+function isLinearFlow(processes: VsmProcess[], edges: VsmGraphEdge[]): boolean {
+  if (processes.length <= 1) return true;
+  const outCount = new Map<string, number>();
+  const inCount = new Map<string, number>();
+  edges.forEach(e => {
+    outCount.set(e.fromId, (outCount.get(e.fromId) || 0) + 1);
+    inCount.set(e.toId, (inCount.get(e.toId) || 0) + 1);
+  });
+  return processes.every(p => (outCount.get(p.id) || 0) <= 1 && (inCount.get(p.id) || 0) <= 1);
+}
+
+interface VsmGraphLayout {
+  positions: Map<string, { x: number; y: number; rank: number; lane: number }>;
+  predecessors: Map<string, string[]>;
+  successors: Map<string, string[]>;
+  rank: Map<string, number>;
+  laneCount: number;
+  maxRank: number;
+}
+
+// Layered graph-drawing layout: rank = column (longest path from any root — a node can never sit
+// left of any of its predecessors), lane = row. Lanes are assigned greedily per rank so a
+// continuing chain keeps its lane and new branches get their own — this keeps left-to-right flow
+// and avoids overlap without needing a full crossing-minimization solver.
+function computeGraphLayout(processes: VsmProcess[], edges: VsmGraphEdge[]): VsmGraphLayout {
+  const ids = processes.map(p => p.id);
+  const idSet = new Set(ids);
+  const predecessors = new Map<string, string[]>(ids.map(id => [id, []]));
+  const successors = new Map<string, string[]>(ids.map(id => [id, []]));
+  edges.forEach(e => {
+    if (!idSet.has(e.fromId) || !idSet.has(e.toId)) return;
+    successors.get(e.fromId)!.push(e.toId);
+    predecessors.get(e.toId)!.push(e.fromId);
+  });
+
+  // 1. Rank via topological (Kahn's algorithm) longest-path-from-root.
+  const rank = new Map<string, number>();
+  const remainingIndegree = new Map<string, number>(ids.map(id => [id, predecessors.get(id)!.length]));
+  const queue: string[] = ids.filter(id => remainingIndegree.get(id) === 0);
+  queue.forEach(id => rank.set(id, 0));
+  for (let head = 0; head < queue.length; head++) {
+    const current = queue[head];
+    const currentRank = rank.get(current) || 0;
+    successors.get(current)!.forEach(nextId => {
+      const candidateRank = currentRank + 1;
+      if ((rank.get(nextId) ?? -1) < candidateRank) rank.set(nextId, candidateRank);
+      const remaining = (remainingIndegree.get(nextId) || 0) - 1;
+      remainingIndegree.set(nextId, remaining);
+      if (remaining === 0) queue.push(nextId);
+    });
+  }
+  // Any node never reached (e.g. a Rework cycle feeding back on itself) just falls back to rank 0
+  // instead of being left undefined — keeps the layout from breaking on future connection types.
+  ids.forEach(id => { if (!rank.has(id)) rank.set(id, 0); });
+
+  // 2. Lane assignment, rank by rank: keep a node in its first predecessor's lane when free,
+  // otherwise hand it the next free lane at that rank.
+  const lane = new Map<string, number>();
+  const maxRank = ids.length > 0 ? Math.max(...Array.from(rank.values())) : 0;
+  let laneCounter = 0;
+  for (let r = 0; r <= maxRank; r++) {
+    const nodesAtRank = ids.filter(id => rank.get(id) === r);
+    const usedLanesThisRank = new Set<number>();
+    nodesAtRank.forEach(id => {
+      const preds = predecessors.get(id) || [];
+      let assigned: number | undefined;
+      if (preds.length > 0) {
+        const preferredLane = lane.get(preds[0]);
+        if (preferredLane !== undefined && !usedLanesThisRank.has(preferredLane)) {
+          assigned = preferredLane;
+        }
+      }
+      if (assigned === undefined) {
+        while (usedLanesThisRank.has(laneCounter)) laneCounter++;
+        assigned = laneCounter;
+        laneCounter++;
+      }
+      lane.set(id, assigned);
+      usedLanesThisRank.add(assigned);
+    });
+  }
+
+  // 3. Pixel coordinates — column/row spacing kept close to the legacy single-row scale so card
+  // sizing and the fixed supplier/customer/production-control boxes don't need to change.
+  const COLUMN_WIDTH = 280;
+  const LANE_HEIGHT = 270; // process cards are ~230px tall; leaves a clear gap between lanes
+  const START_X = 310;
+  const START_Y = 265; // matches the legacy single-row card top offset (top-[265px])
+  const positions = new Map<string, { x: number; y: number; rank: number; lane: number }>();
+  ids.forEach(id => {
+    const r = rank.get(id) || 0;
+    const l = lane.get(id) || 0;
+    positions.set(id, { x: START_X + r * COLUMN_WIDTH, y: START_Y + l * LANE_HEIGHT, rank: r, lane: l });
+  });
+
+  return { positions, predecessors, successors, rank, laneCount: laneCounter, maxRank };
+}
+
+// Critical-path (longest path) total lead time in days — the correct rollup once branches exist:
+// parallel lanes run in the same calendar time, so their WIP-wait days must NOT be added together
+// (that would double/triple-count elapsed time). Each node's own inventoryDays (its WIP wait
+// before that station) is still tracked and shown per-process; only the top-level total switches
+// from a flat sum to "longest path through the graph." For any existing linear-chain project this
+// is mathematically identical to the old flat sum (there is only one path), so there is no
+// behavior change for today's single-chain VSMs.
+function computeCriticalPath(
+  processesWithTimeline: Array<VsmProcess & { inventoryDays?: number }>,
+  rank: Map<string, number>,
+  predecessors: Map<string, string[]>
+): { totalDays: number; criticalPathIds: Set<string> } {
+  const byId = new Map(processesWithTimeline.map(p => [p.id, p]));
+  const orderedIds = processesWithTimeline.map(p => p.id).sort((a, b) => (rank.get(a) || 0) - (rank.get(b) || 0));
+  const pathValue = new Map<string, number>();
+  const bestPredOf = new Map<string, string | null>();
+  orderedIds.forEach(id => {
+    const preds = predecessors.get(id) || [];
+    let bestPred: string | null = null;
+    let bestVal = 0;
+    preds.forEach(predId => {
+      const v = pathValue.get(predId) || 0;
+      if (v >= bestVal) { bestVal = v; bestPred = predId; }
+    });
+    bestPredOf.set(id, bestPred);
+    pathValue.set(id, (byId.get(id)?.inventoryDays || 0) + bestVal);
+  });
+
+  let maxVal = 0;
+  let maxId: string | null = null;
+  pathValue.forEach((v, id) => { if (v >= maxVal) { maxVal = v; maxId = id; } });
+
+  // Walk back through each node's best predecessor from the winning sink to mark every process
+  // that actually sits on the longest path — used to visually highlight what's driving lead time.
+  const criticalPathIds = new Set<string>();
+  let cursor = maxId;
+  while (cursor) {
+    criticalPathIds.add(cursor);
+    cursor = bestPredOf.get(cursor) || null;
+  }
+
+  return { totalDays: Math.round(maxVal * 100) / 100, criticalPathIds };
+}
+
 export default function VsmPage() {
   const { selectedCustomerId, selectedCustomer } = useFactory();
   const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
@@ -92,6 +294,7 @@ export default function VsmPage() {
   const [isProjectModalOpen, setIsProjectModalOpen] = useState<boolean>(false);
   const [editingProject, setEditingProject] = useState<any | null>(null);
   const [isSavingProject, setIsSavingProject] = useState<boolean>(false);
+  const [justSavedProject, setJustSavedProject] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("All");
 
@@ -330,6 +533,48 @@ export default function VsmPage() {
     }
   };
 
+  // Push the operational fields VSM and the cost-table `processes` collection genuinely share
+  // (cycleTime, oee, capacity, headcount, shifts, working hours, utilization) back into the
+  // matching ProcessRecord, for any VSM process that originated from that table (same id).
+  // Cost fields (scrapCost/laborCost/etc.) are intentionally left untouched — VSM doesn't
+  // collect cost data, so there is no reliable source value to sync for those.
+  const syncVsmProcessesToCostTable = (processesToSync: VsmProcess[]) => {
+    if (!dbProcesses || dbProcesses.length === 0) return;
+    const dbById = new Map(dbProcesses.map(p => [p.id, p]));
+
+    processesToSync.forEach((vp) => {
+      const matched = dbById.get(vp.id);
+      if (!matched) return; // Not sourced from the cost table (fallback/manual VSM-only process) — nothing to sync.
+
+      const perShiftHours = vp.shifts > 0 ? Math.round(vp.workingHours / vp.shifts) : matched.workingHours;
+      const updatedProcess = {
+        ...matched,
+        cycleTime: vp.cycleTime,
+        oee: vp.oee,
+        capacity: vp.capacity,
+        operatorCount: vp.operatorCount,
+        machineCount: vp.machineCount,
+        shiftCount: vp.shifts,
+        workingHours: perShiftHours,
+        utilizationRate: vp.availability
+      };
+
+      fetch("/api/business/processes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+          "x-factory-id": selectedCustomerId || ""
+        },
+        body: JSON.stringify(updatedProcess)
+      }).catch(err => console.error("Failed to sync VSM process into cost table", err));
+    });
+
+    // Tell App.tsx to re-fetch processes so Loss Capacity / CI Proje Yönetimi / Executive
+    // Dashboard pick up these updated cycle-time/OEE/capacity figures without a factory switch.
+    window.dispatchEvent(new CustomEvent("gemba:refresh-factory-data"));
+  };
+
   const handlePersistWorkspaceState = () => {
     if (!selectedProject) return;
     setIsSavingProject(true);
@@ -355,14 +600,9 @@ export default function VsmPage() {
       if (data.success) {
         setProjects(prev => prev.map(p => p.id === data.data.id ? data.data : p));
         setSelectedProject(data.data);
-        const btn = document.getElementById("save_project_btn");
-        if (btn) {
-          const originalText = btn.innerHTML;
-          btn.innerHTML = `<svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg><span class="text-emerald-400 font-bold">Kaydedildi!</span>`;
-          setTimeout(() => {
-            btn.innerHTML = originalText;
-          }, 2000);
-        }
+        syncVsmProcessesToCostTable(vsmProcesses);
+        setJustSavedProject(true);
+        setTimeout(() => setJustSavedProject(false), 2000);
       }
       setIsSavingProject(false);
     })
@@ -706,14 +946,9 @@ export default function VsmPage() {
       const calculatedOee = Math.round((calculatedAvailability * calculatedPerformance * calculatedQuality) / 10000 * 10) / 10;
 
       // Capacity = (Avail Time * 60) / Ideal Cycle Time (units per day)
-      const calculatedCapacity = idealCT > 0 
-        ? Math.round((availTime * 60) / idealCT) 
+      const calculatedCapacity = idealCT > 0
+        ? Math.round((availTime * 60) / idealCT)
         : (merged.capacity || 1000);
-
-      // Actual Cycle Time = (Avail Time * 60) / Actual Quantity (used for cycleTime on map)
-      const calculatedCycleTime = (merged.actualQuantity !== undefined && merged.actualQuantity > 0) 
-        ? Math.round((availTime * 60) / merged.actualQuantity) 
-        : (merged.cycleTime || 45);
 
       return {
         ...merged,
@@ -724,7 +959,14 @@ export default function VsmPage() {
         performance: calculatedPerformance,
         oee: calculatedOee,
         capacity: calculatedCapacity,
-        cycleTime: calculatedCycleTime,
+        // cycleTime is intentionally NOT recomputed here — it must stay whatever the user set
+        // directly (drawer / table edit), in whichever mode (Current or Future) they set it in.
+        // It previously got silently overwritten by (availTime*60)/actualQuantity on every
+        // render, which meant a direct cycle-time edit had no visible effect anywhere (map
+        // cards, bottleneck detection, dashboards) — this is what broke the Future-state
+        // "boyahane 110→100" simulation. Performance/Capacity above already correctly compare
+        // idealCT against actual output, so that diagnostic isn't lost.
+        cycleTime: merged.cycleTime,
         downtimeMinutes: finalBDTime,
         goodParts: finalGoodParts,
         scrap: finalScrap
@@ -778,14 +1020,54 @@ export default function VsmPage() {
     });
   }, [activeProcesses, dailyDemand]);
 
+  // --- GRAPH-BASED FLOW (parallel/branching VSM support) ---
+  // Builds the process relationship graph and its layout from `processesWithTimeline`. When no
+  // process has explicit `nextProcessIds`, `isFlowLinear` is true and the map/drawing tab renders
+  // exactly as it always has — this only activates multi-lane mode when a real branch exists.
+  const vsmGraphEdges = useMemo(() => buildProcessGraph(processesWithTimeline).edges, [processesWithTimeline]);
+  const isFlowLinear = useMemo(() => isLinearFlow(processesWithTimeline, vsmGraphEdges), [processesWithTimeline, vsmGraphEdges]);
+  const vsmGraphLayout = useMemo(() => computeGraphLayout(processesWithTimeline, vsmGraphEdges), [processesWithTimeline, vsmGraphEdges]);
+
   // Summary Metrics
   const totalWip = useMemo(() => {
+    // Additive across every process/lane on purpose: unlike elapsed time, simultaneously-held WIP
+    // in parallel lanes is real, concurrent tied-up capital — it does not "overlap away."
     return processesWithTimeline.reduce((sum, p) => sum + p.inventoryBefore, 0);
   }, [processesWithTimeline]);
 
+  const vsmCriticalPath = useMemo(
+    () => computeCriticalPath(processesWithTimeline, vsmGraphLayout.rank, vsmGraphLayout.predecessors),
+    [processesWithTimeline, vsmGraphLayout]
+  );
+
   const totalLeadTimeDays = useMemo(() => {
-    return processesWithTimeline.reduce((sum, p) => sum + p.inventoryDays, 0);
-  }, [processesWithTimeline]);
+    // Critical-path (longest path) rollup — see computeCriticalPath for why. For a linear chain
+    // this is mathematically identical to the old flat sum (only one path exists).
+    return vsmCriticalPath.totalDays;
+  }, [vsmCriticalPath]);
+
+  // Per-lane breakdown for the graph-mode timeline summary (replaces the single-row VA/NVA ladder,
+  // which is inherently a one-path visualization and can't represent branches). Each lane's own
+  // WIP-wait + processing time is shown separately, per the requirement that stock/lead-time
+  // effects stay visible per process flow rather than collapsing into one number.
+  const vsmLaneSummaries = useMemo(() => {
+    const byLane = new Map<number, typeof processesWithTimeline>();
+    processesWithTimeline.forEach(p => {
+      const pos = vsmGraphLayout.positions.get(p.id);
+      const lane = pos?.lane ?? 0;
+      if (!byLane.has(lane)) byLane.set(lane, []);
+      byLane.get(lane)!.push(p);
+    });
+    return Array.from(byLane.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([lane, procs]) => {
+        const sorted = [...procs].sort((a, b) => (vsmGraphLayout.positions.get(a.id)?.rank || 0) - (vsmGraphLayout.positions.get(b.id)?.rank || 0));
+        const waitDays = sorted.reduce((sum, p) => sum + (p.inventoryDays || 0), 0);
+        const processingSeconds = sorted.reduce((sum, p) => sum + p.cycleTime, 0);
+        const isCritical = sorted.some(p => vsmCriticalPath.criticalPathIds.has(p.id));
+        return { lane, processes: sorted, waitDays: Math.round(waitDays * 100) / 100, processingSeconds, isCritical };
+      });
+  }, [processesWithTimeline, vsmGraphLayout, vsmCriticalPath]);
 
   const totalLeadTimeSeconds = useMemo(() => {
     // Lead time converted to equivalent seconds (assuming 24 hour warehouse days)
@@ -969,13 +1251,16 @@ export default function VsmPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+            Authorization: `Bearer ${localStorage.getItem("gemba_token") || ""}`,
             "x-factory-id": factoryId
           },
           body: JSON.stringify(k)
         });
         count++;
       }
+
+      // Tell App.tsx to re-fetch kaizens so the new cards show up in CI Proje Yönetimi immediately.
+      window.dispatchEvent(new CustomEvent("gemba:refresh-factory-data"));
 
       alert(`VSM Simülasyonundaki ${count} adet dar boğaz ve iyileştirme konusu CI Proje Yönetimi sekmesine başarıyla aktarıldı!`);
     } catch (err: any) {
@@ -1012,7 +1297,13 @@ export default function VsmPage() {
 
     const totalHoldingLoss = totalWip * holdingCostPerWipUnitYearly;
     const scrapLoss = processesWithTimeline.reduce((sum, p) => {
-      const scrapQuantityYearly = p.capacity * (1 - (p.quality / 100)) * 250;
+      // Real annual scrap volume is driven by what's actually produced, not by theoretical
+      // capacity. Using capacity here meant a Future-state improvement that RAISES capacity
+      // (a good thing) perversely inflated the calculated waste cost, since a bigger capacity
+      // number times the same defect rate yields more "scrap units" even though nothing is
+      // actually run beyond real demand/output.
+      const dailyOutput = p.actualQuantity ?? p.capacity;
+      const scrapQuantityYearly = dailyOutput * (1 - (p.quality / 100)) * 250;
       return sum + (scrapQuantityYearly * scrapUnitCost);
     }, 0);
 
@@ -1042,7 +1333,8 @@ export default function VsmPage() {
     const currentVaSecs = baseList.reduce((sum, p) => sum + p.cycleTime, 0);
     const currentWasteCost = baseList.reduce((sum, p) => {
       const holding = p.inventoryBefore * holdingRate;
-      const scrap = p.capacity * (1 - (p.quality / 100)) * 250 * scrapRate;
+      const dailyOutput = (p as any).actualQuantity ?? p.capacity;
+      const scrap = dailyOutput * (1 - (p.quality / 100)) * 250 * scrapRate;
       const downtime = (p.downtimeMinutes / 60) * 250 * downtimeRate;
       return sum + holding + scrap + downtime;
     }, 0);
@@ -1110,13 +1402,9 @@ export default function VsmPage() {
 
       const calculatedOee = Math.round((calculatedAvailability * calculatedPerformance * calculatedQuality) / 10000 * 10) / 10;
 
-      const calculatedCapacity = idealCT > 0 
-        ? Math.round((availTime * 60) / idealCT) 
+      const calculatedCapacity = idealCT > 0
+        ? Math.round((availTime * 60) / idealCT)
         : (merged.capacity || 1000);
-
-      const calculatedCycleTime = (availTime > 0 && merged.actualQuantity && merged.actualQuantity > 0)
-        ? Math.round((availTime * 60) / merged.actualQuantity)
-        : merged.cycleTime;
 
       return {
         ...merged,
@@ -1127,7 +1415,7 @@ export default function VsmPage() {
         performance: calculatedPerformance,
         oee: calculatedOee,
         capacity: calculatedCapacity,
-        cycleTime: calculatedCycleTime,
+        cycleTime: merged.cycleTime,
         downtimeMinutes: finalBDTime,
         goodParts: finalGoodParts,
         scrap: finalScrap
@@ -1166,13 +1454,9 @@ export default function VsmPage() {
 
       const calculatedOee = Math.round((calculatedAvailability * calculatedPerformance * calculatedQuality) / 10000 * 10) / 10;
 
-      const calculatedCapacity = idealCT > 0 
-        ? Math.round((availTime * 60) / idealCT) 
+      const calculatedCapacity = idealCT > 0
+        ? Math.round((availTime * 60) / idealCT)
         : (merged.capacity || 1000);
-
-      const calculatedCycleTime = (availTime > 0 && merged.actualQuantity && merged.actualQuantity > 0)
-        ? Math.round((availTime * 60) / merged.actualQuantity)
-        : merged.cycleTime;
 
       return {
         ...merged,
@@ -1183,7 +1467,7 @@ export default function VsmPage() {
         performance: calculatedPerformance,
         oee: calculatedOee,
         capacity: calculatedCapacity,
-        cycleTime: calculatedCycleTime,
+        cycleTime: merged.cycleTime,
         downtimeMinutes: finalBDTime,
         goodParts: finalGoodParts,
         scrap: finalScrap
@@ -1233,14 +1517,18 @@ export default function VsmPage() {
       : 0;
 
     // Waste Cost Current vs Future
-    const currHolding = currWip * 150;
-    const currScrapCost = currentProcessesCalculated.reduce((sum, p) => sum + (p.capacity * (1 - (p.quality / 100)) * 250 * 450), 0);
-    const currDowntimeCost = currentProcessesCalculated.reduce((sum, p) => sum + ((p.downtimeMinutes / 60) * 250 * 2500), 0);
+    const holdingCostPerWipUnitYearly = factorySetup.holdingCostPerWipYearly || 150;
+    const scrapUnitCost = factorySetup.scrapUnitCost || 450;
+    const downtimeHourlyCost = factorySetup.downtimeHourlyCost || 2500;
+
+    const currHolding = currWip * holdingCostPerWipUnitYearly;
+    const currScrapCost = currentProcessesCalculated.reduce((sum, p) => sum + ((p.actualQuantity ?? p.capacity) * (1 - (p.quality / 100)) * 250 * scrapUnitCost), 0);
+    const currDowntimeCost = currentProcessesCalculated.reduce((sum, p) => sum + ((p.downtimeMinutes / 60) * 250 * downtimeHourlyCost), 0);
     const currWasteCostTotal = currHolding + currScrapCost + currDowntimeCost;
 
-    const futHolding = futWip * 150;
-    const futScrapCost = futureProcessesCalculated.reduce((sum, p) => sum + (p.capacity * (1 - (p.quality / 100)) * 250 * 450), 0);
-    const futDowntimeCost = futureProcessesCalculated.reduce((sum, p) => sum + ((p.downtimeMinutes / 60) * 250 * 2500), 0);
+    const futHolding = futWip * holdingCostPerWipUnitYearly;
+    const futScrapCost = futureProcessesCalculated.reduce((sum, p) => sum + ((p.actualQuantity ?? p.capacity) * (1 - (p.quality / 100)) * 250 * scrapUnitCost), 0);
+    const futDowntimeCost = futureProcessesCalculated.reduce((sum, p) => sum + ((p.downtimeMinutes / 60) * 250 * downtimeHourlyCost), 0);
     const futWasteCostTotal = futHolding + futScrapCost + futDowntimeCost;
     
     const annualSavingsTotal = Math.max(0, Math.round(currWasteCostTotal - futWasteCostTotal));
@@ -1304,6 +1592,46 @@ export default function VsmPage() {
       };
     });
 
+    // VA / Waste Ratio: value-added (processing) time as a share of total Lead Time.
+    // The remainder is NVA waste (waiting/holding).
+    const currVaSeconds = currentProcessesCalculated.reduce((sum, p) => sum + (p.cycleTime || 0), 0);
+    const futVaSeconds = futureProcessesCalculated.reduce((sum, p) => sum + (p.cycleTime || 0), 0);
+    const currVaRatio = currLeadTime > 0 ? Math.min(100, Math.round((currVaSeconds / 86400 / currLeadTime) * 1000) / 10) : 0;
+    const futVaRatio = futLeadTime > 0 ? Math.min(100, Math.round((futVaSeconds / 86400 / futLeadTime) * 1000) / 10) : 0;
+
+    // Operation Count — under the current data model, Future mode edits existing processes'
+    // fields but cannot add/remove operations, so this always equals the Current count. It's
+    // still surfaced here (ready to reflect real simplification once that capability exists).
+    const currOpCount = currentProcessesCalculated.length;
+    const futOpCount = futureProcessesCalculated.length;
+
+    // CT Balance (Yamazumi-style line balance): how close the busiest and lightest stations
+    // are to each other. 100% = perfectly balanced line, lower = one station dominates.
+    const currCts = currentProcessesCalculated.map(p => p.cycleTime || 0).filter(ct => ct > 0);
+    const futCts = futureProcessesCalculated.map(p => p.cycleTime || 0).filter(ct => ct > 0);
+    const currCtBalance = currCts.length > 0 ? Math.round((Math.min(...currCts) / Math.max(...currCts)) * 100) : 0;
+    const futCtBalance = futCts.length > 0 ? Math.round((Math.min(...futCts) / Math.max(...futCts)) * 100) : 0;
+
+    // Kaizen / CI Theme Count — auto-derived from meaningful Current -> Future deltas per
+    // process (headcount reduction, OEE gain, stock/day reduction), per the definition agreed
+    // with the customer: each detected improvement type on a process counts as one CI theme.
+    const kaizenThemes: { process: string; theme: string; detail: string }[] = [];
+    currentProcessesCalculated.forEach((p, idx) => {
+      const futP = futureProcessesCalculated[idx];
+      if (!futP) return;
+      const currInvDays = dailyDemand > 0 ? p.inventoryBefore / dailyDemand : 0;
+      const futInvDays = dailyDemand > 0 ? futP.inventoryBefore / dailyDemand : 0;
+      if (futP.operatorCount < p.operatorCount) {
+        kaizenThemes.push({ process: p.name, theme: "Adam Azaltma", detail: `${p.operatorCount} -> ${futP.operatorCount} operatör` });
+      }
+      if (futP.oee - p.oee >= 1) {
+        kaizenThemes.push({ process: p.name, theme: "Verimlilik (OEE)", detail: `%${p.oee} -> %${futP.oee}` });
+      }
+      if (currInvDays - futInvDays >= 0.1) {
+        kaizenThemes.push({ process: p.name, theme: "Stok Azaltma", detail: `${Math.round(currInvDays * 10) / 10} -> ${Math.round(futInvDays * 10) / 10} gün` });
+      }
+    });
+
     return {
       currentWip: currWip,
       futureWip: futWip,
@@ -1322,11 +1650,20 @@ export default function VsmPage() {
       futureTransportDist: futTransportDist,
       currentSpaceUtil: currSpaceUtil,
       futureSpaceUtil: futSpaceUtil,
+      currentBlueCollar: currOperators,
+      futureBlueCollar: futOperators,
+      currentVaRatio: currVaRatio,
+      futureVaRatio: futVaRatio,
+      currentOpCount: currOpCount,
+      futureOpCount: futOpCount,
+      currentCtBalance: currCtBalance,
+      futureCtBalance: futCtBalance,
+      kaizenThemes,
       scrapChartData,
       defectChartData,
       setupChartData
     };
-  }, [currentProcessesCalculated, futureProcessesCalculated, dailyDemand]);
+  }, [currentProcessesCalculated, futureProcessesCalculated, dailyDemand, factorySetup]);
 
   // --- CANVAS INTERACTIVE NAV HANDLERS ---
   const handleZoomIn = () => setZoom(z => Math.min(2.5, z + 0.1));
@@ -1366,49 +1703,43 @@ export default function VsmPage() {
   }, [processesWithTimeline, selectedProcessId]);
 
   // --- UPDATE PROCESS VALUES IN DRAWER OR SIMULATOR ---
+  // Current and Future are meant to stay two independent snapshots (as-is baseline vs. simulated
+  // improvement) so the dashboard can show a real before/after. This must route edits to exactly
+  // ONE of the two stores depending on which mode is active — never both, or Future edits would
+  // silently overwrite the Current baseline and destroy the comparison.
   const handleUpdateProcessField = (id: string, field: keyof VsmProcess, value: any) => {
-    // 1. Update the core processes list (vsmProcesses) so it's persistent across tabs and works in current mode
-    setVsmProcesses(prev => 
-      prev.map(p => {
-        if (p.id === id) {
+    if (simulationMode === "current") {
+      // Editing the actual as-is factory data — this IS the baseline, write it directly.
+      setVsmProcesses(prev =>
+        prev.map(p => {
+          if (p.id !== id) return p;
           if (field === "shifts") {
             const numShifts = Number(value) || 1;
             const currentShiftHours = p.shiftHours || [];
-            const newShiftHours = Array.from({ length: numShifts }, (_, idx) => 
+            const newShiftHours = Array.from({ length: numShifts }, (_, idx) =>
               currentShiftHours[idx] !== undefined ? currentShiftHours[idx] : 8
             );
             const totalHours = newShiftHours.reduce((sum, h) => sum + h, 0);
-            return {
-              ...p,
-              shifts: numShifts,
-              shiftHours: newShiftHours,
-              workingHours: totalHours
-            };
+            return { ...p, shifts: numShifts, shiftHours: newShiftHours, workingHours: totalHours };
           } else if (field === "shiftHours") {
             const hoursArray = value as number[];
             const totalHours = hoursArray.reduce((sum, h) => sum + h, 0);
-            return {
-              ...p,
-              shiftHours: hoursArray,
-              workingHours: totalHours
-            };
+            return { ...p, shiftHours: hoursArray, workingHours: totalHours };
           } else {
             return { ...p, [field]: value };
           }
-        }
-        return p;
-      })
-    );
-
-    // 2. Also keep simulationEdits in sync if we are in future mode
-    if (simulationMode === "future") {
+        })
+      );
+    } else {
+      // Future simulation — record as an overlay edit only. vsmProcesses (Current) is never
+      // touched here, so switching back to Current always shows the untouched original data.
       setSimulationEdits(prev => {
         const currentEdit = prev[id] || {};
         let updatedEdit = { ...currentEdit, [field]: value };
         if (field === "shifts") {
           const numShifts = Number(value) || 1;
           const currentShiftHours = (currentEdit.shiftHours || []) as number[];
-          const newShiftHours = Array.from({ length: numShifts }, (_, idx) => 
+          const newShiftHours = Array.from({ length: numShifts }, (_, idx) =>
             currentShiftHours[idx] !== undefined ? currentShiftHours[idx] : 8
           );
           const totalHours = newShiftHours.reduce((sum, h) => sum + h, 0);
@@ -1435,14 +1766,59 @@ export default function VsmPage() {
     }
   };
 
+  // --- GRAPH RELATIONSHIP EDITING (Sonraki Proses / Next Process) ---
+  // Seeds the edit from whatever's currently in effect (explicit nextProcessIds if set, otherwise
+  // the legacy array-order successor) so the first toggle on an existing linear-chain project
+  // converts its implicit relationship into an explicit one instead of silently discarding it.
+  const handleToggleNextProcess = (processId: string, targetId: string, checked: boolean) => {
+    const idx = processesWithTimeline.findIndex(p => p.id === processId);
+    const process = processesWithTimeline[idx];
+    if (!process) return;
+    const currentEffective = getEffectiveSuccessorIds(process, processesWithTimeline, idx);
+    const nextSet = new Set(currentEffective);
+    if (checked) nextSet.add(targetId); else nextSet.delete(targetId);
+    handleUpdateProcessField(processId, "nextProcessIds", Array.from(nextSet));
+  };
+
+  const handleSetConnectionType = (processId: string, targetId: string, type: VsmConnectionType) => {
+    const process = processesWithTimeline.find(p => p.id === processId);
+    const current = process?.connectionTypes || {};
+    handleUpdateProcessField(processId, "connectionTypes", { ...current, [targetId]: type });
+  };
+
   // --- EXPORT IMPLEMENTATIONS ---
-  const handleTriggerExport = (format: string) => {
+  // Captures the actual on-screen VSM diagram (1:1, not a reconstruction) via modern-screenshot's
+  // domToCanvas, which renders through an SVG <foreignObject> (i.e. the browser's own engine)
+  // rather than reimplementing CSS parsing — unlike html2canvas, it correctly handles Tailwind
+  // v4's oklch()/color-mix() based palette instead of throwing on it.
+  const captureVsmMapCanvas = async (): Promise<HTMLCanvasElement> => {
+    if (activeTab !== "vsm") setActiveTab("vsm");
+    handleZoomReset();
+    // Let React re-render (tab switch / transform reset) before we snapshot the DOM.
+    await new Promise(resolve => setTimeout(resolve, 350));
+
+    const target = document.getElementById("vsm_map_capture_target");
+    if (!target) throw new Error("VSM canvas not found");
+
+    const captureHeight = isFlowLinear
+      ? 640
+      : 265 + (vsmGraphLayout.laneCount * (270 + 44)) + 110;
+
+    return domToCanvas(target, {
+      scale: 2,
+      backgroundColor: vsmBrightMode ? "#f8fafc" : "#0f172a",
+      width: 2240,
+      height: captureHeight
+    });
+  };
+
+  const handleTriggerExport = async (format: string) => {
     setExportStatus(`Preparing high resolution ${format} report...`);
-    setTimeout(() => {
+    try {
       if (format === "Excel") {
         // Create direct CSV download of VSM data
         const header = "Process Name,Cycle Time (CT),OEE (%),Availability,Performance,Quality,Capacity,WIP Inventory,WIP Days,Is Kanban\n";
-        const rows = processesWithTimeline.map(p => 
+        const rows = processesWithTimeline.map(p =>
           `"${p.name}",${p.cycleTime},${p.oee},${p.availability},${p.performance},${p.quality},${p.capacity},${p.inventoryBefore},${p.inventoryDays},${p.isKanbanEnabled ? 'YES' : 'NO'}`
         ).join("\n");
         const blob = new Blob([header + rows], { type: "text/csv;charset=utf-8;" });
@@ -1451,13 +1827,31 @@ export default function VsmPage() {
         link.setAttribute("href", url);
         link.setAttribute("download", `VSM_Report_${selectedCustomer?.companyName || "Factory"}.csv`);
         link.click();
-      } else {
-        // Mock PNG/SVG/PDF export
-        alert(`${format} formatlı Değer Akış Şeması Raporu başarıyla derlendi ve yerel cihazınıza indirildi!`);
+        URL.revokeObjectURL(url);
+      } else if (format === "High Res PNG") {
+        const canvas = await captureVsmMapCanvas();
+        const link = document.createElement("a");
+        link.setAttribute("download", `VSM_Sema_${selectedProject?.name || "Proje"}.png`);
+        link.setAttribute("href", canvas.toDataURL("image/png", 1.0));
+        link.click();
+      } else if (format === "PDF Report") {
+        const canvas = await captureVsmMapCanvas();
+        const imgData = canvas.toDataURL("image/png", 1.0);
+        const pdf = new jsPDF({
+          orientation: "landscape",
+          unit: "px",
+          format: [canvas.width, canvas.height]
+        });
+        pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
+        pdf.save(`VSM_Rapor_${selectedProject?.name || "Proje"}.pdf`);
       }
+    } catch (err) {
+      alert("Export sırasında bir hata oluştu. Lütfen tekrar deneyin.");
+      console.error("VSM export error:", err);
+    } finally {
       setExportStatus(null);
       setExportModalOpen(false);
-    }, 1500);
+    }
   };
 
   // --- TAB ACTION HANDLERS ---
@@ -1662,8 +2056,6 @@ export default function VsmPage() {
               <span className="text-[10px] uppercase font-bold tracking-wider text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded font-mono">
                 VSM PORTAL
               </span>
-              <span className="text-slate-300">|</span>
-              <span className="text-slate-500 text-xs font-semibold">Gemba Partner OpEx Suite</span>
             </div>
             <h1 className="text-2xl font-black text-slate-900 tracking-tight mt-1 flex items-center gap-2">
               <GitCommit className="w-6 h-6 text-slate-800 animate-pulse" />
@@ -1681,53 +2073,6 @@ export default function VsmPage() {
             <Plus className="w-4 h-4" />
             <span>Yeni VSM Projesi</span>
           </button>
-        </div>
-
-        {/* DROPDOWN FILTER FOR EXISTING / COMPLETED VSM PROJECTS */}
-        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white border border-indigo-900/60 rounded-2xl p-5 shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4" id="vsm_completed_dropdown_filter_card">
-          <div className="space-y-1">
-            <div className="flex items-center space-x-2">
-              <span className="bg-indigo-500/20 text-indigo-200 border border-indigo-400/30 text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full uppercase">
-                {selectedCustomer?.companyName || "Seçili Müşteri"} VSM Portföyü
-              </span>
-              {completedCount > 0 && (
-                <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full uppercase flex items-center gap-1">
-                  <CheckCircle className="w-3 h-3 text-emerald-400" />
-                  {completedCount} Tamamlanmış Proje
-                </span>
-              )}
-            </div>
-            <h3 className="text-sm font-black tracking-tight text-white flex items-center gap-2">
-              <GitCommit className="w-4 h-4 text-indigo-400" />
-              <span>Mevcut VSM Projesi veya Tamamlanmış Kapasite Analizi Seçin</span>
-            </h3>
-            <p className="text-xs text-slate-300 max-w-xl">
-              Seçili firmada daha önceden tamamlanmış veya yürütülen VSM kapasite analizlerini aşağıdaki açılır dropdown filtreden doğrudan seçip inceleyebilirsiniz.
-            </p>
-          </div>
-
-          <div className="w-full md:w-80 shrink-0 space-y-1.5">
-            <label className="text-[10px] font-mono font-bold text-indigo-200 uppercase block tracking-wider">
-              VSM Proje Dropdown Seçimi:
-            </label>
-            <select
-              value={selectedProject ? (selectedProject as any).id : ""}
-              onChange={(e) => {
-                const found = projects.find(p => p.id === e.target.value);
-                if (found) handleSelectProject(found);
-              }}
-              className="w-full bg-slate-800 hover:bg-slate-750 text-white border border-indigo-500/50 rounded-xl px-3 py-2 text-xs font-bold outline-hidden focus:ring-2 focus:ring-indigo-400 cursor-pointer shadow-inner font-sans"
-              id="dropdown_vsm_project_portal_select"
-            >
-              <option value="">-- Tamamlanmış / Aktif VSM Projesi Seçin --</option>
-              {projects.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.status === "Tamamlandı" ? "✅ [TAMAMLANDI] " : "⚡ [AKTİF] "}
-                  {p.name} ({p.productGroup || p.productionLine || "Genel Hat"})
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
 
         {/* TRANSFORMATION JOURNEY DASHBOARD (Bento Grid) */}
@@ -1813,26 +2158,6 @@ export default function VsmPage() {
           </div>
 
           <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
-            {projects.some(p => p.status === "Tamamlandı") && (
-              <div className="flex items-center space-x-2 w-full sm:w-auto">
-                <span className="text-xs font-bold text-indigo-600 font-mono uppercase shrink-0">Tamamlananlar:</span>
-                <select
-                  onChange={(e) => {
-                    const found = projects.find(p => p.id === e.target.value);
-                    if (found) handleSelectProject(found);
-                  }}
-                  defaultValue=""
-                  className="bg-indigo-50 border border-indigo-200 text-indigo-900 font-bold text-xs px-3 py-1.5 rounded-lg outline-hidden focus:ring-1 focus:ring-indigo-600 cursor-pointer"
-                  id="dropdown_vsm_completed_quick_select"
-                >
-                  <option value="" disabled>Tamamlanmış Çalışma Seç...</option>
-                  {projects.filter(p => p.status === "Tamamlandı").map(p => (
-                    <option key={p.id} value={p.id}>✅ {p.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
             <div className="flex items-center space-x-2 overflow-x-auto w-full md:w-auto">
               <span className="text-xs font-bold text-slate-400 font-mono uppercase shrink-0">Durum Filtresi:</span>
               {["All", "Aktif", "Tamamlandı", "Askıda"].map(st => (
@@ -2143,94 +2468,66 @@ export default function VsmPage() {
       
       {/* VSM UPPER BANNER BAR */}
       <div className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shrink-0 shadow-sm">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-slate-950 rounded-xl flex items-center justify-center text-white shadow-md shadow-slate-100">
-            <GitCommit className="w-5 h-5 text-slate-100" />
-          </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 font-mono">
-                VSM WORKSPACE
-              </span>
-              <span className="text-slate-300">|</span>
-              <span className="text-slate-500 text-xs font-semibold">Gemba Partner SaaS</span>
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-slate-950 rounded-xl flex items-center justify-center text-white shadow-md shadow-slate-100">
+              <GitCommit className="w-5 h-5 text-slate-100" />
             </div>
-            
-            <div className="flex flex-col md:flex-row md:items-center gap-2 mt-1">
-              <span className="text-xs font-bold text-slate-500 font-mono uppercase">VSM PROJESİ:</span>
-              <div className="relative">
-                <select
-                  value={selectedProject.id}
-                  onChange={(e) => {
-                    const nextProj = projects.find(p => p.id === e.target.value);
-                    if (nextProj) handleSelectProject(nextProj);
-                  }}
-                  className="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-950 font-black text-xs px-3 py-1.5 rounded-xl cursor-pointer outline-hidden focus:ring-1 focus:ring-slate-950 transition-all font-sans"
-                  id="header_project_selector"
-                >
-                  {projects.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.status === "Tamamlandı" ? "✅ [TAMAMLANDI] " : "⚡ [AKTİF] "}
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 font-mono">
+                  VSM WORKSPACE
+                </span>
+              </div>
+
+              <div className="flex flex-col md:flex-row md:items-center gap-2 mt-1">
+                <span className="text-xs font-bold text-slate-500 font-mono uppercase">VSM PROJESİ:</span>
+                <div className="relative">
+                  <select
+                    value={selectedProject.id}
+                    onChange={(e) => {
+                      const nextProj = projects.find(p => p.id === e.target.value);
+                      if (nextProj) handleSelectProject(nextProj);
+                    }}
+                    className="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-950 font-black text-xs px-3 py-1.5 rounded-xl cursor-pointer outline-hidden focus:ring-1 focus:ring-slate-950 transition-all font-sans"
+                    id="header_project_selector"
+                  >
+                    {projects.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.status === "Tamamlandı" ? "✅ [TAMAMLANDI] " : "⚡ [AKTİF] "}
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* WORKSPACE MODE CONTROL SWITCHERS */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* PERSIST PROJECT STATE BUTTON */}
-          <button 
-            id="save_project_btn"
-            onClick={handlePersistWorkspaceState}
-            disabled={isSavingProject}
-            className="flex items-center space-x-1.5 bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-bold px-3.5 py-2 rounded-xl transition cursor-pointer shadow-sm h-9"
-          >
-            {isSavingProject ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4 text-indigo-100" />
-            )}
-            <span>Kaydet</span>
-          </button>
-
-          {/* RETURN TO PROJECT LIST */}
-          <button 
-            onClick={() => setSelectedProject(null)}
-            className="flex items-center space-x-1.5 bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 hover:text-slate-950 text-xs font-bold px-3.5 py-2 rounded-xl transition cursor-pointer shadow-xs h-9"
-            id="btn_back_to_projects"
-          >
-            <ArrowRight className="w-4 h-4 rotate-180" />
-            <span>Projeler Listesi</span>
-          </button>
-
-          {/* SIMULATION MODE BUTTON */}
-          <div className="bg-slate-100 p-1 rounded-xl flex items-center border border-slate-200">
-            <button 
+          {/* SIMULATION MODE BUTTON — moved directly under the VSM Workspace title */}
+          <div className="bg-slate-100 p-1 rounded-xl flex items-center border border-slate-200 w-fit">
+            <button
               onClick={() => {
                 setSimulationMode("current");
                 handleZoomReset();
               }}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
-                simulationMode === "current" 
-                  ? "bg-white text-slate-950 shadow-xs" 
+                simulationMode === "current"
+                  ? "bg-white text-slate-950 shadow-xs"
                   : "text-slate-500 hover:text-slate-800"
               }`}
             >
               <LayoutDashboard className="w-3.5 h-3.5" />
               <span>Mevcut Durum (Current)</span>
             </button>
-            <button 
+            <button
               onClick={() => {
                 setSimulationMode("future");
                 handleZoomReset();
               }}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
-                simulationMode === "future" 
-                  ? "bg-amber-600 text-white shadow-xs animate-pulse" 
+                simulationMode === "future"
+                  ? "bg-amber-600 text-white shadow-xs animate-pulse"
                   : "text-slate-500 hover:text-slate-800"
               }`}
             >
@@ -2238,9 +2535,31 @@ export default function VsmPage() {
               <span>Gelecek Simülasyon (Future)</span>
             </button>
           </div>
+        </div>
+
+        {/* WORKSPACE ACTION BUTTONS — Kaydet + Export, right-aligned */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* PERSIST PROJECT STATE BUTTON */}
+          <button
+            id="save_project_btn"
+            onClick={handlePersistWorkspaceState}
+            disabled={isSavingProject}
+            className="flex items-center space-x-1.5 bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-bold px-3.5 py-2 rounded-xl transition cursor-pointer shadow-sm h-9"
+          >
+            {isSavingProject ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : justSavedProject ? (
+              <Check className="w-4 h-4 text-emerald-400" />
+            ) : (
+              <Save className="w-4 h-4 text-indigo-100" />
+            )}
+            <span className={justSavedProject ? "text-emerald-400" : ""}>
+              {justSavedProject ? "Kaydedildi!" : "Kaydet"}
+            </span>
+          </button>
 
           {/* EXPORT WORKSPACE BUTTON */}
-          <button 
+          <button
             onClick={() => setExportModalOpen(true)}
             className="flex items-center space-x-1.5 bg-slate-900 text-white hover:bg-slate-800 text-xs font-bold px-3.5 py-2 rounded-xl transition cursor-pointer shadow-sm h-9"
           >
@@ -2249,7 +2568,7 @@ export default function VsmPage() {
           </button>
 
           {/* FULL SCREEN MODE */}
-          <button 
+          <button
             onClick={() => setIsFullScreen(!isFullScreen)}
             className="flex items-center justify-center bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-xl p-2 transition cursor-pointer shadow-xs w-9 h-9"
             title={isFullScreen ? "Çıkış Yap" : "Tam Ekran Yap"}
@@ -2262,7 +2581,17 @@ export default function VsmPage() {
       {/* VSM WORKSPACE TABS SWITCHER */}
       <div className="bg-slate-50 border-b border-slate-200 px-6 py-2.5 flex flex-wrap items-center justify-between gap-4 shrink-0 shadow-xs">
         <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0">
-          <button 
+          {/* RETURN TO PROJECT LIST — compact home-icon button */}
+          <button
+            onClick={() => setSelectedProject(null)}
+            className="flex items-center justify-center bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 hover:text-slate-950 rounded-xl p-2 transition cursor-pointer shadow-xs w-9 h-9 shrink-0"
+            id="btn_back_to_projects"
+            title="Proje Listesine Dön"
+          >
+            <Home className="w-4 h-4" />
+          </button>
+
+          <button
             onClick={() => setActiveTab("setup")}
             className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer ${
               activeTab === "setup" 
@@ -2502,9 +2831,8 @@ export default function VsmPage() {
 
               {/* YENİ FİELD: İLGİLİ ÜRÜNÜN FABRİKA TOPLAM ÜRÜN ADETLERİ İÇERİSİNDEKİ PAYI (% 30) */}
               <div className="space-y-1">
-                <label className="text-xs font-extrabold text-slate-800 block flex items-center justify-between">
+                <label className="text-xs font-extrabold text-slate-800 block">
                   <span>Ürünün Fabrika Üretimindeki Payı (%) *</span>
-                  <span className="text-[10px] text-indigo-600 font-mono font-bold">Örnek: % 30</span>
                 </label>
                 <div className="relative">
                   <input 
@@ -2613,17 +2941,17 @@ export default function VsmPage() {
 
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700 block flex items-center justify-between">
-                    <span>Yıllık Stok Taşıma Maliyeti ({companyCurrency}/adet/yıl)</span>
+                    <span>WIP Stok Birim Maliyeti ({companyCurrency}/adet/yıl)</span>
                     <span className="text-[10px] text-emerald-600 font-mono font-bold">Örnek: 150 {companyCurrency}</span>
                   </label>
-                  <input 
-                    type="number" 
+                  <input
+                    type="number"
                     value={factorySetup.holdingCostPerWipYearly}
                     onChange={e => setFactorySetup(p => ({ ...p, holdingCostPerWipYearly: Number(e.target.value) }))}
                     className="w-full bg-emerald-50/30 border border-emerald-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-100 outline-hidden"
                   />
                   <p className="text-[10px] text-slate-500">
-                    Prosesler arası ara stokların (WIP) yıllık sermaye bağlama ve alan/depo maliyeti.
+                    Prosesler arası ara stokların (WIP) 1 adedinin yıllık sermaye bağlama ve alan/depo maliyeti — bu birim maliyet, VSM'de hesaplanan toplam WIP adediyle çarpılarak toplam stok maliyetini verir.
                   </p>
                 </div>
 
@@ -2763,7 +3091,7 @@ export default function VsmPage() {
                             const hours = p.shiftHours?.[sIdx] !== undefined ? p.shiftHours[sIdx] : 8;
                             return (
                               <div key={sIdx} className="flex items-center space-x-1 bg-slate-50 hover:bg-white border border-slate-200 rounded-lg px-2 py-1 transition-all shadow-2xs">
-                                <span className="text-[9px] text-slate-400 font-bold font-mono">V{sIdx + 1}:</span>
+                                <span className="text-[11px] text-slate-400 font-bold font-mono">V{sIdx + 1}:</span>
                                 <input 
                                   type="number" 
                                   step="0.5"
@@ -2777,13 +3105,13 @@ export default function VsmPage() {
                                   min="0"
                                   max="24"
                                 />
-                                <span className="text-[9px] text-slate-400 font-medium">sa</span>
+                                <span className="text-[11px] text-slate-400 font-medium">sa</span>
                               </div>
                             );
                           })}
                         </div>
                         <div className="border-l border-slate-200 pl-4 py-0.5 text-right shrink-0">
-                          <span className="block text-[8px] uppercase tracking-wider text-slate-400 font-bold">Toplam</span>
+                          <span className="block text-[11px] uppercase tracking-wider text-slate-400 font-bold">Toplam</span>
                           <span className="text-xs font-mono font-black text-indigo-600 bg-indigo-50/80 px-2 py-1 rounded-lg border border-indigo-100">{(p.workingHours || 8).toFixed(1)} sa</span>
                         </div>
                       </div>
@@ -2845,6 +3173,7 @@ export default function VsmPage() {
               <tbody className="divide-y divide-slate-100 font-sans">
                 {activeProcesses.map((p, idx) => {
                   const idealCT = p.idealCycleTime || p.cycleTime;
+                  const isOverloaded = (p.actualQuantity ?? 0) > p.capacity;
                   return (
                     <tr key={p.id} className="hover:bg-slate-50/50">
                       <td className="p-4 text-center font-mono font-bold text-slate-400">
@@ -2852,20 +3181,33 @@ export default function VsmPage() {
                       </td>
                       <td className="p-4 font-bold text-slate-900">{p.name}</td>
                       <td className="p-4 text-center">
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           value={p.plannedQuantity ?? 1000}
                           onChange={e => handleUpdateProcessField(p.id, "plannedQuantity", Number(e.target.value))}
                           className="w-20 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-center font-mono font-bold text-slate-800 text-xs"
                         />
                       </td>
                       <td className="p-4 text-center">
-                        <input 
-                          type="number" 
-                          value={p.actualQuantity ?? 900}
-                          onChange={e => handleUpdateProcessField(p.id, "actualQuantity", Number(e.target.value))}
-                          className="w-20 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-center font-mono font-bold text-slate-800 text-xs"
-                        />
+                        <div className="inline-flex flex-col items-center gap-1">
+                          <input
+                            type="number"
+                            value={p.actualQuantity ?? 900}
+                            onChange={e => handleUpdateProcessField(p.id, "actualQuantity", Number(e.target.value))}
+                            title={isOverloaded ? `Bu miktar, kullanılabilir çalışma süresi içinde üretilebilecek maksimum ${p.capacity} adedi aşıyor.` : undefined}
+                            className={`w-20 rounded-lg px-2 py-1 text-center font-mono font-bold text-xs ${
+                              isOverloaded
+                                ? "bg-red-50 border-2 border-red-400 text-red-700 focus:ring-2 focus:ring-red-200"
+                                : "bg-slate-50 border border-slate-200 text-slate-800"
+                            }`}
+                          />
+                          {isOverloaded && (
+                            <span className="flex items-center gap-1 text-[9px] font-bold text-red-600 uppercase">
+                              <AlertTriangle className="w-3 h-3" />
+                              Kapasite Aşımı
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="p-4 text-center">
                         <input 
@@ -2907,7 +3249,13 @@ export default function VsmPage() {
                         </span>
                       </td>
                       <td className="p-4 text-center">
-                        <span className="font-mono font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-100">{p.capacity} adet</span>
+                        <span className={`font-mono font-bold px-2 py-1 rounded border ${
+                          isOverloaded
+                            ? "text-red-700 bg-red-50 border-red-200"
+                            : "text-blue-600 bg-blue-50 border-blue-100"
+                        }`}>
+                          {p.capacity} adet
+                        </span>
                       </td>
                     </tr>
                   );
@@ -3048,7 +3396,7 @@ export default function VsmPage() {
                 {!simulationComparison.hasEdits && (
                   <button
                     onClick={handleApplyLeanSimulation}
-                    className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl transition shadow-sm flex items-center space-x-1.5 cursor-pointer animate-bounce"
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl transition shadow-sm flex items-center space-x-1.5 cursor-pointer"
                     title="Standart Yalın Dönüşüm Senaryosunu Otomatik Yükle (%50 SMED, %50 Stok Düşüşü, %65 Duruş Önleme)"
                   >
                     <Zap className="w-3.5 h-3.5 text-amber-200" />
@@ -3159,13 +3507,15 @@ export default function VsmPage() {
             onMouseLeave={handleMouseUp}
           >
             {/* PAN & ZOOM WRAPPER BOX */}
-            <div 
+            <div
+              id="vsm_map_capture_target"
               className="absolute origin-top-left transition-transform duration-75"
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 width: "2200px",
                 height: "700px",
-                padding: "20px"
+                padding: "20px",
+                backgroundColor: vsmBrightMode ? "#f8fafc" : "#0f172a"
               }}
             >
               {/* SVG FOR REALTIME INFORMATION AND MATERIAL FLOW ARROWS */}
@@ -3198,39 +3548,103 @@ export default function VsmPage() {
                 {/* Arrow from Customer to Production Control */}
                 <path d="M 1950,100 L 1950,75 L 1200,75" fill="none" stroke={vsmBrightMode ? "#b45309" : "#fbbf24"} strokeWidth="1.5" strokeDasharray="5,5" markerEnd="url(#dashed-arrow)" />
 
-                {/* Information flow dashed arrows down to process boxes (extended down to 260px) */}
-                {processesWithTimeline.map((p, idx) => {
-                  const targetX = 310 + (idx * 280);
-                  return (
-                    <path 
-                      key={`info-arrow-${p.id}`}
-                      d={`M 1100,120 L ${targetX},120 L ${targetX},260`}
-                      fill="none" 
-                      stroke={vsmBrightMode ? "#b45309" : "#fbbf24"} 
-                      strokeWidth="1.2" 
-                      strokeDasharray="4,4" 
-                      markerEnd="url(#dashed-arrow)" 
-                    />
-                  );
-                })}
+                {isFlowLinear && (
+                  <>
+                    {/* Information flow dashed arrows down to process boxes (extended down to 260px) */}
+                    {processesWithTimeline.map((p, idx) => {
+                      const targetX = 310 + (idx * 280);
+                      return (
+                        <path
+                          key={`info-arrow-${p.id}`}
+                          d={`M 1100,120 L ${targetX},120 L ${targetX},260`}
+                          fill="none"
+                          stroke={vsmBrightMode ? "#b45309" : "#fbbf24"}
+                          strokeWidth="1.2"
+                          strokeDasharray="4,4"
+                          markerEnd="url(#dashed-arrow)"
+                        />
+                      );
+                    })}
 
-                {/* --- 3. SOLID MATERIAL FLOW ARROWS BETWEEN STATIONS (Y = 365) --- */}
-                {processesWithTimeline.slice(0, -1).map((p, idx) => {
-                  const startX = 400 + (idx * 280);
-                  const endX = 490 + (idx * 280);
-                  return (
-                    <line 
-                      key={`mat-flow-${p.id}`}
-                      x1={startX} 
-                      y1={365} 
-                      x2={endX} 
-                      y2={365} 
-                      stroke={vsmBrightMode ? "#0284c7" : "#38bdf8"} 
-                      strokeWidth="3.5" 
-                      markerEnd="url(#solid-arrow)" 
-                    />
-                  );
-                })}
+                    {/* --- 3. SOLID MATERIAL FLOW ARROWS BETWEEN STATIONS (Y = 365) --- */}
+                    {processesWithTimeline.slice(0, -1).map((p, idx) => {
+                      const startX = 400 + (idx * 280);
+                      const endX = 490 + (idx * 280);
+                      return (
+                        <line
+                          key={`mat-flow-${p.id}`}
+                          x1={startX}
+                          y1={365}
+                          x2={endX}
+                          y2={365}
+                          stroke={vsmBrightMode ? "#0284c7" : "#38bdf8"}
+                          strokeWidth="3.5"
+                          markerEnd="url(#solid-arrow)"
+                        />
+                      );
+                    })}
+                  </>
+                )}
+
+                {!isFlowLinear && (
+                  <>
+                    {/* Information flow dashed arrows down to each process box's actual computed column */}
+                    {processesWithTimeline.map((p) => {
+                      const pos = vsmGraphLayout.positions.get(p.id);
+                      if (!pos) return null;
+                      const targetX = pos.x;
+                      return (
+                        <path
+                          key={`info-arrow-${p.id}`}
+                          d={`M 1100,120 L ${targetX},120 L ${targetX},${pos.y}`}
+                          fill="none"
+                          stroke={vsmBrightMode ? "#b45309" : "#fbbf24"}
+                          strokeWidth="1.2"
+                          strokeDasharray="4,4"
+                          markerEnd="url(#dashed-arrow)"
+                        />
+                      );
+                    })}
+
+                    {/* --- GRAPH MATERIAL FLOW: one arrow per relationship edge, curved when lanes differ --- */}
+                    {vsmGraphEdges.map((edge, i) => {
+                      const fromPos = vsmGraphLayout.positions.get(edge.fromId);
+                      const toPos = vsmGraphLayout.positions.get(edge.toId);
+                      if (!fromPos || !toPos) return null;
+                      const CARD_W = 220;
+                      const CARD_H_CENTER = 115;
+                      const x1 = fromPos.x + CARD_W;
+                      const y1 = fromPos.y + CARD_H_CENTER;
+                      const x2 = toPos.x;
+                      const y2 = toPos.y + CARD_H_CENTER;
+                      const isDashedType = edge.type === "Kanban" || edge.type === "Supermarket";
+                      if (fromPos.lane === toPos.lane) {
+                        return (
+                          <line
+                            key={`edge-${edge.fromId}-${edge.toId}-${i}`}
+                            x1={x1} y1={y1} x2={x2} y2={y2}
+                            stroke={vsmBrightMode ? "#0284c7" : "#38bdf8"}
+                            strokeWidth="3"
+                            strokeDasharray={isDashedType ? "6,4" : undefined}
+                            markerEnd="url(#solid-arrow)"
+                          />
+                        );
+                      }
+                      const midX = (x1 + x2) / 2;
+                      return (
+                        <path
+                          key={`edge-${edge.fromId}-${edge.toId}-${i}`}
+                          d={`M ${x1},${y1} C ${midX},${y1} ${midX},${y2} ${x2},${y2}`}
+                          fill="none"
+                          stroke={vsmBrightMode ? "#0284c7" : "#38bdf8"}
+                          strokeWidth="3"
+                          strokeDasharray={isDashedType ? "6,4" : undefined}
+                          markerEnd="url(#solid-arrow)"
+                        />
+                      );
+                    })}
+                  </>
+                )}
               </svg>
 
               {/* ========================================== */}
@@ -3361,8 +3775,9 @@ export default function VsmPage() {
               {/* ========================================== */}
               {/* 4. MAIN VALUE STREAM (CENTER WORKSPACE)     */}
               {/* ========================================== */}
+              {isFlowLinear && (
               <div className="absolute top-[265px] left-[20px] flex items-center h-[230px]">
-                
+
                 {processesWithTimeline.map((p, idx) => {
                   const isBottleneck = p.id === bottleneckProcess?.id;
                   const isHighDowntime = p.id === highestDowntimeProcess?.id;
@@ -3390,7 +3805,7 @@ export default function VsmPage() {
                         {/* Process Box Header */}
                         <div className={`px-3 py-2 ${bgHeader} flex justify-between items-center`}>
                           <span className="text-[10px] font-black tracking-wider truncate uppercase">{p.name}</span>
-                          <span className={`text-[9px] font-mono ${vsmBrightMode ? 'bg-slate-200 text-slate-700' : 'bg-slate-800 text-slate-300'} px-1.5 py-0.2 rounded font-extrabold uppercase`}>
+                          <span className={`text-[11px] font-mono ${vsmBrightMode ? 'bg-slate-200 text-slate-700' : 'bg-slate-800 text-slate-300'} px-1.5 py-0.2 rounded font-extrabold uppercase`}>
                             {p.type === "Manual" ? "MNL" : "OTO"}
                           </span>
                         </div>
@@ -3398,31 +3813,31 @@ export default function VsmPage() {
                         {/* Process Metrics Panel */}
                         <div className={`p-3 grid grid-cols-2 gap-1.5 text-[10px] font-mono ${vsmBrightMode ? 'bg-white text-slate-600' : 'bg-slate-950 text-slate-400'}`}>
                           <div className="flex flex-col">
-                            <span className={vsmBrightMode ? 'text-slate-400 text-[8px] uppercase' : 'text-slate-500 text-[8px] uppercase'}>Mak / Op</span>
+                            <span className={vsmBrightMode ? 'text-slate-400 text-[11px] uppercase' : 'text-slate-500 text-[11px] uppercase'}>Mak / Op</span>
                             <span className={`font-bold mt-0.5 ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{p.machineCount} M / {p.operatorCount} O</span>
                           </div>
                           <div className={`flex flex-col border-l ${vsmBrightMode ? 'border-slate-100' : 'border-slate-800/80'} pl-2`}>
-                            <span className={vsmBrightMode ? 'text-slate-400 text-[8px] uppercase' : 'text-slate-500 text-[8px] uppercase'}>Çevrim (CT)</span>
+                            <span className={vsmBrightMode ? 'text-slate-400 text-[11px] uppercase' : 'text-slate-500 text-[11px] uppercase'}>Çevrim (CT)</span>
                             <span className={`font-bold mt-0.5 ${isBottleneck ? 'text-red-500 text-[11px]' : (vsmBrightMode ? 'text-slate-800' : 'text-slate-200')}`}>
                               {p.cycleTime} sn
                             </span>
                           </div>
                           <div className={`flex flex-col border-t ${vsmBrightMode ? 'border-slate-100' : 'border-slate-800/80'} pt-1`}>
-                            <span className={vsmBrightMode ? 'text-slate-400 text-[8px] uppercase' : 'text-slate-500 text-[8px] uppercase'}>OEE Skoru</span>
+                            <span className={vsmBrightMode ? 'text-slate-400 text-[11px] uppercase' : 'text-slate-500 text-[11px] uppercase'}>OEE Skoru</span>
                             <span className={`font-bold mt-0.5 ${isLowOee ? 'text-amber-500' : (vsmBrightMode ? 'text-slate-800' : 'text-slate-200')}`}>
                               %{p.oee}
                             </span>
                           </div>
                           <div className={`flex flex-col border-t border-l ${vsmBrightMode ? 'border-slate-100' : 'border-slate-800/80'} pt-1 pl-2`}>
-                            <span className={vsmBrightMode ? 'text-slate-400 text-[8px] uppercase' : 'text-slate-500 text-[8px] uppercase'}>Kapasite</span>
+                            <span className={vsmBrightMode ? 'text-slate-400 text-[11px] uppercase' : 'text-slate-500 text-[11px] uppercase'}>Kapasite</span>
                             <span className="font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">{p.capacity} ad/g</span>
                           </div>
                           <div className={`flex flex-col border-t ${vsmBrightMode ? 'border-slate-100' : 'border-slate-800/80'} pt-1`}>
-                            <span className={vsmBrightMode ? 'text-slate-400 text-[8px] uppercase' : 'text-slate-500 text-[8px] uppercase'}>Vardiya</span>
+                            <span className={vsmBrightMode ? 'text-slate-400 text-[11px] uppercase' : 'text-slate-500 text-[11px] uppercase'}>Vardiya</span>
                             <span className={`font-bold mt-0.5 ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{p.shifts}v x {p.workingHours}sa</span>
                           </div>
                           <div className={`flex flex-col border-t border-l ${vsmBrightMode ? 'border-slate-100' : 'border-slate-800/80'} pt-1 pl-2`}>
-                            <span className={vsmBrightMode ? 'text-slate-400 text-[8px] uppercase' : 'text-slate-500 text-[8px] uppercase'}>Duruş (D/T)</span>
+                            <span className={vsmBrightMode ? 'text-slate-400 text-[11px] uppercase' : 'text-slate-500 text-[11px] uppercase'}>Duruş (D/T)</span>
                             <span className={`font-bold mt-0.5 ${isHighDowntime ? 'text-amber-500' : (vsmBrightMode ? 'text-slate-800' : 'text-slate-200')}`}>
                               {p.downtimeMinutes} dk/g
                             </span>
@@ -3430,7 +3845,7 @@ export default function VsmPage() {
                         </div>
 
                         {/* Process Mini KPI Summary Block */}
-                        <div className={`px-3 py-1.5 border-t ${vsmBrightMode ? 'bg-slate-50 border-slate-100 text-slate-500' : 'bg-slate-900/65 border-slate-800/60 text-slate-400'} flex justify-between items-center text-[9px] font-mono font-bold`}>
+                        <div className={`px-3 py-1.5 border-t ${vsmBrightMode ? 'bg-slate-50 border-slate-100 text-slate-500' : 'bg-slate-900/65 border-slate-800/60 text-slate-400'} flex justify-between items-center text-[11px] font-mono font-bold`}>
                           <span>FPY Oranı: %{p.quality}</span>
                           {isBottleneck && (
                             <span className="bg-red-550/10 text-red-600 dark:text-red-400 border border-red-200/50 rounded px-1 animate-pulse">
@@ -3440,28 +3855,45 @@ export default function VsmPage() {
                         </div>
                       </div>
 
-                      {/* BETWEEN PROCESS INVENTORY TRIANGLES & KANBAN SIGNS */}
+                      {/* BETWEEN PROCESS STOCK POINT: SUPERMARKET / KANBAN LOOP / TRADITIONAL TRIANGLE */}
                       {idx < processesWithTimeline.length - 1 && (
                         <div className="w-[60px] flex flex-col items-center justify-center relative shrink-0 z-10">
-                          
-                          {/* Kanban box if enabled */}
+
+                          {/* Kanban label tag if pull-signal is enabled on this stock point */}
                           {p.isKanbanEnabled && (
-                            <div className="absolute -top-12 bg-yellow-400 border border-yellow-500 text-slate-950 font-mono font-black text-[8px] px-2 py-0.5 rounded shadow-lg flex items-center space-x-1 uppercase">
+                            <div className="absolute -top-12 bg-yellow-400 border border-yellow-500 text-slate-950 font-mono font-black text-[11px] px-2 py-0.5 rounded shadow-lg flex items-center space-x-1 uppercase">
                               <span className="w-1.5 h-1.5 rounded-full bg-slate-950 animate-pulse" />
                               <span>Kanban</span>
                             </div>
                           )}
 
-                          {/* Traditional VSM Inventory Triangle logo */}
                           <div className="relative group cursor-pointer">
-                            {/* Inventory Triangle SVG */}
-                            <svg className="w-11 h-11" viewBox="0 0 100 100">
-                              <polygon points="50,10 10,90 90,90" fill="#fef08a" stroke="#ca8a04" strokeWidth="6" />
-                              <text x="50" y="70" textAnchor="middle" fill="#854d0e" fontSize="30" fontWeight="900" fontFamily="monospace">I</text>
-                            </svg>
-                            
-                            {/* WIP count display badge */}
-                            <div className={`absolute -bottom-2 left-1/2 transform -translate-x-1/2 ${vsmBrightMode ? 'bg-white border-slate-200 text-slate-700 shadow-sm' : 'bg-slate-950 border-slate-800 text-slate-300'} border px-1.5 py-0.5 rounded text-[8px] font-mono font-black whitespace-nowrap`}>
+                            {p.isSupermarket ? (
+                              /* Supermarket shelf symbol (standard VSM pull-stock icon) — replaces
+                                 the raw inventory triangle since a supermarket holds a controlled,
+                                 minimized buffer rather than an uncontrolled queue. */
+                              <svg className="w-11 h-11" viewBox="0 0 100 100">
+                                <rect x="10" y="20" width="80" height="60" rx="4" fill="#fef08a" stroke="#ca8a04" strokeWidth="6" />
+                                <line x1="36" y1="20" x2="36" y2="80" stroke="#ca8a04" strokeWidth="5" />
+                                <line x1="64" y1="20" x2="64" y2="80" stroke="#ca8a04" strokeWidth="5" />
+                              </svg>
+                            ) : p.isKanbanEnabled ? (
+                              /* Kanban withdrawal-loop symbol (circular arrow) for pull points that
+                                 aren't a physical supermarket shelf. */
+                              <div className="w-11 h-11 rounded-full bg-yellow-100 border-2 border-yellow-500 flex items-center justify-center">
+                                <RefreshCw className="w-6 h-6 text-amber-700" strokeWidth={2.5} />
+                              </div>
+                            ) : (
+                              /* Traditional VSM Inventory Triangle — only for un-managed queue points */
+                              <svg className="w-11 h-11" viewBox="0 0 100 100">
+                                <polygon points="50,10 10,90 90,90" fill="#fef08a" stroke="#ca8a04" strokeWidth="6" />
+                                <text x="50" y="70" textAnchor="middle" fill="#854d0e" fontSize="30" fontWeight="900" fontFamily="monospace">I</text>
+                              </svg>
+                            )}
+
+                            {/* WIP count display badge — always shown, including the minimized
+                                stock quantity for supermarket/kanban pull points */}
+                            <div className={`absolute -bottom-2 left-1/2 transform -translate-x-1/2 ${vsmBrightMode ? 'bg-white border-slate-200 text-slate-700 shadow-sm' : 'bg-slate-950 border-slate-800 text-slate-300'} border px-1.5 py-0.5 rounded text-[11px] font-mono font-black whitespace-nowrap`}>
                               {p.inventoryBefore} AD
                             </div>
                           </div>
@@ -3477,13 +3909,101 @@ export default function VsmPage() {
                   );
                 })}
               </div>
+              )}
+
+              {/* GRAPH / MULTI-LANE PROCESS CARDS (parallel & branching flows) */}
+              {!isFlowLinear && (
+                <div className="absolute top-0 left-[20px]" style={{ width: "2160px", height: `${265 + (vsmGraphLayout.laneCount * 270) + 20}px` }}>
+                  {processesWithTimeline.map((p) => {
+                    const pos = vsmGraphLayout.positions.get(p.id);
+                    if (!pos) return null;
+                    const isBottleneck = p.id === bottleneckProcess?.id;
+                    const isHighDowntime = p.id === highestDowntimeProcess?.id;
+                    const isLowOee = p.id === lowestOeeProcess?.id;
+                    const isOnCriticalPath = vsmCriticalPath.criticalPathIds.has(p.id);
+
+                    let borderClass = vsmBrightMode ? "border-slate-200 hover:border-sky-500" : "border-slate-800 hover:border-sky-500";
+                    let bgHeader = vsmBrightMode ? "bg-slate-100 text-slate-800 border-b border-slate-200" : "bg-slate-950/90 text-slate-100";
+                    if (isBottleneck) {
+                      borderClass = "border-red-500 hover:border-red-400 ring-2 ring-red-500/20";
+                      bgHeader = vsmBrightMode ? "bg-red-50 text-red-800 border-b border-red-200" : "bg-red-950/90 text-red-100";
+                    } else if (isLowOee || isHighDowntime) {
+                      borderClass = "border-amber-500 hover:border-amber-400";
+                      bgHeader = vsmBrightMode ? "bg-amber-50 text-amber-800 border-b border-amber-200" : "bg-amber-950/90 text-amber-100";
+                    }
+
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => handleOpenProcessDrawer(p.id)}
+                        className={`absolute ${vsmBrightMode ? 'bg-white text-slate-800 shadow-md border' : 'bg-slate-950/95 text-white border shadow-2xl'} ${borderClass} rounded-2xl w-[220px] z-10 transition-all transform hover:-translate-y-1 cursor-pointer flex flex-col overflow-hidden font-sans`}
+                        style={{ left: `${pos.x}px`, top: `${pos.y}px` }}
+                      >
+                        {/* Process Box Header */}
+                        <div className={`px-3 py-2 ${bgHeader} flex justify-between items-center`}>
+                          <span className="text-[10px] font-black tracking-wider truncate uppercase">{p.name}</span>
+                          <span className={`text-[11px] font-mono ${vsmBrightMode ? 'bg-slate-200 text-slate-700' : 'bg-slate-800 text-slate-300'} px-1.5 py-0.2 rounded font-extrabold uppercase`}>
+                            {p.type === "Manual" ? "MNL" : "OTO"}
+                          </span>
+                        </div>
+
+                        {/* Process Metrics Panel */}
+                        <div className={`p-3 grid grid-cols-2 gap-1.5 text-[10px] font-mono ${vsmBrightMode ? 'bg-white text-slate-600' : 'bg-slate-950 text-slate-400'}`}>
+                          <div className="flex flex-col">
+                            <span className={vsmBrightMode ? 'text-slate-400 text-[11px] uppercase' : 'text-slate-500 text-[11px] uppercase'}>Mak / Op</span>
+                            <span className={`font-bold mt-0.5 ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{p.machineCount} M / {p.operatorCount} O</span>
+                          </div>
+                          <div className={`flex flex-col border-l ${vsmBrightMode ? 'border-slate-100' : 'border-slate-800/80'} pl-2`}>
+                            <span className={vsmBrightMode ? 'text-slate-400 text-[11px] uppercase' : 'text-slate-500 text-[11px] uppercase'}>Çevrim (CT)</span>
+                            <span className={`font-bold mt-0.5 ${isBottleneck ? 'text-red-500 text-[11px]' : (vsmBrightMode ? 'text-slate-800' : 'text-slate-200')}`}>
+                              {p.cycleTime} sn
+                            </span>
+                          </div>
+                          <div className={`flex flex-col border-t ${vsmBrightMode ? 'border-slate-100' : 'border-slate-800/80'} pt-1`}>
+                            <span className={vsmBrightMode ? 'text-slate-400 text-[11px] uppercase' : 'text-slate-500 text-[11px] uppercase'}>OEE Skoru</span>
+                            <span className={`font-bold mt-0.5 ${isLowOee ? 'text-amber-500' : (vsmBrightMode ? 'text-slate-800' : 'text-slate-200')}`}>
+                              %{p.oee}
+                            </span>
+                          </div>
+                          <div className={`flex flex-col border-t border-l ${vsmBrightMode ? 'border-slate-100' : 'border-slate-800/80'} pt-1 pl-2`}>
+                            <span className={vsmBrightMode ? 'text-slate-400 text-[11px] uppercase' : 'text-slate-500 text-[11px] uppercase'}>Kapasite</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">{p.capacity} ad/g</span>
+                          </div>
+                        </div>
+
+                        {/* Per-process WIP / lead-time contribution badge (replaces the between-card
+                            triangle, which doesn't generalize once a process can have >1 predecessor) */}
+                        <div className={`px-3 py-1.5 border-t flex justify-between items-center text-[11px] font-mono font-bold ${
+                          isOnCriticalPath
+                            ? "bg-red-50 border-red-200 text-red-700"
+                            : (vsmBrightMode ? "bg-amber-50 border-slate-100 text-amber-700" : "bg-slate-900/65 border-slate-800/60 text-amber-400")
+                        }`}>
+                          <span>{p.isSupermarket ? "⊞" : p.isKanbanEnabled ? "⟲" : "△"} {p.inventoryBefore} AD</span>
+                          <span>{p.inventoryDays} gün{isOnCriticalPath ? " ⚠" : ""}</span>
+                        </div>
+
+                        {/* Process Mini KPI Summary Block */}
+                        <div className={`px-3 py-1.5 border-t ${vsmBrightMode ? 'bg-slate-50 border-slate-100 text-slate-500' : 'bg-slate-900/65 border-slate-800/60 text-slate-400'} flex justify-between items-center text-[11px] font-mono font-bold`}>
+                          <span>FPY Oranı: %{p.quality}</span>
+                          {isBottleneck && (
+                            <span className="bg-red-550/10 text-red-600 dark:text-red-400 border border-red-200/50 rounded px-1 animate-pulse">
+                              DARBOĞAZ
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* ========================================== */}
               {/* 5. TIMELINE AREA (BOTTOM SECTION)          */}
               {/* ========================================== */}
+              {isFlowLinear && (
               <div className={`absolute top-[500px] left-[20px] w-[1840px] border-t ${vsmBrightMode ? 'border-slate-200' : 'border-slate-800'} pt-4`}>
                 <div className="flex items-stretch font-mono font-black text-[10px] uppercase tracking-wide">
-                  
+
                   {/* Left Label */}
                   <div className={`w-[100px] flex flex-col justify-between ${vsmBrightMode ? 'text-slate-400' : 'text-slate-500'} shrink-0 select-none pb-4`}>
                     <span className={vsmBrightMode ? 'text-amber-600' : 'text-amber-500'}>Hazırlık / Bekleme (NVA)</span>
@@ -3495,7 +4015,7 @@ export default function VsmPage() {
                     {processesWithTimeline.map((p, idx) => {
                       return (
                         <React.Fragment key={`timeline-${p.id}`}>
-                          
+
                           {/* NVA Inventory segment (upper shelf) */}
                           <div className={`flex-1 flex flex-col justify-start border-l border-r border-t ${vsmBrightMode ? 'border-slate-200' : 'border-slate-800'} text-center relative h-[50px] bg-amber-500/5`}>
                             <span className={`${vsmBrightMode ? 'text-amber-600' : 'text-amber-400'} font-extrabold pt-2 text-[10px]`}>
@@ -3518,6 +4038,40 @@ export default function VsmPage() {
 
                 </div>
               </div>
+              )}
+
+              {/* GRAPH-MODE LEAD TIME SUMMARY — a single square-wave ladder can't represent
+                  branches, so each lane gets its own row showing its own wait/processing time;
+                  the lane(s) actually driving the total Lead Time are flagged as critical path. */}
+              {!isFlowLinear && (
+                <div
+                  className={`absolute left-[20px] w-[1840px] border-t ${vsmBrightMode ? 'border-slate-200' : 'border-slate-800'} pt-4`}
+                  style={{ top: `${265 + (vsmGraphLayout.laneCount * 270) + 20}px` }}
+                >
+                  <h4 className={`text-[10px] font-black uppercase tracking-wider font-mono mb-2 ${vsmBrightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                    Hat Bazlı Lead Time Özeti (Kritik Yol Vurgulu)
+                  </h4>
+                  <div className="space-y-1.5">
+                    {vsmLaneSummaries.map(({ lane, processes, waitDays, processingSeconds, isCritical }) => (
+                      <div
+                        key={lane}
+                        className={`flex items-center justify-between px-3 py-2 rounded-xl text-[11px] font-mono ${
+                          isCritical
+                            ? "bg-red-50 border border-red-200 text-red-700"
+                            : (vsmBrightMode ? "bg-slate-50 border border-slate-200 text-slate-600" : "bg-slate-900/60 border border-slate-800 text-slate-400")
+                        }`}
+                      >
+                        <span className="font-bold truncate">
+                          {isCritical && "⚠ "}Hat {lane + 1}: {processes.map(p => p.name).join(" → ")}
+                        </span>
+                        <span className="shrink-0 ml-3">
+                          Bekleme: <b>{waitDays} gün</b> • İşleme: <b>{processingSeconds} sn</b>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
             </div>
           </div>
@@ -3591,7 +4145,7 @@ export default function VsmPage() {
                     style={{ width: `${Math.min(100, valueAddedRatio * 15)}%` }} // Scaled up visually so it's visible
                   />
                 </div>
-                <span className="text-[9px] text-slate-400 block font-mono italic">
+                <span className="text-[11px] text-slate-400 block font-mono italic">
                   *Tüm sürede katma değerli iş yapılan süre oranıdır. Dünya klası hedef &gt; %5.
                 </span>
               </div>
@@ -3603,19 +4157,19 @@ export default function VsmPage() {
               
               <div className="grid grid-cols-2 gap-3 text-xs pt-1">
                 <div className="bg-slate-900/40 p-3 rounded-xl border border-slate-800 space-y-1">
-                  <span className="text-slate-400 text-[9px] block">Ortalama OEE</span>
+                  <span className="text-slate-400 text-[11px] block">Ortalama OEE</span>
                   <span className="font-mono font-bold text-white block text-lg">{averageOee}%</span>
                 </div>
                 <div className="bg-slate-900/40 p-3 rounded-xl border border-slate-800 space-y-1">
-                  <span className="text-slate-400 text-[9px] block">Kapasite Kullanımı</span>
+                  <span className="text-slate-400 text-[11px] block">Kapasite Kullanımı</span>
                   <span className="font-mono font-bold text-white block text-lg">{averageCapacityUtilization}%</span>
                 </div>
                 <div className="bg-slate-900/40 p-3 rounded-xl border border-slate-800 space-y-1">
-                  <span className="text-slate-400 text-[9px] block">Toplam Operatör</span>
+                  <span className="text-slate-400 text-[11px] block">Toplam Operatör</span>
                   <span className="font-mono font-bold text-white block text-lg">{totalOperators} HC</span>
                 </div>
                 <div className="bg-slate-900/40 p-3 rounded-xl border border-slate-800 space-y-1">
-                  <span className="text-slate-400 text-[9px] block">Makine Sayısı</span>
+                  <span className="text-slate-400 text-[11px] block">Makine Sayısı</span>
                   <span className="font-mono font-bold text-white block text-lg">{totalMachines} Ünite</span>
                 </div>
               </div>
@@ -3657,14 +4211,14 @@ export default function VsmPage() {
 
               {/* WASTES & FINANCIAL LOSS COST */}
               <div className="p-3.5 bg-slate-900/80 border border-slate-800 rounded-xl space-y-2 mt-2">
-                <span className="text-[9px] text-slate-400 font-mono font-bold uppercase block">Yıllık Kayıp Kaynak Havuzu (OpEx Pool)</span>
+                <span className="text-[11px] text-slate-400 font-mono font-bold uppercase block">Yıllık Kayıp Kaynak Havuzu (OpEx Pool)</span>
                 <div className="text-xl font-mono font-black text-amber-400">
                   {companyCurrency}{estimatedAnnualWasteCost.toLocaleString()}
                 </div>
-                <p className="text-[9px] text-slate-400 leading-relaxed">
+                <p className="text-[11px] text-slate-400 leading-relaxed">
                   Duruşlar, israf stok bekleme süreleri ve ıskartalar nedeniyle oluşan tahmini yıllık işletim kaybıdır.
                 </p>
-                <div className="pt-1.5 border-t border-slate-800 text-[9px] font-semibold text-emerald-400 flex items-center space-x-1">
+                <div className="pt-1.5 border-t border-slate-800 text-[11px] font-semibold text-emerald-400 flex items-center space-x-1">
                   <Zap className="w-3 h-3" />
                   <span>Yalın iyileştirmeyle elenebilir kâr potansiyeli!</span>
                 </div>
@@ -4003,6 +4557,118 @@ export default function VsmPage() {
 
         </div>
 
+        {/* FOURTH ROW: WORKFORCE, FLOW & CI PROGRAM KPIS */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5" id="vsm_dashboard_extra_kpis">
+
+          {/* Blue-Collar Headcount Card */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm hover:border-slate-300 transition duration-200" id="kpi_blue_collar_headcount">
+            <span className="text-[10px] uppercase text-slate-400 font-bold font-mono tracking-wider block">Mavi Yaka Sayısı (Operatör)</span>
+            <div className="flex items-baseline space-x-2 mt-2">
+              <span className="text-2xl font-extrabold text-slate-900 tracking-tight font-mono">{dashboardData.futureBlueCollar}</span>
+              <span className="text-xs text-slate-400 line-through font-mono">{dashboardData.currentBlueCollar}</span>
+            </div>
+            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+              <span className="text-slate-500 font-medium">İşgücü Değişimi</span>
+              {dashboardData.futureBlueCollar <= dashboardData.currentBlueCollar ? (
+                <span className="text-emerald-600 font-extrabold bg-emerald-50 px-2 py-0.5 rounded-full">
+                  -{Math.max(0, Math.round(((dashboardData.currentBlueCollar - dashboardData.futureBlueCollar) / (dashboardData.currentBlueCollar || 1)) * 100))}%
+                </span>
+              ) : (
+                <span className="text-rose-600 font-extrabold bg-rose-50 px-2 py-0.5 rounded-full">
+                  +{Math.round(((dashboardData.futureBlueCollar - dashboardData.currentBlueCollar) / (dashboardData.currentBlueCollar || 1)) * 100)}%
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* VA / Waste Ratio Card */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm hover:border-slate-300 transition duration-200" id="kpi_va_waste_ratio">
+            <span className="text-[10px] uppercase text-slate-400 font-bold font-mono tracking-wider block">Katma Değer (VA) Oranı</span>
+            <div className="flex items-baseline space-x-2 mt-2">
+              <span className="text-2xl font-extrabold text-slate-900 tracking-tight font-mono">%{dashboardData.futureVaRatio}</span>
+              <span className="text-xs text-slate-400 line-through font-mono">%{dashboardData.currentVaRatio}</span>
+            </div>
+            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+              <span className="text-slate-500 font-medium">İsraf (NVA) Payı</span>
+              <span className="text-slate-700 font-extrabold bg-slate-100 px-2 py-0.5 rounded-full">
+                %{Math.round((100 - dashboardData.futureVaRatio) * 10) / 10}
+              </span>
+            </div>
+          </div>
+
+          {/* Takt Time Card */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm hover:border-slate-300 transition duration-200" id="kpi_takt_time_dashboard">
+            <span className="text-[10px] uppercase text-slate-400 font-bold font-mono tracking-wider block">Takt Zamanı (Müşteri Talebi)</span>
+            <div className="flex items-baseline space-x-2 mt-2">
+              <span className="text-2xl font-extrabold text-slate-900 tracking-tight font-mono">{taktTime} sn</span>
+            </div>
+            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+              <span className="text-slate-500 font-medium">Darboğaz Çevrimi (Gelecek)</span>
+              <span className={`font-extrabold px-2 py-0.5 rounded-full ${dashboardData.futureBottleneckOee > 0 && futureProcessesCalculated.some(p => p.cycleTime > taktTime) ? 'text-rose-600 bg-rose-50' : 'text-emerald-600 bg-emerald-50'}`}>
+                {futureProcessesCalculated.length > 0 ? Math.max(...futureProcessesCalculated.map(p => p.cycleTime || 0)) : 0} sn
+              </span>
+            </div>
+          </div>
+
+          {/* Operation Count Card */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm hover:border-slate-300 transition duration-200" id="kpi_operation_count">
+            <span className="text-[10px] uppercase text-slate-400 font-bold font-mono tracking-wider block">Operasyon Sayısı</span>
+            <div className="flex items-baseline space-x-2 mt-2">
+              <span className="text-2xl font-extrabold text-slate-900 tracking-tight font-mono">{dashboardData.futureOpCount}</span>
+              <span className="text-xs text-slate-400 line-through font-mono">{dashboardData.currentOpCount}</span>
+            </div>
+            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+              <span className="text-slate-500 font-medium">Sadeleşme Oranı</span>
+              <span className="text-slate-700 font-extrabold bg-slate-100 px-2 py-0.5 rounded-full">
+                -{Math.max(0, Math.round(((dashboardData.currentOpCount - dashboardData.futureOpCount) / (dashboardData.currentOpCount || 1)) * 100))}%
+              </span>
+            </div>
+          </div>
+
+          {/* CT Balance (Yamazumi) Card */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm hover:border-slate-300 transition duration-200" id="kpi_ct_balance">
+            <span className="text-[10px] uppercase text-slate-400 font-bold font-mono tracking-wider block">CT Dengesi (Yamazumi)</span>
+            <div className="flex items-baseline space-x-2 mt-2">
+              <span className="text-2xl font-extrabold text-slate-900 tracking-tight font-mono">%{dashboardData.futureCtBalance}</span>
+              <span className="text-xs text-slate-400 line-through font-mono">%{dashboardData.currentCtBalance}</span>
+            </div>
+            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+              <span className="text-slate-500 font-medium">Denge İyileşmesi</span>
+              {dashboardData.futureCtBalance >= dashboardData.currentCtBalance ? (
+                <span className="text-emerald-600 font-extrabold bg-emerald-50 px-2 py-0.5 rounded-full">
+                  +{dashboardData.futureCtBalance - dashboardData.currentCtBalance} puan
+                </span>
+              ) : (
+                <span className="text-rose-600 font-extrabold bg-rose-50 px-2 py-0.5 rounded-full">
+                  {dashboardData.futureCtBalance - dashboardData.currentCtBalance} puan
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Kaizen / CI Theme Count Card */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm hover:border-slate-300 transition duration-200" id="kpi_kaizen_theme_count">
+            <span className="text-[10px] uppercase text-slate-400 font-bold font-mono tracking-wider block">Kaizen / CI Proje Tema Sayısı</span>
+            <div className="flex items-baseline space-x-2 mt-2">
+              <span className="text-2xl font-extrabold text-slate-900 tracking-tight font-mono">{dashboardData.kaizenThemes.length}</span>
+              <span className="text-xs text-slate-400 font-mono">tema (Current -&gt; Future farkı)</span>
+            </div>
+            <div className="mt-4 pt-3 border-t border-slate-100 text-xs text-slate-500 max-h-20 overflow-y-auto space-y-1">
+              {dashboardData.kaizenThemes.length === 0 ? (
+                <span>Gelecek durumda henüz tespit edilmiş bir iyileştirme teması yok.</span>
+              ) : (
+                dashboardData.kaizenThemes.slice(0, 4).map((t, i) => (
+                  <div key={i} className="flex items-center justify-between">
+                    <span className="font-bold text-slate-700 truncate mr-2">{t.theme}</span>
+                    <span className="text-slate-400 truncate">{t.process.split(" ")[0]}: {t.detail}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+        </div>
+
         {/* AI EXECUTIVE SUMMARY BOTTOM PANEL */}
         <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-6 md:p-8 shadow-xl border border-indigo-500/20 relative overflow-hidden" id="ai_executive_summary_panel">
           <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
@@ -4043,7 +4709,7 @@ export default function VsmPage() {
           
           <div className="mt-6 pt-4 border-t border-white/5 text-[10px] text-slate-500 flex items-center justify-between font-mono">
             <span>Rapor No: VSM-SIM-{(selectedCustomerId || "DEMO").toUpperCase()}</span>
-            <span>Gemba Partner AI v2.4 • Gerçek Zamanlı Endüstriyel Analitik</span>
+            <span>Gerçek Zamanlı Endüstriyel Analitik</span>
           </div>
         </div>
 
@@ -4067,7 +4733,7 @@ export default function VsmPage() {
             {/* Header */}
             <div className="p-4 border-b border-slate-100 bg-slate-950 text-white flex justify-between items-center">
               <div>
-                <span className="text-[9px] bg-slate-800 text-slate-300 font-mono font-bold px-2 py-0.5 rounded uppercase">
+                <span className="text-[11px] bg-slate-800 text-slate-300 font-mono font-bold px-2 py-0.5 rounded uppercase">
                   OPERASYON DETAY VE KAYIP ANALİZİ
                 </span>
                 <h3 className="text-base font-black tracking-tight mt-1">{activeProcess.name}</h3>
@@ -4159,6 +4825,72 @@ export default function VsmPage() {
                     />
                   </div>
                 </div>
+              </div>
+
+              {/* NEXT PROCESS / GRAPH RELATIONSHIP EDITOR */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider font-mono flex items-center space-x-1.5 border-b border-slate-100 pb-1.5">
+                  <GitCommit className="w-4 h-4 text-slate-500" />
+                  <span>Süreç Akışı — Sonraki Proses</span>
+                </h4>
+                <p className="text-[10px] text-slate-500 -mt-1 leading-relaxed">
+                  Bu prosesten sonra hangi proses(ler) devam ediyor? Birden fazla seçim paralel akış (split) oluşturur; birden fazla proses aynı hedefi seçerse orada otomatik birleşme (merge) noktası oluşur. Ok çizmenize gerek yok — şema otomatik oluşur.
+                </p>
+                <div className="border border-slate-200 rounded-xl divide-y divide-slate-100 max-h-52 overflow-y-auto">
+                  {processesWithTimeline.filter(p => p.id !== activeProcess.id).length === 0 && (
+                    <div className="p-3 text-[11px] text-slate-400 italic">Bağlanacak başka proses yok.</div>
+                  )}
+                  {processesWithTimeline.filter(p => p.id !== activeProcess.id).map(p => {
+                    const activeIdx = processesWithTimeline.findIndex(pp => pp.id === activeProcess.id);
+                    const effectiveSuccessors = getEffectiveSuccessorIds(activeProcess, processesWithTimeline, activeIdx);
+                    const isChecked = effectiveSuccessors.includes(p.id);
+                    return (
+                      <div key={p.id} className="flex items-center justify-between gap-2 p-2.5">
+                        <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer flex-1 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => handleToggleNextProcess(activeProcess.id, p.id, e.target.checked)}
+                            className="rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                          />
+                          <span className="truncate">{p.name}</span>
+                        </label>
+                        {isChecked && (
+                          <select
+                            value={(activeProcess.connectionTypes && activeProcess.connectionTypes[p.id]) || "Normal"}
+                            onChange={(e) => handleSetConnectionType(activeProcess.id, p.id, e.target.value as VsmConnectionType)}
+                            className="text-[10px] font-bold bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1 outline-none shrink-0 cursor-pointer"
+                          >
+                            <option value="Normal">Normal</option>
+                            <option value="Parallel">Paralel</option>
+                            <option value="Merge">Birleşme</option>
+                            <option value="Split">Dağılım</option>
+                            <option value="Rework">Yeniden İşlem</option>
+                            <option value="Kanban">Kanban</option>
+                            <option value="Supermarket">Süpermarket</option>
+                            <option value="External Supplier">Dış Tedarikçi</option>
+                          </select>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Lead time contribution + critical path indicator */}
+                <div className={`flex items-center justify-between px-3 py-2 rounded-xl text-[11px] font-bold ${
+                  vsmCriticalPath.criticalPathIds.has(activeProcess.id)
+                    ? "bg-red-50 border border-red-200 text-red-700"
+                    : "bg-slate-50 border border-slate-200 text-slate-600"
+                }`}>
+                  <span>Bu prosesin Lead Time katkısı (stok bekleme):</span>
+                  <span className="font-mono">{activeProcess.inventoryDays} gün</span>
+                </div>
+                {vsmCriticalPath.criticalPathIds.has(activeProcess.id) && (
+                  <p className="text-[10px] text-red-600 font-semibold flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" />
+                    Bu proses, toplam Lead Time'ı belirleyen kritik yol (critical path) üzerinde.
+                  </p>
+                )}
               </div>
 
               {/* 2. OEE BREAKDOWN & SIX BIG LOSSES */}
@@ -4314,7 +5046,7 @@ export default function VsmPage() {
 
             <div className="p-5 space-y-4 text-xs text-slate-600">
               <p>
-                Mevcut fabrika değer akışı şemasını, KPI değerlerini, timeline parametrelerini ve envanter verilerini içeren profesyonel yalın üretim raporu formatını indirin.
+                PDF ve PNG seçenekleri, ekranda gördüğünüz değer akış şemasının birebir (1:1) görüntüsünü dışa aktarır. Excel seçeneği ise proses verilerini tablo olarak indirir.
               </p>
 
               {exportStatus ? (
@@ -4342,7 +5074,7 @@ export default function VsmPage() {
                     </div>
                     <span className="text-slate-800">Excel / CSV Veri</span>
                   </button>
-                  <button 
+                  <button
                     onClick={() => handleTriggerExport("High Res PNG")}
                     className="p-3 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition text-left flex flex-col justify-between font-bold h-24"
                   >
@@ -4350,15 +5082,7 @@ export default function VsmPage() {
                       <Printer className="w-5 h-5" />
                     </div>
                     <span className="text-slate-800">Yüksek Res PNG</span>
-                  </button>
-                  <button 
-                    onClick={() => handleTriggerExport("SVG")}
-                    className="p-3 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition text-left flex flex-col justify-between font-bold h-24"
-                  >
-                    <div className="bg-yellow-100 p-1 rounded-lg text-yellow-600 self-start">
-                      <Layers className="w-5 h-5" />
-                    </div>
-                    <span className="text-slate-800">Vektörel SVG</span>
+                    <span className="text-[10px] font-normal text-slate-400 normal-case">Şemanın birebir görüntüsü</span>
                   </button>
                 </div>
               )}

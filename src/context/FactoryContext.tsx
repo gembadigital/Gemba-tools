@@ -42,6 +42,8 @@ interface FactoryProviderProps {
   selectedCustomerId: string;
   setSelectedCustomerId: (id: string) => void;
   selectedCustomer: Customer;
+  currentLanguage?: string;
+  setCurrentLanguage?: (lang: string) => void;
 }
 
 export function FactoryProvider({
@@ -52,8 +54,15 @@ export function FactoryProvider({
   selectedCustomerId,
   setSelectedCustomerId,
   selectedCustomer,
+  currentLanguage: currentLanguageProp,
+  setCurrentLanguage: setCurrentLanguageProp,
 }: FactoryProviderProps) {
-  const [currentLanguage, setCurrentLanguage] = useState<string>("tr");
+  // Falls back to local state only if the app doesn't pass its real language state down —
+  // App.tsx does pass its actual `currentLang`/`changeLanguage`, so this context now reflects
+  // the same single source of truth instead of maintaining its own disconnected copy.
+  const [localLanguage, setLocalLanguage] = useState<string>("tr");
+  const currentLanguage = currentLanguageProp ?? localLanguage;
+  const setCurrentLanguage = setCurrentLanguageProp ?? setLocalLanguage;
 
   // Define global state based on active factory context
   const globalState: GlobalFactoryState = {
@@ -64,7 +73,7 @@ export function FactoryProvider({
     CurrentSector: selectedCustomer?.industry || "",
     CurrentLayout: selectedCustomer?.productionType || "",
     CurrentUser: currentUser,
-    CurrentRole: currentUser?.role || "User",
+    CurrentRole: currentUser?.role || "Customer User",
     CurrentLanguage: currentLanguage,
   };
 

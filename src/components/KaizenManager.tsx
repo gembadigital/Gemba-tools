@@ -1,18 +1,22 @@
 import React, { useState, useEffect } from "react";
-import { KaizenCard, ProcessRecord, GanttActivity, Customer } from "../types";
+import { KaizenCard, ProcessRecord, GanttActivity, Customer, BeforeAfterKaizenStudy, BeforeAfterKaizenBenefits } from "../types";
 import { 
   Plus, Layers, Filter, CheckCircle, Trash2, DollarSign, 
   ArrowRight, Edit2, Sparkles, TrendingUp, BarChart2, PieChart, 
   Calendar, List, AlertTriangle, Check, RotateCcw, FileText, 
   ChevronRight, ChevronDown, Info, Users, Clock, Percent, Shield, ArrowDownUp,
   GripVertical, Maximize2, Minimize2, FileUp, File, FileSpreadsheet, Image,
-  Camera, Upload, ZoomIn, X
+  Camera, Upload, ZoomIn, X, Eye
 } from "lucide-react";
-import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, 
-  ResponsiveContainer, PieChart as RePieChart, Pie, Cell, 
-  LineChart as ReLineChart, Line, AreaChart, Area, ScatterChart, Scatter, ZAxis
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, PieChart as RePieChart, Pie, Cell,
+  LineChart as ReLineChart, Line, AreaChart, Area, ScatterChart, Scatter, ZAxis,
+  ComposedChart
 } from "recharts";
+import * as XLSX from "xlsx";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 
 interface KaizenManagerProps {
   kaizens: KaizenCard[];
@@ -27,7 +31,7 @@ interface KaizenManagerProps {
   selectedCustomer: Customer;
 }
 
-type TabType = "kanban" | "list" | "timeline" | "dashboard";
+type TabType = "kanban" | "list" | "timeline" | "dashboard" | "beforeafter";
 
 interface CITask {
   id: string;
@@ -90,6 +94,7 @@ export default function KaizenManager({
   onDeleteActivity,
   selectedCustomer
 }: KaizenManagerProps) {
+  const token = localStorage.getItem("gemba_token") || "";
   const [activeTab, setActiveTab] = useState<TabType>("kanban");
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState<1 | 2>(1);
@@ -109,6 +114,17 @@ export default function KaizenManager({
   // Selected opportunity for Step 1
   const [selectedOpportunity, setSelectedOpportunity] = useState<any | null>(null);
   const [wizardTab, setWizardTab] = useState<"firsat" | "yeni">("firsat");
+
+  // Team-assignment step, shown before a project is actually created — previously
+  // handleSelectOpportunity/handleSelectNewProjectTheme created the project immediately with
+  // projectTeam permanently [] and no way to assign anyone. This intercepts both entry points.
+  const [pendingCreation, setPendingCreation] = useState<{ mode: "opportunity" | "blank"; opp: any | null } | null>(null);
+  const [assignLeader, setAssignLeader] = useState<string>("");
+  const [assignTeamMembers, setAssignTeamMembers] = useState<string[]>([]);
+  const [assignTeamInput, setAssignTeamInput] = useState<string>("");
+  const [assignDepartment, setAssignDepartment] = useState<string>("");
+  const [assignDeadline, setAssignDeadline] = useState<string>("");
+  const [assignTitle, setAssignTitle] = useState<string>("");
   const [projectCurrentLoss, setProjectCurrentLoss] = useState<number>(0);
   const [editCurrentLoss, setEditCurrentLoss] = useState<number>(0);
   const [isProjectFullScreen, setIsProjectFullScreen] = useState(false);
@@ -145,11 +161,33 @@ export default function KaizenManager({
   const [editTargetRatio, setEditTargetRatio] = useState<number>(0);
   const [editTargetCostReduction, setEditTargetCostReduction] = useState<number>(0);
   const [editRootCause, setEditRootCause] = useState("");
+  // Structured 5-Why chain — replaces the old single free-text root cause box (which only ever
+  // referenced "5 Neden Analizi" by name in its placeholder without actually implementing it).
+  const [editRootCauseWhys, setEditRootCauseWhys] = useState<string[]>(["", "", "", "", ""]);
+
+  // Section 9 — "Önce-Sonra Kaizen Formu" (Before-After Kaizen), matching the real
+  // "Kaizen Öncesi Sonrası" template used by the firm. Creation modal form state.
+  const [isBeforeAfterModalOpen, setIsBeforeAfterModalOpen] = useState(false);
+  const [baSubject, setBaSubject] = useState("");
+  const [baTarget, setBaTarget] = useState("");
+  const [baDoneBy, setBaDoneBy] = useState("");
+  const [baDepartment, setBaDepartment] = useState("");
+  const [baDate, setBaDate] = useState("");
+  const [baCategory, setBaCategory] = useState<"Verimlilik" | "Kalite" | "Güvenlik">("Verimlilik");
+  const [baArea, setBaArea] = useState<"5S" | "Maliyet">("5S");
+  const [baBeforeImage, setBaBeforeImage] = useState("");
+  const [baAfterImage, setBaAfterImage] = useState("");
+  const [baDescBefore, setBaDescBefore] = useState("");
+  const [baDescAfter, setBaDescAfter] = useState("");
+  const [baBenefitDesc, setBaBenefitDesc] = useState("");
+  const [baBenefits, setBaBenefits] = useState<BeforeAfterKaizenBenefits>({});
   const [editImprovementActions, setEditImprovementActions] = useState("");
   const [editResponsibles, setEditResponsibles] = useState("");
   const [editActionsTaken, setEditActionsTaken] = useState("");
   const [editProjectLeader, setEditProjectLeader] = useState("");
   const [editProjectSponsor, setEditProjectSponsor] = useState("");
+  const [editProjectTeam, setEditProjectTeam] = useState<string[]>([]);
+  const [editProjectTeamInput, setEditProjectTeamInput] = useState<string>("");
   const [editPlannedFinishDate, setEditPlannedFinishDate] = useState("");
   const [editEstimatedCost, setEditEstimatedCost] = useState(0);
   const [editPhase, setEditPhase] = useState<any>("Faz 1 (1 Ay)");
@@ -187,21 +225,58 @@ export default function KaizenManager({
   // Email status message for simulated notification system
   const [emailStatusMessage, setEmailStatusMessage] = useState<string | null>(null);
 
+  // Recipient picker for the manual reminder log — lets the user pick from the customer's real
+  // registered contacts (mainContactPerson/factoryManager/generalManager) instead of only ever
+  // deriving a recipient from the kaizen card's project leader.
+  const getCustomerContactOptions = (): { key: string; label: string; name: string; email?: string }[] => {
+    const options: { key: string; label: string; name: string; email?: string }[] = [];
+    if (selectedCustomer?.mainContactPerson) {
+      options.push({ key: "mainContact", label: "Ana İrtibat Kişisi", name: selectedCustomer.mainContactPerson, email: selectedCustomer.mainContactEmail });
+    }
+    if (selectedCustomer?.factoryManager) {
+      options.push({ key: "factoryManager", label: "Fabrika Müdürü", name: selectedCustomer.factoryManager, email: selectedCustomer.factoryManagerEmail });
+    }
+    if (selectedCustomer?.generalManager) {
+      options.push({ key: "generalManager", label: "Genel Müdür", name: selectedCustomer.generalManager, email: selectedCustomer.generalManagerEmail });
+    }
+    return options;
+  };
+  const [reminderRecipientKey, setReminderRecipientKey] = useState<string>("leader");
+
   // Drag and Drop States
   const [draggedProjId, setDraggedProjId] = useState<string | null>(null);
   const [activeDropCol, setActiveDropCol] = useState<string | null>(null);
 
-  // Team options from client/predefined list
-  const teamOptions = [
+  // Team/assignee directory — was a hardcoded list of 8 fictional names disconnected from the app's
+  // real consultant/customer-user system. Now fetched from /api/business/customers/{id}/team (the
+  // same endpoint ProjectTeamTab.tsx uses), which resolves the customer's real assigned primary
+  // consultant, secondary consultants, and customer users. Falls back to a short illustrative list
+  // only when the customer genuinely has no one assigned yet, so the pickers are never empty.
+  const FALLBACK_TEAM_OPTIONS = [
     "Barış Gökdemir (OpEx Lead)",
-    "Mehmet Soyer (Fabrika Müdürü)",
-    "Zeynep Karahan (Metot Müh.)",
-    "Mustafa Çelik (Üretim Şefi)",
-    "Ahmet Yılmaz (Kalite Müh.)",
-    "Ayşe Demir (Bakım Sorumlusu)",
-    "Hakan Bulgurlu (Yönetici Sponsor)",
-    "Selin Kara (Lojistik Şefi)"
+    "Mehmet Soyer (Fabrika Müdürü)"
   ];
+  const [teamOptions, setTeamOptions] = useState<string[]>(FALLBACK_TEAM_OPTIONS);
+
+  useEffect(() => {
+    if (!selectedCustomer?.id) return;
+    fetch(`/api/business/customers/${selectedCustomer.id}/team`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (!data.success || !data.data) return;
+        const { primaryConsultant, consultants, customerUsers } = data.data;
+        const names: string[] = [];
+        if (primaryConsultant) names.push(`${primaryConsultant.full_name} (Baş Danışman)`);
+        (consultants || []).forEach((c: any) => names.push(`${c.full_name} (Danışman)`));
+        (customerUsers || []).forEach((u: any) => names.push(`${u.full_name} (Müşteri Kullanıcısı)`));
+        setTeamOptions(names.length > 0 ? names : FALLBACK_TEAM_OPTIONS);
+      })
+      .catch(err => {
+        console.error("Failed to load real team directory in KaizenManager", err);
+      });
+  }, [selectedCustomer?.id, token]);
 
   // Financial inputs state for active project editing
   const [editingFinancialsProjId, setEditingFinancialsProjId] = useState<string | null>(null);
@@ -338,8 +413,9 @@ export default function KaizenManager({
       if (subject.includes("Setup") || subject.includes("SMED")) return "Pres Atölyesi";
       if (subject.includes("Hurda") || subject.includes("Fire") || subject.includes("Rework")) return "Kalite Güvence";
       if (subject.includes("Duruş") || subject.includes("OEE")) return "Bakım Onarım";
-      if (subject.includes("Operatör") || subject.includes("Verimsizlik")) return "Endüstri Mühendisliği";
-      if (subject.includes("WIP") || subject.includes("Lead") || subject.includes("Sevkiyat")) return "Lojistik / Depo";
+      if (subject.includes("Operatör") || subject.includes("Verimsizlik") || subject.includes("Hareket")) return "Endüstri Mühendisliği";
+      if (subject.includes("WIP") || subject.includes("Lead") || subject.includes("Sevkiyat") || subject.includes("Bekleme") || subject.includes("Taşıma")) return "Lojistik / Depo";
+      if (subject.includes("Fazla Üretim")) return "Üretim Planlama";
       return "Üretim / Montaj";
     };
 
@@ -367,7 +443,62 @@ export default function KaizenManager({
       });
     }
 
-    // Default Loss Capacity Topics (scaled proportionally by product family ratio)
+    // Secondary source: no Loss Analysis cache found for this customer/browser — instead of jumping
+    // straight to fully invented numbers, rank real cost-table (`processes`) records by their actual
+    // recorded loss fields. This is real backend data (org+factory scoped), just not run through the
+    // full Loss Analysis COPQ model, so it doesn't depend on that tab ever having been opened.
+    type CostBucket = { subject: string; field: keyof ProcessRecord; tool: string };
+    const costBuckets: CostBucket[] = [
+      { subject: "Hurda Maliyeti", field: "scrapCost", tool: "Poka-Yoke & Kalite Otonomasyonu" },
+      { subject: "Yeniden İşleme (Rework)", field: "reworkCost", tool: "Matriks Analizi & FTT" },
+      { subject: "Plansız Duruşların Önlenmesi", field: "downtimeCost", tool: "Otonom & Planlı Bakım (TPM)" },
+      { subject: "Bekleme Kaybı (Waiting Loss)", field: "waitingLoss", tool: "Hat Dengeleme & Yamazumi" },
+      { subject: "Taşıma Kaybı (Transportation Loss)", field: "transportationLoss", tool: "Milk-Run & Yerleşim (Layout) İyileştirme" },
+      { subject: "Hareket İsrafı (Motion Loss)", field: "motionLoss", tool: "Standart İş & Ergonomi Kaizeni" },
+      { subject: "Fazla Üretim Kaybı (Overproduction)", field: "overproductionLoss", tool: "Kanban & Çekme Sistemi" }
+    ];
+
+    if (processes && processes.length > 0) {
+      const ranked = processes
+        .flatMap((proc) =>
+          costBuckets.map((bucket) => ({
+            proc,
+            bucket,
+            value: Number(proc[bucket.field]) || 0
+          }))
+        )
+        .filter((row) => row.value > 0)
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 8);
+
+      if (ranked.length > 0) {
+        return ranked.map(({ proc, bucket, value }) => {
+          const scaledLoss = Math.round(value * familyRatio);
+          // Recovery potential is not measured (no Loss Analysis run for this data yet) — a
+          // conservative 60% recoverable-via-Kaizen assumption is used and disclosed via `assumed`.
+          const scaledGain = Math.round(scaledLoss * 0.6);
+          return {
+            id: `opp_proc_${proc.id}_${bucket.field}`,
+            type: bucket.subject,
+            problem: `${proc.name} — ${bucket.subject}: Maliyet tablosunda (İşlem Kayıtları) bu süreç için kayıtlı gerçek ${bucket.subject.toLowerCase()} tutarı.`,
+            currentCost: scaledLoss,
+            potential: 60,
+            expectedGain: scaledGain,
+            priority: scaledLoss > 100000 ? "High" : "Medium",
+            dept: getDeptForSubject(bucket.subject),
+            leanTool: bucket.tool,
+            source: "Maliyet Tablosu / İşlem Kayıtları (gerçek veri — Loss Analysis çalıştırılmadı)",
+            productFamily: familyLabel,
+            area: "Doğrudan Maliyet Azaltma",
+            assumed: true
+          };
+        });
+      }
+    }
+
+    // Last resort: no Loss Analysis cache AND no processes/cost-table data exists yet for this
+    // customer. These numbers are illustrative placeholders, not a real analysis — labeled as such
+    // (previously this fell back silently and claimed to be "Loss Capacity Analizi" output).
     const baseLossTopics = [
       { subject: "Setup Süreleri (SMED)", loss: 220000, gain: 154000, priority: "High", tool: "SMED (Hızlı Kalıp Değişimi)", dept: "Pres Atölyesi" },
       { subject: "Hurda Maliyeti", loss: 180000, gain: 117000, priority: "High", tool: "Poka-Yoke & Kalite Otonomasyonu", dept: "Kalite Güvence" },
@@ -392,14 +523,22 @@ export default function KaizenManager({
         priority: item.priority,
         dept: item.dept,
         leanTool: item.tool,
-        source: "Loss Capacity Analizi (COPQ & Cost Deployment)",
+        source: "Örnek Varsayılan Veri (henüz gerçek maliyet/analiz verisi girilmedi)",
         productFamily: familyLabel,
-        area: "Doğrudan Maliyet Azaltma"
+        area: "Doğrudan Maliyet Azaltma",
+        assumed: true
       };
     });
   };
 
   const opportunitiesList = generateOpportunities();
+  // All items from a single generateOpportunities() call come from the same tier (the function
+  // returns early per tier), so the first item's `source` reflects what's actually active —
+  // previously the wizard banner hardcoded "Loss Capacity Analizi" regardless of which tier
+  // (real Loss Capacity data / real cost-table data / illustrative placeholder) was really serving.
+  const activeOpportunitySource = opportunitiesList[0]?.source || "Veri Kaynağı Yok";
+  const isRealLossCapacityData = activeOpportunitySource === "Loss Capacity Analizi (COPQ & Cost Deployment)";
+  const isAssumedOpportunityData = opportunitiesList.some(o => o.assumed);
 
   // Helper to calculate project number (CIPYYAA-No)
   const getProjectNo = (proj: KaizenCard) => {
@@ -433,30 +572,33 @@ export default function KaizenManager({
     return Math.max(1, Math.floor(diffDays / 7));
   };
 
-  // Simulated email notifier function
-  const sendEmailReminder = (project: KaizenCard) => {
-    const leader = project.projectLeader || project.originator || "Sorumlu Ekip";
-    const emailStr = `${leader.toLowerCase().replace(/[^a-z0-9]/g, "")}@sirket.com`;
-    
-    // Simulate real database save
+  // NOTE: No mail provider is integrated (no SMTP/API credentials configured for this workspace).
+  // This does NOT send a real email — it only logs a manual reminder against the project so the
+  // team can track that the responsible person was notified (e.g. in person, by phone, or via an
+  // external mail client). Do not present this as an actual email dispatch.
+  const logManualReminder = (project: KaizenCard, recipientOverride?: { name: string; email?: string }) => {
+    const recipientName = recipientOverride?.name || project.projectLeader || project.originator || "Sorumlu Ekip";
+    const recipientEmail = recipientOverride?.email;
+
     const updated: KaizenCard = {
       ...project,
       emailSentCount: (project.emailSentCount || 0) + 1,
       lastEmailSentAt: new Date().toLocaleString()
     };
-    
+
     onUpdateKaizen(updated);
     syncWithGantt(updated, 'update');
-    
+
     // If we are currently editing this in detail modal, sync the modal state too
     if (editingProject && editingProject.id === project.id) {
       setEditingProject(updated);
     }
-    
-    setEmailStatusMessage(`E-posta başarıyla gönderildi! Alıcı: ${emailStr}. Konu: "CI Proje Gecikme Uyarısı: ${project.title}".`);
+
+    const recipientLabel = recipientEmail ? `${recipientName} (${recipientEmail})` : recipientName;
+    setEmailStatusMessage(`Hatırlatma kaydedildi. Alıcı: ${recipientLabel}. Bu bir e-posta gönderimi DEĞİLDİR — bu workspace'te mail entegrasyonu yapılandırılmamış. Sorumluyu ayrıca kendi iletişim kanalınızdan bilgilendirin: "CI Proje Gecikme Uyarısı: ${project.title}".`);
     setTimeout(() => {
       setEmailStatusMessage(null);
-    }, 5000);
+    }, 6000);
   };
 
   // Open project details/editing modal
@@ -471,11 +613,20 @@ export default function KaizenManager({
     setEditTargetRatio(proj.targetRatio || 0);
     setEditTargetCostReduction(proj.targetCostReduction || 0);
     setEditRootCause(proj.rootCause || "Kök neden 5 Neden analizi yapılması bekleniyor.");
+    // Backward compat: older projects only have the plain-text rootCause, no structured chain yet —
+    // seed "Neden 1" with that text so nothing is lost, rather than showing 5 blank boxes.
+    setEditRootCauseWhys(
+      proj.rootCauseWhys && proj.rootCauseWhys.length > 0
+        ? [...proj.rootCauseWhys, "", "", "", "", ""].slice(0, 5)
+        : (proj.rootCause ? [proj.rootCause, "", "", "", ""] : ["", "", "", "", ""])
+    );
     setEditImprovementActions(proj.improvementActions || "Belirlenen iyileştirme faaliyetleri planlanacaktır.");
     setEditResponsibles(proj.responsibles || proj.projectLeader || "");
     setEditActionsTaken(proj.actionsTaken || "Planlanan faaliyetler yürütülmektedir.");
     setEditProjectLeader(proj.projectLeader || "Barış Gökdemir (OpEx Lead)");
     setEditProjectSponsor(proj.projectSponsor || "Mehmet Soyer (Fabrika Müdürü)");
+    setEditProjectTeam(proj.projectTeam || []);
+    setEditProjectTeamInput("");
     setEditPlannedFinishDate(proj.plannedFinishDate || "");
     setEditEstimatedCost(proj.estimatedCost || 0);
     setEditCurrentLoss(proj.currentLoss || 0);
@@ -516,6 +667,82 @@ export default function KaizenManager({
     setIsProjectFullScreen(true);
   };
 
+  // Prefill the Before-After Kaizen form from what's already on the CI card, so the consultant only
+  // has to fill in what the form actually needs beyond that (category/area, benefit breakdown).
+  const handleOpenBeforeAfterModal = () => {
+    if (!editingProject) return;
+    setBaSubject(editingProject.title || "");
+    setBaTarget(editingProject.targetObjective || "");
+    setBaDoneBy(editingProject.projectLeader || editingProject.originator || "");
+    setBaDepartment(editingProject.department || "");
+    setBaDate(new Date().toISOString().split("T")[0]);
+    setBaCategory("Verimlilik");
+    setBaArea("5S");
+    setBaBeforeImage(editingProject.problemPhotos?.[0] || "");
+    setBaAfterImage(editingProject.resultPhotos?.[0] || "");
+    setBaDescBefore(editingProject.problemDefinition || editingProject.descriptionBefore || "");
+    setBaDescAfter(editingProject.descriptionAfter || editingProject.resultDescription || "");
+    setBaBenefitDesc(
+      editingProject.actualSavings
+        ? `Gerçekleşen tasarruf: ${currency}${editingProject.actualSavings.toLocaleString()}`
+        : ""
+    );
+    setBaBenefits({});
+    setIsBeforeAfterModalOpen(true);
+  };
+
+  // Persists the new study onto the LIVE project (read from `kaizens`, not the possibly-stale
+  // `editingProject` snapshot — same pattern handleAddTask/handleToggleTaskProgress already use so
+  // this doesn't get clobbered by an unrelated unsaved edit sitting in the detail-modal form), then
+  // triggers the real Excel download. This is also what makes it show up in "bir liste olarak
+  // saklansın": beforeAfterStudies is a genuine persisted array field, not a one-off local action.
+  const handleGenerateBeforeAfterStudy = () => {
+    if (!editingProject || !baSubject.trim()) return;
+    const liveProject = kaizens.find(k => k.id === editingProject.id) || editingProject;
+
+    const newStudy: BeforeAfterKaizenStudy = {
+      id: `ba_${Math.random().toString(36).substring(2, 9)}`,
+      date: baDate || new Date().toISOString().split("T")[0],
+      subject: baSubject.trim(),
+      target: baTarget.trim(),
+      doneBy: baDoneBy.trim(),
+      department: baDepartment.trim(),
+      category: baCategory,
+      area: baArea,
+      beforeImage: baBeforeImage,
+      afterImage: baAfterImage,
+      descriptionBefore: baDescBefore.trim(),
+      descriptionAfter: baDescAfter.trim(),
+      benefitDescription: baBenefitDesc.trim(),
+      benefits: baBenefits,
+      createdAt: new Date().toISOString()
+    };
+
+    const updated: KaizenCard = {
+      ...liveProject,
+      beforeAfterStudies: [...(liveProject.beforeAfterStudies || []), newStudy]
+    };
+    onUpdateKaizen(updated);
+    setEditingProject(updated);
+
+    exportBeforeAfterKaizenToExcel(newStudy, selectedCustomer?.companyName, currency);
+    setIsBeforeAfterModalOpen(false);
+  };
+
+  const handleDeleteBeforeAfterStudy = (studyId: string, projectId?: string) => {
+    const targetId = projectId || editingProject?.id;
+    if (!targetId) return;
+    const liveProject = kaizens.find(k => k.id === targetId);
+    if (!liveProject) return;
+    const updated: KaizenCard = {
+      ...liveProject,
+      beforeAfterStudies: (liveProject.beforeAfterStudies || []).filter(s => s.id !== studyId)
+    };
+    onUpdateKaizen(updated);
+    if (editingProject?.id === targetId) setEditingProject(updated);
+    setEditingProject(updated);
+  };
+
   const handleSaveProjectDetails = () => {
     if (!editingProject) return;
 
@@ -545,7 +772,12 @@ export default function KaizenManager({
       synchedStatus = "Draft";
       synchedKanbanStatus = "PLAN";
     }
-    
+
+    // rootCause stays in sync as the last non-empty step of the 5-Why chain, so anything that
+    // still just reads the plain-text field (Excel export, list views) keeps working unchanged.
+    const filledWhys = editRootCauseWhys.map(w => w.trim()).filter(Boolean);
+    const computedRootCause = filledWhys.length > 0 ? filledWhys[filledWhys.length - 1] : editRootCause;
+
     const updated: KaizenCard = {
       ...editingProject,
       title: editTitle,
@@ -557,12 +789,14 @@ export default function KaizenManager({
       targetKpi: editTargetKpi,
       targetRatio: Number(editTargetRatio),
       targetCostReduction: Number(editTargetCostReduction),
-      rootCause: editRootCause,
+      rootCause: computedRootCause,
+      rootCauseWhys: editRootCauseWhys,
       improvementActions: editImprovementActions,
       responsibles: editResponsibles,
       actionsTaken: editActionsTaken,
       projectLeader: editProjectLeader,
       projectSponsor: editProjectSponsor,
+      projectTeam: editProjectTeam,
       plannedFinishDate: editPlannedFinishDate,
       estimatedCost: Number(editEstimatedCost),
       currentLoss: Number(editCurrentLoss),
@@ -816,6 +1050,223 @@ export default function KaizenManager({
     URL.revokeObjectURL(url);
   };
 
+  // Recreates the real "Kaizen Öncesi Sonrası" (Before-After Kaizen) one-pager the firm already
+  // uses on paper/in a standalone Excel template — same HTML-table-to-.xls technique as
+  // exportKaizenCardToExcel above, but embeds the before/after photos directly (they're already
+  // persisted as base64 data URLs, same as problem/result photos elsewhere on the card).
+  const exportBeforeAfterKaizenToExcel = (study: BeforeAfterKaizenStudy, customerName?: string, currencySymbol: string = "₺") => {
+    const fileName = `Once_Sonra_Kaizen_${study.subject.replace(/[^a-zA-Z0-9ığüşöçİĞÜŞÖÇ]+/g, "_").slice(0, 40)}.xls`;
+    const b = study.benefits || {};
+    const checkbox = (checked: boolean) => checked ? "☑" : "☐";
+
+    const html = `
+      <html xmlns:o="urn:schemas-microsoft-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <!--[if gte mso 9]>
+        <xml>
+          <x:ExcelWorkbook>
+            <x:ExcelWorksheets>
+              <x:ExcelWorksheet>
+                <x:Name>Once-Sonra Kaizen</x:Name>
+                <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+              </x:ExcelWorksheet>
+            </x:ExcelWorksheets>
+          </x:ExcelWorkbook>
+        </xml>
+        <![endif]-->
+        <style>td { vertical-align: middle; }</style>
+      </head>
+      <body>
+        <table border="1" style="border-collapse: collapse; font-family: Calibri, sans-serif; width: 100%;">
+
+          <tr style="height: 46px; background-color: #1e1b4b;">
+            <td colspan="4" style="text-align: center; color: #ffffff; font-size: 16pt; font-weight: bold; font-family: Arial, sans-serif; background-color: #1e1b4b;">
+              ÖNCESİ SONRASI İYİLEŞTİRME ÇALIŞMALARI
+            </td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">TARİH</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #1e1b4b; padding-left: 8px;">${study.date || "-"}</td>
+          </tr>
+          <tr style="height: 26px;">
+            <td colspan="4" rowspan="2"></td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">ÇALIŞMAYI YAPAN</td>
+            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${study.doneBy || "-"}</td>
+          </tr>
+          <tr style="height: 26px;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">BÖLÜMÜ</td>
+            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${study.department || "-"}</td>
+          </tr>
+
+          <tr style="height: 32px;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">KONU :</td>
+            <td colspan="3" style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px;">${study.subject || "-"}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">KATEGORİ</td>
+            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">
+              ${checkbox(study.category === "Verimlilik")} Verimlilik &nbsp; ${checkbox(study.category === "Kalite")} Kalite &nbsp; ${checkbox(study.category === "Güvenlik")} Güvenlik
+            </td>
+          </tr>
+          <tr style="height: 32px;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">HEDEF :</td>
+            <td colspan="3" style="border: 1px solid #cbd5e1; padding-left: 8px;">${study.target || "-"}</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">ALAN</td>
+            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">
+              ${checkbox(study.area === "5S")} 5S &nbsp; ${checkbox(study.area === "Maliyet")} Maliyet
+            </td>
+          </tr>
+
+          <tr style="height: 30px; background-color: #312e81;">
+            <td colspan="3" style="border: 1px solid #1e1b4b; text-align: center; font-weight: bold; color: #ffffff; font-size: 11pt; background-color: #312e81;">İYİLEŞTİRME ÖNCESİ</td>
+            <td colspan="3" style="border: 1px solid #1e1b4b; text-align: center; font-weight: bold; color: #ffffff; font-size: 11pt; background-color: #312e81;">İYİLEŞTİRME SONRASI</td>
+          </tr>
+          <tr style="height: 220px;">
+            <td colspan="3" style="border: 1px solid #cbd5e1; text-align: center; background-color: #f8fafc;">
+              ${study.beforeImage ? `<img src="${study.beforeImage}" style="max-width: 320px; max-height: 220px;" />` : `<span style="color:#94a3b8; font-style: italic;">Görsel eklenmedi</span>`}
+            </td>
+            <td colspan="3" style="border: 1px solid #cbd5e1; text-align: center; background-color: #f8fafc;">
+              ${study.afterImage ? `<img src="${study.afterImage}" style="max-width: 320px; max-height: 220px;" />` : `<span style="color:#94a3b8; font-style: italic;">Görsel eklenmedi</span>`}
+            </td>
+          </tr>
+
+          <tr style="height: 24px;">
+            <td colspan="3" style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">AÇIKLAMA:</td>
+            <td colspan="3" style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">AÇIKLAMA:</td>
+          </tr>
+          <tr style="height: 70px;">
+            <td colspan="3" style="border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: top;">${study.descriptionBefore || "-"}</td>
+            <td colspan="3" style="border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: top;">${study.descriptionAfter || "-"}</td>
+          </tr>
+
+          <tr style="height: 24px;">
+            <td colspan="6" style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">
+              GETİRİ AÇIKLAMASI : (Parasal veya Oran bazında getirinin rakamsal ifadesi)
+            </td>
+          </tr>
+          <tr style="height: 50px;">
+            <td colspan="6" style="border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: top;">${study.benefitDescription || "-"}</td>
+          </tr>
+
+          <tr style="height: 26px; background-color: #f8fafc;">
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; background-color: #e0e7ff; color: #1e1b4b;">Maliyet</td>
+            <td colspan="2" style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; background-color: #e0e7ff; color: #1e1b4b;">Verimlilik</td>
+            <td style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; background-color: #e0e7ff; color: #1e1b4b;">Kalite</td>
+            <td colspan="2" style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; background-color: #e0e7ff; color: #1e1b4b;">Güvenlik</td>
+          </tr>
+          <tr style="height: 24px;">
+            <td style="border: 1px solid #cbd5e1; padding-left: 6px;">Enerji: ${b.costEnergy || "-"}</td>
+            <td colspan="2" style="border: 1px solid #cbd5e1; padding-left: 6px;">Makine: ${b.productivityMachine || "-"}</td>
+            <td style="border: 1px solid #cbd5e1; padding-left: 6px;">Ürün: ${b.qualityProduct || "-"}</td>
+            <td colspan="2" style="border: 1px solid #cbd5e1; padding-left: 6px;">Risk Derecesi: ${b.safetyRiskDegree || "-"}</td>
+          </tr>
+          <tr style="height: 24px;">
+            <td style="border: 1px solid #cbd5e1; padding-left: 6px;">İş Gücü: ${b.costLabor || "-"}</td>
+            <td colspan="2" style="border: 1px solid #cbd5e1; padding-left: 6px;">Adam: ${b.productivityMan || "-"}</td>
+            <td style="border: 1px solid #cbd5e1; padding-left: 6px;">Malzeme: ${b.qualityMaterial || "-"}</td>
+            <td colspan="2" style="border: 1px solid #cbd5e1; padding-left: 6px;">KSO: ${b.safetyKso || "-"}</td>
+          </tr>
+          <tr style="height: 24px;">
+            <td style="border: 1px solid #cbd5e1; padding-left: 6px;">Malzeme: ${b.costMaterial || "-"}</td>
+            <td colspan="2" style="border: 1px solid #cbd5e1; padding-left: 6px;">Malzeme: ${b.productivityMaterial || "-"}</td>
+            <td style="border: 1px solid #cbd5e1; padding-left: 6px;">Fire: ${b.qualityScrap || "-"}</td>
+            <td colspan="2" style="border: 1px solid #cbd5e1; padding-left: 6px; font-size: 9pt; color: #64748b;">(*Kaza Sıklık Oranı)</td>
+          </tr>
+
+          <tr style="height: 20px;">
+            <td colspan="6" style="border: 1px solid #cbd5e1; font-size: 8pt; color: #94a3b8; padding-left: 6px;">
+              ${customerName || ""} — Gemba Partner CI Proje Yönetimi
+            </td>
+          </tr>
+
+        </table>
+      </body>
+      </html>
+    `;
+
+    const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Portfolio-wide export — previously only a single project's card could be exported
+  // (exportKaizenCardToExcel above); the whole CI portfolio had no export at all despite
+  // jspdf/xlsx already being used elsewhere in this app for exactly this kind of report.
+  const handleExportPortfolioExcel = () => {
+    const summaryData = [
+      ["CI Proje Yönetimi Portföy Raporu", selectedCustomer?.companyName || ""],
+      ["Rapor Tarihi", new Date().toLocaleDateString("tr-TR")],
+      [],
+      ["KPI", "Değer"],
+      ["Toplam Proje", totalCIProjects],
+      ["Tamamlanan", completedProjects],
+      ["Beklenen Finansal Kazanç", totalExpectedFinancialGain],
+      ["Gerçekleşen Kazanım", realizedFinancialGain]
+    ];
+
+    const projectHeaders = ["Proje No", "Başlık", "Departman", "Lider", "Ekip", "Faz", "Durum", "Kanban", "Termin", `Tahmini Bütçe (${currency})`, `Gerçekleşen (${currency})`, "Kök Neden", "Opportunity Type"];
+    const projectRows = [...filteredProjects]
+      .sort((a, b) => getProjectNo(a).localeCompare(getProjectNo(b), undefined, { numeric: true, sensitivity: 'base' }))
+      .map(proj => [
+        getProjectNo(proj), proj.title, proj.department, proj.projectLeader || proj.originator,
+        (proj.projectTeam || []).join(", "), proj.phase, proj.status, proj.kanbanStatus,
+        proj.plannedFinishDate, proj.estimatedCost || 0, proj.actualSavings || 0,
+        proj.rootCause || "", proj.opportunityType || ""
+      ]);
+    const projectSheetData = [["CI Proje Portföyü"], [], projectHeaders, ...projectRows];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryData), "Ozet");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(projectSheetData), "Proje_Portfoyu");
+    XLSX.writeFile(wb, `CI_Portfoy_Raporu_${(selectedCustomer?.companyName || "musteri").replace(/\s+/g, "_")}.xlsx`);
+  };
+
+  const handleExportPortfolioPdf = () => {
+    const doc = new jsPDF();
+    doc.setFont("Helvetica");
+
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, 210, 32, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(16);
+    doc.text("CI PROJE YÖNETİMİ PORTFÖY RAPORU", 14, 15);
+    doc.setFontSize(9);
+    doc.text(`${selectedCustomer?.companyName || ""} | ${new Date().toLocaleDateString("tr-TR")}`, 14, 23);
+
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(11);
+    doc.text("GENEL ÖZET", 14, 42);
+    autoTable(doc, {
+      body: [
+        ["Toplam Proje", String(totalCIProjects), "Tamamlanan", String(completedProjects)],
+        ["Beklenen Kazanç", `${currency} ${totalExpectedFinancialGain.toLocaleString()}`, "Gerçekleşen Kazanım", `${currency} ${realizedFinancialGain.toLocaleString()}`]
+      ],
+      startY: 46,
+      theme: "grid",
+      styles: { fontSize: 8, cellPadding: 3 },
+      columnStyles: { 0: { fontStyle: "bold", fillColor: [240, 240, 240] }, 2: { fontStyle: "bold", fillColor: [240, 240, 240] } }
+    });
+
+    doc.text("PROJE PORTFÖYÜ", 14, (doc as any).lastAutoTable.finalY + 10);
+    autoTable(doc, {
+      head: [["No", "Başlık", "Lider", "Durum", `Bütçe (${currency})`, `Gerçekleşen (${currency})`]],
+      body: [...filteredProjects]
+        .sort((a, b) => getProjectNo(a).localeCompare(getProjectNo(b), undefined, { numeric: true, sensitivity: 'base' }))
+        .map(proj => [
+          getProjectNo(proj), proj.title, proj.projectLeader || proj.originator || "-", proj.kanbanStatus || proj.status,
+          (proj.estimatedCost || 0).toLocaleString(), (proj.actualSavings || 0).toLocaleString()
+        ]),
+      startY: (doc as any).lastAutoTable.finalY + 14,
+      theme: "striped",
+      styles: { fontSize: 7.5 }
+    });
+
+    doc.save(`CI_Portfoy_Raporu_${(selectedCustomer?.companyName || "musteri").replace(/\s+/g, "_")}.pdf`);
+  };
+
   const handleExportCurrentEditingProjectToExcel = () => {
     if (!editingProject) return;
 
@@ -835,6 +1286,7 @@ export default function KaizenManager({
       actionsTaken: editActionsTaken,
       projectLeader: editProjectLeader,
       projectSponsor: editProjectSponsor,
+      projectTeam: editProjectTeam,
       plannedFinishDate: editPlannedFinishDate,
       estimatedCost: Number(editEstimatedCost),
       currentLoss: Number(editCurrentLoss),
@@ -865,119 +1317,151 @@ export default function KaizenManager({
   };
 
   // Wizard Launch Project Handler
+  // These two entry points used to create the project immediately, with projectTeam permanently []
+  // and no way to pick a leader/team/deadline. Now they just open a lightweight assignment step
+  // (handleConfirmProjectCreation below does the actual creation once that step is filled in).
   const handleSelectOpportunity = (opp: any) => {
-    const leaderName = "Barış Gökdemir (OpEx Lead)";
     const defaultDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const newId = `kai_${Math.random().toString(36).substring(2, 9)}`;
-    const newTitle = `${opp.type} Entegrasyonu - ${opp.dept}`;
-
-    // Automatically suggest impact areas based on opportunity type
-    const suggestedImpacts: Record<string, 'Yüksek' | 'Orta' | 'Düşük'> = {};
-    const typeLower = (opp.type || "").toLowerCase();
-    if (typeLower.includes("smed") || typeLower.includes("setup")) {
-      suggestedImpacts["Setup"] = "Yüksek";
-      suggestedImpacts["OEE"] = "Orta";
-      suggestedImpacts["Plansız Duruş"] = "Düşük";
-    } else if (typeLower.includes("hurda") || typeLower.includes("scrap")) {
-      suggestedImpacts["Hurda"] = "Yüksek";
-      suggestedImpacts["Kalite Maliyetleri"] = "Orta";
-    } else if (typeLower.includes("rework")) {
-      suggestedImpacts["Rework"] = "Yüksek";
-      suggestedImpacts["Kalite Maliyetleri"] = "Orta";
-    } else if (typeLower.includes("verimlilik") || typeLower.includes("operatör")) {
-      suggestedImpacts["Operatör Verimliliği"] = "Yüksek";
-      suggestedImpacts["Fazla Mesai"] = "Orta";
-    } else if (typeLower.includes("wip")) {
-      suggestedImpacts["WIP"] = "Yüksek";
-      suggestedImpacts["Lead Time"] = "Orta";
-    } else if (typeLower.includes("duruş") || typeLower.includes("plansız")) {
-      suggestedImpacts["Plansız Duruş"] = "Yüksek";
-      suggestedImpacts["OEE"] = "Yüksek";
-    } else {
-      suggestedImpacts["OEE"] = "Yüksek";
-      suggestedImpacts["Plansız Duruş"] = "Orta";
-    }
-
-    const newK: KaizenCard = {
-      id: newId,
-      title: newTitle,
-      originator: leaderName,
-      department: opp.dept,
-      dateProposed: new Date().toISOString().split('T')[0],
-      impactLevel: opp.priority || "Medium",
-      estimatedCost: Math.round(opp.currentCost * 0.15),
-      currentLoss: opp.currentCost || 0,
-      actualSavings: 0,
-      status: "In Progress",
-      descriptionBefore: opp.problem,
-      descriptionAfter: "Aksiyon planı uygulanıyor, standartlaşma hedefleniyor.",
-      description: `${opp.problem} probleminin giderilmesi amacıyla başlatılan sürekli iyileştirme faaliyetidir.`,
-      projectLeader: leaderName,
-      projectTeam: [],
-      projectSponsor: "Mehmet Soyer (Fabrika Müdürü)",
-      plannedFinishDate: defaultDate,
-      phase: "Faz 1 (1 Ay)",
-      opportunityId: opp.id,
-      opportunityType: opp.type,
-      kanbanStatus: "PLAN",
-      tasks: [
-        { id: `tsk_1_${Math.random().toString(36).substring(2, 5)}`, name: "Mevcut Durum Standardizasyon Analizi", responsible: leaderName, deadline: defaultDate, priority: "High", progressPercent: 0 },
-        { id: `tsk_2_${Math.random().toString(36).substring(2, 5)}`, name: "Kök Neden Analizi & Aksiyon Tasarımı", responsible: leaderName, deadline: defaultDate, priority: "High", progressPercent: 0 }
-      ],
-      financialsInput: defaultFinancialsInput(),
-      problemDefinition: opp.problem,
-      problemDetail: "",
-      targetObjective: "",
-      rootCause: "Kök neden 5 Neden analizi yapılması bekleniyor.",
-      improvementActions: "Belirlenen iyileştirme faaliyetleri planlanacaktır.",
-      responsibles: leaderName,
-      actionsTaken: "Proje başlangıç aşamasında.",
-      impactAnalysis: suggestedImpacts
-    };
-
-    onAddKaizen(newK);
-    syncWithGantt(newK, 'add');
-    setIsWizardOpen(false);
-    handleOpenProjectDetails(newK);
+    setPendingCreation({ mode: "opportunity", opp });
+    setAssignTitle(`${opp.type} Entegrasyonu - ${opp.dept}`);
+    setAssignLeader(teamOptions[0] || "");
+    setAssignTeamMembers([]);
+    setAssignTeamInput("");
+    setAssignDepartment(opp.dept || "");
+    setAssignDeadline(defaultDate);
   };
 
   const handleSelectNewProjectTheme = () => {
-    const leaderName = "Barış Gökdemir (OpEx Lead)";
     const defaultDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    setPendingCreation({ mode: "blank", opp: null });
+    setAssignTitle("");
+    setAssignLeader(teamOptions[0] || "");
+    setAssignTeamMembers([]);
+    setAssignTeamInput("");
+    setAssignDepartment("Üretim");
+    setAssignDeadline(defaultDate);
+  };
+
+  const handleAddAssignTeamMember = () => {
+    const name = assignTeamInput.trim();
+    if (!name || assignTeamMembers.includes(name)) return;
+    setAssignTeamMembers(prev => [...prev, name]);
+    setAssignTeamInput("");
+  };
+
+  const handleRemoveAssignTeamMember = (name: string) => {
+    setAssignTeamMembers(prev => prev.filter(m => m !== name));
+  };
+
+  const handleConfirmProjectCreation = () => {
+    if (!pendingCreation || !assignLeader.trim()) return;
+    const opp = pendingCreation.opp;
+    const leaderName = assignLeader.trim();
+    const deadline = assignDeadline || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const newId = `kai_${Math.random().toString(36).substring(2, 9)}`;
-    const newK: KaizenCard = {
-      id: newId,
-      title: "",
-      originator: leaderName,
-      department: "Üretim",
-      dateProposed: new Date().toISOString().split('T')[0],
-      impactLevel: "Medium",
-      estimatedCost: 0,
-      currentLoss: 0,
-      actualSavings: 0,
-      status: "In Progress",
-      descriptionBefore: "",
-      descriptionAfter: "Aksiyon planı uygulanıyor, standartlaşma hedefleniyor.",
-      description: "",
-      projectLeader: leaderName,
-      projectTeam: [],
-      projectSponsor: "Mehmet Soyer (Fabrika Müdürü)",
-      plannedFinishDate: defaultDate,
-      phase: "Faz 1 (1 Ay)",
-      kanbanStatus: "PLAN",
-      tasks: [],
-      financialsInput: defaultFinancialsInput(),
-      problemDefinition: "",
-      problemDetail: "",
-      targetObjective: "",
-      rootCause: "",
-      improvementActions: "",
-      responsibles: leaderName,
-      actionsTaken: ""
-    };
+
+    let newK: KaizenCard;
+
+    if (pendingCreation.mode === "opportunity" && opp) {
+      // Automatically suggest impact areas based on opportunity type
+      const suggestedImpacts: Record<string, 'Yüksek' | 'Orta' | 'Düşük'> = {};
+      const typeLower = (opp.type || "").toLowerCase();
+      if (typeLower.includes("smed") || typeLower.includes("setup")) {
+        suggestedImpacts["Setup"] = "Yüksek";
+        suggestedImpacts["OEE"] = "Orta";
+        suggestedImpacts["Plansız Duruş"] = "Düşük";
+      } else if (typeLower.includes("hurda") || typeLower.includes("scrap")) {
+        suggestedImpacts["Hurda"] = "Yüksek";
+        suggestedImpacts["Kalite Maliyetleri"] = "Orta";
+      } else if (typeLower.includes("rework")) {
+        suggestedImpacts["Rework"] = "Yüksek";
+        suggestedImpacts["Kalite Maliyetleri"] = "Orta";
+      } else if (typeLower.includes("verimlilik") || typeLower.includes("operatör")) {
+        suggestedImpacts["Operatör Verimliliği"] = "Yüksek";
+        suggestedImpacts["Fazla Mesai"] = "Orta";
+      } else if (typeLower.includes("wip")) {
+        suggestedImpacts["WIP"] = "Yüksek";
+        suggestedImpacts["Lead Time"] = "Orta";
+      } else if (typeLower.includes("duruş") || typeLower.includes("plansız")) {
+        suggestedImpacts["Plansız Duruş"] = "Yüksek";
+        suggestedImpacts["OEE"] = "Yüksek";
+      } else {
+        suggestedImpacts["OEE"] = "Yüksek";
+        suggestedImpacts["Plansız Duruş"] = "Orta";
+      }
+
+      newK = {
+        id: newId,
+        title: assignTitle || `${opp.type} Entegrasyonu - ${opp.dept}`,
+        originator: leaderName,
+        department: assignDepartment || opp.dept,
+        dateProposed: new Date().toISOString().split('T')[0],
+        impactLevel: opp.priority || "Medium",
+        estimatedCost: Math.round(opp.currentCost * 0.15),
+        currentLoss: opp.currentCost || 0,
+        actualSavings: 0,
+        status: "In Progress",
+        descriptionBefore: opp.problem,
+        descriptionAfter: "Aksiyon planı uygulanıyor, standartlaşma hedefleniyor.",
+        description: `${opp.problem} probleminin giderilmesi amacıyla başlatılan sürekli iyileştirme faaliyetidir.`,
+        projectLeader: leaderName,
+        projectTeam: assignTeamMembers,
+        projectSponsor: "",
+        plannedFinishDate: deadline,
+        phase: "Faz 1 (1 Ay)",
+        opportunityId: opp.id,
+        opportunityType: opp.type,
+        kanbanStatus: "PLAN",
+        tasks: [
+          { id: `tsk_1_${Math.random().toString(36).substring(2, 5)}`, name: "Mevcut Durum Standardizasyon Analizi", responsible: leaderName, deadline, priority: "High", progressPercent: 0 },
+          { id: `tsk_2_${Math.random().toString(36).substring(2, 5)}`, name: "Kök Neden Analizi & Aksiyon Tasarımı", responsible: leaderName, deadline, priority: "High", progressPercent: 0 }
+        ],
+        financialsInput: defaultFinancialsInput(),
+        problemDefinition: opp.problem,
+        problemDetail: "",
+        targetObjective: "",
+        rootCause: "Kök neden 5 Neden analizi yapılması bekleniyor.",
+        improvementActions: "Belirlenen iyileştirme faaliyetleri planlanacaktır.",
+        responsibles: leaderName,
+        actionsTaken: "Proje başlangıç aşamasında.",
+        impactAnalysis: suggestedImpacts
+      };
+    } else {
+      newK = {
+        id: newId,
+        title: assignTitle,
+        originator: leaderName,
+        department: assignDepartment || "Üretim",
+        dateProposed: new Date().toISOString().split('T')[0],
+        impactLevel: "Medium",
+        estimatedCost: 0,
+        currentLoss: 0,
+        actualSavings: 0,
+        status: "In Progress",
+        descriptionBefore: "",
+        descriptionAfter: "Aksiyon planı uygulanıyor, standartlaşma hedefleniyor.",
+        description: "",
+        projectLeader: leaderName,
+        projectTeam: assignTeamMembers,
+        projectSponsor: "",
+        plannedFinishDate: deadline,
+        phase: "Faz 1 (1 Ay)",
+        kanbanStatus: "PLAN",
+        tasks: [],
+        financialsInput: defaultFinancialsInput(),
+        problemDefinition: "",
+        problemDetail: "",
+        targetObjective: "",
+        rootCause: "",
+        improvementActions: "",
+        responsibles: leaderName,
+        actionsTaken: ""
+      };
+    }
 
     onAddKaizen(newK);
     syncWithGantt(newK, 'add');
+    setPendingCreation(null);
     setIsWizardOpen(false);
     handleOpenProjectDetails(newK);
   };
@@ -1051,11 +1535,22 @@ export default function KaizenManager({
   };
 
   // Status Change (PLAN -> DO -> CHECK -> ACT)
+  // Mirrors handleSaveProjectDetails' progressStep -> (status, kanbanStatus) table, in reverse, for
+  // the exact 4 combos this handler can produce — previously dragging a card only updated
+  // kanbanStatus/status, leaving progressStep stale and out of sync with the detail modal's view.
+  const KANBAN_TO_PROGRESS_STEP: Record<string, string> = {
+    PLAN: "Planlama",
+    DO: "Uygulama",
+    CHECK: "Kontrol",
+    ACT: "Kapatıldı"
+  };
+
   const handleKanbanStatusChange = (project: KaizenCard, newKanbanStatus: KaizenCard["kanbanStatus"]) => {
     const updated: KaizenCard = {
       ...project,
       kanbanStatus: newKanbanStatus,
-      status: newKanbanStatus === "ACT" ? "Completed" : "In Progress"
+      status: newKanbanStatus === "ACT" ? "Completed" : "In Progress",
+      progressStep: (newKanbanStatus && KANBAN_TO_PROGRESS_STEP[newKanbanStatus]) || project.progressStep
     };
 
     if (newKanbanStatus === "ACT") {
@@ -1074,17 +1569,6 @@ export default function KaizenManager({
     }
     setDraggedProjId(null);
     setActiveDropCol(null);
-  };
-
-  // Update complete Project
-  const handleStatusUpdate = (project: KaizenCard, newStatus: KaizenCard["status"]) => {
-    const updated: KaizenCard = {
-      ...project,
-      status: newStatus,
-      kanbanStatus: newStatus === "Completed" ? "ACT" : project.kanbanStatus || "DO"
-    };
-    onUpdateKaizen(updated);
-    syncWithGantt(updated, 'update');
   };
 
   const handleDeleteProject = (id: string) => {
@@ -1195,6 +1679,14 @@ export default function KaizenManager({
   });
 
   const totalCIProjects = filteredProjects.length;
+  const totalBeforeAfterStudies = filteredProjects.reduce((sum, k) => sum + (k.beforeAfterStudies?.length || 0), 0);
+
+  // Flat, portfolio-wide gallery of every saved Önce-Sonra (Before-After) study across all CI
+  // projects — previously these were only visible one-by-one inside each project's own detail
+  // modal (Section 9), with no way to browse them all in one place.
+  const allBeforeAfterStudies = filteredProjects
+    .flatMap(k => (k.beforeAfterStudies || []).map(s => ({ study: s, projectId: k.id, projectTitle: k.title })))
+    .sort((a, b) => (b.study.date || "").localeCompare(a.study.date || ""));
   const inProgressProjects = filteredProjects.filter(k => k.status === "In Progress" && k.kanbanStatus !== "ACT").length;
   const completedProjects = filteredProjects.filter(k => k.status === "Completed" || k.kanbanStatus === "ACT").length;
   const pendingProjects = filteredProjects.filter(k => k.status === "Draft" || k.kanbanStatus === "PLAN").length;
@@ -1209,7 +1701,7 @@ export default function KaizenManager({
 
   const totalExpectedFinancialGain = filteredProjects.reduce((sum, k) => {
     const opp = opportunitiesList.find(o => o.id === k.opportunityId);
-    return sum + (opp ? opp.expectedGain : k.actualSavings * 1.2 || 60000);
+    return sum + (typeof k.expectedGain === "number" ? k.expectedGain : opp ? opp.expectedGain : (k.actualSavings ? k.actualSavings * 1.2 : 0));
   }, 0);
 
   const realizedFinancialGain = filteredProjects.reduce((sum, k) => sum + (k.actualSavings || 0), 0);
@@ -1316,14 +1808,82 @@ export default function KaizenManager({
     return { name: type, ProjeAdedi: count };
   });
 
-  // Funnel Steps (Opportunities -> Evaluated -> Converted -> Completed -> Approved)
+  // Funnel Steps (Opportunities -> Converted -> In Progress -> Completed) — every stage below is a
+  // real count from real fields, no invented padding (previously "+4" opportunities and "completed-1
+  // approved" were fabricated numbers with no data behind them).
+  const inProgressProjectsCount = filteredProjects.filter(k => k.status === "In Progress").length;
+  const funnelBase = Math.max(1, opportunitiesList.length);
   const funnelSteps = [
-    { name: "Fırsatlar (Opportunities)", count: opportunitiesList.length + totalCIProjects + 4, percent: 100, desc: "Sistemde analiz edilen israf kalemleri", color: "bg-slate-700" },
-    { name: "Değerlendirilen (Evaluated)", count: opportunitiesList.length + totalCIProjects, percent: Math.round(((opportunitiesList.length + totalCIProjects) / (opportunitiesList.length + totalCIProjects + 4)) * 100), desc: "Ön fizibilitesi yapılan israflar", color: "bg-slate-550" },
-    { name: "Projeye Dönüşen (Converted)", count: totalCIProjects, percent: Math.round((totalCIProjects / (opportunitiesList.length + totalCIProjects)) * 100), desc: "Kanban tahtasında açılan projeler", color: "bg-indigo-650" },
-    { name: "Tamamlanan (Completed)", count: completedProjects, percent: Math.round((completedProjects / (totalCIProjects || 1)) * 100), desc: "Aksiyonları bitip standartlaşanlar", color: "bg-indigo-500" },
-    { name: "Onaylanan (Approved)", count: Math.max(0, completedProjects - 1) || completedProjects, percent: Math.round(((Math.max(0, completedProjects - 1) || completedProjects) / (completedProjects || 1)) * 100), desc: "Finansal kazancı onaylananlar", color: "bg-emerald-600" }
+    { name: "Fırsatlar (Opportunities)", count: opportunitiesList.length, percent: 100, desc: "Sistemde tespit edilen israf/iyileştirme kalemleri", color: "bg-slate-700" },
+    { name: "Projeye Dönüşen (Converted)", count: totalCIProjects, percent: Math.round((totalCIProjects / funnelBase) * 100), desc: "Kanban tahtasında açılan projeler", color: "bg-indigo-650" },
+    { name: "Devam Eden (In Progress)", count: inProgressProjectsCount, percent: Math.round((inProgressProjectsCount / funnelBase) * 100), desc: "Aksiyonları süren projeler", color: "bg-indigo-500" },
+    { name: "Tamamlanan (Completed)", count: completedProjects, percent: Math.round((completedProjects / funnelBase) * 100), desc: "Aksiyonları bitip standartlaşanlar", color: "bg-emerald-600" }
   ];
+
+  // Historical trend — the Financial Dashboard was current-state-only (no month-over-month view).
+  // Derived entirely from real project dates already on each KaizenCard (dateProposed for when a
+  // project was opened, realizedFinishDate + actualSavings for when it actually closed), not a
+  // separately-tracked snapshot — no new backend persistence needed for this.
+  const monthlyTrendData = React.useMemo(() => {
+    const monthMap: Record<string, { opened: number; closed: number; realizedGain: number }> = {};
+    const ensure = (key: string) => {
+      if (!monthMap[key]) monthMap[key] = { opened: 0, closed: 0, realizedGain: 0 };
+      return monthMap[key];
+    };
+    filteredProjects.forEach(p => {
+      if (p.dateProposed) ensure(p.dateProposed.slice(0, 7)).opened += 1;
+      if (p.realizedFinishDate) {
+        const entry = ensure(p.realizedFinishDate.slice(0, 7));
+        entry.closed += 1;
+        entry.realizedGain += (p.actualSavings || 0);
+      }
+    });
+    const sortedKeys = Object.keys(monthMap).sort();
+    let cumulative = 0;
+    return sortedKeys.map(key => {
+      cumulative += monthMap[key].realizedGain;
+      return {
+        Ay: key,
+        "Açılan Proje": monthMap[key].opened,
+        "Kapanan Proje": monthMap[key].closed,
+        "Kümülatif Gerçekleşen Tasarruf": cumulative
+      };
+    });
+  }, [filteredProjects]);
+
+  // Document upload (Section 8) — previously only kept {name, fileType, size, uploadDate} metadata
+  // while claiming the file would be "automatically archived on the server". Now genuinely persists
+  // the file content (same base64-embed technique renderPhotoUploadSection already uses for photos
+  // below), so a document can actually be reopened after a reload.
+  const MAX_DOCUMENT_SIZE_MB = 8;
+  const handleDocumentFiles = (files: File[]) => {
+    const accepted = files.filter(file => {
+      if (file.size > MAX_DOCUMENT_SIZE_MB * 1024 * 1024) {
+        alert(`"${file.name}" dosyası ${MAX_DOCUMENT_SIZE_MB} MB sınırını aşıyor ve yüklenmedi.`);
+        return false;
+      }
+      return true;
+    });
+    if (accepted.length === 0) return;
+
+    Promise.all(accepted.map(file => new Promise<any>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+        resolve({
+          id: `doc_${Math.random().toString(36).substring(2, 9)}`,
+          name: file.name,
+          fileType: ext,
+          size: (file.size / (1024 * 1024)).toFixed(2) + " MB",
+          uploadDate: new Date().toISOString().split('T')[0],
+          data: typeof reader.result === "string" ? reader.result : ""
+        });
+      };
+      reader.readAsDataURL(file);
+    }))).then(newDocs => {
+      setEditDocuments(prev => [...prev, ...newDocs]);
+    });
+  };
 
   // Photo Upload Helper for Section 2 and Section 7 (Camera & Gallery Support for Tablets/Mobiles)
   const renderPhotoUploadSection = (
@@ -1358,7 +1918,7 @@ export default function KaizenManager({
             </span>
             <p className="text-[10px] text-slate-500 mt-0.5">{sectionSubtitle}</p>
           </div>
-          <span className="text-[9px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-md">
+          <span className="text-[11px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-md">
             {photos.length} Fotoğraf Ekli
           </span>
         </div>
@@ -1411,7 +1971,7 @@ export default function KaizenManager({
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
-                <div className="mt-1 flex justify-between items-center px-1 text-[9px] text-slate-500 font-mono">
+                <div className="mt-1 flex justify-between items-center px-1 text-[11px] text-slate-500 font-mono">
                   <span>Foto #{idx + 1}</span>
                   <button
                     type="button"
@@ -1433,7 +1993,16 @@ export default function KaizenManager({
   return (
     <div className="space-y-6">
 
-      {/* FLOATING SUCCESS TOAST FOR SIMULATED EMAILS */}
+      {/* Shared autocomplete source for all team/assignee text inputs — real consultants/customer
+          users from this customer's team, with free text still allowed (e.g. floor staff not in
+          the system). Datalist just needs to exist once in the DOM; every input references it by id. */}
+      <datalist id="ci-team-directory">
+        {teamOptions.map(member => (
+          <option key={member} value={member} />
+        ))}
+      </datalist>
+
+      {/* FLOATING TOAST FOR MANUAL REMINDER LOGGING (no real email is sent) */}
       {emailStatusMessage && (
         <div className="bg-emerald-600 text-white p-4 rounded-xl shadow-md flex items-center justify-between transition-all duration-300 animate-pulse">
           <div className="flex items-center space-x-2">
@@ -1456,13 +2025,31 @@ export default function KaizenManager({
           </p>
         </div>
 
-        <button
-          onClick={() => setIsWizardOpen(true)}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center space-x-2 transition-all cursor-pointer shadow-sm"
-        >
-          <Plus className="w-4 h-4" />
-          <span>+ CI Projesi Başlat</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleExportPortfolioExcel}
+            className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-xs px-3.5 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer"
+            title="Tüm portföyü Excel olarak indir"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Excel</span>
+          </button>
+          <button
+            onClick={handleExportPortfolioPdf}
+            className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs px-3.5 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer"
+            title="Tüm portföyü PDF olarak indir"
+          >
+            <FileText className="w-4 h-4" />
+            <span>PDF</span>
+          </button>
+          <button
+            onClick={() => setIsWizardOpen(true)}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center space-x-2 transition-all cursor-pointer shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ CI Projesi Başlat</span>
+          </button>
+        </div>
       </div>
 
       {/* 10 MODERN KPI CARDS (Power BI Style) */}
@@ -1475,7 +2062,7 @@ export default function KaizenManager({
           </div>
           <div>
             <div className="text-2xl font-mono font-bold text-slate-800">{totalCIProjects}</div>
-            <span className="text-[9px] text-slate-400">Aktif CI Proje Hacmi</span>
+            <span className="text-[11px] text-slate-400">Aktif CI Proje Hacmi</span>
           </div>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-300"></div>
         </div>
@@ -1487,7 +2074,7 @@ export default function KaizenManager({
           </div>
           <div>
             <div className="text-2xl font-mono font-bold text-blue-600">{inProgressProjects}</div>
-            <span className="text-[9px] text-slate-400">Do/Check Aşamasında</span>
+            <span className="text-[11px] text-slate-400">Do/Check Aşamasında</span>
           </div>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-500"></div>
         </div>
@@ -1499,7 +2086,7 @@ export default function KaizenManager({
           </div>
           <div>
             <div className="text-2xl font-mono font-bold text-emerald-600">{completedProjects}</div>
-            <span className="text-[9px] text-slate-400">Standartlaşan Projeler</span>
+            <span className="text-[11px] text-slate-400">Standartlaşan Projeler</span>
           </div>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500"></div>
         </div>
@@ -1511,7 +2098,7 @@ export default function KaizenManager({
           </div>
           <div>
             <div className="text-2xl font-mono font-bold text-amber-600">{pendingProjects}</div>
-            <span className="text-[9px] text-slate-400">Planlama Aşamasında</span>
+            <span className="text-[11px] text-slate-400">Planlama Aşamasında</span>
           </div>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500"></div>
         </div>
@@ -1523,7 +2110,7 @@ export default function KaizenManager({
           </div>
           <div>
             <div className="text-2xl font-mono font-bold text-purple-600">{delayedProjects}</div>
-            <span className="text-[9px] text-slate-400">Termini Geçmiş</span>
+            <span className="text-[11px] text-slate-400">Termini Geçmiş</span>
           </div>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-purple-500"></div>
         </div>
@@ -1538,7 +2125,7 @@ export default function KaizenManager({
             <div className="text-xl font-mono font-bold text-indigo-950">
               {currency}{totalExpectedFinancialGain.toLocaleString()}
             </div>
-            <span className="text-[9px] text-slate-400">Fırsat Toplamı</span>
+            <span className="text-[11px] text-slate-400">Fırsat Toplamı</span>
           </div>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-indigo-500"></div>
         </div>
@@ -1552,7 +2139,7 @@ export default function KaizenManager({
             <div className="text-xl font-mono font-bold text-emerald-700">
               {currency}{realizedFinancialGain.toLocaleString()}
             </div>
-            <span className="text-[9px] text-slate-400">Gerçek P&L Teyidi</span>
+            <span className="text-[11px] text-slate-400">Gerçek P&L Teyidi</span>
           </div>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-600"></div>
         </div>
@@ -1566,7 +2153,7 @@ export default function KaizenManager({
             <div className="text-xl font-mono font-bold text-cyan-700">
               {currency}{totalCOPQReduction.toLocaleString()}
             </div>
-            <span className="text-[9px] text-slate-400">Kalitesizlik Maliyeti</span>
+            <span className="text-[11px] text-slate-400">Kalitesizlik Maliyeti</span>
           </div>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-cyan-500"></div>
         </div>
@@ -1580,7 +2167,7 @@ export default function KaizenManager({
             <div className="text-xl font-mono font-bold text-violet-700">
               +{currency}{operatingProfitIncrease.toLocaleString()}
             </div>
-            <span className="text-[9px] text-slate-400">P&L Katkı Oranı</span>
+            <span className="text-[11px] text-slate-400">P&L Katkı Oranı</span>
           </div>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-violet-600"></div>
         </div>
@@ -1592,9 +2179,21 @@ export default function KaizenManager({
           </div>
           <div>
             <div className="text-xl font-mono font-bold text-slate-700">{averageProjectSuccessRate}%</div>
-            <span className="text-[9px] text-slate-400">Kapatılma Oranı</span>
+            <span className="text-[11px] text-slate-400">Kapatılma Oranı</span>
           </div>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-500"></div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] text-pink-600 font-bold uppercase tracking-wider">Önce-Sonra Kaizen</span>
+            <Camera className="w-3.5 h-3.5 text-pink-500" />
+          </div>
+          <div>
+            <div className="text-2xl font-mono font-bold text-pink-600">{totalBeforeAfterStudies}</div>
+            <span className="text-[11px] text-slate-400">Oluşturulan Form Sayısı</span>
+          </div>
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-pink-500"></div>
         </div>
 
       </div>
@@ -1626,7 +2225,7 @@ export default function KaizenManager({
                   <div className="flex justify-between items-start">
                     <div>
                       <div className="flex items-center space-x-1.5">
-                        <span className="bg-red-100 text-red-800 text-[8px] font-bold uppercase px-1.5 py-0.2 rounded">Kritik Gecikme</span>
+                        <span className="bg-red-100 text-red-800 text-[11px] font-bold uppercase px-1.5 py-0.2 rounded">Kritik Gecikme</span>
                         <span className="text-[10px] font-bold text-slate-500 font-mono">{getProjectNo(proj)}</span>
                       </div>
                       <h4 className="font-bold text-xs text-slate-800 tracking-tight mt-1">{proj.title}</h4>
@@ -1638,7 +2237,7 @@ export default function KaizenManager({
                   
                   {/* Miniature Weekly Progress Bar */}
                   <div className="space-y-1 bg-slate-50 p-2 rounded border border-slate-100">
-                    <div className="flex justify-between text-[9px] text-slate-500">
+                    <div className="flex justify-between text-[11px] text-slate-500">
                       <span>Haftalık Otomatik Süreç Takip Durumu</span>
                       <span className="text-red-600 font-bold">Planlanandan +{weeks} Hafta Sapma</span>
                     </div>
@@ -1662,12 +2261,12 @@ export default function KaizenManager({
                     </button>
                     <button
                       type="button"
-                      onClick={() => sendEmailReminder(proj)}
+                      onClick={() => logManualReminder(proj)}
                       className="text-[10px] font-bold bg-indigo-600 text-white hover:bg-indigo-700 px-3.5 py-1 rounded-lg flex items-center space-x-1 cursor-pointer shadow-sm transition-all"
                     >
-                      <span>📧 Sorumluya Mail At</span>
+                      <span>📌 Hatırlatma Kaydet</span>
                       {proj.emailSentCount && proj.emailSentCount > 0 && (
-                        <span className="bg-white/20 text-white text-[8px] font-bold px-1.5 py-0.2 rounded-full">
+                        <span className="bg-white/20 text-white text-[11px] font-bold px-1.5 py-0.2 rounded-full">
                           {proj.emailSentCount}
                         </span>
                       )}
@@ -1716,6 +2315,14 @@ export default function KaizenManager({
             }`}
           >
             Finansal Dashboard
+          </button>
+          <button
+            onClick={() => setActiveTab("beforeafter")}
+            className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+              activeTab === "beforeafter" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            Önce-Sonra Galerisi
           </button>
         </div>
 
@@ -1807,7 +2414,7 @@ export default function KaizenManager({
                   ) : (
                     list.map(proj => {
                       const opp = opportunitiesList.find(o => o.id === proj.opportunityId);
-                      const expected = opp ? opp.expectedGain : proj.actualSavings * 1.2 || 60000;
+                      const expected = typeof proj.expectedGain === "number" ? proj.expectedGain : opp ? opp.expectedGain : (proj.actualSavings ? proj.actualSavings * 1.2 : 0);
                       const realized = proj.actualSavings || 0;
                       const hasTasks = proj.tasks && proj.tasks.length > 0;
                       const completedTasks = hasTasks ? proj.tasks?.filter((t: any) => t.progressPercent === 100).length : 0;
@@ -1837,7 +2444,7 @@ export default function KaizenManager({
                           
                           {/* Phase tag & Edit button */}
                           <div className="flex justify-between items-center">
-                            <span className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider ${
+                            <span className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider ${
                               proj.phase?.includes("Quick") ? "bg-emerald-100 text-emerald-800" :
                               proj.phase?.includes("Capital") ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"
                             }`}>
@@ -1891,7 +2498,7 @@ export default function KaizenManager({
 
                           {/* Overdue alert badge on card */}
                           {isOverdue && (
-                            <div className="bg-red-50 border border-red-100 rounded-lg p-1.5 flex items-center justify-between text-[9px] text-red-700 font-medium">
+                            <div className="bg-red-50 border border-red-100 rounded-lg p-1.5 flex items-center justify-between text-[11px] text-red-700 font-medium">
                               <span className="flex items-center space-x-1">
                                 <AlertTriangle className="w-3 h-3 text-red-500 animate-pulse" />
                                 <span>{delayWeeks} Hafta Gecikme</span>
@@ -1899,16 +2506,16 @@ export default function KaizenManager({
                               <div className="flex items-center space-x-1">
                                 <button 
                                   type="button"
-                                  onClick={() => sendEmailReminder(proj)}
-                                  className="bg-red-600 hover:bg-red-700 text-white font-bold px-1.5 py-0.5 rounded text-[8px] flex items-center space-x-0.5 transition-all cursor-pointer"
-                                  title="E-Posta Hatırlatıcı Gönder"
+                                  onClick={() => logManualReminder(proj)}
+                                  className="bg-red-600 hover:bg-red-700 text-white font-bold px-1.5 py-0.5 rounded text-[11px] flex items-center space-x-0.5 transition-all cursor-pointer"
+                                  title="Hatırlatma Kaydı Oluştur (e-posta gönderilmez)"
                                 >
-                                  <span>📧 Hatırlat</span>
+                                  <span>📌 Hatırlat</span>
                                 </button>
                                 <button 
                                   type="button"
                                   onClick={() => exportKaizenCardToExcel(proj, selectedCustomer?.companyName, currency)}
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white p-1 rounded text-[8px] flex items-center justify-center transition-all cursor-pointer"
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white p-1 rounded text-[11px] flex items-center justify-center transition-all cursor-pointer"
                                   title="CI Kartını Excel (XLS) Olarak İndir"
                                 >
                                   <FileSpreadsheet className="w-3 h-3" />
@@ -1936,7 +2543,7 @@ export default function KaizenManager({
                           {/* Sub-tasks Progress */}
                           {hasTasks && (
                             <div className="space-y-1 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                              <div className="flex justify-between text-[9px] text-slate-500">
+                              <div className="flex justify-between text-[11px] text-slate-500">
                                 <span>Alt Görevler ({completedTasks}/{proj.tasks?.length})</span>
                                 <span className="font-bold text-slate-700">{progressPct}%</span>
                               </div>
@@ -1949,11 +2556,11 @@ export default function KaizenManager({
                           {/* Financial summary */}
                           <div className="flex justify-between items-center text-[10px] bg-slate-50/50 p-2 rounded-lg border border-slate-100 font-mono">
                             <div>
-                              <span className="text-[9px] text-slate-400 block uppercase">Planlanan</span>
+                              <span className="text-[11px] text-slate-400 block uppercase">Planlanan</span>
                               <span className="font-bold text-slate-700">{currency}{expected.toLocaleString()}</span>
                             </div>
                             <div className="text-right">
-                              <span className="text-[9px] text-slate-400 block uppercase">Gerçekleşen</span>
+                              <span className="text-[11px] text-slate-400 block uppercase">Gerçekleşen</span>
                               <span className="font-bold text-emerald-600">{currency}{realized.toLocaleString()}</span>
                             </div>
                           </div>
@@ -1978,7 +2585,7 @@ export default function KaizenManager({
                               </button>
                             </div>
 
-                            <div className="flex items-center space-x-1 bg-slate-50 text-slate-400 border border-slate-200/50 px-2 py-0.5 rounded-md text-[9px] font-medium select-none">
+                            <div className="flex items-center space-x-1 bg-slate-50 text-slate-400 border border-slate-200/50 px-2 py-0.5 rounded-md text-[11px] font-medium select-none">
                               <GripVertical className="w-2.5 h-2.5" />
                               <span>Sürükle</span>
                             </div>
@@ -2007,7 +2614,7 @@ export default function KaizenManager({
                                       </span>
                                     </div>
                                     <div className="flex items-center space-x-1.5">
-                                      <span className="text-[9px] text-slate-400">{t.responsible.split(" ")[0]}</span>
+                                      <span className="text-[11px] text-slate-400">{t.responsible.split(" ")[0]}</span>
                                       <button onClick={() => handleDeleteTask(proj.id, t.id)} className="text-slate-400 hover:text-red-500">✕</button>
                                     </div>
                                   </div>
@@ -2024,18 +2631,17 @@ export default function KaizenManager({
                                   className="w-full text-[10px] bg-white border border-slate-200 rounded p-1.5"
                                 />
                                 <div className="grid grid-cols-2 gap-1.5">
-                                  <select
+                                  <input
+                                    type="text"
+                                    list="ci-team-directory"
                                     value={newTaskResponsible}
                                     onChange={(e) => setNewTaskResponsible(e.target.value)}
-                                    className="text-[9px] bg-white border border-slate-200 rounded p-1"
-                                  >
-                                    {teamOptions.map(member => (
-                                      <option key={member} value={member}>{member}</option>
-                                    ))}
-                                  </select>
+                                    placeholder="Sorumlu seçin veya yazın"
+                                    className="text-[11px] bg-white border border-slate-200 rounded p-1"
+                                  />
                                   <button
                                     onClick={() => handleAddTask(proj.id)}
-                                    className="bg-indigo-600 text-white font-bold text-[9px] py-1 rounded"
+                                    className="bg-indigo-600 text-white font-bold text-[11px] py-1 rounded"
                                   >
                                     Ekle
                                   </button>
@@ -2059,7 +2665,75 @@ export default function KaizenManager({
       {/* 2. LIST VIEW */}
       {activeTab === "list" && (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden text-xs">
-          <div className="overflow-x-auto">
+          {/* Mobile card fallback (below md) — the full table below is desktop-only (overflow-x-auto
+              alone isn't usable on a phone for a 9-column table). Same data, condensed per project. */}
+          <div className="md:hidden divide-y divide-slate-100">
+            {[...filteredProjects]
+              .sort((a, b) => getProjectNo(a).localeCompare(getProjectNo(b), undefined, { numeric: true, sensitivity: 'base' }))
+              .map(proj => {
+                const opp = opportunitiesList.find(o => o.id === proj.opportunityId);
+                const expected = typeof proj.expectedGain === "number" ? proj.expectedGain : opp ? opp.expectedGain : (proj.actualSavings ? proj.actualSavings * 1.2 : 0);
+                const realized = proj.actualSavings || 0;
+                const successPct = expected > 0 ? Math.round((realized / expected) * 100) : 0;
+                const isOverdue = proj.status !== "Completed" && proj.plannedFinishDate && (new Date(proj.plannedFinishDate) < new Date());
+                const delayWeeks = isOverdue ? getDelayWeeksSinceDeadline(proj.plannedFinishDate) : 0;
+
+                return (
+                  <div key={proj.id} className="p-3.5 space-y-2" onClick={() => handleOpenProjectDetails(proj)}>
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-mono font-bold text-indigo-950">{getProjectNo(proj)}</div>
+                        <div className="font-bold text-slate-900 text-[13px] leading-snug flex items-center gap-1.5 flex-wrap">
+                          <span>{proj.title}</span>
+                          {isOverdue && (
+                            <span className="bg-red-100 text-red-800 text-[10px] font-bold px-1.5 py-0.2 rounded-full shrink-0">
+                              {delayWeeks}H Gecikme
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <select
+                        value={proj.kanbanStatus || "PLAN"}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => handleKanbanStatusChange(proj, e.target.value as any)}
+                        className="bg-white border border-slate-200 rounded px-1.5 py-1 text-[10px] font-bold text-slate-700 shrink-0"
+                      >
+                        <option value="PLAN">PLAN</option>
+                        <option value="DO">DO</option>
+                        <option value="CHECK">CHECK</option>
+                        <option value="ACT">ACT</option>
+                      </select>
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      {proj.projectLeader || proj.originator} • {proj.department}
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-mono text-slate-600">Bütçe: {currency}{(proj.estimatedCost || 0).toLocaleString()}</span>
+                      <span className="font-mono font-bold text-emerald-600">Gerçekleşen: {currency}{realized.toLocaleString()}</span>
+                      <span className={`font-mono font-bold px-1.5 py-0.5 rounded ${
+                        successPct >= 100 ? "bg-emerald-100 text-emerald-800" :
+                        successPct > 50 ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-800"
+                      }`}>
+                        %{successPct}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 pt-1" onClick={(e) => e.stopPropagation()}>
+                      <button onClick={() => exportKaizenCardToExcel(proj, selectedCustomer?.companyName, currency)} className="p-1.5 text-emerald-600" title="Excel İndir">
+                        <FileSpreadsheet className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => handleOpenFinancials(proj)} className="p-1.5 text-indigo-600" title="Finansal Kayıt">
+                        <DollarSign className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => handleDeleteProject(proj.id)} className="p-1.5 text-red-500" title="Sil">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-[10px] uppercase tracking-wider">
@@ -2079,7 +2753,7 @@ export default function KaizenManager({
                   .sort((a, b) => getProjectNo(a).localeCompare(getProjectNo(b), undefined, { numeric: true, sensitivity: 'base' }))
                   .map(proj => {
                     const opp = opportunitiesList.find(o => o.id === proj.opportunityId);
-                    const expected = opp ? opp.expectedGain : proj.actualSavings * 1.2 || 60000;
+                    const expected = typeof proj.expectedGain === "number" ? proj.expectedGain : opp ? opp.expectedGain : (proj.actualSavings ? proj.actualSavings * 1.2 : 0);
                     const realized = proj.actualSavings || 0;
                     const successPct = expected > 0 ? Math.round((realized / expected) * 100) : 0;
 
@@ -2098,7 +2772,7 @@ export default function KaizenManager({
                         <div className="font-bold text-[13px] group-hover:text-indigo-600 transition-colors flex items-center gap-1.5 flex-wrap">
                           <span>{proj.title}</span>
                           {isOverdue && (
-                            <span className="bg-red-100 text-red-800 text-[8px] font-bold px-1.5 py-0.2 rounded-full animate-pulse">
+                            <span className="bg-red-100 text-red-800 text-[11px] font-bold px-1.5 py-0.2 rounded-full animate-pulse">
                               {delayWeeks}H Gecikme
                             </span>
                           )}
@@ -2110,14 +2784,14 @@ export default function KaizenManager({
                         <div className="text-[10px] text-slate-400">Sponsor: {proj.projectSponsor || "Atanmamış"}</div>
                       </td>
                       <td className="py-3 px-4 space-y-1">
-                        <span className={`inline-block px-1.5 py-0.5 rounded text-[8px] font-bold uppercase ${
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-bold uppercase ${
                           proj.phase?.includes("Quick") ? "bg-emerald-100 text-emerald-800" :
                           proj.phase?.includes("Capital") ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"
                         }`}>
                           {proj.phase?.split(":")[0] || "Phase 1"}
                         </span>
                         <div>
-                          <span className={`inline-block px-1.5 py-0.2 rounded text-[8px] font-bold ${
+                          <span className={`inline-block px-1.5 py-0.2 rounded text-[11px] font-bold ${
                             proj.impactLevel === "High" ? "bg-rose-100 text-rose-800" :
                             proj.impactLevel === "Medium" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"
                           }`}>
@@ -2154,28 +2828,28 @@ export default function KaizenManager({
                       <td className="py-3 px-4 text-right space-x-1.5">
                         <button 
                           onClick={() => exportKaizenCardToExcel(proj, selectedCustomer?.companyName, currency)}
-                          className="p-1 text-slate-400 hover:text-emerald-600 inline-block cursor-pointer"
+                          className="p-2 text-slate-400 hover:text-emerald-600 inline-block cursor-pointer"
                           title="CI Kartını Excel (XLS) Olarak İndir"
                         >
                           <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
                         </button>
                         <button 
                           onClick={() => handleOpenProjectDetails(proj)}
-                          className="p-1 text-slate-400 hover:text-indigo-600 inline-block"
+                          className="p-2 text-slate-400 hover:text-indigo-600 inline-block"
                           title="Kartı Aç & Detaylı Düzenle"
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
                         <button 
                           onClick={() => handleOpenFinancials(proj)}
-                          className="p-1 text-slate-400 hover:text-indigo-600 inline-block"
+                          className="p-2 text-slate-400 hover:text-indigo-600 inline-block"
                           title="Finansal Kayıt Girişi"
                         >
                           <DollarSign className="w-4 h-4" />
                         </button>
                         <button 
                           onClick={() => handleDeleteProject(proj.id)}
-                          className="p-1 text-slate-400 hover:text-red-500 inline-block"
+                          className="p-2 text-slate-400 hover:text-red-500 inline-block"
                           title="Projeyi Sil"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -2257,7 +2931,41 @@ export default function KaizenManager({
             </div>
           </div>
 
-          <div className="space-y-3 overflow-x-auto">
+          {/* Mobile fallback (below md) — a 12-month Gantt grid genuinely doesn't fit a phone
+              screen (industry-standard limitation, not something a responsive grid tweak fixes),
+              so this shows the same projects as a simple stacked timeline list instead. */}
+          <div className="md:hidden space-y-2">
+            {filteredProjects.length === 0 ? (
+              <div className="text-center py-10 text-slate-400 italic">Zaman çizelgesi için kayıtlı proje bulunmamaktadır.</div>
+            ) : (
+              filteredProjects.map(proj => {
+                const isCompleted = proj.status === "Completed" || proj.kanbanStatus === "ACT";
+                const isOverdue = !isCompleted && proj.plannedFinishDate && (new Date(proj.plannedFinishDate) < new Date());
+                return (
+                  <div key={proj.id} className="border border-slate-200 rounded-xl p-3 bg-white">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="font-bold text-slate-900 text-[12.5px] leading-snug">{proj.title}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
+                        isCompleted ? "bg-emerald-100 text-emerald-800" :
+                        isOverdue ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"
+                      }`}>
+                        {isCompleted ? "Tamamlandı" : isOverdue ? "Gecikti" : "Devam Ediyor"}
+                      </span>
+                    </div>
+                    <div className="text-[10.5px] text-slate-500 mt-1 flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      <span>Başlangıç: {proj.dateProposed || "-"} → Hedef Bitiş: {proj.plannedFinishDate || "-"}</span>
+                    </div>
+                    {(proj.tasks?.length || 0) > 0 && (
+                      <div className="text-[10.5px] text-slate-400 mt-1">{proj.tasks!.length} alt faaliyet</div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="hidden md:block space-y-3 overflow-x-auto">
             {/* Gantt Header Grid */}
             <div className="grid grid-cols-12 gap-3 text-[10px] text-slate-500 font-bold pb-2 font-mono border-b border-slate-200 min-w-[850px]">
               <div className="col-span-4 pl-1">PROJE KONUSU & ALT FAALİYETLER (6 UYGULAMA PLANILARI)</div>
@@ -2265,7 +2973,7 @@ export default function KaizenManager({
                 {["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"].map((m, idx) => (
                   <div key={idx} className="flex flex-col items-center">
                     <span className="text-slate-800 font-bold">{m}</span>
-                    <span className="text-[8px] text-slate-400 font-normal">2026</span>
+                    <span className="text-[11px] text-slate-400 font-normal">2026</span>
                   </div>
                 ))}
               </div>
@@ -2317,7 +3025,7 @@ export default function KaizenManager({
 
                         <div className="min-w-0 flex-1 space-y-0.5">
                           <div className="flex items-center space-x-1.5 flex-wrap">
-                            <span className="bg-indigo-100 text-indigo-900 font-mono text-[9px] font-extrabold px-1.5 py-0.2 rounded border border-indigo-200">
+                            <span className="bg-indigo-100 text-indigo-900 font-mono text-[11px] font-extrabold px-1.5 py-0.2 rounded border border-indigo-200">
                               {getProjectNo(proj)}
                             </span>
                             <span 
@@ -2328,7 +3036,7 @@ export default function KaizenManager({
                               {proj.title}
                             </span>
                             {tasksList.length > 0 && (
-                              <span className="bg-slate-200 text-slate-700 text-[9px] font-bold px-1.5 py-0.2 rounded-full font-mono">
+                              <span className="bg-slate-200 text-slate-700 text-[11px] font-bold px-1.5 py-0.2 rounded-full font-mono">
                                 {tasksList.length} Alt Faaliyet
                               </span>
                             )}
@@ -2338,7 +3046,7 @@ export default function KaizenManager({
                             <span>Sorumlu: <strong className="text-slate-700">{proj.projectLeader || proj.originator}</strong></span>
                             <span>• {proj.department}</span>
                             {hasDeviation && (
-                              <span className="bg-rose-100 text-rose-700 font-extrabold px-1.5 py-0.2 rounded text-[9px] flex items-center gap-0.5 animate-pulse">
+                              <span className="bg-rose-100 text-rose-700 font-extrabold px-1.5 py-0.2 rounded text-[11px] flex items-center gap-0.5 animate-pulse">
                                 <AlertTriangle className="w-3 h-3 text-rose-600" />
                                 <span>{delayWeeks > 0 ? `${delayWeeks} Hafta Sapma` : 'Tarih Sapması (Gecikme)'}</span>
                               </span>
@@ -2359,7 +3067,7 @@ export default function KaizenManager({
 
                         {/* TRACK 1: PLANLANAN ZAMAN DİLİMİ (Blue Bar) */}
                         <div 
-                          className="h-4 rounded bg-blue-500/90 hover:bg-blue-600 text-[8px] text-white font-bold flex items-center px-1.5 transition-all shadow-3xs z-10 my-0.5 border border-blue-400"
+                          className="h-4 rounded bg-blue-500/90 hover:bg-blue-600 text-[11px] text-white font-bold flex items-center px-1.5 transition-all shadow-3xs z-10 my-0.5 border border-blue-400"
                           style={{ 
                             gridColumnStart: pStart,
                             gridColumnEnd: Math.min(13, pEnd + 1)
@@ -2371,7 +3079,7 @@ export default function KaizenManager({
 
                         {/* TRACK 2: GERÇEKLEŞEN ZAMAN DİLİMİ (Status Color & Red Deviation Extension) */}
                         <div 
-                          className={`h-4 rounded text-[8px] text-white font-bold flex items-center justify-between px-1.5 transition-all shadow-3xs z-10 my-0.5 ${
+                          className={`h-4 rounded text-[11px] text-white font-bold flex items-center justify-between px-1.5 transition-all shadow-3xs z-10 my-0.5 ${
                             isCompleted ? "bg-emerald-500 border border-emerald-400" :
                             hasDeviation ? "bg-rose-600 border border-rose-500 animate-pulse" :
                             "bg-amber-500 border border-amber-400"
@@ -2384,7 +3092,7 @@ export default function KaizenManager({
                         >
                           <span className="truncate">{isCompleted ? "Fiili: Tamamlandı" : hasDeviation ? "Fiili: Sapma Var (Gecikme)" : "Fiili: Devam Ediyor"}</span>
                           {hasDeviation && (
-                            <span className="bg-white/30 text-white font-black px-1 rounded text-[7px] font-mono shrink-0 ml-1">
+                            <span className="bg-white/30 text-white font-black px-1 rounded text-[11px] font-mono shrink-0 ml-1">
                               SAPMA 🔴
                             </span>
                           )}
@@ -2417,7 +3125,7 @@ export default function KaizenManager({
                                   <div className="min-w-0 flex-1">
                                     <div className="font-bold text-slate-800 truncate flex items-center gap-1.5">
                                       <span>{tIdx + 1}. {task.name}</span>
-                                      <span className={`text-[8px] font-bold px-1.5 py-0.2 rounded ${
+                                      <span className={`text-[11px] font-bold px-1.5 py-0.2 rounded ${
                                         isTaskDone ? "bg-emerald-100 text-emerald-800" :
                                         isTaskOverdue ? "bg-rose-100 text-rose-800 font-black animate-pulse" :
                                         "bg-amber-100 text-amber-800"
@@ -2425,7 +3133,7 @@ export default function KaizenManager({
                                         {isTaskDone ? "Yapıldı" : isTaskOverdue ? "Gecikti" : "Devam Ediyor"}
                                       </span>
                                     </div>
-                                    <div className="text-[9px] text-slate-400 font-mono">
+                                    <div className="text-[11px] text-slate-400 font-mono">
                                       Sorumlu: {task.responsible || proj.projectLeader} | Termin: {task.deadline || "Belirtilmedi"}
                                     </div>
                                   </div>
@@ -2493,7 +3201,7 @@ export default function KaizenManager({
                 <div className="text-2xl font-mono font-bold text-slate-900">+{profitImpactPercentage}%</div>
                 <div className="text-xs font-semibold text-indigo-600 mt-0.5">+{currency}{realizedFinancialGain.toLocaleString()} Toplam Getiri</div>
               </div>
-              <span className="text-[9px] text-slate-400">Fabrika Yıllık Faaliyet Karı Katkısı ({currency}{estimatedOperatingProfit.toLocaleString()})</span>
+              <span className="text-[11px] text-slate-400">Fabrika Yıllık Faaliyet Karı Katkısı ({currency}{estimatedOperatingProfit.toLocaleString()})</span>
               <div className="absolute bottom-0 left-0 right-0 h-1 bg-indigo-600"></div>
             </div>
 
@@ -2507,7 +3215,7 @@ export default function KaizenManager({
                 <div className="text-2xl font-mono font-bold text-slate-900">-{copqReductionPercentage}% COPQ</div>
                 <div className="text-xs font-semibold text-emerald-600 mt-0.5">-{currency}{totalCOPQReduction.toLocaleString()} Kalite Tasarrufu</div>
               </div>
-              <span className="text-[9px] text-slate-400">VSM ve Hurda Kaynaklı COPQ Etkisi ({currency}{initialCOPQ.toLocaleString()})</span>
+              <span className="text-[11px] text-slate-400">VSM ve Hurda Kaynaklı COPQ Etkisi ({currency}{initialCOPQ.toLocaleString()})</span>
               <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500"></div>
             </div>
 
@@ -2521,7 +3229,7 @@ export default function KaizenManager({
                 <div className="text-2xl font-mono font-bold text-slate-900">{realizedToBudgetRatio}x Katsayı</div>
                 <div className="text-xs font-semibold text-amber-600 mt-0.5">Net ROI: +{currency}{netROIAmount.toLocaleString()}</div>
               </div>
-              <span className="text-[9px] text-slate-400">Toplam Yatırım Bütçesi: {currency}{totalBudget.toLocaleString()}</span>
+              <span className="text-[11px] text-slate-400">Toplam Yatırım Bütçesi: {currency}{totalBudget.toLocaleString()}</span>
               <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500"></div>
             </div>
 
@@ -2694,7 +3402,7 @@ export default function KaizenManager({
                     </svg>
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
                       <span className="text-lg font-mono font-bold text-slate-900">{averageProjectSuccessRate}%</span>
-                      <span className="text-[8px] text-slate-400 font-bold uppercase">Başarı</span>
+                      <span className="text-[11px] text-slate-400 font-bold uppercase">Başarı</span>
                     </div>
                   </div>
                 </div>
@@ -2771,7 +3479,7 @@ export default function KaizenManager({
                     <div className={`${funnelWidths[index]} ${step.color} p-4 rounded-xl shadow-xs transition-all flex flex-col justify-center items-center min-h-[95px] text-white`}>
                       <span className="text-[10px] font-bold uppercase tracking-wider block opacity-85">{step.name.split(" ")[0]}</span>
                       <span className="text-2xl font-mono font-bold mt-1">{step.count} <span className="text-xs">Adet</span></span>
-                      <span className="text-[9px] mt-1 font-semibold block bg-white/20 px-1.5 py-0.5 rounded">
+                      <span className="text-[11px] mt-1 font-semibold block bg-white/20 px-1.5 py-0.5 rounded">
                         {index === 0 ? "Giriş: %100" : `Dönüşüm: %${step.percent}`}
                       </span>
                     </div>
@@ -2793,9 +3501,134 @@ export default function KaizenManager({
             </div>
           </div>
 
+          {/* Historical Trend — real month-over-month data (project dateProposed/realizedFinishDate),
+              not a current-state-only snapshot. Needs at least 2 distinct months to be meaningful. */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+            <div className="flex justify-between items-center pb-1.5 border-b border-slate-100">
+              <div>
+                <h3 className="font-bold text-xs text-slate-800 uppercase tracking-tight">Zaman İçinde Gelişim — Aylık Trend</h3>
+                <p className="text-[10px] text-slate-400">Açılan/kapanan proje sayısı ve kümülatif gerçekleşen tasarruf, gerçek proje tarihlerinden türetilmiştir</p>
+              </div>
+              <Calendar className="w-4 h-4 text-slate-500" />
+            </div>
+
+            {monthlyTrendData.length >= 2 ? (
+              <div className="h-72 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={monthlyTrendData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="Ay" tick={{ fill: "#475569", fontSize: 9 }} />
+                    <YAxis yAxisId="left" tick={{ fill: "#475569", fontSize: 9 }} label={{ value: 'Proje Adedi', angle: -90, position: 'insideLeft', fill: "#475569", fontSize: 10 }} />
+                    <YAxis yAxisId="right" orientation="right" tick={{ fill: "#475569", fontSize: 9 }} label={{ value: `Kümülatif (${currency})`, angle: 90, position: 'insideRight', fill: "#475569", fontSize: 10 }} />
+                    <Tooltip contentStyle={{ borderRadius: "0.75rem", fontSize: "11px" }} />
+                    <Legend wrapperStyle={{ fontSize: "10px" }} />
+                    <Bar yAxisId="left" dataKey="Açılan Proje" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={18} />
+                    <Bar yAxisId="left" dataKey="Kapanan Proje" fill="#10b981" radius={[4, 4, 0, 0]} barSize={18} />
+                    <Line yAxisId="right" type="monotone" dataKey="Kümülatif Gerçekleşen Tasarruf" stroke="#be123c" strokeWidth={2.5} dot={{ r: 3 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center text-center py-10 bg-slate-50/70 rounded-xl border border-dashed border-slate-200">
+                <Info className="w-6 h-6 text-slate-350 mb-2" />
+                <p className="text-xs font-bold text-slate-500">
+                  {monthlyTrendData.length === 0
+                    ? "Henüz tarihli proje verisi yok."
+                    : "Trend grafiği için en az 2 farklı ay gerekli."}
+                </p>
+                <p className="text-[10px] text-slate-400 mt-1 max-w-md">
+                  Projeler açıldıkça ve tamamlandıkça bu grafik zaman içindeki gelişimi gösterecek.
+                </p>
+              </div>
+            )}
+          </div>
+
         </div>
       )}
 
+      {/* 5. ÖNCE-SONRA (BEFORE-AFTER) KAIZEN GALLERY — every saved "Kaizen Öncesi Sonrası"
+          one-pager across all CI projects, browsable in one place instead of buried one-by-one
+          inside each project's own detail modal. */}
+      {activeTab === "beforeafter" && (
+        <div className="space-y-4">
+          {allBeforeAfterStudies.length === 0 ? (
+            <div className="bg-white border border-dashed border-slate-300 rounded-2xl p-10 text-center">
+              <Camera className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+              <p className="text-sm font-bold text-slate-500">Henüz kayıtlı Önce-Sonra Kaizen formu yok.</p>
+              <p className="text-xs text-slate-400 mt-1">Bir CI projesinin detayına girip "9 - Önce-Sonra Kaizen Formu" bölümünden oluşturabilirsiniz.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {allBeforeAfterStudies.map(({ study, projectId, projectTitle }) => (
+                <div key={study.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-3xs flex flex-col">
+                  <div className="grid grid-cols-2 gap-px bg-slate-200">
+                    <div className="bg-slate-100 aspect-video flex items-center justify-center overflow-hidden">
+                      {study.beforeImage ? (
+                        <img src={study.beforeImage} alt="Önce" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-bold">ÖNCE Fotoğrafı Yok</span>
+                      )}
+                    </div>
+                    <div className="bg-slate-100 aspect-video flex items-center justify-center overflow-hidden">
+                      {study.afterImage ? (
+                        <img src={study.afterImage} alt="Sonra" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-bold">SONRA Fotoğrafı Yok</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="p-3.5 space-y-2 flex-1 flex flex-col">
+                    <div>
+                      <p className="font-bold text-slate-900 text-xs truncate">{study.subject}</p>
+                      <p className="text-[10px] text-slate-400 font-mono truncate">{projectTitle}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[9px] font-bold uppercase tracking-wide bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded">{study.category}</span>
+                      <span className="text-[9px] font-bold uppercase tracking-wide bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{study.area}</span>
+                      <span className="text-[9px] text-slate-400 font-mono">{study.date}</span>
+                    </div>
+                    {study.benefitDescription && (
+                      <p className="text-[11px] text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1.5 line-clamp-2">{study.benefitDescription}</p>
+                    )}
+                    <div className="flex items-center justify-between pt-1.5 mt-auto border-t border-slate-100">
+                      <span className="text-[10px] text-slate-400">{study.doneBy || "—"}</span>
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const proj = kaizens.find(k => k.id === projectId);
+                            if (proj) handleOpenProjectDetails(proj);
+                          }}
+                          className="text-slate-400 hover:text-indigo-600 p-1 rounded hover:bg-slate-50 transition-colors cursor-pointer"
+                          title="Projeye Git"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => exportBeforeAfterKaizenToExcel(study, selectedCustomer?.companyName, currency)}
+                          className="text-slate-400 hover:text-emerald-600 p-1 rounded hover:bg-slate-50 transition-colors cursor-pointer"
+                          title="Tekrar İndir"
+                        >
+                          <FileSpreadsheet className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteBeforeAfterStudy(study.id, projectId)}
+                          className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-slate-50 transition-colors cursor-pointer"
+                          title="Kaydı Sil"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* LAUNCH CI PROJECT WIZARD MODAL */}
       {isWizardOpen && (
@@ -2819,6 +3652,118 @@ export default function KaizenManager({
             </div>
 
             <div className="p-0 flex flex-col">
+              {pendingCreation ? (
+                <>
+                  {/* TEAM ASSIGNMENT STEP — shown before the project is actually created, so it
+                      never ends up with an empty projectTeam and no leader picked. */}
+                  <div className="p-6 space-y-4 max-h-[520px] overflow-y-auto">
+                    <div className="bg-indigo-50/80 border border-indigo-200/90 rounded-2xl p-4">
+                      <h4 className="text-xs font-black text-indigo-900 uppercase mb-1">
+                        {pendingCreation.mode === "opportunity" ? `Fırsat: ${pendingCreation.opp?.type}` : "Yeni Proje"}
+                      </h4>
+                      <p className="text-[11px] text-slate-600">
+                        Proje oluşturulmadan önce sorumlu lider, ekip ve termin bilgilerini girin.
+                      </p>
+                    </div>
+
+                    {pendingCreation.mode === "blank" && (
+                      <div className="space-y-1">
+                        <label className="block text-slate-500 font-bold text-xs mb-1">Proje Başlığı *</label>
+                        <input
+                          type="text"
+                          value={assignTitle}
+                          onChange={(e) => setAssignTitle(e.target.value)}
+                          className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="block text-slate-500 font-bold text-xs mb-1">Proje Lideri *</label>
+                        <input
+                          type="text"
+                          list="ci-team-directory"
+                          value={assignLeader}
+                          onChange={(e) => setAssignLeader(e.target.value)}
+                          placeholder="Lider seçin veya yazın"
+                          className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-slate-500 font-bold text-xs mb-1">Departman</label>
+                        <input
+                          type="text"
+                          value={assignDepartment}
+                          onChange={(e) => setAssignDepartment(e.target.value)}
+                          className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-slate-500 font-bold text-xs mb-1">Proje Ekibi</label>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          list="ci-team-directory"
+                          value={assignTeamInput}
+                          onChange={(e) => setAssignTeamInput(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddAssignTeamMember(); } }}
+                          placeholder="Ekip üyesi seçin veya yazın, Enter'a basın"
+                          className="flex-1 text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddAssignTeamMember}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-2 rounded-lg cursor-pointer"
+                        >
+                          Ekle
+                        </button>
+                      </div>
+                      {assignTeamMembers.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {assignTeamMembers.map(member => (
+                            <span key={member} className="text-[11px] bg-slate-100 border border-slate-200 text-slate-700 px-2 py-1 rounded-lg flex items-center gap-1.5">
+                              {member}
+                              <button type="button" onClick={() => handleRemoveAssignTeamMember(member)} className="text-slate-400 hover:text-rose-600 cursor-pointer font-bold">✕</button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-slate-500 font-bold text-xs mb-1">Hedef Bitiş Tarihi</label>
+                      <input
+                        type="date"
+                        value={assignDeadline}
+                        onChange={(e) => setAssignDeadline(e.target.value)}
+                        className="w-full sm:w-1/2 text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 px-5 py-3 border-t border-slate-200 flex justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setPendingCreation(null)}
+                      className="bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+                    >
+                      Geri
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmProjectCreation}
+                      disabled={!assignLeader.trim() || (pendingCreation.mode === "blank" && !assignTitle.trim())}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-xl text-xs font-bold cursor-pointer transition-colors disabled:opacity-50"
+                    >
+                      Projeyi Oluştur ve Ata
+                    </button>
+                  </div>
+                </>
+              ) : (
+              <>
               {/* Selection Tabs */}
               <div className="flex border-b border-slate-200 bg-slate-50/50">
                 <button
@@ -2842,9 +3787,15 @@ export default function KaizenManager({
                 <div className="bg-indigo-50/80 border border-indigo-200/90 rounded-2xl p-4 space-y-3 shadow-2xs">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-200/60 pb-3">
                     <div className="flex items-center space-x-2">
-                      <span className="text-emerald-700 font-bold bg-emerald-100 px-2.5 py-1 rounded-md text-[10px] font-mono border border-emerald-300 flex items-center gap-1.5 shadow-3xs">
-                        <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Veri Kaynağı: Loss Capacity Analizi (COPQ & Cost Deployment)</span>
+                      <span className={`font-bold px-2.5 py-1 rounded-md text-[10px] font-mono border flex items-center gap-1.5 shadow-3xs ${
+                        isRealLossCapacityData
+                          ? "text-emerald-700 bg-emerald-100 border-emerald-300"
+                          : isAssumedOpportunityData
+                            ? "text-amber-700 bg-amber-100 border-amber-300"
+                            : "text-slate-700 bg-slate-100 border-slate-300"
+                      }`}>
+                        {isRealLossCapacityData ? <CheckCircle className="w-3.5 h-3.5 text-emerald-600" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                        <span>Veri Kaynağı: {activeOpportunitySource}</span>
                       </span>
                       <span className="text-xs text-indigo-900 font-bold hidden sm:inline">
                         — CI Proje Yönetimi Fırsat Havuzu
@@ -2871,14 +3822,20 @@ export default function KaizenManager({
                   </div>
 
                   <p className="text-[11px] text-slate-600 leading-relaxed">
-                    Sistem, <strong>Loss Capacity Analizi (COPQ & Cost Deployment)</strong> modülünden elde edilen finansal kayıp konularını ve yalın gelişim potansiyellerini listelemektedir. <strong>Seçili Ürün Ailesi</strong> değiştiğinde, ilgili ürün grubunun üretim ve hacim payı oranına göre mevcut maliyet kayıpları ve kazanç potansiyelleri <strong>otomatik olarak ölçeklenmektedir</strong>.
+                    {isRealLossCapacityData ? (
+                      <>Sistem, <strong>Loss Capacity Analizi (COPQ & Cost Deployment)</strong> modülünden elde edilen finansal kayıp konularını ve yalın gelişim potansiyellerini listelemektedir. <strong>Seçili Ürün Ailesi</strong> değiştiğinde, ilgili ürün grubunun üretim ve hacim payı oranına göre mevcut maliyet kayıpları ve kazanç potansiyelleri <strong>otomatik olarak ölçeklenmektedir</strong>.</>
+                    ) : isAssumedOpportunityData ? (
+                      <>Bu müşteri için henüz <strong>Loss Capacity Analizi</strong> çalıştırılmadı, bu yüzden aşağıdaki liste <strong>örnek/varsayılan tutarlar</strong> göstermektedir — gerçek finansal büyüklükler değildir. Gerçek rakamları görmek için Loss Capacity Analizi sekmesini bu müşteri için çalıştırın.</>
+                    ) : (
+                      <>Sistem, saha maliyet kayıtlarından (VSM işlem verileri) türetilen gerçek kayıp konularını listelemektedir. Daha detaylı ve doğru bir kırılım için <strong>Loss Capacity Analizi</strong> modülünün bu müşteri için çalıştırılması önerilir.</>
+                    )}
                   </p>
                 </div>
 
                 <div className="border border-slate-200 rounded-xl overflow-hidden shadow-3xs bg-white">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[9px] tracking-wider">
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[11px] tracking-wider">
                         <th className="py-2.5 px-3">Kayıp Konusu / Metot</th>
                         <th className="py-2.5 px-3">Loss Capacity Problem Açıklaması</th>
                         <th className="py-2.5 px-3">Ürün Ailesi Kapsamı</th>
@@ -2896,6 +3853,14 @@ export default function KaizenManager({
                             {opp.leanTool && (
                               <div className="text-[10px] text-emerald-700 font-medium font-mono bg-emerald-50 border border-emerald-200/80 px-1.5 py-0.5 rounded mt-0.5 inline-block">
                                 🛠️ {opp.leanTool}
+                              </div>
+                            )}
+                            {(opp as any).assumed && (
+                              <div
+                                className="text-[11px] text-amber-700 font-bold bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded mt-0.5 inline-block ml-1"
+                                title={(opp as any).source}
+                              >
+                                ⚠️ Tahmini/Varsayım Verisi
                               </div>
                             )}
                           </td>
@@ -2918,7 +3883,7 @@ export default function KaizenManager({
                             </span>
                           </td>
                           <td className="py-3 px-3 text-center">
-                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                            <span className={`px-1.5 py-0.5 rounded text-[11px] font-bold ${
                               opp.priority === "High" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"
                             }`}>
                               {opp.priority}
@@ -2950,6 +3915,8 @@ export default function KaizenManager({
                   Kapat
                 </button>
               </div>
+              </>
+              )}
 
             </div>
 
@@ -2957,6 +3924,172 @@ export default function KaizenManager({
         </div>
       )}
 
+
+      {/* ÖNCE-SONRA KAIZEN FORMU OLUŞTURMA MODALİ — z-[60]: renders nested on top of the project
+          detail modal (z-50 below), which stays open behind it since this reads/writes the same
+          editingProject. Without the higher z-index this was rendered earlier in the DOM than the
+          detail modal, so it painted underneath it and the "Önce-Sonra Formu Oluştur" button
+          appeared to do nothing when clicked. */}
+      {isBeforeAfterModalOpen && editingProject && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl overflow-hidden border border-slate-200 flex flex-col max-h-[92vh]">
+
+            <div className="bg-slate-50 px-5 py-4 border-b border-slate-200 flex justify-between items-center shrink-0">
+              <div className="flex items-center space-x-2">
+                <Camera className="w-5 h-5 text-indigo-500" />
+                <h3 className="font-bold text-slate-900 text-sm uppercase tracking-tight">Önce-Sonra Kaizen Formu</h3>
+              </div>
+              <button onClick={() => setIsBeforeAfterModalOpen(false)} className="text-slate-400 hover:text-slate-600 font-bold text-lg cursor-pointer">✕</button>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-500 font-bold mb-1">Konu *</label>
+                  <input type="text" value={baSubject} onChange={(e) => setBaSubject(e.target.value)} className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800" />
+                </div>
+                <div>
+                  <label className="block text-slate-500 font-bold mb-1">Tarih</label>
+                  <input type="date" value={baDate} onChange={(e) => setBaDate(e.target.value)} className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800" />
+                </div>
+                <div>
+                  <label className="block text-slate-500 font-bold mb-1">Çalışmayı Yapan</label>
+                  <input type="text" list="ci-team-directory" value={baDoneBy} onChange={(e) => setBaDoneBy(e.target.value)} className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800" />
+                </div>
+                <div>
+                  <label className="block text-slate-500 font-bold mb-1">Bölümü</label>
+                  <input type="text" value={baDepartment} onChange={(e) => setBaDepartment(e.target.value)} className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-500 font-bold mb-1">Hedef</label>
+                <input type="text" value={baTarget} onChange={(e) => setBaTarget(e.target.value)} className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800" />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-500 font-bold mb-1.5">Kategori</label>
+                  <div className="flex items-center gap-3">
+                    {(["Verimlilik", "Kalite", "Güvenlik"] as const).map(cat => (
+                      <label key={cat} className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" checked={baCategory === cat} onChange={() => setBaCategory(cat)} className="accent-indigo-600" />
+                        <span className="text-slate-700 font-medium">{cat}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-slate-500 font-bold mb-1.5">Alan</label>
+                  <div className="flex items-center gap-3">
+                    {(["5S", "Maliyet"] as const).map(a => (
+                      <label key={a} className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" checked={baArea === a} onChange={() => setBaArea(a)} className="accent-indigo-600" />
+                        <span className="text-slate-700 font-medium">{a}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                  <label className="block text-indigo-950 font-bold">İYİLEŞTİRME ÖNCESİ</label>
+                  {baBeforeImage ? (
+                    <img src={baBeforeImage} alt="Önce" className="w-full h-32 object-cover rounded-lg border border-slate-200" />
+                  ) : (
+                    <div className="w-full h-32 flex items-center justify-center bg-white rounded-lg border border-dashed border-slate-300 text-slate-400 italic">Görsel yok</div>
+                  )}
+                  <label className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-[10px] font-bold px-2.5 py-1.5 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Değiştir / Yükle</span>
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onloadend = () => { if (typeof reader.result === "string") setBaBeforeImage(reader.result); };
+                      reader.readAsDataURL(file);
+                    }} />
+                  </label>
+                  <textarea rows={2} value={baDescBefore} onChange={(e) => setBaDescBefore(e.target.value)} placeholder="Açıklama..." className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800" />
+                </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                  <label className="block text-indigo-950 font-bold">İYİLEŞTİRME SONRASI</label>
+                  {baAfterImage ? (
+                    <img src={baAfterImage} alt="Sonra" className="w-full h-32 object-cover rounded-lg border border-slate-200" />
+                  ) : (
+                    <div className="w-full h-32 flex items-center justify-center bg-white rounded-lg border border-dashed border-slate-300 text-slate-400 italic">Görsel yok</div>
+                  )}
+                  <label className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-[10px] font-bold px-2.5 py-1.5 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Değiştir / Yükle</span>
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onloadend = () => { if (typeof reader.result === "string") setBaAfterImage(reader.result); };
+                      reader.readAsDataURL(file);
+                    }} />
+                  </label>
+                  <textarea rows={2} value={baDescAfter} onChange={(e) => setBaDescAfter(e.target.value)} placeholder="Açıklama..." className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-500 font-bold mb-1">Getiri Açıklaması (Parasal veya Oran Bazında)</label>
+                <textarea rows={2} value={baBenefitDesc} onChange={(e) => setBaBenefitDesc(e.target.value)} className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800" />
+              </div>
+
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <div className="grid grid-cols-4 bg-indigo-50 text-indigo-900 font-bold text-[10.5px] text-center py-1.5">
+                  <span>Maliyet</span><span>Verimlilik</span><span>Kalite</span><span>Güvenlik</span>
+                </div>
+                <div className="grid grid-cols-4 gap-2 p-2.5">
+                  <div className="space-y-1.5">
+                    <input type="text" placeholder="Enerji" value={baBenefits.costEnergy || ""} onChange={(e) => setBaBenefits({ ...baBenefits, costEnergy: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-1 text-[10.5px]" />
+                    <input type="text" placeholder="İş Gücü" value={baBenefits.costLabor || ""} onChange={(e) => setBaBenefits({ ...baBenefits, costLabor: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-1 text-[10.5px]" />
+                    <input type="text" placeholder="Malzeme" value={baBenefits.costMaterial || ""} onChange={(e) => setBaBenefits({ ...baBenefits, costMaterial: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-1 text-[10.5px]" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <input type="text" placeholder="Makine" value={baBenefits.productivityMachine || ""} onChange={(e) => setBaBenefits({ ...baBenefits, productivityMachine: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-1 text-[10.5px]" />
+                    <input type="text" placeholder="Adam" value={baBenefits.productivityMan || ""} onChange={(e) => setBaBenefits({ ...baBenefits, productivityMan: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-1 text-[10.5px]" />
+                    <input type="text" placeholder="Malzeme" value={baBenefits.productivityMaterial || ""} onChange={(e) => setBaBenefits({ ...baBenefits, productivityMaterial: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-1 text-[10.5px]" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <input type="text" placeholder="Ürün" value={baBenefits.qualityProduct || ""} onChange={(e) => setBaBenefits({ ...baBenefits, qualityProduct: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-1 text-[10.5px]" />
+                    <input type="text" placeholder="Malzeme" value={baBenefits.qualityMaterial || ""} onChange={(e) => setBaBenefits({ ...baBenefits, qualityMaterial: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-1 text-[10.5px]" />
+                    <input type="text" placeholder="Fire" value={baBenefits.qualityScrap || ""} onChange={(e) => setBaBenefits({ ...baBenefits, qualityScrap: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-1 text-[10.5px]" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <input type="text" placeholder="Risk Derecesi" value={baBenefits.safetyRiskDegree || ""} onChange={(e) => setBaBenefits({ ...baBenefits, safetyRiskDegree: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-1 text-[10.5px]" />
+                    <input type="text" placeholder="KSO" value={baBenefits.safetyKso || ""} onChange={(e) => setBaBenefits({ ...baBenefits, safetyKso: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-1 text-[10.5px]" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsBeforeAfterModalOpen(false)}
+                className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-black text-xs rounded-xl transition-all cursor-pointer"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={handleGenerateBeforeAfterStudy}
+                disabled={!baSubject.trim()}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                Formu Oluştur ve İndir
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* EDIT FINANCIALS RESULTS MODAL (17 INDICATORS IN % & CURRENCY) */}
       {editingFinancialsProjId && (
@@ -2979,7 +4112,7 @@ export default function KaizenManager({
                 
                 {/* 1. Scrap */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Hurda Azalışı (Scrap)</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Hurda Azalışı (Scrap)</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3006,7 +4139,7 @@ export default function KaizenManager({
 
                 {/* 2. Rework */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Rework Azalışı</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Rework Azalışı</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3033,7 +4166,7 @@ export default function KaizenManager({
 
                 {/* 3. Waste */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Fire Azalışı (Waste)</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Fire Azalışı (Waste)</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3060,7 +4193,7 @@ export default function KaizenManager({
 
                 {/* 4. Setup */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Setup Süresi Kazancı (SMED)</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Setup Süresi Kazancı (SMED)</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3087,7 +4220,7 @@ export default function KaizenManager({
 
                 {/* 5. Lead Time */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Lead Time Azalışı</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Lead Time Azalışı</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3114,7 +4247,7 @@ export default function KaizenManager({
 
                 {/* 6. WIP */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">WIP Azalışı</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">WIP Azalışı</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3141,7 +4274,7 @@ export default function KaizenManager({
 
                 {/* 7. Operator */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Operatör Verimlilik Artışı</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Operatör Verimlilik Artışı</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3168,7 +4301,7 @@ export default function KaizenManager({
 
                 {/* 8. OEE */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">OEE Artışı</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">OEE Artışı</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3195,7 +4328,7 @@ export default function KaizenManager({
 
                 {/* 9. Energy */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Enerji Tasarrufu</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Enerji Tasarrufu</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3222,7 +4355,7 @@ export default function KaizenManager({
 
                 {/* 10. Quality */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Kalite Artış Kazancı</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Kalite Artış Kazancı</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3249,7 +4382,7 @@ export default function KaizenManager({
 
                 {/* 11. Production */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Üretim Artışı Kazanımı</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Üretim Artışı Kazanımı</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3276,7 +4409,7 @@ export default function KaizenManager({
 
                 {/* 12. Delivery */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Teslimat Performans Getirisi</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Teslimat Performans Getirisi</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3303,7 +4436,7 @@ export default function KaizenManager({
 
                 {/* 13. OHS */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">İSG Kazancı (OHS)</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">İSG Kazancı (OHS)</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3330,7 +4463,7 @@ export default function KaizenManager({
 
                 {/* 14. Space */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Alan Kazanımı (M2)</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Alan Kazanımı (M2)</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3357,7 +4490,7 @@ export default function KaizenManager({
 
                 {/* 15. Inventory */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Stok Azalışı</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Stok Azalışı</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3384,7 +4517,7 @@ export default function KaizenManager({
 
                 {/* 16. Maintenance */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Bakım Gider Tasarrufu</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Bakım Gider Tasarrufu</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3411,7 +4544,7 @@ export default function KaizenManager({
 
                 {/* 17. Other */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[9px] block">Diğer Kazanımlar</span>
+                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Diğer Kazanımlar</span>
                   <div className="flex space-x-2">
                     <input 
                       type="number" 
@@ -3549,7 +4682,7 @@ export default function KaizenManager({
                           <div className={`w-7 h-7 rounded-full border flex items-center justify-center transition-all ${bgClass} font-bold text-[11px]`}>
                             {isCompleted ? "✓" : idx + 1}
                           </div>
-                          <span className={`mt-1.5 text-[9px] font-bold uppercase tracking-wider transition-colors ${isActive ? "text-blue-600" : isCompleted ? "text-emerald-600" : "text-slate-400 group-hover:text-slate-600"}`}>
+                          <span className={`mt-1.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${isActive ? "text-blue-600" : isCompleted ? "text-emerald-600" : "text-slate-400 group-hover:text-slate-600"}`}>
                             {step}
                           </span>
                         </button>
@@ -3589,29 +4722,80 @@ export default function KaizenManager({
                   <div className="grid grid-cols-1 gap-2">
                     <div>
                       <label className="block text-slate-500 font-bold mb-1">Lider (Leader) *</label>
-                      <select
+                      <input
+                        type="text"
+                        list="ci-team-directory"
                         value={editProjectLeader}
                         onChange={(e) => setEditProjectLeader(e.target.value)}
+                        placeholder="Lider seçin veya yazın"
                         className="w-full bg-white border border-slate-200 rounded p-1.5 text-slate-700 focus:outline-none font-medium text-[11px]"
-                      >
-                        {teamOptions.map(member => (
-                          <option key={member} value={member}>{member}</option>
-                        ))}
-                      </select>
+                      />
                     </div>
 
                     <div>
                       <label className="block text-slate-500 font-bold mb-1">Sponsor (Sponsor)</label>
-                      <select
+                      <input
+                        type="text"
+                        list="ci-team-directory"
                         value={editProjectSponsor}
                         onChange={(e) => setEditProjectSponsor(e.target.value)}
+                        placeholder="Sponsor seçin veya yazın"
                         className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-700 text-[11px]"
-                      >
-                        {teamOptions.map(member => (
-                          <option key={member} value={member}>{member}</option>
-                        ))}
-                      </select>
+                      />
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-500 font-bold mb-1">Proje Ekibi</label>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        list="ci-team-directory"
+                        value={editProjectTeamInput}
+                        onChange={(e) => setEditProjectTeamInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const name = editProjectTeamInput.trim();
+                            if (name && !editProjectTeam.includes(name)) {
+                              setEditProjectTeam([...editProjectTeam, name]);
+                            }
+                            setEditProjectTeamInput("");
+                          }
+                        }}
+                        placeholder="Ekip üyesi seçin veya yazın, Enter'a basın"
+                        className="flex-1 bg-white border border-slate-200 rounded p-1.5 text-slate-700 focus:outline-none text-[11px]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const name = editProjectTeamInput.trim();
+                          if (name && !editProjectTeam.includes(name)) {
+                            setEditProjectTeam([...editProjectTeam, name]);
+                          }
+                          setEditProjectTeamInput("");
+                        }}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] px-3 rounded cursor-pointer"
+                      >
+                        Ekle
+                      </button>
+                    </div>
+                    {editProjectTeam.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {editProjectTeam.map(member => (
+                          <span key={member} className="text-[10.5px] bg-slate-100 border border-slate-200 text-slate-700 px-2 py-1 rounded-lg flex items-center gap-1.5">
+                            {member}
+                            <button
+                              type="button"
+                              onClick={() => setEditProjectTeam(editProjectTeam.filter(m => m !== member))}
+                              className="text-slate-400 hover:text-rose-600 cursor-pointer font-bold"
+                            >
+                              ✕
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
@@ -3855,15 +5039,31 @@ export default function KaizenManager({
                       </div>
                     </div>
 
-                    <div>
-                      <label className="block text-indigo-900 font-bold mb-1">5 - Kök Neden (Root Cause)</label>
-                      <textarea 
-                        rows={2}
-                        value={editRootCause}
-                        onChange={(e) => setEditRootCause(e.target.value)}
-                        placeholder="5 Neden Analizi sonucu tespit edilen ana etken..."
-                        className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800"
-                      />
+                    <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 space-y-2">
+                      <label className="block text-indigo-900 font-bold mb-1">5 - Kök Neden Analizi (5 Neden / 5-Why)</label>
+                      {editRootCauseWhys.map((why, idx) => (
+                        <div key={idx} className="flex items-start gap-2">
+                          <span className="text-[10px] font-black text-indigo-700 bg-indigo-100 rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-1">{idx + 1}</span>
+                          <input
+                            type="text"
+                            value={why}
+                            onChange={(e) => {
+                              const updated = [...editRootCauseWhys];
+                              updated[idx] = e.target.value;
+                              setEditRootCauseWhys(updated);
+                            }}
+                            placeholder={
+                              idx === 0
+                                ? "Neden 1: Problem neden oluştu?"
+                                : `Neden ${idx + 1}: "${editRootCauseWhys[idx - 1] || "önceki neden"}" neden oldu?`
+                            }
+                            className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800 text-[11px]"
+                          />
+                        </div>
+                      ))}
+                      <p className="text-[10px] text-slate-400 pl-7">
+                        Zincirin en son doldurulan adımı, projenin kök nedeni olarak kaydedilir.
+                      </p>
                     </div>
 
                     {/* 6 - Uygulama Planı (Action Plan Editable Table) */}
@@ -3942,7 +5142,9 @@ export default function KaizenManager({
                                       />
                                     </td>
                                     <td className="px-2 py-1">
-                                      <select
+                                      <input
+                                        type="text"
+                                        list="ci-team-directory"
                                         value={task.responsible}
                                         onChange={(e) => {
                                           const updated = editTasks.map(t => {
@@ -3954,11 +5156,7 @@ export default function KaizenManager({
                                           setEditTasks(updated);
                                         }}
                                         className="w-full bg-slate-50 border border-slate-200 rounded px-1 py-1 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 text-[11px]"
-                                      >
-                                        {teamOptions.map(member => (
-                                          <option key={member} value={member}>{member}</option>
-                                        ))}
-                                      </select>
+                                      />
                                     </td>
                                     <td className="px-2 py-1">
                                       <input 
@@ -4218,56 +5416,38 @@ export default function KaizenManager({
                         Projenin saha fotoğrafları, standart iş dökümanları ve analiz raporlarını (PDF, Word, Excel, JPG, PNG) yükleyin:
                       </p>
 
-                      {/* Breadcrumb path displaying structured folder structure */}
+                      {/* Storage location note — previously this claimed files would be "automatically
+                          archived on the server" while only the file name/size were ever kept. Files
+                          now genuinely persist (base64-embedded in this project's own record), so the
+                          note reflects that instead of an unbuilt separate file-server path. */}
                       <div className="bg-slate-100 p-3 rounded-lg border border-slate-200/60 font-mono text-[10px] text-slate-600 space-y-1.5 shadow-3xs">
                         <div className="flex items-center text-slate-500">
-                          <span className="font-bold text-indigo-700 mr-1">Dosya Yolu (Target System Path):</span>
-                          <span>Müşteriler / {selectedCustomer?.companyName || "Varsayılan Müşteri"} / Belgeler / Kaizen / KAI-{editingProject?.id || "Proje"}</span>
+                          <span className="font-bold text-indigo-700 mr-1">Saklama Konumu:</span>
+                          <span>Bu CI projesi kaydının içinde (KAI-{editingProject?.id || "Proje"}) — ayrı bir dosya sunucusuna değil.</span>
                         </div>
-                        <div className="text-[9px] text-slate-400">
-                          Dosyalar bu hiyerarşi ile sunucuda otomatik arşivlenecektir.
+                        <div className="text-[11px] text-slate-400">
+                          Dosya başına en fazla {MAX_DOCUMENT_SIZE_MB} MB. Büyük dosyalar (video, yüksek çözünürlüklü taramalar) için harici bir paylaşım bağlantısı kullanmanız önerilir.
                         </div>
                       </div>
 
                       {/* Drag & Drop File Zone */}
-                      <div 
+                      <div
                         onDragOver={(e) => e.preventDefault()}
                         onDrop={(e) => {
                           e.preventDefault();
                           if (!e.dataTransfer.files) return;
-                          const uploadedFiles = Array.from(e.dataTransfer.files);
-                          const newDocs = uploadedFiles.map((file: any) => {
-                            const ext = file.name.split('.').pop()?.toLowerCase() || '';
-                            return {
-                              id: `doc_${Math.random().toString(36).substring(2, 9)}`,
-                              name: file.name,
-                              fileType: ext,
-                              size: (file.size / (1024 * 1024)).toFixed(2) + " MB",
-                              uploadDate: new Date().toISOString().split('T')[0]
-                            };
-                          });
-                          setEditDocuments([...editDocuments, ...newDocs]);
+                          handleDocumentFiles(Array.from(e.dataTransfer.files));
                         }}
                         className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-100/50 hover:border-indigo-400 transition-colors cursor-pointer relative group"
                       >
-                        <input 
+                        <input
                           type="file"
                           multiple
                           accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx"
                           onChange={(e) => {
                             if (!e.target.files) return;
-                            const uploadedFiles = Array.from(e.target.files);
-                            const newDocs = uploadedFiles.map((file: any) => {
-                              const ext = file.name.split('.').pop()?.toLowerCase() || '';
-                              return {
-                                id: `doc_${Math.random().toString(36).substring(2, 9)}`,
-                                name: file.name,
-                                fileType: ext,
-                                size: (file.size / (1024 * 1024)).toFixed(2) + " MB",
-                                uploadDate: new Date().toISOString().split('T')[0]
-                              };
-                            });
-                            setEditDocuments([...editDocuments, ...newDocs]);
+                            handleDocumentFiles(Array.from(e.target.files));
+                            e.target.value = "";
                           }}
                           className="absolute inset-0 opacity-0 cursor-pointer"
                         />
@@ -4278,7 +5458,7 @@ export default function KaizenManager({
                           <p className="text-[11px] font-bold text-slate-700">
                             Dosyayı buraya sürükleyip bırakın veya <span className="text-indigo-600 underline">Göz Atın</span>
                           </p>
-                          <p className="text-[9px] text-slate-400">
+                          <p className="text-[11px] text-slate-400">
                             Desteklenen Dosya Biçimleri: PDF, Word (DOC, DOCX), Excel (XLS, XLSX), Görseller (JPG, PNG)
                           </p>
                         </div>
@@ -4316,22 +5496,34 @@ export default function KaizenManager({
                                       <p className="font-semibold text-slate-700 truncate text-[11px]" title={doc.name}>
                                         {doc.name}
                                       </p>
-                                      <p className="text-[9px] text-slate-400 font-mono">
+                                      <p className="text-[11px] text-slate-400 font-mono">
                                         {doc.size} • {doc.uploadDate}
                                       </p>
                                     </div>
                                   </div>
 
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setEditDocuments(editDocuments.filter(d => d.id !== doc.id));
-                                    }}
-                                    className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-slate-50 transition-colors cursor-pointer ml-2"
-                                    title="Dosyayı Kaldır"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
+                                  <div className="flex items-center gap-0.5 shrink-0 ml-2">
+                                    {doc.data && (
+                                      <a
+                                        href={doc.data}
+                                        download={doc.name}
+                                        className="text-slate-400 hover:text-indigo-600 p-1 rounded hover:bg-slate-50 transition-colors cursor-pointer"
+                                        title="Dosyayı İndir / Görüntüle"
+                                      >
+                                        <FileUp className="w-3.5 h-3.5 rotate-180" />
+                                      </a>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditDocuments(editDocuments.filter(d => d.id !== doc.id));
+                                      }}
+                                      className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-slate-50 transition-colors cursor-pointer"
+                                      title="Dosyayı Kaldır"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
                                 </div>
                               );
                             })}
@@ -4341,23 +5533,93 @@ export default function KaizenManager({
                     </div>
                   </div>
 
+                  {/* 9 - Önce-Sonra Kaizen Formu (Before-After Kaizen) — recreates the real
+                      "Kaizen Öncesi Sonrası" one-pager template on demand, from data already on
+                      this card, and keeps every generated study as a persisted list entry. */}
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-3">
+                    <div className="flex justify-between items-center">
+                      <label className="block text-indigo-950 font-bold text-xs uppercase tracking-wider font-mono">
+                        9 - Önce-Sonra Kaizen Formu (Before-After Kaizen)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleOpenBeforeAfterModal}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        Önce-Sonra Formu Oluştur
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Projenin önce/sonra fotoğrafları, problem tanımı ve kazanımlarından, firmanın standart "Kaizen Öncesi Sonrası" formatında bir tek-sayfalık Excel raporu üretir. Her oluşturma bir liste kaydı olarak saklanır.
+                    </p>
+
+                    {(editingProject.beforeAfterStudies?.length || 0) > 0 ? (
+                      <div className="space-y-1.5">
+                        {editingProject.beforeAfterStudies!.map(study => (
+                          <div key={study.id} className="flex items-center justify-between p-2.5 bg-white rounded-lg border border-slate-200">
+                            <div className="min-w-0">
+                              <p className="font-semibold text-slate-700 text-[11px] truncate">{study.subject}</p>
+                              <p className="text-[10px] text-slate-400 font-mono">{study.date} • {study.category} / {study.area}</p>
+                            </div>
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => exportBeforeAfterKaizenToExcel(study, selectedCustomer?.companyName, currency)}
+                                className="text-slate-400 hover:text-emerald-600 p-1 rounded hover:bg-slate-50 transition-colors cursor-pointer"
+                                title="Tekrar İndir"
+                              >
+                                <FileSpreadsheet className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteBeforeAfterStudy(study.id)}
+                                className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-slate-50 transition-colors cursor-pointer"
+                                title="Kaydı Sil"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-400 italic">Henüz önce-sonra formu oluşturulmadı.</p>
+                    )}
+                  </div>
+
                   {/* Mail Reminder Infrastructure UI */}
                   <div className="pt-2 border-t border-indigo-200/50 flex items-center justify-between">
                     <div className="text-[10px] text-slate-500 font-medium">
-                      <span>E-posta Takip Hatırlatması & Excel Kart Aktarımı</span>
+                      <span>Hatırlatma Kaydı & Excel Kart Aktarımı</span>
                       {editingProject.lastEmailSentAt && (
-                        <div className="text-[9px] text-emerald-600 font-semibold mt-0.5 font-mono">Son Gönderim: {editingProject.lastEmailSentAt}</div>
+                        <div className="text-[11px] text-emerald-600 font-semibold mt-0.5 font-mono">Son Hatırlatma Kaydı: {editingProject.lastEmailSentAt}</div>
                       )}
                     </div>
                     <div className="flex items-center space-x-2">
+                      {/* Recipient picker — sourced from the customer card's real contacts */}
+                      <select
+                        value={reminderRecipientKey}
+                        onChange={(e) => setReminderRecipientKey(e.target.value)}
+                        className="text-[11px] font-bold text-slate-600 bg-white border border-slate-200 rounded-lg px-1.5 py-1.5 focus:outline-none cursor-pointer"
+                        title="Hatırlatma alıcısı"
+                      >
+                        <option value="leader">Proje Lideri ({editingProject.projectLeader || editingProject.originator || "Sorumlu Ekip"})</option>
+                        {getCustomerContactOptions().map(opt => (
+                          <option key={opt.key} value={opt.key}>{opt.label} ({opt.name})</option>
+                        ))}
+                      </select>
                       <button
                         type="button"
-                        onClick={() => sendEmailReminder(editingProject)}
+                        onClick={() => {
+                          const contact = getCustomerContactOptions().find(o => o.key === reminderRecipientKey);
+                          logManualReminder(editingProject, contact ? { name: contact.name, email: contact.email } : undefined);
+                        }}
                         className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded-lg flex items-center space-x-1 shadow-xs cursor-pointer text-[10px]"
                       >
-                        <span>📧 Sorumluya Mail At</span>
+                        <span>📌 Hatırlatma Kaydet</span>
                         {editingProject.emailSentCount && editingProject.emailSentCount > 0 && (
-                          <span className="bg-white/20 text-white text-[8px] font-bold px-1.5 py-0.2 rounded-full">
+                          <span className="bg-white/20 text-white text-[11px] font-bold px-1.5 py-0.2 rounded-full">
                             {editingProject.emailSentCount}
                           </span>
                         )}

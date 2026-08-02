@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from "react";
-import gembaLogo from "./assets/images/gemba_logo_1785078962201.jpg";
-import { 
-  Customer, ProcessRecord, GanttActivity, FlowSegment, KaizenCard, FiveSAudit 
+import React, { useState, useEffect, useCallback } from "react";
+import gembaGIcon from "./assets/images/gemba_g_icon.png";
+import gembaDigitalWordmark from "./assets/images/gemba_digital_wordmark.png";
+import {
+  Customer, ProcessRecord, GanttActivity, FlowSegment, KaizenCard
 } from "./types";
 import { FactoryProvider } from "./context/FactoryContext";
 
@@ -10,7 +11,7 @@ import CustomerRecords from "./components/CustomerRecords";
 import MasterPlanGantt from "./components/MasterPlanGantt";
 import FlowImprovement from "./components/FlowImprovement";
 import KaizenManager from "./components/KaizenManager";
-import FiveSImprovements from "./components/FiveSImprovements";
+import FiveSAuditSystem from "./components/fiveS/FiveSAuditSystem";
 import LineBalancing from "./components/LineBalancing";
 import PtrTimeStudy from "./components/PtrTimeStudy";
 import ExecutiveDashboard from "./components/ExecutiveDashboard";
@@ -18,43 +19,35 @@ import TimeStudyPage from "./components/TimeStudyPage";
 import LossAnalysis from "./components/LossAnalysis";
 import SmedPage from "./components/SmedPage";
 import VsmPage from "./components/VsmPage";
-import ArchitectureHub from "./components/ArchitectureHub";
 import OpexAssessment from "./components/OpexAssessment";
 
 // New Auth and Admin modules
 import AuthScreen from "./components/AuthScreen";
 import UserProfileModal from "./components/UserProfileModal";
-import AdminUsers from "./components/AdminUsers";
 import PlatformAdminConsole from "./components/PlatformAdminConsole";
 
 import { 
   Building2, Users, BarChart3, Clock, Map, Sparkles, 
   Settings, FolderKanban, ShieldCheck, AlignLeft, LayoutDashboard, 
   HelpCircle, CheckCircle2, ChevronRight, ChevronLeft, Loader2, RefreshCw, FileText,
-  UserCheck, User, LogOut, Lock, Percent, GitCommit, Layers, Award, Cog
+  UserCheck, User, LogOut, Lock, Percent, GitCommit, Layers, Award, Cog, Menu, X
 } from "lucide-react";
 
-type MenuTab = "customers" | "plan" | "flow" | "vsm" | "kaizen" | "fives" | "balancing" | "ptr" | "dashboard" | "admin-users" | "loss-analysis" | "timestudy" | "smed" | "architecture" | "opex-assessment";
+type MenuTab = "customers" | "plan" | "flow" | "vsm" | "kaizen" | "fives" | "balancing" | "ptr" | "dashboard" | "loss-analysis" | "timestudy" | "smed" | "opex-assessment";
 
 export default function App() {
   // STATE GATEKEEPER REPRESENTATIONS
-  const [isAuthorized, setIsAuthorized] = useState<boolean>(true);
+  // isAuthorized: null = still checking the stored session, false = no valid session (show
+  // login), true = confirmed valid session. Previously this started `true` unconditionally and
+  // auto-provisioned a default admin token if none existed — meaning anyone who opened the app,
+  // with zero credentials, was silently logged in as the Arçelik admin. There was no real login
+  // gate and "sign out" merely reset back to that same default account.
+  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const [token, setToken] = useState<string>(() => {
-    return localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    return localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
   });
-  const [currentUser, setCurrentUser] = useState<any>({
-    id: "usr_arcelik_admin",
-    full_name: "Hakan Bulgurlu",
-    email: "admin@arcelik.com",
-    role: "Admin",
-    status: "Active",
-    organization_id: "org_arcelik"
-  });
-  const [currentOrg, setCurrentOrg] = useState<any>({
-    id: "org_arcelik",
-    organization_name: "Arçelik A.Ş. Pişirici Cihazlar",
-    domain: "arcelik.com"
-  });
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentOrg, setCurrentOrg] = useState<any>(null);
   
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isAdminConsoleOpen, setIsAdminConsoleOpen] = useState(false);
@@ -74,7 +67,7 @@ export default function App() {
     tr: {
       activeFactory: "AKTİF FABRİKA:",
       selectModule: "MODÜL SEÇİNİZ",
-      customers: "Müşteri Kartoteksi",
+      customers: "Müşteri Kartı",
       dashboard: "Executive Dashboard",
       opexAssessment: "OpEx Assessment",
       plan: "Proje Master Plan",
@@ -89,7 +82,8 @@ export default function App() {
       architecture: "Kurumsal Mimari",
       adminUsers: "Kullanıcı Yönetimi",
       roleAdmin: "YÖNETİCİ",
-      roleUser: "STANDART ÜYE"
+      roleConsultant: "DANIŞMAN",
+      roleCustomerUser: "MÜŞTERİ KULLANICISI"
     },
     en: {
       activeFactory: "ACTIVE FACTORY:",
@@ -109,7 +103,8 @@ export default function App() {
       architecture: "Enterprise Architecture",
       adminUsers: "User Management",
       roleAdmin: "ADMINISTRATOR",
-      roleUser: "STANDARD USER"
+      roleConsultant: "CONSULTANT",
+      roleCustomerUser: "CUSTOMER USER"
     },
     de: {
       activeFactory: "AKTIVE FABRIK:",
@@ -129,7 +124,8 @@ export default function App() {
       architecture: "Unternehmensarchitektur",
       adminUsers: "Benutzerverwaltung",
       roleAdmin: "ADMINISTRATOR",
-      roleUser: "STANDARD-BENUTZER"
+      roleConsultant: "BERATER",
+      roleCustomerUser: "KUNDENBENUTZER"
     }
   };
 
@@ -140,6 +136,24 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("gemba_sidebar_collapsed") === "true";
   });
+  // Off-canvas nav drawer for narrow (mobile/tablet) viewports — the sidebar is fixed-width and
+  // was previously always in normal flow, so on small screens it pushed all page content into a
+  // horizontal scroll instead of collapsing into a toggleable drawer.
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
+
+  // Icon-only "collapsed" mode is a desktop-only preference — on mobile the drawer always shows
+  // full labels, regardless of what was last chosen on desktop, since icon-only makes no sense
+  // inside a temporary overlay.
+  const [isDesktop, setIsDesktop] = useState<boolean>(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 768 : true
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  const effectivelyCollapsed = isSidebarCollapsed && isDesktop;
 
   const toggleSidebar = () => {
     setIsSidebarCollapsed(prev => {
@@ -157,7 +171,9 @@ export default function App() {
   const [activities, setActivities] = useState<GanttActivity[]>([]);
   const [segments, setSegments] = useState<FlowSegment[]>([]);
   const [kaizens, setKaizens] = useState<KaizenCard[]>([]);
-  const [audits5S, setAudits5S] = useState<FiveSAudit[]>([]);
+  // Read-only cache of 5S Audit headers (owned/mutated by the FiveSAuditSystem module itself) —
+  // only kept here so Master Plan can offer a "5S Audits" link target for its progress-sync logic.
+  const [audits5S, setAudits5S] = useState<any[]>([]);
 
   // AI STATUS STRIP HANDLERS
   const [reportText, setReportText] = useState<string | null>(null);
@@ -173,12 +189,13 @@ export default function App() {
       setInviteToken(t);
     }
 
-    // 2. Resolve active system logins
-    const savedToken = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "usr_arcelik_admin";
-    
-    // Always store default token if not present
-    if (!localStorage.getItem("gemba_token") && !sessionStorage.getItem("gemba_token")) {
-      localStorage.setItem("gemba_token", "usr_arcelik_admin");
+    // 2. Resolve any existing session — only ever grant access if the server actually confirms
+    // the stored token is a valid, unexpired session for a real user. No token → no auto-login.
+    const savedToken = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token");
+
+    if (!savedToken) {
+      setIsAuthorized(false);
+      return;
     }
 
     setToken(savedToken);
@@ -192,14 +209,14 @@ export default function App() {
         setCurrentOrg(data.organization);
         setIsAuthorized(true);
       } else {
-        localStorage.setItem("gemba_token", "usr_arcelik_admin");
-        setToken("usr_arcelik_admin");
-        setIsAuthorized(true);
+        localStorage.removeItem("gemba_token");
+        sessionStorage.removeItem("gemba_token");
+        setIsAuthorized(false);
       }
     })
     .catch(() => {
-      // network issue or server restart, maintain local verification state
-      setIsAuthorized(true);
+      // Network/server issue — never fall back to "authorized" on an inconclusive check.
+      setIsAuthorized(false);
     });
   }, []);
 
@@ -236,26 +253,43 @@ export default function App() {
       });
   };
 
+  // Lightweight re-fetch of just the customer list (e.g. after a consultant/customer-user
+  // assignment changes a customer's team fields server-side) — does not touch the active selection.
+  const refreshCustomers = () => {
+    if (!token) return;
+    fetch("/api/business/customers", { headers: { "Authorization": `Bearer ${token}` } })
+      .then(res => res.json())
+      .then(res => {
+        if (res.success) {
+          setCustomers(res.data);
+        }
+      })
+      .catch(() => {});
+  };
+
   useEffect(() => {
     if (isAuthorized && token) {
       fetchTenantData();
     }
   }, [isAuthorized, token]);
 
-  // Reactive listener to reload factory-specific data when factory changes
-  useEffect(() => {
+  // Reloads all factory-scoped data for the currently selected customer. Used both on factory
+  // switch and as a manual refresh (see "gemba:refresh-factory-data" listener below) — modules
+  // like VsmPage/PtrTimeStudy/LossAnalysis write to these same backend rows directly and need a
+  // way to tell App.tsx to re-fetch without actually changing the selected factory.
+  const refreshFactoryData = useCallback(() => {
     if (isAuthorized && token && selectedCustomerId) {
-      const headers = { 
+      const headers = {
         "Authorization": `Bearer ${token}`,
         "x-factory-id": selectedCustomerId
       };
-      
+
       Promise.all([
         fetch("/api/business/processes", { headers }).then(res => res.json()),
         fetch("/api/business/gantt", { headers }).then(res => res.json()),
         fetch("/api/business/segments", { headers }).then(res => res.json()),
         fetch("/api/business/kaizens", { headers }).then(res => res.json()),
-        fetch("/api/business/audits", { headers }).then(res => res.json())
+        fetch("/api/business/five-s/audits", { headers }).then(res => res.json())
       ])
       .then(([procRes, ganttRes, segRes, kaiRes, audRes]) => {
         if (procRes.success) setProcesses(procRes.data);
@@ -275,7 +309,19 @@ export default function App() {
         localStorage.setItem(`gemba_active_factory_id_${currentUser.id}`, selectedCustomerId);
       }
     }
-  }, [selectedCustomerId, isAuthorized, token, currentUser?.id]);
+  }, [isAuthorized, token, selectedCustomerId, currentUser?.id]);
+
+  // Reactive listener to reload factory-specific data when factory changes
+  useEffect(() => {
+    refreshFactoryData();
+  }, [refreshFactoryData]);
+
+  // Lets modules that write directly to the shared processes/kaizens backend rows (VSM, PTR,
+  // Loss Analysis) request a refetch without needing an actual factory-id change.
+  useEffect(() => {
+    window.addEventListener("gemba:refresh-factory-data", refreshFactoryData);
+    return () => window.removeEventListener("gemba:refresh-factory-data", refreshFactoryData);
+  }, [refreshFactoryData]);
 
   const handleAuthSuccess = (newToken: string, user: any, organization: any) => {
     setToken(newToken);
@@ -290,26 +336,10 @@ export default function App() {
   };
 
   const handleSignOut = () => {
-    localStorage.setItem("gemba_token", "usr_arcelik_admin");
-    sessionStorage.setItem("gemba_token", "usr_arcelik_admin");
-    setToken("usr_arcelik_admin");
-    setCurrentUser({
-      id: "usr_arcelik_admin",
-      full_name: "Hakan Bulgurlu",
-      email: "admin@arcelik.com",
-      role: "Admin",
-      status: "Active",
-      organization_id: "org_arcelik"
-    });
-    setCurrentOrg({
-      id: "org_arcelik",
-      organization_name: "Arçelik A.Ş. Pişirici Cihazlar",
-      domain: "arcelik.com"
-    });
-    setIsAuthorized(true);
-    setIsProfileModalOpen(false);
-    setActiveTab("dashboard");
-    setReportText(null);
+    // Actually sign out — previously this reset back to the same default admin account instead
+    // of ending the session, so there was no real way to log out of this app.
+    localStorage.removeItem("gemba_token");
+    sessionStorage.removeItem("gemba_token");
     window.location.reload();
   };
 
@@ -382,53 +412,6 @@ export default function App() {
     }
   };
 
-  // 2. Processes (Loss matrix)
-  const handleAddProcess = async (proc: any) => {
-    const headers = { 
-      "Authorization": `Bearer ${token}`, 
-      "Content-Type": "application/json",
-      "x-factory-id": selectedCustomerId 
-    };
-    const res = await fetch("/api/business/processes", {
-      method: "POST",
-      headers,
-      body: JSON.stringify(proc)
-    }).then(r => r.json());
-    if (res.success) {
-      setProcesses(prev => [...prev, res.data]);
-    }
-  };
-
-  const handleUpdateProcess = async (proc: any) => {
-    const headers = { 
-      "Authorization": `Bearer ${token}`, 
-      "Content-Type": "application/json",
-      "x-factory-id": selectedCustomerId 
-    };
-    const res = await fetch("/api/business/processes", {
-      method: "POST",
-      headers,
-      body: JSON.stringify(proc)
-    }).then(r => r.json());
-    if (res.success) {
-      setProcesses(prev => prev.map(item => item.id === res.data.id ? res.data : item));
-    }
-  };
-
-  const handleDeleteProcess = async (id: string) => {
-    const headers = { 
-      "Authorization": `Bearer ${token}`,
-      "x-factory-id": selectedCustomerId 
-    };
-    const res = await fetch(`/api/business/processes/${id}`, {
-      method: "DELETE",
-      headers
-    }).then(r => r.json());
-    if (res.success) {
-      setProcesses(prev => prev.filter(p => p.id !== id));
-    }
-  };
-
   // 3. Gantt Activities
   const handleAddActivity = async (act: any) => {
     const headers = { 
@@ -476,50 +459,6 @@ export default function App() {
     }
   };
 
-  // 4. Spaghetti Flow Segments
-  const handleAddSegment = async (seg: any) => {
-    const headers = { 
-      "Authorization": `Bearer ${token}`, 
-      "Content-Type": "application/json",
-      "x-factory-id": selectedCustomerId 
-    };
-    const res = await fetch("/api/business/segments", {
-      method: "POST",
-      headers,
-      body: JSON.stringify(seg)
-    }).then(r => r.json());
-    if (res.success) {
-      setSegments(prev => [...prev, res.data]);
-    }
-  };
-
-  const handleClearSegments = async () => {
-    const headers = { 
-      "Authorization": `Bearer ${token}`,
-      "x-factory-id": selectedCustomerId 
-    };
-    const res = await fetch("/api/business/segments/clear", {
-      method: "POST",
-      headers
-    }).then(r => r.json());
-    if (res.success) {
-      setSegments([]);
-    }
-  };
-
-  const handleDeleteSegment = async (id: string) => {
-    const headers = { 
-      "Authorization": `Bearer ${token}`,
-      "x-factory-id": selectedCustomerId 
-    };
-    const res = await fetch(`/api/business/segments/${id}`, {
-      method: "DELETE",
-      headers
-    }).then(r => r.json());
-    if (res.success) {
-      setSegments(prev => prev.filter(s => s.id !== id));
-    }
-  };
 
   // 5. Kaizen Manager
   const handleAddKaizen = async (kaizen: any) => {
@@ -565,37 +504,6 @@ export default function App() {
     }).then(r => r.json());
     if (res.success) {
       setKaizens(prev => prev.filter(k => k.id !== id));
-    }
-  };
-
-  // 6. Audits (5S)
-  const handleAddAudit = async (audit: any) => {
-    const headers = { 
-      "Authorization": `Bearer ${token}`, 
-      "Content-Type": "application/json",
-      "x-factory-id": selectedCustomerId 
-    };
-    const res = await fetch("/api/business/audits", {
-      method: "POST",
-      headers,
-      body: JSON.stringify(audit)
-    }).then(r => r.json());
-    if (res.success) {
-      setAudits5S(prev => [...prev, res.data]);
-    }
-  };
-
-  const handleDeleteAudit = async (id: string) => {
-    const headers = { 
-      "Authorization": `Bearer ${token}`,
-      "x-factory-id": selectedCustomerId 
-    };
-    const res = await fetch(`/api/business/audits/${id}`, {
-      method: "DELETE",
-      headers
-    }).then(r => r.json());
-    if (res.success) {
-      setAudits5S(prev => prev.filter(a => a.id !== id));
     }
   };
 
@@ -706,6 +614,16 @@ export default function App() {
   };
 
   // GATED AUTHENTICATION CHECK RENDERS
+  // isAuthorized === null while the stored session is still being verified — show a neutral
+  // loading state instead of flashing the login screen for users who are actually signed in.
+  if (isAuthorized === null) {
+    return (
+      <div className="min-h-screen bg-[#fafafa] flex items-center justify-center">
+        <img src={gembaGIcon} alt="Gemba Tools" className="h-14 w-auto object-contain animate-pulse" />
+      </div>
+    );
+  }
+
   if (!isAuthorized) {
     return <AuthScreen inviteToken={inviteToken} onAuthSuccess={handleAuthSuccess} />;
   }
@@ -726,18 +644,28 @@ export default function App() {
       selectedCustomerId={selectedCustomerId}
       setSelectedCustomerId={setSelectedCustomerId}
       selectedCustomer={selectedCustomer}
+      currentLanguage={currentLang}
+      setCurrentLanguage={(lang) => changeLanguage(lang as "tr" | "en" | "de")}
     >
       <div className="min-h-screen bg-[#fafafa] text-gray-800 flex flex-col font-sans select-none antialiased">
       
       {/* PROFESSIONAL LOGO HEADER */}
-      <header className="bg-white border-b border-gray-200 px-6 py-2.5 shrink-0 flex items-center justify-between shadow-xs">
-        <div className="flex items-center space-x-3">
-          <img 
-            src={gembaLogo} 
-            alt="Gemba Tools Logo" 
-            className="h-8 w-auto object-contain shrink-0 select-none"
+      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-2.5 shrink-0 flex items-center justify-between shadow-xs">
+        <div className="flex items-center space-x-1.5 sm:space-x-1.5">
+          <button
+            onClick={() => setIsMobileNavOpen(true)}
+            className="md:hidden mr-1 -ml-1 w-11 h-11 flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 cursor-pointer shrink-0"
+            title="Menüyü Aç"
+            aria-label="Menüyü Aç"
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+          <img
+            src={gembaGIcon}
+            alt="Gemba Tools Logo"
+            className="h-10 sm:h-12 w-auto object-contain shrink-0 select-none"
           />
-          <h1 className="text-base font-black text-gray-900 tracking-tight leading-none">Gemba tools</h1>
+          <h1 className="text-base sm:text-xl font-black text-gray-900 tracking-tight leading-none">GEMBA TOOLS</h1>
         </div>
 
         <div className="flex items-center space-x-3 sm:space-x-4">
@@ -745,7 +673,7 @@ export default function App() {
           {/* Tenant / Factory selection dropdown */}
           {customers.length > 0 && (
             <div className="hidden md:flex items-center space-x-1.5">
-              <span className="text-[9px] uppercase font-extrabold text-slate-400 tracking-wider">{t.activeFactory}</span>
+              <span className="text-[11px] uppercase font-extrabold text-slate-400 tracking-wider">{t.activeFactory}</span>
               <select
                 id="header-factory-dropdown"
                 className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none text-slate-800 font-bold transition-all cursor-pointer shadow-2xs hover:border-slate-300"
@@ -779,14 +707,13 @@ export default function App() {
           </div>
 
           {/* ADMIN PLATFORM CONSOLE GEAR BUTTON */}
-          {(currentUser?.role === "Admin" || currentUser?.role === "System Admin" || currentUser?.email?.includes("admin")) && (
+          {currentUser?.role === "Admin" && (
             <button
               onClick={() => setIsAdminConsoleOpen(true)}
-              className="p-1.5 px-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 border border-slate-700 shadow-xs flex items-center space-x-1.5 transition-all cursor-pointer"
+              className="min-h-11 p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 border border-slate-700 shadow-xs flex items-center justify-center transition-all cursor-pointer"
               title="Platform Management Console (System Admin)"
             >
               <Cog className="w-4 h-4 text-amber-400 animate-spin-slow" />
-              <span className="text-xs font-black text-white hidden xl:inline">Console</span>
             </button>
           )}
 
@@ -794,14 +721,14 @@ export default function App() {
           <div className="flex items-center space-x-2 border-l border-slate-150 pl-3 sm:pl-4 py-1.5">
             <div className="text-right leading-none hidden md:block">
               <div className="font-black text-xs text-gray-900">{currentUser?.full_name}</div>
-              <div className="text-[9px] text-slate-400 font-bold uppercase tracking-wide mt-0.2">
-                {currentUser?.role === "Admin" ? t.roleAdmin : t.roleUser}
+              <div className="text-[11px] text-slate-400 font-bold uppercase tracking-wide mt-0.2">
+                {currentUser?.role === "Admin" ? t.roleAdmin : currentUser?.role === "Consultant" ? t.roleConsultant : t.roleCustomerUser}
               </div>
             </div>
             
             <button
               onClick={() => setIsProfileModalOpen(true)}
-              className="w-9 h-9 rounded-full bg-slate-950 text-white border border-slate-200 font-black text-xs flex items-center justify-center cursor-pointer shadow-sm hover:scale-105 transition-all"
+              className="w-11 h-11 rounded-full bg-slate-950 text-white border border-slate-200 font-black text-xs flex items-center justify-center cursor-pointer shadow-sm hover:scale-105 transition-all"
               title="Profil & Hesap Ayarları"
             >
               {getInitials(currentUser?.full_name)}
@@ -812,13 +739,32 @@ export default function App() {
       </header>
  
       {/* CORE FRAMEWORK SIDEBAR GRID */}
-      <div className="flex flex-1 overflow-hidden">
-        
+      <div className="flex flex-1 overflow-hidden relative">
+
+        {/* Mobile nav backdrop — tap to close the drawer */}
+        {isMobileNavOpen && (
+          <div
+            onClick={() => setIsMobileNavOpen(false)}
+            className="fixed inset-0 bg-black/40 z-30 md:hidden"
+            aria-hidden="true"
+          />
+        )}
+
         {/* Left menu sidebar */}
-        <aside className={`bg-white border-r border-gray-200 p-4 shrink-0 flex flex-col justify-between shadow-xs transition-all duration-300 ${isSidebarCollapsed ? "w-16 px-2" : "w-60"}`}>
+        <aside className={`bg-white border-r border-gray-200 p-4 shrink-0 flex flex-col justify-between shadow-xs transition-all duration-300 z-40
+            absolute inset-y-0 left-0 w-72 ${isMobileNavOpen ? "translate-x-0" : "-translate-x-full"}
+            md:static md:translate-x-0 md:inset-auto ${effectivelyCollapsed ? "md:w-16 md:px-2" : "md:w-60"}`}>
+          <button
+            onClick={() => setIsMobileNavOpen(false)}
+            className="md:hidden absolute top-3 right-3 w-11 h-11 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
+            title="Menüyü Kapat"
+            aria-label="Menüyü Kapat"
+          >
+            <X className="w-5 h-5" />
+          </button>
           <div className="space-y-4">
             
-            <nav className="space-y-0.8 text-xs">
+            <nav className="space-y-0.8 text-xs" onClick={() => setIsMobileNavOpen(false)}>
               
               {/* 1. Müşteri Kartoteksi */}
               <button
@@ -826,11 +772,11 @@ export default function App() {
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
                   activeTab === "customers" 
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
-                } ${isSidebarCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
+                } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title={t.customers}
               >
                 <Users className={`w-4 h-4 shrink-0 ${activeTab === "customers" ? "text-white" : "text-slate-400"}`} />
-                {!isSidebarCollapsed && <span>{t.customers}</span>}
+                {!effectivelyCollapsed && <span>{t.customers}</span>}
               </button>
 
               {/* 2. Executive Dashboard */}
@@ -839,11 +785,11 @@ export default function App() {
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
                   activeTab === "dashboard" 
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
-                } ${isSidebarCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
+                } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title={t.dashboard}
               >
                 <LayoutDashboard className={`w-4 h-4 shrink-0 ${activeTab === "dashboard" ? "text-white" : "text-slate-400"}`} />
-                {!isSidebarCollapsed && <span>{t.dashboard}</span>}
+                {!effectivelyCollapsed && <span>{t.dashboard}</span>}
               </button>
 
               {/* 2.5. OpEx Assessment */}
@@ -852,11 +798,11 @@ export default function App() {
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
                   activeTab === "opex-assessment" 
                     ? "bg-emerald-950 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
-                } ${isSidebarCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
+                } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title={t.opexAssessment}
               >
                 <Award className={`w-4 h-4 shrink-0 ${activeTab === "opex-assessment" ? "text-white" : "text-slate-400"}`} />
-                {!isSidebarCollapsed && <span>{t.opexAssessment}</span>}
+                {!effectivelyCollapsed && <span>{t.opexAssessment}</span>}
               </button>
 
               {/* 3. Proje Master Plan */}
@@ -865,11 +811,11 @@ export default function App() {
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
                   activeTab === "plan" 
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
-                } ${isSidebarCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
+                } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title={t.plan}
               >
                 <FolderKanban className={`w-4 h-4 shrink-0 ${activeTab === "plan" ? "text-white" : "text-slate-400"}`} />
-                {!isSidebarCollapsed && <span>{t.plan}</span>}
+                {!effectivelyCollapsed && <span>{t.plan}</span>}
               </button>
 
               {/* 4. VSM Kapasite Analizi */}
@@ -878,11 +824,11 @@ export default function App() {
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
                   activeTab === "vsm" 
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
-                } ${isSidebarCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
+                } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="VSM Kapasite Analizi"
               >
                 <GitCommit className={`w-4 h-4 shrink-0 ${activeTab === "vsm" ? "text-white" : "text-slate-400"}`} />
-                {!isSidebarCollapsed && <span>VSM Kapasite Analizi</span>}
+                {!effectivelyCollapsed && <span>VSM Kapasite Analizi</span>}
               </button>
 
               {/* 5. Loss Capacity Analizi */}
@@ -891,11 +837,11 @@ export default function App() {
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
                   activeTab === "loss-analysis" 
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
-                } ${isSidebarCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
+                } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="Loss Capacity Analizi"
               >
                 <Percent className={`w-4 h-4 shrink-0 ${activeTab === "loss-analysis" ? "text-white" : "text-slate-400"}`} />
-                {!isSidebarCollapsed && <span>Loss Capacity Analizi</span>}
+                {!effectivelyCollapsed && <span>Loss Capacity Analizi</span>}
               </button>
 
               {/* 11. CI Proje Yönetimi */}
@@ -904,11 +850,11 @@ export default function App() {
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
                   activeTab === "kaizen" 
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
-                } ${isSidebarCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
+                } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="CI Proje Yönetimi"
               >
                 <Sparkles className={`w-4 h-4 shrink-0 ${activeTab === "kaizen" ? "text-white" : "text-slate-400"}`} />
-                {!isSidebarCollapsed && <span>CI Proje Yönetimi</span>}
+                {!effectivelyCollapsed && <span>CI Proje Yönetimi</span>}
               </button>
 
               {/* 6. Spaghetti Akış Sketcher */}
@@ -917,11 +863,11 @@ export default function App() {
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
                   activeTab === "flow" 
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
-                } ${isSidebarCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
+                } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="Spaghetti Akış Sketcher"
               >
                 <Map className={`w-4 h-4 shrink-0 ${activeTab === "flow" ? "text-white" : "text-slate-400"}`} />
-                {!isSidebarCollapsed && <span>Spaghetti Akış Sketcher</span>}
+                {!effectivelyCollapsed && <span>Spaghetti Akış Sketcher</span>}
               </button>
 
               {/* 7. Time Study */}
@@ -930,11 +876,11 @@ export default function App() {
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
                   activeTab === "timestudy" 
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
-                } ${isSidebarCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
+                } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="Time Study"
               >
                 <Clock className={`w-4 h-4 shrink-0 ${activeTab === "timestudy" ? "text-white" : "text-slate-400"}`} />
-                {!isSidebarCollapsed && <span>Time Study</span>}
+                {!effectivelyCollapsed && <span>Time Study</span>}
               </button>
 
               {/* 8. Yamazumi Aı Analizer */}
@@ -943,11 +889,11 @@ export default function App() {
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
                   activeTab === "balancing" 
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
-                } ${isSidebarCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
+                } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="Yamazumi Aı Analizer"
               >
                 <AlignLeft className={`w-4 h-4 shrink-0 ${activeTab === "balancing" ? "text-white" : "text-slate-400"}`} />
-                {!isSidebarCollapsed && <span>Yamazumi Aı Analizer</span>}
+                {!effectivelyCollapsed && <span>Yamazumi Aı Analizer</span>}
               </button>
 
               {/* 9. SMED Analizi */}
@@ -956,11 +902,11 @@ export default function App() {
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
                   activeTab === "smed" 
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
-                } ${isSidebarCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
+                } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="SMED Analizi"
               >
                 <RefreshCw className={`w-4 h-4 shrink-0 ${activeTab === "smed" ? "text-white animate-spin-slow" : "text-slate-400"}`} />
-                {!isSidebarCollapsed && <span>SMED Analizi</span>}
+                {!effectivelyCollapsed && <span>SMED Analizi</span>}
               </button>
 
               {/* 10. Proje Takip Raporu */}
@@ -969,11 +915,11 @@ export default function App() {
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
                   activeTab === "ptr" 
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
-                } ${isSidebarCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
+                } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="Proje Takip Raporu"
               >
                 <Clock className={`w-4 h-4 shrink-0 ${activeTab === "ptr" ? "text-white" : "text-slate-400"}`} />
-                {!isSidebarCollapsed && <span>Proje Takip Raporu</span>}
+                {!effectivelyCollapsed && <span>Proje Takip Raporu</span>}
               </button>
 
               {/* 12. 5S Olgunluk Auditler */}
@@ -982,11 +928,11 @@ export default function App() {
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
                   activeTab === "fives" 
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
-                } ${isSidebarCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
+                } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="5S Olgunluk Auditler"
               >
                 <ShieldCheck className={`w-4 h-4 shrink-0 ${activeTab === "fives" ? "text-white" : "text-slate-400"}`} />
-                {!isSidebarCollapsed && <span>5S Olgunluk Auditler</span>}
+                {!effectivelyCollapsed && <span>5S Olgunluk Auditler</span>}
               </button>
 
             </nav>
@@ -994,16 +940,16 @@ export default function App() {
 
           {/* User Workspace Info panel and Toggle Button */}
           <div className="mt-auto pt-3 border-t border-slate-100 space-y-3">
-            <div className={`flex ${isSidebarCollapsed ? "flex-col items-center space-y-3" : "items-center justify-between"}`}>
-              {!isSidebarCollapsed ? (
+            <div className={`flex ${effectivelyCollapsed ? "flex-col items-center space-y-3" : "items-center justify-between"}`}>
+              {!effectivelyCollapsed ? (
                 <>
                   <div className="flex flex-col space-y-0.5 max-w-[80%]">
-                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">AKTIF HESAP:</span>
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest leading-none">AKTIF HESAP:</span>
                     <span className="text-[10px] text-slate-700 font-extrabold truncate" title={currentUser?.email}>{currentUser?.email}</span>
                   </div>
-                  <button 
+                  <button
                     onClick={handleSignOut}
-                    className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 cursor-pointer"
+                    className="text-red-500 hover:text-red-700 w-11 h-11 flex items-center justify-center rounded hover:bg-red-50 cursor-pointer"
                     title="Güvenli Çıkış (Logout)"
                   >
                     <LogOut className="w-4 h-4" />
@@ -1020,38 +966,38 @@ export default function App() {
               )}
             </div>
 
-            {/* Compact collapse/expand toggle */}
-            <div className="flex justify-center pt-1">
+            {/* Compact collapse/expand toggle — desktop only, icon-only mode has no meaning in the mobile drawer */}
+            <div className="hidden md:flex justify-center pt-1">
               <button
                 onClick={toggleSidebar}
                 className="w-full flex items-center justify-center py-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-50 border border-dashed border-slate-200/60 transition-all duration-200 cursor-pointer text-xs font-mono font-bold"
-                title={isSidebarCollapsed ? "Menüyü Genişlet" : "Menüyü Daralt"}
+                title={effectivelyCollapsed ? "Menüyü Genişlet" : "Menüyü Daralt"}
               >
-                {isSidebarCollapsed ? ">" : "<"}
+                {effectivelyCollapsed ? ">" : "<"}
               </button>
             </div>
 
             {/* GEMBA DIGITAL Corporate Brand Signature Logo */}
             <div className="pt-3.5 mt-1 border-t border-slate-100/80 flex flex-col items-center justify-center">
-              {!isSidebarCollapsed ? (
+              {!effectivelyCollapsed ? (
                 <div className="flex flex-col items-center space-y-1.5 px-2 py-1 select-none pointer-events-none w-full">
-                  <div className="h-10 w-full flex items-center justify-center overflow-hidden">
-                    <img 
-                      src={gembaLogo} 
-                      alt="Gemba Tools Logo" 
-                      className="h-10 w-auto object-contain max-w-[150px] opacity-90 hover:opacity-100 transition-opacity duration-300"
+                  <div className="h-16 w-full flex items-center justify-center overflow-hidden">
+                    <img
+                      src={gembaDigitalWordmark}
+                      alt="Gemba Digital Logo"
+                      className="h-16 w-auto object-contain max-w-[220px] opacity-90 hover:opacity-100 transition-opacity duration-300"
                     />
                   </div>
-                  <span className="text-[8px] font-black tracking-widest text-slate-400 uppercase leading-none mt-0.5">
+                  <span className="text-[11px] font-black tracking-widest text-slate-400 uppercase leading-none mt-0.5">
                     Corporate Signature
                   </span>
                 </div>
               ) : (
-                <div className="w-8 h-8 flex items-center justify-center select-none" title="Gemba Tools">
-                  <img 
-                    src={gembaLogo} 
-                    alt="Gemba Tools Symbol" 
-                    className="w-7 h-7 object-contain select-none"
+                <div className="w-11 h-11 flex items-center justify-center select-none" title="Gemba Digital">
+                  <img
+                    src={gembaGIcon}
+                    alt="Gemba Digital Symbol"
+                    className="w-10 h-10 object-contain select-none"
                   />
                 </div>
               )}
@@ -1064,15 +1010,14 @@ export default function App() {
 
           {/* Render target layouts */}
           <div className="transition-all duration-200">
-            {activeTab === "architecture" && (
-              <ArchitectureHub key={selectedCustomerId} />
-            )}
-
             {activeTab === "customers" && (
               <div key={selectedCustomerId}>
                 <CustomerRecords
                   customers={customers}
                   selectedCustomer={selectedCustomer}
+                  token={token}
+                  currentUser={currentUser}
+                  onRefreshCustomers={refreshCustomers}
                   onSelectCustomer={(c) => {
                     setSelectedCustomerId(c.id);
                     window.dispatchEvent(new CustomEvent("FactoryChanged", { detail: { factoryId: c.id } }));
@@ -1100,6 +1045,7 @@ export default function App() {
                   onUpdateActivity={handleUpdateActivity}
                   onDeleteActivity={handleDeleteActivity}
                   activeCustomerId={selectedCustomerId}
+                  customerName={selectedCustomer?.companyName}
                 />
               </div>
             )}
@@ -1107,10 +1053,6 @@ export default function App() {
             {activeTab === "flow" && (
               <div key={selectedCustomerId}>
                 <FlowImprovement
-                  segments={segments}
-                  onAddSegment={handleAddSegment}
-                  onClearSegments={handleClearSegments}
-                  onDeleteSegment={handleDeleteSegment}
                   selectedCustomer={selectedCustomer}
                 />
               </div>
@@ -1141,37 +1083,33 @@ export default function App() {
 
             {activeTab === "fives" && (
               <div key={selectedCustomerId}>
-                <FiveSImprovements
-                  audits={audits5S}
-                  selectedCustomer={selectedCustomer}
-                  onAddAudit={handleAddAudit}
-                  onDeleteAudit={handleDeleteAudit}
-                />
+                <FiveSAuditSystem />
               </div>
             )}
 
             {activeTab === "balancing" && (
               <div key={selectedCustomerId}>
-                <LineBalancing />
+                <LineBalancing selectedCustomer={selectedCustomer} />
               </div>
             )}
 
             {activeTab === "timestudy" && (
               <div key={selectedCustomerId}>
-                <TimeStudyPage selectedCustomer={selectedCustomer} />
+                <TimeStudyPage selectedCustomer={selectedCustomer} vsmProcesses={processes} />
               </div>
             )}
 
             {activeTab === "smed" && (
               <div key={selectedCustomerId}>
-                <SmedPage />
+                <SmedPage selectedCustomer={selectedCustomer} vsmProcesses={processes} />
               </div>
             )}
 
             {activeTab === "ptr" && (
               <div key={selectedCustomerId}>
-                <PtrTimeStudy 
+                <PtrTimeStudy
                   activities={activities}
+                  onAddActivity={handleAddActivity}
                   onUpdateActivity={handleUpdateActivity}
                   onAddKaizen={handleAddKaizen}
                   kaizens={kaizens}
@@ -1193,16 +1131,16 @@ export default function App() {
                   activities={activities}
                   segments={segments}
                   kaizens={kaizens}
-                  audits={audits5S}
                 />
               </div>
             )}
 
             {activeTab === "opex-assessment" && (
               <div key={selectedCustomerId}>
-                <OpexAssessment 
+                <OpexAssessment
                   selectedCustomer={selectedCustomer}
                   customers={customers}
+                  onUpdateCustomer={handleUpdateCustomer}
                 />
               </div>
             )}
@@ -1221,6 +1159,8 @@ export default function App() {
         onUpdateUser={(updatedUser) => setCurrentUser(updatedUser)}
         onSignOut={handleSignOut}
         activeCustomerId={selectedCustomerId}
+        currentLang={currentLang}
+        onChangeLanguage={changeLanguage}
       />
 
       {/* SYSTEM ADMIN PLATFORM MANAGEMENT CONSOLE OVERLAY */}
@@ -1230,6 +1170,7 @@ export default function App() {
         currentUser={currentUser}
         currentOrg={currentOrg}
         token={token}
+        currentLang={currentLang}
       />
 
     </div>

@@ -27,6 +27,10 @@ export interface Customer {
   preliminaryAssessmentReport: string;
   notes: string;
   audits: AuditRecord[];
+  // Consultant/Customer User assignment (max 3 consultants: 1 primary + 2 secondary; max 2 customer user invites)
+  primaryConsultantId?: string;
+  consultantIds?: string[];
+  customerUserIds?: string[];
 }
 
 export interface ProcessRecord {
@@ -79,6 +83,41 @@ export interface FlowSegment {
   description: string;
 }
 
+// One "Before-After Kaizen" one-pager, matching the real consulting-firm template ("Kaizen Öncesi
+// Sonrası" form): subject/target, before & after photos, before/after descriptions, and a benefit
+// breakdown across the same 4 categories the paper form uses (Cost, Productivity, Quality, Safety).
+export interface BeforeAfterKaizenBenefits {
+  costEnergy?: string;
+  costLabor?: string;
+  costMaterial?: string;
+  productivityMachine?: string;
+  productivityMan?: string;
+  productivityMaterial?: string;
+  qualityProduct?: string;
+  qualityMaterial?: string;
+  qualityScrap?: string;
+  safetyRiskDegree?: string;
+  safetyKso?: string;
+}
+
+export interface BeforeAfterKaizenStudy {
+  id: string;
+  date: string;
+  subject: string;
+  target: string;
+  doneBy: string;
+  department: string;
+  category: "Verimlilik" | "Kalite" | "Güvenlik";
+  area: "5S" | "Maliyet";
+  beforeImage?: string;
+  afterImage?: string;
+  descriptionBefore: string;
+  descriptionAfter: string;
+  benefitDescription: string;
+  benefits: BeforeAfterKaizenBenefits;
+  createdAt: string;
+}
+
 export interface KaizenCard {
   id: string;
   title: string;
@@ -104,7 +143,10 @@ export interface KaizenCard {
   kanbanStatus?: "PLAN" | "DO" | "CHECK" | "ACT";
   tasks?: any[];
   financialsInput?: any;
-  beforeAfterClose?: any;
+  // Every "Before-After Kaizen" one-pager generated for this project (Section 9 of the CI card),
+  // matching the real "Kaizen Öncesi Sonrası" form template — kept as a list since a project can
+  // go through more than one such improvement cycle over its life.
+  beforeAfterStudies?: BeforeAfterKaizenStudy[];
   problemDefinition?: string;
   problemDetail?: string;
   problemPhotos?: string[];
@@ -113,6 +155,10 @@ export interface KaizenCard {
   targetRatio?: number;
   targetCostReduction?: number;
   rootCause?: string;
+  // Structured 5-Why chain (index 0 = "Neden 1" ... 4 = "Neden 5"). `rootCause` above is kept in
+  // sync as the last non-empty why, so anywhere that just displays rootCause (exports, list views)
+  // keeps working without changes.
+  rootCauseWhys?: string[];
   improvementActions?: string;
   responsibles?: string;
   actionsTaken?: string;
@@ -134,19 +180,6 @@ export interface KaizenCard {
   resultDescription?: string;
   resultPhotos?: string[];
   documents?: any[];
-}
-
-export interface FiveSAudit {
-  id: string;
-  area: string;
-  date: string;
-  sortScore: number; // 1-5
-  setInOrderScore: number; // 1-5
-  shineScore: number; // 1-5
-  standardizeScore: number; // 1-5
-  sustainScore: number; // 1-5
-  overallScore: number; // 0-100%
-  notes: string;
 }
 
 export interface AnnotationLine {

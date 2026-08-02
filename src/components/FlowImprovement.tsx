@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { FlowSegment, Customer } from "../types";
+import { Customer } from "../types";
 import { 
   GitCommit, RefreshCw, Layers, MapPin, Sliders, Play, 
   Trash2, HelpCircle, Download, FileText, Settings, Sparkles, 
@@ -15,10 +15,6 @@ import {
 } from "recharts";
 
 interface FlowImprovementProps {
-  segments: FlowSegment[];
-  onAddSegment: (seg: FlowSegment) => void;
-  onClearSegments: () => void;
-  onDeleteSegment: (id: string) => void;
   selectedCustomer: Customer;
 }
 
@@ -105,15 +101,13 @@ const STATION_ICONS = {
 };
 
 export default function FlowImprovement({
-  segments,
-  onAddSegment,
-  onClearSegments,
-  onDeleteSegment,
   selectedCustomer
 }: FlowImprovementProps) {
-  
+  const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+
   const [activeTab, setActiveTab] = useState<"current" | "future" | "comparison" | "mali-veri">("current");
   const [flowTypesConfig, setFlowTypesConfig] = useState(FLOW_TYPES_CONFIG);
+  const [verticalTransferCoeffs, setVerticalTransferCoeffs] = useState({ elevator: 12.0, conveyor: 2.0, stairs: 4.0 });
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [drawingMode, setDrawingMode] = useState<"select" | "draw" | "node">("select");
   const [selectedFlowType, setSelectedFlowType] = useState<keyof typeof FLOW_TYPES_CONFIG>("Raw Material");
@@ -402,40 +396,106 @@ export default function FlowImprovement({
     }
   ];
 
-  // Load scenarios from storage on mount
+  // Whole-module persistence: scenarios/layouts/nodes/flows, the editable flow-type & vertical-
+  // transfer cost coefficients, and the financial parameters are saved to
+  // /api/business/spaghetti-flow-settings as one blob per customer, and restored here on customer
+  // select. `settingsReady` gates the auto-save effect below so it never fires with default values
+  // before the real saved data (or the "nothing saved yet" case) arrives.
+  const [settingsReady, setSettingsReady] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
+
   useEffect(() => {
     setSelectedNodeId(null);
     setSelectedFlowId(null);
-    const saved = localStorage.getItem(`gemba_spaghetti_scenarios_v2_${selectedCustomer.id}`);
-    let loaded: Scenario[] = [];
-    if (saved) {
-      try {
-        loaded = JSON.parse(saved);
-      } catch (e) {
-        console.error("Failed loading advanced spaghetti scenarios", e);
+    setSettingsReady(false);
+    fetch("/api/business/spaghetti-flow-settings", {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "x-factory-id": selectedCustomer.id
       }
-    }
-
-    if (loaded && loaded.length > 0) {
-      setScenarios(loaded);
-      setActiveScenarioId(loaded[0].id);
-      setHistory([JSON.parse(JSON.stringify(loaded))]);
-      setHistoryIndex(0);
-      addLog("Proje Yüklendi", "Mevcut çizimler veritabanından başarıyla aktarıldı.");
-    } else {
-      setScenarios(defaultScenarios);
-      setActiveScenarioId(defaultScenarios[0].id);
-      setHistory([JSON.parse(JSON.stringify(defaultScenarios))]);
-      setHistoryIndex(0);
-      addLog("Varsayılan Proje Yüklendi", "Zemin Kat ve Üst Kat yerleşim şablonları yüklendi.");
-    }
+    })
+      .then(res => res.json())
+      .then(res => {
+        const d = (res.success && res.data && res.data.data) ? res.data.data : null;
+        const loaded: Scenario[] = d?.scenarios || [];
+        if (loaded && loaded.length > 0) {
+          setScenarios(loaded);
+          setActiveScenarioId(loaded[0].id);
+          setHistory([JSON.parse(JSON.stringify(loaded))]);
+          setHistoryIndex(0);
+          addLog("Proje Yüklendi", "Mevcut çizimler veritabanından başarıyla aktarıldı.");
+        } else {
+          setScenarios(defaultScenarios);
+          setActiveScenarioId(defaultScenarios[0].id);
+          setHistory([JSON.parse(JSON.stringify(defaultScenarios))]);
+          setHistoryIndex(0);
+          addLog("Varsayılan Proje Yüklendi", "Zemin Kat ve Üst Kat yerleşim şablonları yüklendi.");
+        }
+        setFlowTypesConfig(d?.flowTypesConfig || FLOW_TYPES_CONFIG);
+        setVerticalTransferCoeffs(d?.verticalTransferCoeffs || { elevator: 12.0, conveyor: 2.0, stairs: 4.0 });
+        setSimFuelCostCoeff(d?.simFuelCostCoeff ?? 1.2);
+        setSimWorkingDays(d?.simWorkingDays ?? 250);
+        setSimImplementationCost(d?.simImplementationCost ?? 180000);
+        setNetMonthlySalary(d?.netMonthlySalary ?? 25000);
+        setEmployerOverheadPercent(d?.employerOverheadPercent ?? 40);
+        setMonthlyWorkingHours(d?.monthlyWorkingHours ?? 180);
+        setFactoryAreaUnitPrice(d?.factoryAreaUnitPrice ?? 150);
+        setSettingsReady(true);
+      })
+      .catch(err => {
+        console.error("Failed to load Spaghetti Flow settings", err);
+        setScenarios(defaultScenarios);
+        setActiveScenarioId(defaultScenarios[0].id);
+        setHistory([JSON.parse(JSON.stringify(defaultScenarios))]);
+        setHistoryIndex(0);
+        setSettingsReady(true);
+      });
   }, [selectedCustomer.id]);
+
+  // Debounced auto-save: whenever the drawing model or any tunable changes, persist the whole
+  // bundle ~900ms after the last change. Gated on settingsReady so this never overwrites the
+  // customer's saved data with defaults before they've loaded.
+  useEffect(() => {
+    if (!settingsReady) return;
+    const dataToSave = {
+      scenarios, flowTypesConfig, verticalTransferCoeffs,
+      simFuelCostCoeff, simWorkingDays, simImplementationCost,
+      netMonthlySalary, employerOverheadPercent, monthlyWorkingHours, factoryAreaUnitPrice
+    };
+    const timeoutId = setTimeout(() => {
+      setSaveStatus("saving");
+      fetch("/api/business/spaghetti-flow-settings", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "x-factory-id": selectedCustomer.id,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ data: dataToSave })
+      })
+        .then(res => res.json())
+        .then(res => {
+          setSaveStatus(res.success ? "success" : "error");
+          setTimeout(() => setSaveStatus("idle"), 2000);
+        })
+        .catch(err => {
+          console.error("Failed to save Spaghetti Flow settings", err);
+          setSaveStatus("error");
+          setTimeout(() => setSaveStatus("idle"), 2000);
+        });
+    }, 900);
+    return () => clearTimeout(timeoutId);
+  }, [
+    scenarios, flowTypesConfig, verticalTransferCoeffs,
+    simFuelCostCoeff, simWorkingDays, simImplementationCost,
+    netMonthlySalary, employerOverheadPercent, monthlyWorkingHours, factoryAreaUnitPrice,
+    settingsReady, selectedCustomer.id, token
+  ]);
 
   // Synchronize scenario updates
   const updateScenarios = (newScenarios: Scenario[], bypassHistory: boolean = false) => {
     setScenarios(newScenarios);
-    localStorage.setItem(`gemba_spaghetti_scenarios_v2_${selectedCustomer.id}`, JSON.stringify(newScenarios));
-    
+
     if (!bypassHistory) {
       const nextHistory = history.slice(0, historyIndex + 1);
       setHistory([...nextHistory, JSON.parse(JSON.stringify(newScenarios))]);
@@ -448,7 +508,6 @@ export default function FlowImprovement({
       const prev = history[historyIndex - 1];
       setScenarios(JSON.parse(JSON.stringify(prev)));
       setHistoryIndex(historyIndex - 1);
-      localStorage.setItem(`gemba_spaghetti_scenarios_v2_${selectedCustomer.id}`, JSON.stringify(prev));
       addLog("Geri Alındı", "Son çizim veya değişiklik işlemi geri alındı.");
     }
   };
@@ -458,7 +517,6 @@ export default function FlowImprovement({
       const next = history[historyIndex + 1];
       setScenarios(JSON.parse(JSON.stringify(next)));
       setHistoryIndex(historyIndex + 1);
-      localStorage.setItem(`gemba_spaghetti_scenarios_v2_${selectedCustomer.id}`, JSON.stringify(next));
       addLog("İleri Alındı", "Geri alınan değişiklik tekrar uygulandı.");
     }
   };
@@ -555,7 +613,7 @@ export default function FlowImprovement({
 
     // Add vertical transfers
     scen.verticalTransfers?.forEach(vt => {
-      const vtCoeff = vt.type === "elevator" ? 12.0 : vt.type === "conveyor" ? 2.0 : 4.0;
+      const vtCoeff = vt.type === "elevator" ? verticalTransferCoeffs.elevator : vt.type === "conveyor" ? verticalTransferCoeffs.conveyor : verticalTransferCoeffs.stairs;
       const vtCost = vt.frequency * vt.distanceMeters * vtCoeff * simWorkingDays;
       verticalTransfersCost += vtCost;
       materialHandlingCost += vtCost;
@@ -738,11 +796,15 @@ export default function FlowImprovement({
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-    
-    // Convert click coordinates taking pan and zoom into account
-    const rawX = e.clientX - rect.left;
-    const rawY = e.clientY - rect.top;
-    
+
+    // The canvas's internal pixel resolution (canvas.width/height) can differ from its
+    // CSS-rendered size (rect.width/height) when max-w-full shrinks it — e.g. narrow windows
+    // or mobile. Scale the raw client offset into canvas-pixel space before applying pan/zoom.
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const rawX = (e.clientX - rect.left) * scaleX;
+    const rawY = (e.clientY - rect.top) * scaleY;
+
     return {
       x: Math.round((rawX - panOffset.x) / zoomScale),
       y: Math.round((rawY - panOffset.y) / zoomScale)
@@ -1340,6 +1402,38 @@ export default function FlowImprovement({
   const roiPercent = simImplementationCost > 0 ? (annualSavings / simImplementationCost) * 100 : 0;
   const paybackMonths = annualSavings > 0 ? (simImplementationCost / annualSavings) * 12 : 0;
 
+  // Narrative comparison text — generated from the actual current/future scenario metrics
+  // instead of static boilerplate, so it reflects whatever the user actually redrew.
+  const distanceReductionPercent = currentMetrics.totalDistance > 0
+    ? ((currentMetrics.totalDistance - futureMetrics.totalDistance) / currentMetrics.totalDistance) * 100
+    : 0;
+  const crossingReduction = currentMetrics.crossingCount - futureMetrics.crossingCount;
+  const aiAdvisorSummary = (() => {
+    const parts: string[] = [];
+    if (distanceReductionPercent > 0) {
+      parts.push(`toplam malzeme/operatör hareket mesafesi %${distanceReductionPercent.toFixed(1)} azaltılarak`);
+    } else if (distanceReductionPercent < 0) {
+      parts.push(`toplam hareket mesafesi %${Math.abs(distanceReductionPercent).toFixed(1)} artmış olsa da`);
+    }
+    if (crossingReduction > 0) {
+      parts.push(`${crossingReduction} akış kesişmesi ortadan kaldırılarak`);
+    } else if (crossingReduction < 0) {
+      parts.push(`${Math.abs(crossingReduction)} yeni akış kesişmesi oluşarak`);
+    }
+    const changeDesc = parts.length > 0 ? parts.join(" ve ") : "istasyon ve akış yerleşimi yeniden düzenlenerek";
+    return `Yapılan lojistik ve spagetti akış simülasyonu sonucunda, ${changeDesc} yıllık taşıma maliyetinde ₺${Math.round(annualSavings).toLocaleString()} tasarruf potansiyeli hesaplanmıştır.`;
+  })();
+  const improvementProcessSummary = (() => {
+    const bits: string[] = [];
+    bits.push(distanceReductionPercent !== 0
+      ? `Gelecek tasarımda toplam akış mesafesi ${currentMetrics.totalDistance.toLocaleString()} m'den ${futureMetrics.totalDistance.toLocaleString()} m'ye (%${distanceReductionPercent.toFixed(1)} ${distanceReductionPercent >= 0 ? "azalış" : "artış"}) değişmiştir.`
+      : `Gelecek tasarımda toplam akış mesafesi ${futureMetrics.totalDistance.toLocaleString()} m olarak ölçülmüştür.`);
+    if (crossingReduction !== 0) {
+      bits.push(`Lojistik hat kesişme sayısı ${currentMetrics.crossingCount}'den ${futureMetrics.crossingCount}'e ${crossingReduction > 0 ? "düşürülmüştür" : "yükselmiştir"}.`);
+    }
+    return bits.join(" ");
+  })();
+
   // Render variables
   const [newLayoutName, setNewLayoutName] = useState("");
   const [showAddLayoutModal, setShowAddLayoutModal] = useState(false);
@@ -1560,7 +1654,7 @@ export default function FlowImprovement({
                 <span className="text-[10px] text-emerald-600 font-bold block mt-1">
                   📐 %{savedAreaPercent.toFixed(1)} Alan Tasarrufu
                 </span>
-                <span className="text-[9px] text-slate-500 font-bold block mt-0.5">
+                <span className="text-[11px] text-slate-500 font-bold block mt-0.5">
                   💰 Yıllık: ₺{annualAreaSavings.toLocaleString()}
                 </span>
               </div>
@@ -1606,19 +1700,19 @@ export default function FlowImprovement({
                 
                 <div className="space-y-4 text-xs">
                   <p className="text-slate-300 leading-relaxed">
-                    Yapılan lojistik ve spagetti akış simülasyonu sonucunda, istasyonların birbirine yaklaştırılması ve <strong>U-Tipi Hücresel Yerleşim</strong> sayesinde önemli kazanımlar sağlanmıştır.
+                    {aiAdvisorSummary}
                   </p>
 
                   <div className="space-y-2">
                     {getAIRecommendations().map((rec, i) => (
                       <div key={i} className="p-3 bg-slate-850 border-l-4 border-amber-500 rounded text-slate-200">
-                        <span className="font-bold text-amber-400 block uppercase text-[9px] mb-0.5">{rec.title}</span>
+                        <span className="font-bold text-amber-400 block uppercase text-[11px] mb-0.5">{rec.title}</span>
                         {rec.text}
                       </div>
                     ))}
                     {getAIRecommendations().length === 0 && (
                       <div className="p-3 bg-slate-850 border-l-4 border-emerald-500 rounded text-slate-200">
-                        <span className="font-bold text-emerald-400 block uppercase text-[9px] mb-0.5">Süreçler Optimize Edildi</span>
+                        <span className="font-bold text-emerald-400 block uppercase text-[11px] mb-0.5">Süreçler Optimize Edildi</span>
                         Lojistik akış kesişmesi ve dikey taşıma darboğazı tespit edilmedi. Harika bir iş çıkardınız!
                       </div>
                     )}
@@ -1690,7 +1784,7 @@ export default function FlowImprovement({
                   2. İYİLEŞTİRME SÜRECİ (GELECEK TASARIM)
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Yalın hücre tasarımı prensipleri uygulanarak istasyonlar <strong>U-Tipi Hücre düzenine</strong> kavuşturulmuştur. Süpermarket konumu optimize edilmiş, milk-run taşıma rotaları tescil edilmiş ve lojistik hat kesişmeleri minimuma indirilmiştir.
+                  {improvementProcessSummary}
                 </p>
                 <div className="grid grid-cols-2 gap-3 pt-2 text-xs font-mono">
                   <div className="bg-white p-2.5 rounded-lg border border-slate-200">
@@ -2100,6 +2194,36 @@ export default function FlowImprovement({
                         </div>
                       );
                     })}
+                  </div>
+                </div>
+
+                <div className="bg-indigo-900 text-white p-4 rounded-xl space-y-3">
+                  <span className="font-black text-xs block uppercase tracking-wide">Kat Arası Taşıma (Dikey Transfer) Maliyet Katsayıları</span>
+                  <p className="text-[11px] text-indigo-200">Asansör, konveyör ve merdiven kullanımının sefer başına maliyet katsayısını özelleştirebilirsiniz (birim: ₺/sefer/metre baz çarpanı):</p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {([
+                      { key: "elevator", label: "Asansör" },
+                      { key: "conveyor", label: "Konveyör" },
+                      { key: "stairs", label: "Merdiven" }
+                    ] as const).map(({ key, label }) => (
+                      <div key={key} className="p-3 bg-indigo-950/60 border border-indigo-800 rounded-lg space-y-1">
+                        <span className="font-bold text-[11px] text-indigo-100">{label}</span>
+                        <div>
+                          <span className="text-[10px] text-indigo-200">Çarpan:</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            className="w-full bg-indigo-900 border border-indigo-700 rounded px-1.5 py-0.5 text-white font-bold text-center"
+                            value={verticalTransferCoeffs[key]}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value) || 0;
+                              setVerticalTransferCoeffs(prev => ({ ...prev, [key]: val }));
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
@@ -2569,19 +2693,19 @@ export default function FlowImprovement({
             {/* Live KPI metrics list under canvas */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-3xs text-center">
-                <span className="text-[9px] text-slate-400 font-extrabold uppercase block">Lojistik Akış Mesafesi</span>
+                <span className="text-[11px] text-slate-400 font-extrabold uppercase block">Lojistik Akış Mesafesi</span>
                 <span className="text-base font-black text-slate-900 mt-1 block">{activeMetrics.totalDistance} Metre</span>
               </div>
               <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-3xs text-center">
-                <span className="text-[9px] text-slate-400 font-extrabold uppercase block">Simüle Taşıma Maliyeti</span>
+                <span className="text-[11px] text-slate-400 font-extrabold uppercase block">Simüle Taşıma Maliyeti</span>
                 <span className="text-base font-black text-indigo-700 mt-1 block">₺{activeMetrics.materialHandlingCost.toLocaleString()}</span>
               </div>
               <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-3xs text-center">
-                <span className="text-[9px] text-slate-400 font-extrabold uppercase block">İSG Kritik Kesişmeler</span>
+                <span className="text-[11px] text-slate-400 font-extrabold uppercase block">İSG Kritik Kesişmeler</span>
                 <span className="text-base font-black text-rose-600 mt-1 block">{activeMetrics.crossingCount} Kesişme</span>
               </div>
               <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-3xs text-center">
-                <span className="text-[9px] text-slate-400 font-extrabold uppercase block">Operatör Taşıma Zamanı</span>
+                <span className="text-[11px] text-slate-400 font-extrabold uppercase block">Operatör Taşıma Zamanı</span>
                 <span className="text-base font-black text-indigo-900 mt-1 block">{activeMetrics.walkingTime} Saat / Yıl</span>
               </div>
             </div>
@@ -3014,11 +3138,11 @@ export default function FlowImprovement({
                         </div>
                         <div className="flex justify-between">
                           <span>Yıllık Maliyet Katkısı:</span>
-                          <strong className="font-bold text-indigo-700">₺{annualSavings > 0 ? annualCost.toFixed(0) : "Hesaplanıyor"}</strong>
+                          <strong className="font-bold text-indigo-700">₺{annualCost.toFixed(0)}</strong>
                         </div>
                         <div className="flex justify-between">
                           <span>Seyahat Süresi (Tek Sefer):</span>
-                          <span>{travelTimeSec > 500 ? "Anlık" : `${travelTimeSec.toFixed(1)} sn`}</span>
+                          <span>{travelTimeSec < 1 ? "Anlık" : `${travelTimeSec.toFixed(1)} sn`}</span>
                         </div>
                       </div>
 
@@ -3113,7 +3237,7 @@ export default function FlowImprovement({
                   
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-0.5">
-                      <span className="text-[9px] text-slate-400">Günlük Sefer</span>
+                      <span className="text-[11px] text-slate-400">Günlük Sefer</span>
                       <input
                         type="number"
                         className="w-full bg-white border border-slate-200 rounded-lg p-1"
@@ -3122,7 +3246,7 @@ export default function FlowImprovement({
                       />
                     </div>
                     <div className="space-y-0.5">
-                      <span className="text-[9px] text-slate-400">Yükseklik (m)</span>
+                      <span className="text-[11px] text-slate-400">Yükseklik (m)</span>
                       <input
                         type="number"
                         step="0.5"

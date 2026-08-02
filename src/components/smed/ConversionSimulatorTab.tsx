@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { 
   Sparkles, TrendingUp, Cpu, Sliders, CheckCircle2, 
   ArrowRight, Zap, Award, Check, FolderKanban, 
@@ -12,13 +12,50 @@ interface ConversionSimulatorTabProps {
   activities: ActivityItem[];
   project?: SmedProject;
   onChangeActivities?: (newActivities: ActivityItem[]) => void;
+  customerId?: string;
+  machineCostPerHour?: number;
 }
 
-export default function ConversionSimulatorTab({ 
-  activities = [], 
-  project, 
-  onChangeActivities 
+export default function ConversionSimulatorTab({
+  activities = [],
+  project,
+  onChangeActivities,
+  customerId,
+  machineCostPerHour = 4500
 }: ConversionSimulatorTabProps) {
+
+  // CI Traceability: for activities already exported to CI Proje Yönetimi (act.ciKaizenId set),
+  // fetch the linked kaizen cards so their real current progress stage can be shown here instead
+  // of a one-way, fire-and-forget export marker.
+  const [linkedKaizens, setLinkedKaizens] = useState<Record<string, { kanbanStatus?: string; status?: string }>>({});
+
+  useEffect(() => {
+    const exportedIds = activities.filter((a) => a.ciKaizenId).map((a) => a.ciKaizenId as string);
+    if (exportedIds.length === 0) return;
+    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    fetch("/api/business/kaizens", {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        ...(customerId ? { "x-factory-id": customerId } : {})
+      }
+    })
+      .then((res) => res.json())
+      .then((res) => {
+        if (res.success) {
+          const map: Record<string, { kanbanStatus?: string; status?: string }> = {};
+          (res.data as any[]).forEach((k) => { map[k.id] = { kanbanStatus: k.kanbanStatus, status: k.status }; });
+          setLinkedKaizens(map);
+        }
+      })
+      .catch((err) => console.error("Failed to load linked kaizen status", err));
+  }, [activities, customerId]);
+
+  const kanbanStatusLabel = (status?: string) => {
+    if (status === "ACT") return "Standardizasyon";
+    if (status === "CHECK") return "Kontrol";
+    if (status === "DO") return "Uygulama";
+    return "Planlama";
+  };
 
   // 1. Calculations
   const currentSetupTime = useMemo(() => {
@@ -139,13 +176,15 @@ export default function ConversionSimulatorTab({
 
   // Handler: Handle Row field changes and sync to parent/localStorage
   const handleRowChange = (id: number, field: string, value: any) => {
+    handleRowChangeMulti(id, { [field]: value });
+  };
+
+  // Same as handleRowChange but applies several field changes in one pass, avoiding lost updates
+  // when two fields need to change together (activities is a prop, so sequential calls would each
+  // read the same stale closure and clobber each other's change).
+  const handleRowChangeMulti = (id: number, fields: Record<string, any>) => {
     if (!onChangeActivities) return;
-    const updated = activities.map((a) => {
-      if (a.id === id) {
-        return { ...a, [field]: value };
-      }
-      return a;
-    });
+    const updated = activities.map((a) => (a.id === id ? { ...a, ...fields } : a));
     onChangeActivities(updated);
   };
 
@@ -163,7 +202,7 @@ export default function ConversionSimulatorTab({
       department: "Üretim / Montaj",
       dateProposed: new Date().toISOString().split("T")[0],
       impactLevel: gainedDuration > 10 ? "High" : gainedDuration > 4 ? "Medium" : "Low",
-      estimatedCost: 15000,
+      estimatedCost: 0, // Gerçek uygulama maliyeti henüz bilinmiyor; CI Proje Yönetimi'nde tamamlanır
       actualSavings: 0,
       status: "Draft",
       kanbanStatus: "PLAN",
@@ -171,11 +210,14 @@ export default function ConversionSimulatorTab({
       descriptionAfter: `Önerilen Yalın Aksiyon: ${suggestedAction}\nHedeflenen Kazanım: -${gainedDuration} dakika\nDönüşüm Durumu: ${act.type === "external" && act.originalType === "internal" ? "Dış Hazırlığa Dönüştürüldü" : "Süre Kısaltıldı"}`,
       projectLeader: suggestedResponsible,
       plannedFinishDate: suggestedDate,
-      expectedGain: gainedDuration * 4500, // simple financial scale based on machine hour cost
+      // Kazanılan dakikayı saate çevirip modülün gerçek makine saatlik maliyet parametresiyle (Finansal
+      // Etki Fizibilitesi sekmesi) çarpıyoruz; sabit ₺4500 ve dakika/saat karışıklığı düzeltildi.
+      expectedGain: Math.round((gainedDuration / 60) * machineCostPerHour),
       expectedGainCurrency: "TL",
       problemDefinition: `${act.name} adımı ${act.dur} dakika sürerek makine duruş süresini artırmaktadır.`,
       improvementActions: suggestedAction,
-      responsibles: suggestedResponsible
+      responsibles: suggestedResponsible,
+      factory_id: customerId
     };
 
     try {
@@ -184,14 +226,16 @@ export default function ConversionSimulatorTab({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
+          "Authorization": `Bearer ${token}`,
+          ...(customerId ? { "x-factory-id": customerId } : {})
         },
         body: JSON.stringify(payload)
       }).then((r) => r.json());
 
       if (res.success) {
-        // Mark as exported in local activity state
-        handleRowChange(act.id, "opportunity", "exported_ci"); // we can hijack a field or use opportunity
+        // Mark as exported using dedicated traceability fields (no longer hijacks "opportunity")
+        handleRowChangeMulti(act.id, { ciKaizenId: res.data.id, ciExportedAt: new Date().toISOString() });
+        window.dispatchEvent(new CustomEvent("gemba:refresh-factory-data"));
         triggerToast(`"${act.name}" başarıyla CI Proje Yönetimi formuna taşındı ve Aksiyon Takip Kartı oluşturuldu!`, "success");
       } else {
         throw new Error(res.error || "Aktarım başarısız oldu.");
@@ -280,7 +324,7 @@ export default function ConversionSimulatorTab({
       
       {/* Dynamic Success/Error Toast notification */}
       {toastMessage && (
-        <div className={`fixed top-4 right-4 z-50 flex items-center space-x-2 px-4 py-3 rounded-xl shadow-lg border text-xs font-bold transition-all animate-bounce ${
+        <div className={`fixed top-4 right-4 z-50 flex items-center space-x-2 px-4 py-3 rounded-xl shadow-lg border text-xs font-bold animate-toast-in ${
           toastMessage.type === "success" 
             ? "bg-emerald-50 border-emerald-200 text-emerald-800" 
             : toastMessage.type === "error"
@@ -300,7 +344,7 @@ export default function ConversionSimulatorTab({
             <Clock className="w-4 h-4" />
           </div>
           <div>
-            <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider block">Mevcut Setup Süresi</span>
+            <span className="text-[11px] text-slate-400 font-extrabold uppercase tracking-wider block">Mevcut Setup Süresi</span>
             <div className="text-2xl font-black text-slate-900 mt-1 font-mono">{currentSetupTime} dk</div>
           </div>
           <p className="text-[10px] text-slate-400 font-semibold mt-2 border-t border-slate-100 pt-1.5">Mevcut toplam ölçüm süresi</p>
@@ -312,7 +356,7 @@ export default function ConversionSimulatorTab({
             <CheckSquare className="w-4 h-4" />
           </div>
           <div>
-            <span className="text-[9px] text-red-700 font-extrabold uppercase tracking-wider block">İç Hazırlık Süre & Oran</span>
+            <span className="text-[11px] text-red-700 font-extrabold uppercase tracking-wider block">İç Hazırlık Süre & Oran</span>
             <div className="text-2xl font-black text-red-800 mt-1 font-mono">
               {currentInternalDuration} dk <span className="text-xs font-extrabold text-red-500">%{currentInternalRatio}</span>
             </div>
@@ -326,7 +370,7 @@ export default function ConversionSimulatorTab({
             <TrendingUp className="w-4 h-4" />
           </div>
           <div>
-            <span className="text-[9px] text-emerald-700 font-extrabold uppercase tracking-wider block">Dış Hazırlık Süre & Oran</span>
+            <span className="text-[11px] text-emerald-700 font-extrabold uppercase tracking-wider block">Dış Hazırlık Süre & Oran</span>
             <div className="text-2xl font-black text-emerald-800 mt-1 font-mono">
               {currentExternalDuration} dk <span className="text-xs font-extrabold text-emerald-500">%{currentExternalRatio}</span>
             </div>
@@ -340,7 +384,7 @@ export default function ConversionSimulatorTab({
             <Award className="w-4 h-4" />
           </div>
           <div>
-            <span className="text-[9px] text-blue-700 font-extrabold uppercase tracking-wider block">Faz 1 Kazanım Hedefi</span>
+            <span className="text-[11px] text-blue-700 font-extrabold uppercase tracking-wider block">Faz 1 Kazanım Hedefi</span>
             <div className="text-2xl font-black text-blue-800 mt-1 font-mono">
               -{phase1Gain} dk <span className="text-xs font-extrabold text-blue-500">%{phase1GainPercent}</span>
             </div>
@@ -354,7 +398,7 @@ export default function ConversionSimulatorTab({
             <Zap className="w-4 h-4" />
           </div>
           <div>
-            <span className="text-[9px] text-purple-700 font-extrabold uppercase tracking-wider block">Faz 2 Kazanım Hedefi</span>
+            <span className="text-[11px] text-purple-700 font-extrabold uppercase tracking-wider block">Faz 2 Kazanım Hedefi</span>
             <div className="text-2xl font-black text-purple-800 mt-1 font-mono">
               -{phase2Gain} dk <span className="text-xs font-extrabold text-purple-500">%{phase2GainPercent}</span>
             </div>
@@ -418,7 +462,7 @@ export default function ConversionSimulatorTab({
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="border-b border-slate-150 bg-slate-50 text-slate-500 font-extrabold uppercase tracking-wider text-[9px]">
+                <tr className="border-b border-slate-150 bg-slate-50 text-slate-500 font-extrabold uppercase tracking-wider text-[11px]">
                   <th className="py-2.5 px-3 w-10 text-center">No</th>
                   <th className="py-2.5 px-3 w-52">Gözlem Adımı / Kategori</th>
                   <th className="py-2.5 px-3">Alt Faaliyet Tanımlaması (İyileştirme Aksiyonu)</th>
@@ -432,7 +476,7 @@ export default function ConversionSimulatorTab({
               <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
                 {filteredActivities.map((act, index) => {
                   const gainedMin = getEcrsGain(act) + (act.originalType === "internal" && act.type === "external" ? act.dur : 0);
-                  const isExported = act.opportunity === "exported_ci";
+                  const isExported = !!act.ciKaizenId;
 
                   return (
                     <tr key={act.id} className="hover:bg-slate-50/55 transition-colors">
@@ -442,7 +486,7 @@ export default function ConversionSimulatorTab({
                       {/* Observed Step & Category */}
                       <td className="py-3 px-3 space-y-0.5">
                         <div className="font-bold text-slate-900 truncate max-w-[200px]" title={act.name}>{act.name}</div>
-                        <div className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">{act.category || "Genel"}</div>
+                        <div className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">{act.category || "Genel"}</div>
                       </td>
 
                       {/* Alt Faaliyet Tanımlaması (Interactive Action Field) */}
@@ -517,13 +561,20 @@ export default function ConversionSimulatorTab({
                       {/* CI Proje Yönetimine Taşı Action Button */}
                       <td className="py-2 px-2 text-center">
                         {isExported ? (
-                          <button
-                            disabled
-                            className="inline-flex items-center justify-center space-x-1 px-2.5 py-1.5 rounded-lg text-[10px] font-extrabold bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed w-full"
-                          >
-                            <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                            <span>CI'a Taşındı</span>
-                          </button>
+                          <div className="space-y-1">
+                            <button
+                              disabled
+                              className="inline-flex items-center justify-center space-x-1 px-2.5 py-1.5 rounded-lg text-[10px] font-extrabold bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed w-full"
+                            >
+                              <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                              <span>CI'a Taşındı</span>
+                            </button>
+                            {act.ciKaizenId && linkedKaizens[act.ciKaizenId] && (
+                              <span className="block text-[9px] font-black text-blue-600 uppercase tracking-wider">
+                                {kanbanStatusLabel(linkedKaizens[act.ciKaizenId].kanbanStatus)}
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <button
                             onClick={() => handleExportToCI(act)}

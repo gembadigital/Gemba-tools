@@ -10,7 +10,7 @@ interface AdminUsersProps {
 export default function AdminUsers({ token, currentUser, currentOrg }: AdminUsersProps) {
   const [users, setUsers] = useState<any[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"Admin" | "User">("User");
+  const [inviteRole, setInviteRole] = useState<"Admin" | "Consultant" | "Customer User">("Customer User");
   
   // Feedback states
   const [errorUsers, setErrorUsers] = useState<string | null>(null);
@@ -85,10 +85,9 @@ export default function AdminUsers({ token, currentUser, currentOrg }: AdminUser
     }
   };
 
-  const handleToggleRole = async (targetId: string, currentRole: string) => {
+  const handleChangeRole = async (targetId: string, newRole: string) => {
     setErrorUsers(null);
     setSuccessUsers(null);
-    const newRole = currentRole === "Admin" ? "User" : "Admin";
 
     try {
       const resp = await fetch(`/api/admin/users/${targetId}/role`, {
@@ -311,7 +310,7 @@ export default function AdminUsers({ token, currentUser, currentOrg }: AdminUser
                             {u.full_name?.slice(0, 2).toUpperCase()}
                           </div>
                           <span className="font-black text-gray-950 text-[11px]">
-                            {u.full_name} {isSelf && <span className="text-[9px] text-indigo-600">(Siz)</span>}
+                            {u.full_name} {isSelf && <span className="text-[11px] text-indigo-600">(Siz)</span>}
                           </span>
                         </div>
                       </td>
@@ -319,25 +318,29 @@ export default function AdminUsers({ token, currentUser, currentOrg }: AdminUser
                         {u.email}
                       </td>
                       <td className="px-5 py-3.5 text-center">
-                        <button
-                          type="button"
+                        <select
                           disabled={isSelf}
-                          onClick={() => handleToggleRole(u.id, u.role)}
-                          className={`px-2 py-0.5 text-[9px] rounded font-extrabold cursor-pointer border select-none transition-colors ${
+                          value={u.role}
+                          onChange={(e) => handleChangeRole(u.id, e.target.value)}
+                          className={`px-2 py-1 text-[11px] rounded font-extrabold cursor-pointer border select-none transition-colors ${
                             u.role === "Admin"
-                              ? "bg-slate-900 border-slate-800 text-white hover:bg-slate-800"
-                              : "bg-white border-slate-200 text-slate-650 hover:bg-slate-100"
+                              ? "bg-slate-900 border-slate-800 text-white"
+                              : u.role === "Consultant"
+                              ? "bg-indigo-50 border-indigo-200 text-indigo-800"
+                              : "bg-white border-slate-200 text-slate-650"
                           }`}
                         >
-                          {u.role === "Admin" ? "Yönetici" : "Standart"}
-                        </button>
+                          <option value="Admin">Yönetici</option>
+                          <option value="Consultant">Danışman</option>
+                          <option value="Customer User">Müşteri Kullanıcısı</option>
+                        </select>
                       </td>
                       <td className="px-5 py-3.5 text-center">
                         <button
                           type="button"
                           disabled={isSelf}
                           onClick={() => handleToggleStatus(u.id, u.status)}
-                          className={`px-2 py-0.5 text-[9px] rounded font-extrabold select-none border transition-colors cursor-pointer ${
+                          className={`px-2 py-0.5 text-[11px] rounded font-extrabold select-none border transition-colors cursor-pointer ${
                             u.status === "Active"
                               ? "bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100"
                               : "bg-red-50 border-red-200 text-red-800 hover:bg-red-100"
@@ -425,8 +428,9 @@ export default function AdminUsers({ token, currentUser, currentOrg }: AdminUser
                 onChange={(e) => setInviteRole(e.target.value as any)}
                 className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-slate-900 text-slate-800"
               >
-                <option value="User">Standart Üye (Standard Workspace Access)</option>
-                <option value="Admin">Hükmeden / Yönetici (Full Administrative Controls)</option>
+                <option value="Customer User">Müşteri Kullanıcısı (Standard Workspace Access)</option>
+                <option value="Consultant">Danışman (Consultant)</option>
+                <option value="Admin">Yönetici (Full Administrative Controls)</option>
               </select>
             </div>
 

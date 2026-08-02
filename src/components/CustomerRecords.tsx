@@ -15,6 +15,7 @@ import ProjectPortfolioTab from "./workspace/ProjectPortfolioTab";
 import AssetRegistryTab from "./workspace/AssetRegistryTab";
 import TimelineTab from "./workspace/TimelineTab";
 import ProjectTeamTab from "./workspace/ProjectTeamTab";
+import AiSummaryTab from "./workspace/AiSummaryTab";
 
 interface CustomerRecordsProps {
   customers: Customer[];
@@ -28,6 +29,9 @@ interface CustomerRecordsProps {
   reportText?: string | null;
   setReportText?: (val: string | null) => void;
   aiError?: string | null;
+  token?: string;
+  currentUser?: any;
+  onRefreshCustomers?: () => void;
 }
 
 export default function CustomerRecords({
@@ -41,7 +45,10 @@ export default function CustomerRecords({
   isAiLoading = false,
   reportText = null,
   setReportText,
-  aiError = null
+  aiError = null,
+  token = "",
+  currentUser,
+  onRefreshCustomers
 }: CustomerRecordsProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [industryFilter, setIndustryFilter] = useState("all");
@@ -84,7 +91,7 @@ export default function CustomerRecords({
   };
 
   // Active Workspace tab
-  const [activeTab, setActiveTab] = useState<"dashboard" | "profile" | "projects" | "team" | "assets" | "timeline" | "documents">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "profile" | "projects" | "team" | "assets" | "timeline" | "documents" | "aiSummary">("dashboard");
 
   // Extended Workspace state for active customer
   const [workspace, setWorkspace] = useState<CompanyWorkspaceExtended | null>(null);
@@ -96,6 +103,7 @@ export default function CustomerRecords({
     industry: "Otomotiv",
     productionType: "Seri İmalat (Mass)",
     annualRevenue: 5000000,
+    currency: "₺",
     employeeCount: 150,
     mainContactPerson: "",
     mainContactEmail: "",
@@ -215,7 +223,7 @@ export default function CustomerRecords({
       industry: newCustState.industry,
       productionType: newCustState.productionType,
       annualRevenue: Number(newCustState.annualRevenue) || 1000000,
-      currency: "₺",
+      currency: newCustState.currency || "₺",
       employeeCount: Number(newCustState.employeeCount) || 50,
       mainContactPerson: newCustState.mainContactPerson,
       mainContactEmail: newCustState.mainContactEmail,
@@ -241,6 +249,7 @@ export default function CustomerRecords({
       industry: "Otomotiv",
       productionType: "Seri İmalat (Mass)",
       annualRevenue: 5000000,
+      currency: "₺",
       employeeCount: 150,
       mainContactPerson: "",
       mainContactEmail: "",
@@ -255,7 +264,8 @@ export default function CustomerRecords({
     { id: "team", label: "Proje Ekibi", icon: Users },
     { id: "assets", label: "Fabrika Varlıkları", icon: Building },
     { id: "timeline", label: "Proje Geçmişi", icon: Building },
-    { id: "documents", label: "Belgeler", icon: Building }
+    { id: "documents", label: "Belgeler", icon: Building },
+    { id: "aiSummary", label: "AI Özet", icon: Sparkles }
   ] as const;
 
   return (
@@ -265,7 +275,7 @@ export default function CustomerRecords({
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-gray-900 text-xs flex items-center gap-1.5">
             <Users className="w-4 h-4 text-zinc-600" />
-            Müşteri Kartoteksi ({filteredCustomers.length})
+            Müşteri Kartı ({filteredCustomers.length})
           </h3>
           <button
             id="btn-add-customer-modal-trigger"
@@ -325,7 +335,7 @@ export default function CustomerRecords({
               >
                 <div className="flex justify-between items-start mb-2">
                   <h4 className="font-semibold text-xs line-clamp-1">{cust.companyName}</h4>
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded-sm font-semibold ${
+                  <span className={`text-[11px] px-1.5 py-0.5 rounded-sm font-semibold ${
                     isSelected ? "bg-zinc-800 text-zinc-300" : "bg-gray-100 text-gray-500"
                   }`}>
                     %{cust.copexScore || 50}
@@ -402,6 +412,17 @@ export default function CustomerRecords({
                 >
                   {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
                 </button>
+
+                {currentUser?.role !== "Customer User" && (
+                  <button
+                    id="btn-delete-selected-customer"
+                    onClick={() => onDeleteCustomer(selectedCustomer.id)}
+                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    title="Müşteri Kartını Sil"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -462,15 +483,15 @@ export default function CustomerRecords({
                 />
               )}
 
-              {activeTab === "team" && (
+              {activeTab === "team" && selectedCustomer && (
                 <ProjectTeamTab
                   workspace={workspace}
-                  onUpdateTeam={(updatedTeam, updatedConsultants) => {
-                    saveWorkspaceData({ 
-                      ...workspace, 
-                      projectTeam: updatedTeam, 
-                      ...(updatedConsultants ? { projectConsultants: updatedConsultants } : {}) 
-                    });
+                  customer={selectedCustomer}
+                  token={token}
+                  currentUser={currentUser}
+                  onRefreshCustomers={onRefreshCustomers}
+                  onUpdateTeam={(updatedTeam) => {
+                    saveWorkspaceData({ ...workspace, projectTeam: updatedTeam });
                   }}
                 />
               )}
@@ -489,6 +510,15 @@ export default function CustomerRecords({
                   workspace={workspace}
                   onUpdateTimeline={(updatedTimeline) => {
                     saveWorkspaceData({ ...workspace, timeline: updatedTimeline });
+                  }}
+                />
+              )}
+
+              {activeTab === "aiSummary" && (
+                <AiSummaryTab
+                  workspace={workspace}
+                  onUpdateCachedSummary={(summary) => {
+                    saveWorkspaceData({ ...workspace, aiSummaryCached: summary });
                   }}
                 />
               )}
@@ -577,14 +607,28 @@ export default function CustomerRecords({
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase">Yıllık Ciro (Milyon ₺)</label>
-                  <input
-                    id="input-modal-annualRevenue"
-                    type="number"
-                    value={newCustState.annualRevenue}
-                    onChange={(e) => setNewCustState({ ...newCustState, annualRevenue: parseInt(e.target.value) || 0 })}
-                    className="px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden"
-                  />
+                  <label className="text-[10px] font-bold text-gray-400 uppercase">Yıllık Ciro (Milyon)</label>
+                  <div className="flex gap-1.5">
+                    <input
+                      id="input-modal-annualRevenue"
+                      type="number"
+                      value={newCustState.annualRevenue}
+                      onChange={(e) => setNewCustState({ ...newCustState, annualRevenue: parseInt(e.target.value) || 0 })}
+                      className="flex-1 min-w-0 px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden"
+                    />
+                    <select
+                      id="input-modal-currency"
+                      value={newCustState.currency}
+                      onChange={(e) => setNewCustState({ ...newCustState, currency: e.target.value })}
+                      className="px-2 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden bg-white font-bold"
+                      title="Para Birimi — bu müşterinin tüm modüllerdeki (VSM, Loss Analizi vb.) finansal alanları bu birimi kullanır"
+                    >
+                      <option value="₺">₺ TRY</option>
+                      <option value="$">$ USD</option>
+                      <option value="€">€ EUR</option>
+                      <option value="£">£ GBP</option>
+                    </select>
+                  </div>
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold text-gray-400 uppercase">Çalışan Sayısı</label>

@@ -238,7 +238,7 @@ export default function ActivityListTab({ activities, onChangeActivities }: Acti
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
-            <label className="text-[9px] font-black uppercase text-slate-400 block mb-1">Sıra No</label>
+            <label className="text-[11px] font-black uppercase text-slate-400 block mb-1">Sıra No</label>
             <input
               type="number"
               className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 bg-slate-50"
@@ -247,7 +247,7 @@ export default function ActivityListTab({ activities, onChangeActivities }: Acti
             />
           </div>
           <div className="lg:col-span-3">
-            <label className="text-[9px] font-black uppercase text-slate-400 block mb-1">Gözlenen İşlem Adımı</label>
+            <label className="text-[11px] font-black uppercase text-slate-400 block mb-1">Gözlenen İşlem Adımı</label>
             <input
               type="text"
               required
@@ -261,7 +261,7 @@ export default function ActivityListTab({ activities, onChangeActivities }: Acti
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
-            <label className="text-[9px] font-black uppercase text-slate-400 block mb-1">Başlangıç Saati</label>
+            <label className="text-[11px] font-black uppercase text-slate-400 block mb-1">Başlangıç Saati</label>
             <input
               type="text"
               className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-800"
@@ -271,7 +271,7 @@ export default function ActivityListTab({ activities, onChangeActivities }: Acti
             />
           </div>
           <div>
-            <label className="text-[9px] font-black uppercase text-slate-400 block mb-1">Bitiş Saati</label>
+            <label className="text-[11px] font-black uppercase text-slate-400 block mb-1">Bitiş Saati</label>
             <input
               type="text"
               className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-800"
@@ -281,7 +281,7 @@ export default function ActivityListTab({ activities, onChangeActivities }: Acti
             />
           </div>
           <div>
-            <label className="text-[9px] font-black uppercase text-slate-400 block mb-1">Süre (Dakika)</label>
+            <label className="text-[11px] font-black uppercase text-slate-400 block mb-1">Süre (Dakika)</label>
             <div className="relative">
               <input
                 type="number"
@@ -294,14 +294,14 @@ export default function ActivityListTab({ activities, onChangeActivities }: Acti
                 disabled={!!(startTime && endTime)}
               />
               {startTime && endTime && (
-                <span className="absolute right-2 top-2 text-[8px] bg-green-100 text-green-800 font-extrabold px-1 py-0.5 rounded">
+                <span className="absolute right-2 top-2 text-[11px] bg-green-100 text-green-800 font-extrabold px-1 py-0.5 rounded">
                   Oto Hesap
                 </span>
               )}
             </div>
           </div>
           <div>
-            <label className="text-[9px] font-black uppercase text-slate-400 block mb-1">Operatör / Setter Sayısı</label>
+            <label className="text-[11px] font-black uppercase text-slate-400 block mb-1">Operatör / Setter Sayısı</label>
             <input
               type="number"
               className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-800"
@@ -313,7 +313,7 @@ export default function ActivityListTab({ activities, onChangeActivities }: Acti
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="text-[9px] font-black uppercase text-slate-400 block mb-1">Operatör Tanımı</label>
+            <label className="text-[11px] font-black uppercase text-slate-400 block mb-1">Operatör Tanımı</label>
             <input
               type="text"
               className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-800"
@@ -323,7 +323,7 @@ export default function ActivityListTab({ activities, onChangeActivities }: Acti
             />
           </div>
           <div>
-            <label className="text-[9px] font-black uppercase text-slate-400 block mb-1">Faaliyet Kategorisi</label>
+            <label className="text-[11px] font-black uppercase text-slate-400 block mb-1">Faaliyet Kategorisi</label>
             <select
               className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-800"
               value={category}
@@ -431,7 +431,7 @@ export default function ActivityListTab({ activities, onChangeActivities }: Acti
                       {act.ecrsSteps && act.ecrsSteps.length > 0 && (
                         <div className="flex gap-1 mt-1">
                           {act.ecrsSteps.map((step) => (
-                            <span key={step} className="text-[8px] bg-purple-100 text-purple-800 px-1 py-0.2 rounded font-black">
+                            <span key={step} className="text-[11px] bg-purple-100 text-purple-800 px-1 py-0.2 rounded font-black">
                               ECRS: {step === "E" ? "Eleme" : step === "C" ? "Birleştirme" : step === "R" ? "Yeniden Düzenleme" : "Basitleştirme"}
                             </span>
                           ))}
