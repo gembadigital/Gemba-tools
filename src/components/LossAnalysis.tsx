@@ -16,8 +16,7 @@ import autoTable from "jspdf-autotable";
 
 import { useFactory } from "../context/FactoryContext";
 import { ProcessItem, CalculatedProcess, IndustryType } from "./loss-analysis/types";
-import { 
-  DEFAULT_PROCESS_PRESETS, 
+import {
   INDUSTRY_BENCHMARKS,
   calculateProcessesData,
   calculateFinancialImpact,
@@ -496,13 +495,15 @@ export default function LossAnalysis() {
         });
         setProcesses(mapped);
       } else {
-        setProcesses(DEFAULT_PROCESS_PRESETS);
+        // No real process records for this factory yet — show a genuinely empty state, not a
+        // silent stand-in dataset that renders as if it were this customer's real loss figures.
+        setProcesses([]);
       }
       setIsLoading(false);
     })
     .catch(err => {
       console.error("Failed to load processes in LossAnalysis", err);
-      setProcesses(DEFAULT_PROCESS_PRESETS);
+      setProcesses([]);
       setIsLoading(false);
     });
   }, [selectedCustomerId, token]);
@@ -670,7 +671,7 @@ export default function LossAnalysis() {
     setProcesses(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
   };
 
-  const activeProcesses = processes.length > 0 ? processes : DEFAULT_PROCESS_PRESETS;
+  const activeProcesses = processes;
 
   // Run analytical models & algorithms
   const defaultDemand = 1100;
@@ -775,6 +776,10 @@ export default function LossAnalysis() {
   // category's .year value — confirmed against helpers.ts before wiring this in).
   const copqData: typeof copqDataBase = !hasActiveCostOverrides ? copqDataBase : calculateCOPQ(calculatedProcesses, effectiveRevenue, financialImpact);
   const hiddenFactoryData: typeof hiddenFactoryDataBase = !hasActiveCostOverrides ? hiddenFactoryDataBase : calculateHiddenFactory(calculatedProcesses, effectiveRevenue, copqData, financialImpact);
+
+  // Guarded so a zero-revenue empty state (no company data entered yet) reads as 0%, not
+  // "%Infinity"/"%NaN" — reused everywhere this ratio is displayed below.
+  const lossToRevenuePercent = effectiveRevenue > 0 ? (financialImpact.totalOperationalLosses.year / effectiveRevenue) * 100 : 0;
 
   // Global Lean summaries
   const avgOee = calculatedProcesses.reduce((s, p) => s + p.oee, 0) / Math.max(1, calculatedProcesses.length);
@@ -2045,7 +2050,7 @@ export default function LossAnalysis() {
                   <AlertTriangle className="w-4 h-4 text-rose-500" />
                 </div>
                 <div className="text-xl font-black font-mono tracking-tight text-rose-400">{formatMoney(financialImpact.totalOperationalLosses.year)}</div>
-                <div className="text-[10px] opacity-80 text-rose-350 font-black">Cironun %{((financialImpact.totalOperationalLosses.year / effectiveRevenue)*100).toFixed(1)} kadarını israflarla kaybediyorsunuz</div>
+                <div className="text-[10px] opacity-80 text-rose-350 font-black">Cironun %{lossToRevenuePercent.toFixed(1)} kadarını israflarla kaybediyorsunuz</div>
               </div>
 
               <div className="bg-white border rounded-2xl p-5 shadow-xs flex flex-col justify-between h-32 border-slate-200 text-slate-900">
@@ -2548,7 +2553,7 @@ export default function LossAnalysis() {
                       {formatMoney(financialImpact.totalOperationalLosses.year)}
                     </span>
                     <span className="text-[9.5px] text-slate-400 block font-sans">
-                      Cironun %{((financialImpact.totalOperationalLosses.year / effectiveRevenue)*100).toFixed(1)} erimesi
+                      Cironun %{lossToRevenuePercent.toFixed(1)} erimesi
                     </span>
                   </div>
 
@@ -2565,10 +2570,10 @@ export default function LossAnalysis() {
                   <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60 space-y-1">
                     <span className="text-[10px] text-indigo-300 font-extrabold uppercase font-sans block">Hedeflenen Yeni Kâr Marjı</span>
                     <span className="text-sm font-black text-indigo-300 block">
-                      %{((operatingProfitPercent + (financialImpact.totalOperationalLosses.year / effectiveRevenue)*50)).toFixed(1)}
+                      %{(operatingProfitPercent + lossToRevenuePercent / 2).toFixed(1)}
                     </span>
                     <span className="text-[9.5px] text-slate-400 block font-sans">
-                      Mevcut: %{operatingProfitPercent.toFixed(1)} -&gt; Hedef: +%{(financialImpact.totalOperationalLosses.year / effectiveRevenue * 50).toFixed(1)}
+                      Mevcut: %{operatingProfitPercent.toFixed(1)} -&gt; Hedef: +%{(lossToRevenuePercent / 2).toFixed(1)}
                     </span>
                   </div>
                 </div>
@@ -2648,8 +2653,8 @@ export default function LossAnalysis() {
                       <strong>Operasyonel Maliyet Kontrol Özeti:</strong>
                       <br />
                       Saha VSM (Değer Akış Haritalama) ve kayıp verilerimiz doğrudan bu finansal modelle paralel çalışmaktadır. 
-                      Hesaplanan yıllık toplam kaybımız <span className="font-bold text-rose-600 font-mono">{formatMoney(financialImpact.totalOperationalLosses.year)}</span> olup, bu durum ciromuzun <span className="font-bold font-mono">%{((financialImpact.totalOperationalLosses.year / effectiveRevenue)*100).toFixed(1)}</span> oranında erimesine yol açmaktadır.
-                      Yalın projelerle bu kayıpları geri kazanmak, faaliyet kârımızı <span className="font-black text-emerald-600 font-mono">%{operatingProfitPercent.toFixed(1)}</span> seviyesinden teorik olarak <span className="font-black text-indigo-600 font-mono">%{((operatingProfitPercent + (financialImpact.totalOperationalLosses.year / effectiveRevenue)*100)).toFixed(1)}</span> oranına taşıyabilir.
+                      Hesaplanan yıllık toplam kaybımız <span className="font-bold text-rose-600 font-mono">{formatMoney(financialImpact.totalOperationalLosses.year)}</span> olup, bu durum ciromuzun <span className="font-bold font-mono">%{lossToRevenuePercent.toFixed(1)}</span> oranında erimesine yol açmaktadır.
+                      Yalın projelerle bu kayıpları geri kazanmak, faaliyet kârımızı <span className="font-black text-emerald-600 font-mono">%{operatingProfitPercent.toFixed(1)}</span> seviyesinden teorik olarak <span className="font-black text-indigo-600 font-mono">%{(operatingProfitPercent + lossToRevenuePercent).toFixed(1)}</span> oranına taşıyabilir.
                     </p>
 
                     <div className="grid grid-cols-3 gap-2.5">
