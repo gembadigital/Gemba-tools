@@ -1,9 +1,9 @@
 import express from "express";
 import { GoogleGenAI } from "@google/genai";
-import { db, hashPassword, verifyPassword, needsRehash, User } from "./db";
+import { db, hashPassword, verifyPassword, needsRehash, User } from "./db.js";
 import jwt from "jsonwebtoken";
 import nodemailer from "nodemailer";
-import { generatePtrTemplateExcel, isPtrTemplateAvailable, PtrTemplateRecord } from "./ptrExcelTemplate";
+import { generatePtrTemplateExcel, isPtrTemplateAvailable, PtrTemplateRecord } from "./ptrExcelTemplate.js";
 import * as XLSX from "xlsx";
 
 // This module only builds and configures the Express app (all /api/* routes) and exports it —
