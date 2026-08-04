@@ -138,16 +138,14 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
         
         {/* LOGO FRAMEWORK — icon on top, "Gemba Tools" wordmark stacked directly below it */}
         <div className="flex flex-col items-center justify-center mb-6">
-          <div className="bg-white px-8 py-5 rounded-2xl border border-slate-200/60 shadow-sm inline-flex flex-col items-center justify-center">
-            <img
-              src={gembaLogo}
-              alt="Gemba Tools Logo"
-              className="h-14 w-auto object-contain select-none"
-            />
-            <span className="text-xl font-black text-gray-900 tracking-tight mt-1.5">Gemba Tools</span>
-          </div>
+          <img
+            src={gembaLogo}
+            alt="Gemba Tools Logo"
+            className="h-14 w-auto object-contain select-none"
+          />
+          <span className="text-xl font-black text-gray-900 tracking-tight mt-1.5">Gemba Tools</span>
           <span className="text-[11px] text-slate-400 uppercase tracking-widest font-black mt-2">
-            Yalın CoPX & Çoklu Kiracı Yönetimi
+            OPEX Yönetim Araçları
           </span>
         </div>
       </div>
@@ -381,10 +379,10 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
         <img
           src={gembaDigitalWordmark}
           alt="Gemba Digital Logo"
-          className="h-10 w-auto object-contain max-w-[180px] opacity-80"
+          className="h-16 w-auto object-contain max-w-[288px] opacity-80"
         />
         <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase mt-1.5">
-          Corporate Signature
+          Digital Tools for Excellence
         </span>
       </div>
     </div>

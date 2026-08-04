@@ -663,7 +663,7 @@ export default function App() {
           <img
             src={gembaGIcon}
             alt="Gemba Tools Logo"
-            className="h-10 sm:h-12 w-auto object-contain shrink-0 select-none"
+            className="h-5 sm:h-6 w-auto object-contain shrink-0 select-none"
           />
           <h1 className="text-base sm:text-xl font-black text-gray-900 tracking-tight leading-none">GEMBA TOOLS</h1>
         </div>
@@ -989,7 +989,7 @@ export default function App() {
                     />
                   </div>
                   <span className="text-[11px] font-black tracking-widest text-slate-400 uppercase leading-none mt-0.5">
-                    Corporate Signature
+                    Digital Tools for Excellence
                   </span>
                 </div>
               ) : (
