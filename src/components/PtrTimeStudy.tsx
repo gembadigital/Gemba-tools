@@ -1355,7 +1355,11 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${(selectedCustomer?.companyName || "musteri").replace(/\s+/g, "_")}-${new Date().toISOString().split("T")[0]}.xlsx`;
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, "0");
+      const dd = String(today.getDate()).padStart(2, "0");
+      link.download = `${selectedCustomer?.companyName || "Müşteri"}-${yyyy}${mm}-${dd}.xlsx`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

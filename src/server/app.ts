@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 import { db, hashPassword, verifyPassword, needsRehash, User } from "./db.js";
 import jwt from "jsonwebtoken";
 import nodemailer from "nodemailer";
-import { generatePtrTemplateExcel, isPtrTemplateAvailable, PtrTemplateRecord } from "./ptrExcelTemplate.js";
+import { generatePtrTemplateExcel, isPtrTemplateAvailable, buildPtrExportFilename, PtrTemplateRecord } from "./ptrExcelTemplate.js";
 import * as XLSX from "xlsx";
 
 // This module only builds and configures the Express app (all /api/* routes) and exports it —
@@ -1310,7 +1310,7 @@ app.get("/api/business/ptr-records/export-template-excel", authenticateToken, as
   try {
     const buffer = await generatePtrTemplateExcel(records, customerName);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(customerName)}-${new Date().toISOString().split("T")[0]}.xlsx"`);
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(buildPtrExportFilename(customerName))}"`);
     res.send(buffer);
   } catch (e: any) {
     console.error("Failed to generate PTR template Excel", e);
@@ -1354,7 +1354,7 @@ app.post("/api/business/ptr-records/send-weekly-report", authenticateToken, asyn
       to: recipientEmail,
       subject,
       text: body,
-      attachments: [{ filename: `${customerName}-Hafta${week}-Rapor.xlsx`, content: buffer }]
+      attachments: [{ filename: buildPtrExportFilename(customerName), content: buffer }]
     });
     if (!result.success) {
       res.status(503).json(result);

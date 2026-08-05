@@ -36,6 +36,16 @@ export function isPtrTemplateAvailable(): boolean {
   return fs.existsSync(TEMPLATE_PATH);
 }
 
+// Matches the firm's own file-naming convention (e.g. "Müşteri ismi-202607-27.xlsx" —
+// customer name, then year+month run together, then day) for both direct downloads and emailed
+// report attachments, so a file lands with the same name however it reaches the consultant.
+export function buildPtrExportFilename(customerName: string, date: Date = new Date()): string {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${customerName}-${yyyy}${mm}-${dd}.xlsx`;
+}
+
 function parseTurkishDateToExcelSerial(dateStr: string): number | null {
   if (!dateStr) return null;
   const parts = dateStr.trim().split(".");
