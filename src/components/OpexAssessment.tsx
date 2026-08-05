@@ -174,17 +174,22 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
   const [questionBankSaving, setQuestionBankSaving] = useState<string | null>(null);
 
   const handleUpdateQuestionWeight = async (question: OpexQuestion, newWeight: number) => {
-    if (!token || Number.isNaN(newWeight) || newWeight < 0) return;
+    if (Number.isNaN(newWeight) || newWeight < 0) return;
+    handleUpdateQuestionField(question, { weight: newWeight });
+  };
+
+  const handleUpdateQuestionField = async (question: OpexQuestion, updates: Partial<OpexQuestion>) => {
+    if (!token) return;
     setQuestionBankSaving(question.id);
-    setQuestions(prev => prev.map(q => q.id === question.id ? { ...q, weight: newWeight } : q));
+    setQuestions(prev => prev.map(q => q.id === question.id ? { ...q, ...updates } : q));
     try {
       await fetch("/api/business/opex-questions", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ ...question, weight: newWeight })
+        body: JSON.stringify({ ...question, ...updates })
       }).then(r => r.json());
     } catch (e) {
-      console.error("Failed to save question weight", e);
+      console.error("Failed to save question", e);
     } finally {
       setQuestionBankSaving(null);
     }
@@ -1195,9 +1200,32 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                       <tbody className="divide-y divide-slate-100">
                         {catQuestions.map(q => (
                           <tr key={q.id}>
-                            <td className="p-2.5 w-16 font-mono font-bold text-slate-500">{q.id}</td>
-                            <td className="p-2.5 text-slate-700 font-semibold">{q.subject} — <span className="text-slate-400 font-normal">{q.idealState.slice(0, 90)}{q.idealState.length > 90 ? "…" : ""}</span></td>
-                            <td className="p-2.5 w-28 text-right">
+                            <td className="p-2.5 w-16 font-mono font-bold text-slate-500 align-top">{q.id}</td>
+                            <td className="p-2.5 space-y-1.5 align-top">
+                              <input
+                                type="text"
+                                defaultValue={q.subject}
+                                disabled={questionBankSaving === q.id}
+                                onBlur={(e) => {
+                                  const val = e.target.value.trim();
+                                  if (val && val !== q.subject) handleUpdateQuestionField(q, { subject: val });
+                                }}
+                                className="w-full text-slate-800 font-bold bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:border-purple-400"
+                                placeholder="Soru başlığı"
+                              />
+                              <textarea
+                                defaultValue={q.idealState}
+                                disabled={questionBankSaving === q.id}
+                                rows={2}
+                                onBlur={(e) => {
+                                  const val = e.target.value.trim();
+                                  if (val && val !== q.idealState) handleUpdateQuestionField(q, { idealState: val });
+                                }}
+                                className="w-full text-slate-500 font-normal bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 resize-y focus:outline-none focus:border-purple-400"
+                                placeholder="İdeal durum / soru metni"
+                              />
+                            </td>
+                            <td className="p-2.5 w-28 text-right align-top">
                               <input
                                 type="number"
                                 min={0}
