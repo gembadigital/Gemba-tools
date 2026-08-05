@@ -1,15 +1,13 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { 
-  FileSpreadsheet, Search, PlusCircle, Trash2, Edit, Download, Upload, 
-  Check, X, RefreshCw, Layers, TrendingUp, AlertCircle, HelpCircle, 
+import {
+  FileSpreadsheet, Search, PlusCircle, Trash2, Edit, Download, Upload,
+  Check, X, RefreshCw, Layers, TrendingUp, AlertCircle, HelpCircle,
   Calendar, CheckCircle, Clock, Percent, DollarSign, ArrowRight, Table, BarChart2,
-  Save, Copy, FileText, User, ChevronRight, Award, Flame, Zap, Maximize2, Minimize2,
+  Flame, Zap, Maximize2, Minimize2,
   Filter, FilePlus, Sparkles, Mail
 } from "lucide-react";
-import { PieChart, Pie, Cell } from "recharts";
 import { useFactory } from "../context/FactoryContext";
 import OpexProjectDashboard from "./OpexProjectDashboard";
-import * as XLSX from "xlsx";
 
 // CSV Data represented compactly as a single string to avoid token bloat
 const RAW_EXCEL_CSV = `25;16.06.2026;A3;VERİMLİLİK ;A3 EĞİTİMİNE KATILAN ARKADAŞLAR KENDİ ALANLARINDAN KİŞİ BAŞI EN AZ BİR ADET PROJE KONUSU BELİRLEYECEK;VERİMLİLİK;Gözde Tohumci;Açık;22.06.2026;;ZAMANINDA;A3; ;;;;2026;1
@@ -403,53 +401,6 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
     }
   }, [availableWeeks, selectedReportWeek]);
 
-  // Weekly narrative reports states
-  const [weeklyNarrative, setWeeklyNarrative] = useState({
-    summary: "",
-    completedActions: "",
-    bottlenecks: "",
-    nextSteps: "",
-    reporterName: ""
-  });
-
-  // Load narrative dynamically when week or customer changes
-  useEffect(() => {
-    if (activeReportWeek) {
-      const saved = localStorage.getItem(`opex_weekly_${selectedCustomer?.id || "default"}_${activeReportWeek}`);
-      if (saved) {
-        try {
-          setWeeklyNarrative(JSON.parse(saved));
-        } catch (e) {
-          // ignore parsing error
-        }
-      } else {
-        // No saved report for this week yet — start blank rather than pre-filling invented
-        // observations ("5S denetimleri gerçekleştirilmiş...") that would read as real reporting.
-        setWeeklyNarrative({
-          summary: "",
-          completedActions: "",
-          bottlenecks: "",
-          nextSteps: "",
-          reporterName: currentUser?.full_name || ""
-        });
-      }
-    }
-  }, [activeReportWeek, selectedCustomer, currentUser]);
-
-  // Actions for weekly tab
-  const handleSaveWeeklyNarrative = () => {
-    localStorage.setItem(
-      `opex_weekly_${selectedCustomer?.id || "default"}_${activeReportWeek}`,
-      JSON.stringify(weeklyNarrative)
-    );
-    showToast(`${activeReportWeek}. Hafta OPEX Faaliyet Raporu başarıyla kaydedildi.`);
-  };
-
-  // Get activities for selected week
-  const weeklyActivities = useMemo(() => {
-    return records.filter(r => r.visitedWeek === activeReportWeek);
-  }, [records, activeReportWeek]);
-
   // Filtering & Search states
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedYear, setSelectedYear] = useState<string>("ALL");
@@ -472,291 +423,8 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
   const [editForm, setEditForm] = useState<Partial<ProjectRecord>>({});
   const [isTableFullScreen, setIsTableFullScreen] = useState(false);
 
-  // AI OPEX COACH & COLLAPSIBLE FILTERS STATES
+  // COLLAPSIBLE FILTERS STATE
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
-  const [aiCoachReport, setAiCoachReport] = useState<string | null>(null);
-  const [isAiCoachLoading, setIsAiCoachLoading] = useState(false);
-  const [aiCoachError, setAiCoachError] = useState<string | null>(null);
-  const [activeAnalysisStage, setActiveAnalysisStage] = useState<string>("");
-
-  useEffect(() => {
-    const customerId = selectedCustomer?.id || "default";
-    const cached = localStorage.getItem(`gemba_coach_report_${customerId}_${activeReportWeek}`);
-    if (cached) {
-      setAiCoachReport(cached);
-    } else {
-      setAiCoachReport(null);
-    }
-    setAiCoachError(null);
-  }, [activeReportWeek, selectedCustomer]);
-
-  const handleRunOpexCoach = async () => {
-    setIsAiCoachLoading(true);
-    setAiCoachError(null);
-    setAiCoachReport(null);
-    setActiveAnalysisStage("1");
-
-    try {
-      const customerId = selectedCustomer?.id || "default";
-      const tokenVal = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
-
-      // Real VSM bottleneck findings, fetched from the backend (previously this read a
-      // `gemba_vsm_processes_${customerId}` localStorage key that is never written anywhere,
-      // so it always silently fell through to two hardcoded fake findings presented to the AI
-      // coach as if they were this customer's real VSM data).
-      let vsmFindings: any[] = [];
-      try {
-        const res = await fetch("/api/business/vsm-projects", {
-          headers: { "Authorization": `Bearer ${tokenVal}`, "x-factory-id": customerId }
-        });
-        const data = await res.json();
-        if (data.success && Array.isArray(data.data)) {
-          const allProcesses = data.data.flatMap((proj: any) => proj.vsmProcesses || []);
-          vsmFindings = allProcesses
-            .map((p: any) => ({
-              problem: p.kaizenOpp || p.notes,
-              impact: `Darboğaz Etkisi (CT: ${p.cycleTime} sn)`
-            }))
-            .filter((v: any) => v.problem);
-        }
-      } catch (e) {
-        // ignore — AI coach proceeds with whatever real CI project data it has
-      }
-
-      // Real CI/Kaizen projects — the `activities` prop (already real, backend-sourced) is the
-      // primary source; kaizens is used only as a supplementary real source.
-      const ciProjects: any[] = (activities || []).map(a => ({
-        id: a.id,
-        name: a.name,
-        status: a.status === "Completed" ? "Completed" : "In Progress",
-        progressPercent: a.progressPercent || 50,
-        owner: a.owner
-      }));
-
-      // No real scrap/rework cost data is tracked in PTR itself (that lives in Loss Capacity
-      // Analizi / VSM); previously this fed the AI coach two fabricated COPQ figures derived from
-      // an arbitrary ₺8500-per-delay multiplier and a flat ₺45.000 rework literal, presented as if
-      // they were this customer's real cost data. Send none rather than invent numbers.
-      const copqData: { name: string; cost: string; target: string }[] = [];
-
-      const projectInfo = {
-        projectName: (selectedCustomer as any)?.projectName || "Yalın Dönüşüm Projesi",
-        customerName: selectedCustomer?.companyName || "OPEX Tesis",
-        factoryName: selectedCustomer?.companyName || "Saha Fabrikası",
-        departmentName: "Yalın Üretim & Metot",
-        consultantName: currentUser?.full_name || "OPEX Proje Mühendisi",
-        startDate: (selectedCustomer as any)?.createdAt || "01.01.2026",
-        goals: "Çevrim sürelerinin stabilizasyonu, duruşların elenmesi, 5S tertip düzen, OEE takibi."
-      };
-
-      const deadlines = records.filter(r => r.status !== "Kapalı");
-      const delayedActions = records.filter(r => r.status !== "Kapalı" && r.compliance === "GECİKME");
-      const unassignedActions = records.filter(r => r.status !== "Kapalı" && (!r.responsible || r.responsible === "Seçiniz..." || r.responsible.trim() === ""));
-      const staleActions = records.filter(r => r.status !== "Kapalı" && r.visitedWeek !== activeReportWeek);
-
-      setTimeout(() => {
-        setActiveAnalysisStage("2");
-      }, 700);
-      setTimeout(() => {
-        setActiveAnalysisStage("3");
-      }, 1500);
-
-      const response = await fetch("/api/gemini/opex-coach", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${tokenVal}`
-        },
-        body: JSON.stringify({
-          projectInfo,
-          activityLog: weeklyActivities,
-          ciProjects,
-          copqData,
-          vsmFindings,
-          masterPlan: activities || [],
-          deadlines,
-          delayedActions,
-          unassignedActions,
-          staleActions,
-          week: activeReportWeek,
-          year: 2026
-        })
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        setAiCoachReport(data.report);
-        localStorage.setItem(`gemba_coach_report_${customerId}_${activeReportWeek}`, data.report);
-        showToast(`Hafta ${activeReportWeek} için AI Project Coach analizi tamamlandı.`);
-      } else {
-        setAiCoachError(data.error || "Rapor üretilemedi.");
-      }
-    } catch (error: any) {
-      console.error(error);
-      setAiCoachError(error.message || "Ağ hatası oluştu.");
-    } finally {
-      setIsAiCoachLoading(false);
-      setActiveAnalysisStage("");
-    }
-  };
-
-  const handleApplyAiToNarrative = () => {
-    if (!aiCoachReport) return;
-    
-    const parseSection = (num: number, nextNum: number): string => {
-      const report = aiCoachReport;
-      const patterns = [
-        new RegExp("###\\s*" + num + "\\.[\\s\\S]*?(?=###\\s*" + nextNum + "\\.)", "i"),
-        new RegExp("###\\s*" + num + "\\s[\\s\\S]*?(?=###\\s*" + nextNum + ")", "i"),
-        new RegExp("\\n" + num + "\\.[\\s\\S]*?(?=\\n" + nextNum + "\\.)", "i")
-      ];
-      
-      for (const pattern of patterns) {
-        const match = report.match(pattern);
-        if (match) {
-          let text = match[0];
-          text = text.replace(/###\s*\d+\.?.*/, "");
-          text = text.replace(/^\d+\.?.*/, "");
-          return text.trim();
-        }
-      }
-      
-      const index = report.indexOf(`### ${num}.`);
-      if (index !== -1) {
-        const nextIndex = report.indexOf(`### ${nextNum}.`);
-        if (nextIndex !== -1 && nextIndex > index) {
-          return report.slice(index, nextIndex).replace(/###\s*\d+\.?.*/, "").trim();
-        }
-      }
-      return "";
-    };
-
-    let summary = parseSection(1, 2);
-    let completed = parseSection(3, 4);
-    let bottlenecks = parseSection(6, 7);
-    let nextSteps = parseSection(13, 14);
-
-    if (!summary || summary.length < 10) {
-      summary = `${activeReportWeek}. Hafta AI Analizi tamamlanmıştır. Lütfen raporu inceleyiniz.`;
-    }
-    if (!completed || completed.length < 10) {
-      completed = `${activeReportWeek}. Haftada tamamlanan iyileştirme adımları ve kazanımlar kaydedilmiştir.`;
-    }
-    if (!bottlenecks || bottlenecks.length < 10) {
-      bottlenecks = `Saha aksiyonlarında geciken ve tıkanan süreçler analiz edilmiştir.`;
-    }
-    if (!nextSteps || nextSteps.length < 10) {
-      nextSteps = `Önümüzdeki hafta için kritik darboğaz önleme adımları planlanmıştır.`;
-    }
-
-    setWeeklyNarrative(prev => {
-      const updated = {
-        ...prev,
-        summary: summary.slice(0, 500),
-        completedActions: completed.slice(0, 500),
-        bottlenecks: bottlenecks.slice(0, 500),
-        nextSteps: nextSteps.slice(0, 500),
-      };
-      
-      localStorage.setItem(
-        `opex_weekly_${selectedCustomer?.id || "default"}_${activeReportWeek}`,
-        JSON.stringify(updated)
-      );
-      return updated;
-    });
-
-    showToast("AI Analizi başarıyla sol paneldeki rapor alanlarına uygulandı ve kaydedildi!");
-  };
-
-  const renderBoldText = (text: string) => {
-    const parts = text.split(/\*\*(.*?)\*\*/g);
-    return parts.map((part, i) => i % 2 === 1 ? <strong key={i} className="font-black text-slate-900">{part}</strong> : part);
-  };
-
-  const renderFormattedReport = (text: string) => {
-    const lines = text.split("\n");
-    return (
-      <div className="space-y-4 text-sm font-sans leading-relaxed text-slate-800">
-        {lines.map((line, idx) => {
-          const trimmed = line.trim();
-          if (trimmed.startsWith("###")) {
-            const headerText = trimmed.replace(/^###\s*/, "");
-            return (
-              <h4 key={idx} className="font-extrabold text-base text-slate-900 border-b border-gray-100 pb-1.5 mt-5 uppercase tracking-wide flex items-center">
-                <span className="w-1.5 h-4 bg-emerald-600 rounded-full mr-2 inline-block animate-pulse"></span>
-                {headerText}
-              </h4>
-            );
-          }
-          if (trimmed.startsWith("-") || trimmed.startsWith("*")) {
-            const bulletText = trimmed.replace(/^[-*]\s*/, "");
-            return (
-              <div key={idx} className="flex items-start space-x-1.5 pl-3">
-                <span className="text-emerald-600 font-bold mt-1 shrink-0">•</span>
-                <span className="font-medium text-slate-700">{renderBoldText(bulletText)}</span>
-              </div>
-            );
-          }
-          if (trimmed.startsWith("✔")) {
-            return (
-              <div key={idx} className="flex items-start space-x-1.5 pl-3 text-emerald-800 font-bold">
-                <span className="font-bold shrink-0 mr-1">✔</span>
-                <span>{renderBoldText(trimmed.substring(1))}</span>
-              </div>
-            );
-          }
-          if (trimmed.startsWith("🔴")) {
-            return (
-              <div key={idx} className="flex items-start space-x-1.5 pl-3 text-rose-700 font-bold">
-                <span className="font-bold shrink-0 mr-1">🔴</span>
-                <span>{renderBoldText(trimmed.substring(1))}</span>
-              </div>
-            );
-          }
-          if (trimmed.startsWith("🟢")) {
-            return (
-              <div key={idx} className="flex items-start space-x-1.5 pl-3 text-emerald-700 font-extrabold">
-                <span className="font-bold shrink-0 mr-1">🟢</span>
-                <span>{renderBoldText(trimmed.substring(1))}</span>
-              </div>
-            );
-          }
-          if (trimmed.startsWith("🟡")) {
-            return (
-              <div key={idx} className="flex items-start space-x-1.5 pl-3 text-amber-700 font-extrabold">
-                <span className="font-bold shrink-0 mr-1">🟡</span>
-                <span>{renderBoldText(trimmed.substring(1))}</span>
-              </div>
-            );
-          }
-          if (!trimmed) return <div key={idx} className="h-2" />;
-          
-          if (trimmed.startsWith("|")) {
-            if (trimmed.includes("---")) return null;
-            const cells = trimmed.split("|").map(c => c.trim()).filter(Boolean);
-            const isHeader = idx > 0 && lines[idx - 1].trim().includes("---") === false && lines[idx + 1]?.trim().includes("---");
-            return (
-              <div key={idx} className="overflow-x-auto my-1.5">
-                <table className="w-full border border-gray-100 rounded-lg overflow-hidden">
-                  <tbody>
-                    <tr className={isHeader ? "bg-slate-100 font-extrabold text-slate-700" : "bg-white border-b hover:bg-slate-50"}>
-                      {cells.map((cell, cIdx) => (
-                        <td key={cIdx} className="p-2 border font-semibold text-xs min-w-[90px] text-slate-700">
-                          {renderBoldText(cell)}
-                        </td>
-                      ))}
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            );
-          }
-          
-          return <p key={idx} className="font-medium text-slate-700 text-justify leading-relaxed">{renderBoldText(trimmed)}</p>;
-        })}
-      </div>
-    );
-  };
 
   // Other Activity Choice dialog state
   const [isOtherActivityModalOpen, setIsOtherActivityModalOpen] = useState(false);
@@ -1431,28 +1099,6 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
     }
   };
 
-  // Weekly Rapor tab had no export at all (only a clipboard-copy of the narrative) — this gives
-  // the team a real .xlsx of exactly that week's activities, matching the Excel-sheet workflow
-  // the module is built around.
-  const handleExportWeeklyExcel = () => {
-    const headers = ["Ziyaret Haftası", "Çalışma Tarihi", "Faaliyet Konusu", "İyileştirme Konusu", "Yapılan Çalışmalar / Alınan Kararlar", "Sorumlu", "Takip", "Termin", "Termine Uyum", "Notlar"];
-    const rows = weeklyActivities.map(r => [
-      r.visitedWeek, r.workDate, r.activitySubject, r.improvementSubject, r.workDone,
-      r.responsible, r.status, r.dueDate, r.compliance, r.notes
-    ]);
-    const sheetData = [
-      [`Hafta ${activeReportWeek} Faaliyet Raporu`, selectedCustomer?.companyName || ""],
-      ["Raporlayan", weeklyNarrative.reporterName || ""],
-      ["Genel Özet", weeklyNarrative.summary || ""],
-      [],
-      headers,
-      ...rows
-    ];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheetData), `Hafta ${activeReportWeek}`);
-    XLSX.writeFile(wb, `Haftalik_Rapor_Hafta${activeReportWeek}_${(selectedCustomer?.companyName || "musteri").replace(/\s+/g, "_")}.xlsx`);
-  };
-
   // Apply filters to row list
   const filteredRecords = useMemo(() => {
     return records.filter(r => {
@@ -1796,29 +1442,32 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
         </button>
       </div>
 
-      {/* FILTER CONTROLS GRID (Power BI Slicers style) - Rendered Globally at Top */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-4 text-xs font-sans shadow-xs">
-        
-        {/* Search bar */}
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            placeholder="Yapılan çalışmaları, sorumluları veya iyileştirme konularını anında süzün..."
-            className="w-full pl-9 pr-4 py-2 border rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          {searchTerm && (
-            <button 
-              onClick={() => setSearchTerm("")}
-              className="absolute right-3 top-2.5 font-bold text-[10px] text-slate-400 hover:text-slate-650 animate-fadeIn"
-            >
-              [Filtreyi Temizle]
-            </button>
-          )}
+      {/* FILTER CONTROLS GRID (Power BI Slicers style) - only relevant to the table/dashboard
+          tabs; the weekly report tab is a fully automatic, unfiltered summary. */}
+      {activeTab !== "weekly" && (
+        <div className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-4 text-xs font-sans shadow-xs">
+
+          {/* Search bar */}
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              placeholder="Yapılan çalışmaları, sorumluları veya iyileştirme konularını anında süzün..."
+              className="w-full pl-9 pr-4 py-2 border rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm("")}
+                className="absolute right-3 top-2.5 font-bold text-[10px] text-slate-400 hover:text-slate-650 animate-fadeIn"
+              >
+                [Filtreyi Temizle]
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {activeTab === "table" && (
         <>
@@ -2926,432 +2575,120 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
       </>
       )}
 
-      {activeTab === "weekly" && (
-        <div className="space-y-6 animate-fadeIn">
-          {/* Week Selector Dropdown */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-xs flex flex-col sm:flex-row justify-between items-center gap-3">
-            <div className="flex items-center space-x-3">
-              <div className="p-2 bg-emerald-50 rounded-xl text-emerald-800 shrink-0">
-                <Calendar className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
-                  Raporlama Dönemi (Haftalık Seçim)
-                </h3>
-                <p className="text-[10px] text-gray-500">İncelemek istediğiniz çalışma haftasını listeden seçin.</p>
-              </div>
-            </div>
-            
-            <div className="flex items-center space-x-3 w-full sm:w-auto">
-              <span className="text-[10px] font-black text-slate-400 shrink-0 uppercase">Aktif Rapor Haftası:</span>
-              <select
-                value={activeReportWeek}
-                onChange={(e) => setSelectedReportWeek(e.target.value)}
-                className="p-2 px-3 border border-gray-200 rounded-xl bg-slate-50 text-slate-800 font-extrabold text-xs focus:ring-1 focus:ring-emerald-500 focus:outline-none min-w-[150px] cursor-pointer"
-              >
-                {availableWeeks.map((week) => {
-                  const weekRecsCount = records.filter(r => r.visitedWeek === week).length;
-                  const weekClosedCount = records.filter(r => r.visitedWeek === week && r.status === "Kapalı").length;
-                  return (
-                    <option key={week} value={week}>
-                      Hafta {week} ({weekClosedCount}/{weekRecsCount} Kapalı)
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-          </div>
+      {activeTab === "weekly" && (() => {
+        // Fully automatic — no manual week picker. "Geçen hafta" is always today's ISO week
+        // number minus 1 (wrapping to ~week 52 of the prior year at a year boundary).
+        const todayWeekInfo = getWeekAndYearFromDateString(new Date().toLocaleDateString("tr-TR"));
+        let prevWeekNum: number | null = null;
+        let prevYear: number | null = null;
+        if (todayWeekInfo) {
+          prevWeekNum = parseInt(todayWeekInfo.week, 10) - 1;
+          prevYear = todayWeekInfo.year;
+          if (prevWeekNum < 1) {
+            prevWeekNum = 52;
+            prevYear = prevYear - 1;
+          }
+        }
 
-          {/* Weekly Reporting Board */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            {/* Left Col: Weekly Narrative Form & AI Coach */}
-            <div className="lg:col-span-2 space-y-6">
-              
-              {/* Weekly Narrative Form */}
-              <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
-                <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center border-b pb-2.5 gap-2">
-                  <div className="flex items-center space-x-2">
-                    <div className="p-1.5 bg-emerald-50 rounded text-emerald-800">
-                      <FileText className="w-4 h-4" />
-                    </div>
-                    <h3 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">Haftalık Yönetici Değerlendirme Raporu</h3>
-                  </div>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => {
-                        const text = `📊 **HAFTALIK OPEX FAALİYET RAPORU (HAFTA ${activeReportWeek})**
-🏢 *Müşteri/Tesis:* ${selectedCustomer?.companyName || "OPEX Tesis"}
-📅 *Dönem:* Hafta ${activeReportWeek} (Saha Çalışmaları)
+        const lastWeekActivities = prevWeekNum !== null
+          ? records.filter(r => parseInt(r.visitedWeek, 10) === prevWeekNum && r.year === prevYear)
+          : [];
 
-📝 **1. GENEL YÖNETİCİ ÖZETİ:**
-${weeklyNarrative.summary}
+        // Reminder list: still open/in-progress actions whose visit date is 30+ days in the past.
+        const today = new Date();
+        const staleActions = records
+          .filter(r => r.status === "Açık" || r.status === "Devam Ediyor")
+          .map(r => {
+            const workD = parseTurkishDate(r.workDate);
+            const daysOpen = workD ? Math.floor((today.getTime() - workD.getTime()) / (1000 * 60 * 60 * 24)) : null;
+            return { record: r, daysOpen };
+          })
+          .filter((x): x is { record: ProjectRecord; daysOpen: number } => x.daysOpen !== null && x.daysOpen >= 30)
+          .sort((a, b) => b.daysOpen - a.daysOpen);
 
-✅ **2. TAMAMLANAN SOMUT KAZANIMLAR:**
-${weeklyNarrative.completedActions}
-
-⚠️ **3. KARŞILAŞILAN ENGELLER VE SAHA DARBOĞAZLARI:**
-${weeklyNarrative.bottlenecks}
-
-🔮 **4. GELECEK HAFTA PLANLANAN AKSİYONLAR:**
-${weeklyNarrative.nextSteps}
-
-👨‍💼 *Raporlayan:* ${weeklyNarrative.reporterName}
-📈 *Haftalık Durum:* ${weeklyActivities.filter(r => r.status === "Kapalı").length} Kapalı / ${weeklyActivities.length} Toplam Aksiyon`;
-                        navigator.clipboard.writeText(text);
-                        showToast(`${activeReportWeek}. Hafta Raporu Panoya Kopyalandı!`);
-                      }}
-                      className="p-1 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold rounded-lg flex items-center space-x-1 cursor-pointer text-[10px]"
-                      title="Raporu E-Posta / Slack İçin Kopyala"
-                    >
-                      <Copy className="w-3 h-3" />
-                      <span>Raporu Kopyala</span>
-                    </button>
-                    <button
-                      onClick={handleExportWeeklyExcel}
-                      className="p-1 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold rounded-lg flex items-center space-x-1 cursor-pointer text-[10px]"
-                      title="Bu Haftanın Faaliyetlerini Excel Olarak İndir"
-                    >
-                      <FileSpreadsheet className="w-3 h-3" />
-                      <span>Excel İndir</span>
-                    </button>
-                    <button
-                      onClick={handleSaveWeeklyNarrative}
-                      className="p-1 px-3 bg-emerald-800 hover:bg-emerald-700 text-white font-extrabold rounded-lg flex items-center space-x-1 cursor-pointer text-[10px]"
-                    >
-                      <Save className="w-3 h-3" />
-                      <span>Raporu Kaydet</span>
-                    </button>
-                  </div>
+        return (
+          <div className="space-y-6 animate-fadeIn">
+            {/* Geçen Hafta Yapılan Çalışmalar — auto-generated, no manual entry */}
+            <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-xs">
+              <div className="flex items-center space-x-2 border-b pb-3 mb-4">
+                <div className="p-1.5 bg-emerald-50 rounded-xl text-emerald-800">
+                  <Calendar className="w-4 h-4" />
                 </div>
-
-                <div className="space-y-4 text-xs">
-                  {/* Reporter Name */}
-                  <div className="space-y-1">
-                    <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider flex items-center">
-                      <User className="w-3.5 h-3.5 mr-1 text-slate-400" />
-                      Raporu Hazırlayan OPEX Proje Yöneticisi:
-                    </label>
-                    <input
-                      type="text"
-                      value={weeklyNarrative.reporterName}
-                      onChange={(e) => setWeeklyNarrative({...weeklyNarrative, reporterName: e.target.value})}
-                      placeholder="Örn: Kemal Doğan (OPEX Lideri)"
-                      className="w-full p-2.5 border border-gray-200 rounded-lg bg-white text-slate-800 font-bold focus:ring-1 focus:ring-emerald-500"
-                    />
-                  </div>
-
-                  {/* 1. Summary */}
-                  <div className="space-y-1">
-                    <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">1. Yönetici Özeti (Genel Saha İzlenimi):</label>
-                    <textarea
-                      value={weeklyNarrative.summary}
-                      onChange={(e) => setWeeklyNarrative({...weeklyNarrative, summary: e.target.value})}
-                      placeholder="Saha ziyareti genelinde hat verimlilikleri, operatör katılım durumları... "
-                      className="w-full h-20 p-2.5 border border-gray-200 rounded-lg bg-white text-slate-800 focus:ring-1 focus:ring-emerald-500 font-medium"
-                    />
-                  </div>
-
-                  {/* 2. Completed */}
-                  <div className="space-y-1">
-                    <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">2. Tamamlanan Kazanımlar ve Somut Çıktılar:</label>
-                    <textarea
-                      value={weeklyNarrative.completedActions}
-                      onChange={(e) => setWeeklyNarrative({...weeklyNarrative, completedActions: e.target.value})}
-                      placeholder="Bu hafta kapatılan projelerin somut sonuçları, maliyet veya zaman kazançlarını detaylandırın..."
-                      className="w-full h-16 p-2.5 border border-gray-200 rounded-lg bg-white text-slate-800 focus:ring-1 focus:ring-emerald-500 font-medium"
-                    />
-                  </div>
-
-                  {/* 3. Bottlenecks */}
-                  <div className="space-y-1">
-                    <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">3. Saha Darboğazları & Engeller:</label>
-                    <textarea
-                      value={weeklyNarrative.bottlenecks}
-                      onChange={(e) => setWeeklyNarrative({...weeklyNarrative, bottlenecks: e.target.value})}
-                      placeholder="Gecikme riski olan aksiyonların sebeplerini, teknik veya operasyonel engelleri raporlayın..."
-                      className="w-full h-16 p-2.5 border border-gray-200 rounded-lg bg-white text-slate-800 focus:ring-1 focus:ring-emerald-500 font-medium"
-                    />
-                  </div>
-
-                  {/* 4. Next Steps */}
-                  <div className="space-y-1">
-                    <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">4. Gelecek Hafta Kritik Faaliyet Planı:</label>
-                    <textarea
-                      value={weeklyNarrative.nextSteps}
-                      onChange={(e) => setWeeklyNarrative({...weeklyNarrative, nextSteps: e.target.value})}
-                      placeholder="Önümüzdeki hafta ele alınacak öncelikli çalışma konuları ve hedefleri listeleyin..."
-                      className="w-full h-16 p-2.5 border border-gray-200 rounded-lg bg-white text-slate-800 focus:ring-1 focus:ring-emerald-500 font-medium"
-                    />
-                  </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
+                    Geçen Hafta Yapılan Çalışmalar{prevWeekNum !== null ? ` (Hafta ${prevWeekNum})` : ""}
+                  </h3>
+                  <p className="text-[10px] text-slate-500">Bir önceki haftanın saha kayıtlarından otomatik olarak oluşturulmuştur.</p>
                 </div>
               </div>
 
-              {/* AI WEEKLY OPEX COACH ASSISTANT WIDGET */}
-              <div className="bg-gradient-to-br from-emerald-50/80 to-slate-50 border border-emerald-200/60 rounded-2xl p-6 text-slate-800 space-y-4 shadow-md relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-6 transform translate-x-4 -translate-y-4 opacity-15 pointer-events-none">
-                  <Sparkles className="w-32 h-32 text-emerald-300" />
+              {lastWeekActivities.length === 0 ? (
+                <div className="p-6 text-center text-slate-400 text-xs font-medium">
+                  Geçen hafta için kayıtlı saha aksiyonu bulunmuyor.
                 </div>
-
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-emerald-200/60 pb-3 gap-2">
-                  <div className="flex items-center space-x-2.5">
-                    <div className="p-2 bg-emerald-100 rounded-xl text-emerald-700 border border-emerald-200">
-                      <Sparkles className="w-5 h-5 text-emerald-600" />
-                    </div>
-                    <div>
-                      <h3 className="font-extrabold text-sm uppercase tracking-wider text-emerald-800">
-                        AI Weekly OpEx Coach
-                      </h3>
-                      <p className="text-[10.5px] text-slate-500 font-bold">Kıdemli Operasyonel Mükemmellik Direktörü & Yalın Üretim Uzmanı</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex space-x-2 w-full sm:w-auto shrink-0">
-                    {aiCoachReport && (
-                      <button
-                        onClick={handleApplyAiToNarrative}
-                        className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-black rounded-lg cursor-pointer transition-all text-[10.5px] flex items-center space-x-1"
-                        title="AI analiz raporunu otomatik olarak yukarıdaki değerlendirme formuna uygula"
-                      >
-                        <Save className="w-3.5 h-3.5" />
-                        <span>Analizi Forma Uygula</span>
-                      </button>
-                    )}
-                    <button
-                      disabled={isAiCoachLoading}
-                      onClick={handleRunOpexCoach}
-                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-black rounded-lg cursor-pointer transition-all text-[10.5px] flex items-center space-x-1.5 disabled:opacity-50"
-                    >
-                      {isAiCoachLoading ? (
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
-                      ) : (
-                        <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                      )}
-                      <span>{isAiCoachLoading ? "Analiz Ediliyor..." : aiCoachReport ? "Yeniden Analiz Et" : "AI Coach Analizi Başlat"}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Progress Steps / Loader */}
-                {isAiCoachLoading && (
-                  <div className="py-8 flex flex-col items-center justify-center space-y-4">
-                    <div className="relative w-12 h-12">
-                      <div className="absolute inset-0 rounded-full border-4 border-slate-200 border-t-emerald-600 animate-spin" />
-                    </div>
-                    <div className="text-center space-y-1">
-                      <p className="text-xs font-extrabold text-slate-800">
-                        {activeAnalysisStage === "1" && "🔍 Hafta Kütüğü ve Proje Verileri İnceleme Altında..."}
-                        {activeAnalysisStage === "2" && "⚡ VSM Darboğazları & COPQ Fire İsrafları Hesapanıyor..."}
-                        {activeAnalysisStage === "3" && "🧠 Kıdemli OpEx Danışman Tavsiyeleri Yazılıyor..."}
-                      </p>
-                      <p className="text-[10px] text-slate-500 font-medium font-bold">Lütfen bekleyin, bu işlem yaklaşık 10-15 saniye sürebilir.</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Error State */}
-                {aiCoachError && (
-                  <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-semibold flex items-start space-x-2.5">
-                    <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-rose-600" />
-                    <div>
-                      <span className="font-bold block text-rose-800">Analiz Hatası</span>
-                      {aiCoachError}
-                    </div>
-                  </div>
-                )}
-
-                {/* Report content */}
-                {aiCoachReport && !isAiCoachLoading && (
-                  <div className="max-h-[500px] overflow-y-auto p-4 bg-white border border-emerald-100 rounded-xl space-y-3 shadow-inner custom-scrollbar">
-                    {renderFormattedReport(aiCoachReport)}
-                  </div>
-                )}
-
-                {/* No Report State */}
-                {!aiCoachReport && !isAiCoachLoading && !aiCoachError && (
-                  <div className="p-6 text-center text-slate-600 space-y-2 border border-dashed border-emerald-300 rounded-xl bg-white/50">
-                    <p className="text-xs font-bold text-slate-800">Hafta {activeReportWeek} Raporu Henüz Analiz Edilmedi</p>
-                    <p className="text-[10.5px] text-slate-500 max-w-md mx-auto">
-                      "AI Coach Analizi Başlat" butonuna tıklayarak projenin bu haftaki faaliyetlerini, israflarını, VSM darboğazlarını ve termine uyum oranlarını kıdemli bir OPEX uzmanı gözüyle değerlendirin.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Right Col: Weekly Stats & Quick Add */}
-            <div className="space-y-6">
-              {/* Weekly Performance Circle */}
-              <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between h-[180px]">
-                <span className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider block border-b pb-1.5 mb-2">Haftalık Aksiyon Performansı</span>
-                <div className="flex items-center justify-around flex-1">
-                  <div className="w-16 h-16 relative flex items-center justify-center">
-                    <PieChart width={64} height={64}>
-                      <Pie
-                        data={[
-                          { name: "Devam Eden", value: weeklyActivities.filter(r => r.status !== "Kapalı").length },
-                          { name: "Kapalı", value: weeklyActivities.filter(r => r.status === "Kapalı").length }
-                        ].filter(d => d.value > 0)}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={18}
-                        outerRadius={28}
-                        paddingAngle={3}
-                        dataKey="value"
-                      >
-                        <Cell fill="#f97316" />
-                        <Cell fill="#10b981" />
-                      </Pie>
-                    </PieChart>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                      <span className="text-xs font-black text-slate-700">
-                        {weeklyActivities.length > 0 ? Math.round((weeklyActivities.filter(r => r.status === "Kapalı").length / weeklyActivities.length) * 100) : 0}%
-                      </span>
-                    </div>
-                  </div>
-                  <div className="space-y-1 text-[11px]">
-                    <div className="flex justify-between items-center space-x-4">
-                      <span className="text-slate-500 font-bold">Haftalık Toplam:</span>
-                      <span className="font-mono font-black text-slate-700">{weeklyActivities.length} Aksiyon</span>
-                    </div>
-                    <div className="flex justify-between items-center space-x-4 border-b pb-1">
-                      <span className="text-emerald-700 font-bold">Kapanan:</span>
-                      <span className="font-mono font-black text-emerald-800">{weeklyActivities.filter(r => r.status === "Kapalı").length}</span>
-                    </div>
-                    <div className="flex justify-between items-center space-x-4 text-[9.5px] text-slate-500">
-                      <span>Termine Uyum Oranı:</span>
-                      <span className="font-mono font-black text-slate-600">
-                        {weeklyActivities.filter(r => r.status === "Kapalı").length > 0 
-                          ? Math.round((weeklyActivities.filter(r => r.status === "Kapalı" && r.compliance === "ZAMANINDA").length / weeklyActivities.filter(r => r.status === "Kapalı").length) * 100) 
-                          : 100}%
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Weekly Financial Impact */}
-              <div className="bg-emerald-800 text-white rounded-2xl p-5 shadow-xs flex items-center justify-between h-[110px] relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-4 transform translate-x-3 -translate-y-3 opacity-15">
-                  <Award className="w-20 h-20" />
-                </div>
-                <div className="space-y-1">
-                  <span className="text-[11px] text-emerald-100 font-extrabold uppercase tracking-widest block">HAFTALIK FİNANSAL KAZANÇ</span>
-                  <div className="text-2xl font-black tracking-tight">
-                    {currency} {weeklyActivities.reduce((sum, r) => {
-                      if (r.status === "Kapalı") {
-                        const val = parseFloat((r.kaizenSavings || r.savingsAmount || "0").toString().replace(/[^0-9.-]+/g, ""));
-                        return sum + (isNaN(val) ? 0 : val);
-                      }
-                      return sum;
-                    }, 0).toLocaleString("tr-TR")}
-                  </div>
-                  <span className="text-[9.5px] text-emerald-200 block">Kapatılan aksiyonlardan doğan kazanç.</span>
-                </div>
-              </div>
-
-              {/* Quick Field Entry Card */}
-              <div className="bg-slate-50 border border-gray-200 p-4 rounded-2xl shadow-2xs space-y-3">
-                <span className="text-[10px] text-slate-600 font-extrabold uppercase tracking-wider flex items-center">
-                  <PlusCircle className="w-4 h-4 mr-1 text-emerald-700" />
-                  Bu Haftaya Hızlı Aksiyon Ekle
-                </span>
-                <button
-                  onClick={() => {
-                    setNewItem({
-                      ...newItem,
-                      visitedWeek: activeReportWeek,
-                      workDate: new Date().toLocaleDateString("tr-TR"),
-                      dueDate: new Date().toLocaleDateString("tr-TR")
-                    });
-                    setIsAddingNew(true);
-                    setActiveTab("table");
-                    // Scroll to top or form
-                    window.scrollTo({ top: 300, behavior: 'smooth' });
-                    showToast(`${activeReportWeek}. Hafta için form hazırlandı. Lütfen detayları girip kaydedin.`);
-                  }}
-                  className="w-full py-2.5 bg-emerald-800 hover:bg-emerald-700 text-white text-xs font-black rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center space-x-1.5"
-                >
-                  <PlusCircle className="w-4 h-4" />
-                  <span>Hafta {activeReportWeek} İçin Aksiyon Kaydet</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Weekly Activities Detail List */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-xs">
-            <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center border-b pb-3 mb-4 gap-2">
-              <h3 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider flex items-center">
-                <Layers className="w-4 h-4 mr-1.5 text-slate-500" />
-                Hafta {activeReportWeek} Veri Kütüğü Aksiyonları ({weeklyActivities.length} Kayıt)
-              </h3>
-              <button
-                onClick={() => {
-                  setActiveTab("table");
-                  setSearchTerm("");
-                  setSelectedYear("ALL");
-                  setSelectedStatus("ALL");
-                  setSelectedResponsible("ALL");
-                  // Filter by selected report week (real week filter, not a free-text search hack)
-                  setSelectedWeekFilter(activeReportWeek);
-                  showToast(`Tüm kütük Hafta ${activeReportWeek} filtrelemesi ile açıldı.`);
-                }}
-                className="text-[10.5px] text-emerald-800 font-black hover:underline cursor-pointer flex items-center space-x-0.5"
-              >
-                <span>Saha Excel Kütüğünde Detaylı İncele</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            {weeklyActivities.length === 0 ? (
-              <div className="p-8 text-center text-slate-400 text-xs font-medium">
-                Bu hafta için henüz saha aksiyon kaydı bulunmamaktadır. "Hızlı Aksiyon Ekle" butonu ile veri ekleyebilirsiniz.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {weeklyActivities.map((act) => (
-                  <div key={act.id} className="border border-gray-200 rounded-xl p-4 bg-slate-50/50 hover:bg-slate-50 transition-all flex flex-col justify-between space-y-3">
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-start">
-                        <span className="bg-emerald-100 text-emerald-800 font-extrabold px-2 py-0.5 rounded text-[11px] uppercase tracking-wider">
-                          {act.activitySubject}
-                        </span>
-                        <span className={`px-2 py-0.5 rounded text-[11px] font-black border uppercase ${
-                          act.status === "Kapalı" 
-                            ? "bg-emerald-50 border-emerald-300 text-emerald-800" 
-                            : act.status === "Devam Ediyor"
-                            ? "bg-sky-50 border-sky-300 text-sky-800"
-                            : "bg-amber-50 border-amber-300 text-amber-800"
+              ) : (
+                <div className="space-y-2.5">
+                  {lastWeekActivities.map(act => (
+                    <div key={act.id} className="border border-slate-150 rounded-xl p-3.5 bg-slate-50/50">
+                      <p className="text-xs font-bold text-slate-800 leading-relaxed">{act.workDone || act.improvementSubject}</p>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[10.5px] text-slate-500 font-semibold">
+                        <span>Aksiyon Sorumlusu: <span className="text-slate-800 font-black">{act.responsible || "—"}</span></span>
+                        <span>Termin Tarihi: <span className="text-slate-800 font-black">{act.dueDate || "Belirtilmemiş"}</span></span>
+                        <span className={`px-2 py-0.5 rounded-full border text-[9.5px] font-black uppercase ${
+                          act.status === "Kapalı" ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                          : act.status === "Devam Ediyor" ? "bg-sky-50 text-sky-700 border-sky-100"
+                          : EXCLUDED_STATUSES.includes(act.status) ? "bg-slate-100 text-slate-500 border-slate-200"
+                          : "bg-amber-50 text-amber-700 border-amber-100"
                         }`}>
                           {act.status}
                         </span>
                       </div>
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-slate-400 font-bold block">{act.improvementSubject}</span>
-                        <h4 className="text-xs font-black text-slate-800 leading-tight">{act.workDone}</h4>
-                      </div>
                     </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
-                    <div className="border-t pt-2.5 flex justify-between items-center text-[10px] text-slate-500">
-                      <div className="flex items-center space-x-1">
-                        <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center font-black text-slate-700 text-[11px]">
-                          {act.responsible?.slice(0,2).toUpperCase()}
-                        </div>
-                        <span className="font-extrabold text-slate-800">{act.responsible}</span>
-                      </div>
-                      <div className="flex items-center space-x-1 font-bold">
-                        <Clock className="w-3 h-3 text-slate-400" />
-                        <span>Termin: {act.dueDate || "Belirtilmemiş"}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+            {/* 30+ Gündür Kapanmayan Aksiyonlar — reminder list */}
+            <div className="bg-white border border-rose-200 rounded-2xl p-5 shadow-xs">
+              <div className="flex items-center space-x-2 border-b border-rose-100 pb-3 mb-4">
+                <div className="p-1.5 bg-rose-50 rounded-xl text-rose-700">
+                  <AlertCircle className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
+                    30+ Gündür Kapanmayan Aksiyonlar ({staleActions.length})
+                  </h3>
+                  <p className="text-[10px] text-slate-500">Ziyaret tarihinden bu yana 30 gün veya daha uzun süredir açık/devam eden aksiyonların hatırlatma listesi.</p>
+                </div>
               </div>
-            )}
+
+              {staleActions.length === 0 ? (
+                <div className="p-6 text-center text-slate-400 text-xs font-medium">
+                  30 günü aşan gecikmiş aksiyon bulunmuyor.
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {staleActions.map(({ record: act, daysOpen }) => (
+                    <div key={act.id} className="border border-rose-100 rounded-xl p-3.5 bg-rose-50/40 flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold text-slate-800 leading-relaxed">{act.workDone || act.improvementSubject}</p>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[10.5px] text-slate-500 font-semibold">
+                          <span>Aksiyon Sorumlusu: <span className="text-slate-800 font-black">{act.responsible || "—"}</span></span>
+                          <span>Termin Tarihi: <span className="text-slate-800 font-black">{act.dueDate || "Belirtilmemiş"}</span></span>
+                        </div>
+                      </div>
+                      <span className="shrink-0 bg-rose-600 text-white text-[10.5px] font-black px-2.5 py-1 rounded-full whitespace-nowrap">
+                        {daysOpen} Gündür Açık
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {activeTab === "dashboard" && (
         <OpexProjectDashboard
