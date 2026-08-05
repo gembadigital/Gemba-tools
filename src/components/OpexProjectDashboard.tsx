@@ -4,9 +4,9 @@ import {
   PieChart, Pie, Cell, LineChart, Line, AreaChart, Area, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar
 } from "recharts";
 import { 
-  Layers, CheckCircle, AlertCircle, Clock, TrendingUp, Award, Users, BookOpen, DollarSign, 
-  FileSpreadsheet, Printer, RefreshCw, Sparkles, SlidersHorizontal, ArrowUpRight, ArrowDownRight, 
-  ChevronRight, Calendar, Building, Landmark, Percent, Zap, Shield, Check
+  Layers, CheckCircle, AlertCircle, Clock, TrendingUp, Award, Users, BookOpen, DollarSign,
+  FileSpreadsheet, Printer, RefreshCw, Sparkles, SlidersHorizontal, ArrowUpRight, ArrowDownRight,
+  Calendar, Building, Landmark, Percent, Zap, Shield, Check
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Customer, GanttActivity, KaizenCard } from "../types";
@@ -17,7 +17,6 @@ interface OpexProjectDashboardProps {
   activities: GanttActivity[];
   kaizens: KaizenCard[];
   selectedCustomer: Customer;
-  customers: Customer[];
   currentUser: any;
 }
 
@@ -26,16 +25,13 @@ export default function OpexProjectDashboard({
   activities,
   kaizens,
   selectedCustomer,
-  customers,
   currentUser
 }: OpexProjectDashboardProps) {
   // Local active filters state
   const [filterYear, setFilterYear] = useState<string>("ALL");
   const [filterMonth, setFilterMonth] = useState<string>("ALL");
-  const [filterCustomer, setFilterCustomer] = useState<string>(selectedCustomer?.id || "ALL");
   const [filterDepartment, setFilterDepartment] = useState<string>("ALL");
   const [filterConsultant, setFilterConsultant] = useState<string>("ALL");
-  const [filterResponsible, setFilterResponsible] = useState<string>("ALL");
 
   const printRef = useRef<HTMLDivElement>(null);
 
@@ -44,61 +40,31 @@ export default function OpexProjectDashboard({
   // this is the consultant's own estimate, kept explicit and editable.
   const [investmentAmount, setInvestmentAmount] = useState<number>(0);
 
-  // Fallback / Load records dynamically depending on customer filter
-  const currentRecords = useMemo(() => {
-    const targetCustId = filterCustomer === "ALL" ? (selectedCustomer?.id || "default") : filterCustomer;
-    if (targetCustId === selectedCustomer?.id) {
-      return records;
-    }
-    const saved = localStorage.getItem(`gemba_ptr_records_${targetCustId}`);
-    if (saved) {
-      try {
-        return JSON.parse(saved) as ProjectRecord[];
-      } catch (e) {
-        return [];
-      }
-    }
-    // Return filtered or initial records
-    return records.filter(r => r.year.toString() === filterYear || filterYear === "ALL");
-  }, [records, filterCustomer, selectedCustomer, filterYear]);
-
-  // Fallback / Load Kaizens dynamically depending on customer filter
-  const currentKaizens = useMemo(() => {
-    const targetCustId = filterCustomer === "ALL" ? (selectedCustomer?.id || "default") : filterCustomer;
-    if (targetCustId === selectedCustomer?.id) {
-      return kaizens;
-    }
-    const saved = localStorage.getItem(`gemba_kaizens_${targetCustId}`);
-    if (saved) {
-      try {
-        return JSON.parse(saved) as KaizenCard[];
-      } catch (e) {
-        return [];
-      }
-    }
-    return kaizens;
-  }, [kaizens, filterCustomer, selectedCustomer]);
+  // The customer is already selected upstream (customer card) — this dashboard always reflects
+  // that selection's own records/kaizens, no in-dashboard customer switcher.
+  const currentRecords = records;
+  const currentKaizens = kaizens;
 
   // Extract unique filter dimensions based on the records
   const filterOptions = useMemo(() => {
     const years = Array.from(new Set(currentRecords.map(r => r.year.toString()))).filter(Boolean).sort();
-    
+
     const departments = Array.from(new Set([
       ...currentRecords.map(r => r.activitySubject?.trim()),
       ...currentKaizens.map(k => k.department?.trim())
     ])).filter(Boolean).sort();
 
+    // Single "Sorumlu Lider" filter — covers the responsible/leader name across records, master
+    // plan activities, and kaizen cards (previously split into two dropdowns filtering the same
+    // underlying person field).
     const consultants = Array.from(new Set([
       ...activities.map(a => a.owner?.trim()),
-      ...currentRecords.map(r => r.responsible?.trim())
-    ])).filter(Boolean).sort();
-
-    const responsibles = Array.from(new Set([
       ...currentRecords.map(r => r.responsible?.trim()),
-      ...currentKaizens.map(k => k.projectLeader?.trim())
+      ...currentKaizens.map(k => k.projectLeader?.trim()),
+      ...currentKaizens.map(k => k.originator?.trim())
     ])).filter(Boolean).sort();
 
-    return { years, departments, consultants, responsibles };
+    return { years, departments, consultants };
   }, [currentRecords, currentKaizens, activities]);
 
   // Months name helper
@@ -138,19 +104,16 @@ export default function OpexProjectDashboard({
       // Department Filter
       const matchesDept = filterDepartment === "ALL" ? true : r.activitySubject === filterDepartment;
 
-      // Consultant Filter
+      // Sorumlu Lider Filter
       const matchesConsultant = filterConsultant === "ALL" ? true : r.responsible === filterConsultant;
 
-      // Responsible Filter
-      const matchesResponsible = filterResponsible === "ALL" ? true : r.responsible === filterResponsible;
-
-      return matchesYear && matchesMonth && matchesDept && matchesConsultant && matchesResponsible;
+      return matchesYear && matchesMonth && matchesDept && matchesConsultant;
     });
 
     // 2. Filter Kaizens
     const kaizensFiltered = currentKaizens.filter(k => {
       const matchesYear = filterYear === "ALL" ? true : (k.dateProposed && k.dateProposed.includes(filterYear));
-      
+
       let matchesMonth = true;
       if (filterMonth !== "ALL" && k.dateProposed) {
         matchesMonth = k.dateProposed.includes(`-${filterMonth}-`) || k.dateProposed.includes(`.${filterMonth}.`);
@@ -158,16 +121,14 @@ export default function OpexProjectDashboard({
 
       const matchesDept = filterDepartment === "ALL" ? true : k.department === filterDepartment;
       const matchesConsultant = filterConsultant === "ALL" ? true : k.originator === filterConsultant || k.projectLeader === filterConsultant;
-      const matchesResponsible = filterResponsible === "ALL" ? true : k.projectLeader === filterResponsible || k.originator === filterResponsible;
 
-      return matchesYear && matchesMonth && matchesDept && matchesConsultant && matchesResponsible;
+      return matchesYear && matchesMonth && matchesDept && matchesConsultant;
     });
 
     // 3. Filter Master Plan (Activities)
     const activitiesFiltered = activities.filter(a => {
       const matchesConsultant = filterConsultant === "ALL" ? true : a.owner === filterConsultant;
-      const matchesResponsible = filterResponsible === "ALL" ? true : a.owner === filterResponsible;
-      return matchesConsultant && matchesResponsible;
+      return matchesConsultant;
     });
 
     return {
@@ -175,7 +136,7 @@ export default function OpexProjectDashboard({
       kaizens: kaizensFiltered,
       activities: activitiesFiltered
     };
-  }, [currentRecords, currentKaizens, activities, filterYear, filterMonth, filterDepartment, filterConsultant, filterResponsible]);
+  }, [currentRecords, currentKaizens, activities, filterYear, filterMonth, filterDepartment, filterConsultant]);
 
   // Currency selection helper
   const currencySymbol = selectedCustomer?.currency || "₺";
@@ -228,7 +189,15 @@ export default function OpexProjectDashboard({
 
     // Real training session count — no fabricated duration/attendance multipliers
     // (ProjectRecord doesn't track real session hours or participant counts).
-    const trainingSessions = filteredData.records.filter(r => r.activitySubject === "EĞİTİM").length;
+    const trainingRecords = filteredData.records.filter(r => r.activitySubject === "EĞİTİM");
+    const trainingSessions = trainingRecords.length;
+
+    // Toplam Adam-Saat Eğitim: consultant writes attendee count into the "Çıktı" field for a
+    // training record; 1 session = 8 hours/person. Records without a numeric output contribute 0.
+    const totalTrainingManHours = trainingRecords.reduce((sum, r) => {
+      const attendees = parseInt((r.output || "").toString().replace(/[^0-9]/g, ""), 10);
+      return sum + (isNaN(attendees) ? 0 : attendees * 8);
+    }, 0);
 
     return {
       totalActions,
@@ -246,7 +215,8 @@ export default function OpexProjectDashboard({
       totalKaizens,
       verifiedKaizenSavings,
       expectedSavings,
-      trainingSessions
+      trainingSessions,
+      totalTrainingManHours
     };
   }, [filteredData]);
 
@@ -380,33 +350,22 @@ export default function OpexProjectDashboard({
     })).sort((a, b) => b.value - a.value);
   }, [filteredData.records]);
 
-  // 5b. Konu Bazlı Detay — same grouping as improvementDistributionData above, but keeping the
-  // underlying improvement descriptions per topic instead of just a count, so a consultant can see
-  // "topic + its improvements" in one place instead of switching to the PTR table and filtering.
-  const [expandedTopic, setExpandedTopic] = useState<string | null>(null);
-  const topicDetailData = useMemo(() => {
-    const map: { [key: string]: { workDone: string; responsible: string; status: string; workDate: string }[] } = {};
-    filteredData.records.forEach(r => {
-      const cat = r.activitySubject || "Diğer";
-      if (!map[cat]) map[cat] = [];
-      map[cat].push({ workDone: r.workDone, responsible: r.responsible, status: r.status, workDate: r.workDate });
-    });
-    return Object.keys(map)
-      .map(name => ({ name, count: map[name].length, items: map[name] }))
-      .sort((a, b) => b.count - a.count);
-  }, [filteredData.records]);
-
-  // 6. Training Topics — real session counts per topic (no fabricated hours-per-session assumption;
-  // ProjectRecord doesn't track real session duration/attendance).
+  // 6. Training Topics — real session counts per topic, plus man-hours where the consultant has
+  // recorded attendee count in the "Çıktı" (output) field for that EĞİTİM record (1 session = 8
+  // hours/person). Records without a numeric output simply don't contribute man-hours yet.
   const trainingTopicData = useMemo(() => {
-    const topicMap: { [key: string]: number } = {};
+    const topicMap: { [key: string]: { sessions: number; manHours: number } } = {};
     filteredData.records.filter(r => r.activitySubject === "EĞİTİM").forEach(r => {
       const topic = r.improvementSubject || "Genel Yalın Üretim";
-      topicMap[topic] = (topicMap[topic] || 0) + 1;
+      if (!topicMap[topic]) topicMap[topic] = { sessions: 0, manHours: 0 };
+      topicMap[topic].sessions += 1;
+      const attendees = parseInt((r.output || "").toString().replace(/[^0-9]/g, ""), 10);
+      if (!isNaN(attendees)) topicMap[topic].manHours += attendees * 8;
     });
     return Object.keys(topicMap).map(name => ({
       name,
-      "Eğitim Seans Sayısı": topicMap[name]
+      "Eğitim Seans Sayısı": topicMap[name].sessions,
+      "Adam-Saat Eğitim": topicMap[name].manHours
     })).sort((a, b) => b["Eğitim Seans Sayısı"] - a["Eğitim Seans Sayısı"]);
   }, [filteredData.records]);
 
@@ -575,24 +534,9 @@ export default function OpexProjectDashboard({
           <span className="text-xs font-black uppercase tracking-wider">Gelişmiş Çok Kriterli Süzgeçler (Dinamik Power BI Filtreleri)</span>
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5 text-xs font-sans">
-          
-          {/* 1. Customer Select */}
-          <div className="space-y-1">
-            <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Fabrika / Müşteri:</label>
-            <select
-              value={filterCustomer}
-              onChange={(e) => setFilterCustomer(e.target.value)}
-              className="w-full p-2 border rounded-lg bg-white text-slate-800 font-extrabold focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="ALL">Tüm Müşteriler (Bileşik)</option>
-              {customers.map(c => (
-                <option key={c.id} value={c.id}>{c.companyName}</option>
-              ))}
-            </select>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3.5 text-xs font-sans">
 
-          {/* 2. Year Select */}
+          {/* 1. Year Select */}
           <div className="space-y-1">
             <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Planlama Yılı:</label>
             <select
@@ -607,7 +551,7 @@ export default function OpexProjectDashboard({
             </select>
           </div>
 
-          {/* 3. Month Select */}
+          {/* 2. Month Select */}
           <div className="space-y-1">
             <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Aktivite Ayı:</label>
             <select
@@ -622,7 +566,7 @@ export default function OpexProjectDashboard({
             </select>
           </div>
 
-          {/* 4. Department Select */}
+          {/* 3. Department Select */}
           <div className="space-y-1">
             <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Yalın Metot / Bölüm:</label>
             <select
@@ -637,32 +581,17 @@ export default function OpexProjectDashboard({
             </select>
           </div>
 
-          {/* 5. Consultant Select */}
+          {/* 4. Sorumlu Lider Select */}
           <div className="space-y-1">
-            <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Sorumlu Lider / Danışman:</label>
+            <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Sorumlu Lider:</label>
             <select
               value={filterConsultant}
               onChange={(e) => setFilterConsultant(e.target.value)}
               className="w-full p-2 border rounded-lg bg-white text-slate-800 font-extrabold focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
-              <option value="ALL">Tüm Danışmanlar</option>
+              <option value="ALL">Tüm Sorumlular</option>
               {filterOptions.consultants.map((cons, idx) => (
                 <option key={idx} value={cons}>{cons}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* 6. Responsible Select */}
-          <div className="space-y-1">
-            <label className="font-extrabold text-slate-500 uppercase text-[11px] tracking-wider block">Saha Sorumlusu:</label>
-            <select
-              value={filterResponsible}
-              onChange={(e) => setFilterResponsible(e.target.value)}
-              className="w-full p-2 border rounded-lg bg-white text-slate-800 font-extrabold focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="ALL">Tüm Personel</option>
-              {filterOptions.responsibles.map((resp, idx) => (
-                <option key={idx} value={resp}>{resp}</option>
               ))}
             </select>
           </div>
@@ -674,15 +603,13 @@ export default function OpexProjectDashboard({
           <span>
             * Süzme sonucunda <b>{filteredData.records.length}</b> saha aksiyonu, <b>{filteredData.kaizens.length}</b> Kaizen projesi listelendi.
           </span>
-          {(filterYear !== "ALL" || filterMonth !== "ALL" || filterCustomer !== (selectedCustomer?.id || "ALL") || filterDepartment !== "ALL" || filterConsultant !== "ALL" || filterResponsible !== "ALL") && (
+          {(filterYear !== "ALL" || filterMonth !== "ALL" || filterDepartment !== "ALL" || filterConsultant !== "ALL") && (
             <button
               onClick={() => {
                 setFilterYear("ALL");
                 setFilterMonth("ALL");
-                setFilterCustomer(selectedCustomer?.id || "ALL");
                 setFilterDepartment("ALL");
                 setFilterConsultant("ALL");
-                setFilterResponsible("ALL");
               }}
               className="text-rose-600 font-extrabold hover:underline"
             >
@@ -961,68 +888,6 @@ export default function OpexProjectDashboard({
 
       </div>
 
-      {/* Konu Bazlı Aksiyon ve İyileştirme Detayları — count + the actual improvement
-          descriptions per topic, expandable per row, so this doesn't require switching to the
-          PTR table and manually filtering by "Faaliyet Konusu" to see what's behind each number. */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
-        <div className="border-b pb-3 mb-4">
-          <h3 className="text-xs font-black text-slate-800 uppercase tracking-tight flex items-center">
-            <Layers className="w-4 h-4 mr-1.5 text-slate-500" />
-            Konu Bazlı Aksiyon ve İyileştirme Detayları
-          </h3>
-          <span className="text-[10.5px] text-slate-500 block">Her konu başlığının altındaki gerçek iyileştirme kayıtlarını görmek için satıra tıklayın</span>
-        </div>
-
-        {topicDetailData.length > 0 ? (
-          <div className="space-y-2">
-            {topicDetailData.map(topic => {
-              const isOpen = expandedTopic === topic.name;
-              return (
-                <div key={topic.name} className="border border-slate-150 rounded-xl overflow-hidden">
-                  <button
-                    onClick={() => setExpandedTopic(isOpen ? null : topic.name)}
-                    className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer"
-                  >
-                    <span className="text-xs font-black text-slate-800 uppercase flex items-center">
-                      <ChevronRight className={`w-3.5 h-3.5 mr-1.5 text-slate-400 transition-transform ${isOpen ? "rotate-90" : ""}`} />
-                      {topic.name}
-                    </span>
-                    <span className="text-[10px] font-mono font-black text-slate-500 bg-white border border-slate-200 rounded-full px-2.5 py-0.5">
-                      {topic.count} Aksiyon
-                    </span>
-                  </button>
-                  {isOpen && (
-                    <table className="w-full text-left text-xs border-collapse">
-                      <tbody className="divide-y divide-slate-100">
-                        {topic.items.map((item, idx) => (
-                          <tr key={idx}>
-                            <td className="p-2.5 text-slate-700 font-semibold w-2/3">{item.workDone || "—"}</td>
-                            <td className="p-2.5 text-slate-500 font-medium">{item.responsible || "—"}</td>
-                            <td className="p-2.5 text-slate-400 font-mono text-[10.5px] whitespace-nowrap">{item.workDate || "—"}</td>
-                            <td className="p-2.5 text-right">
-                              <span className={`text-[9.5px] font-black uppercase px-2 py-0.5 rounded-full border ${
-                                item.status === "Kapalı" ? "bg-emerald-50 text-emerald-700 border-emerald-100"
-                                : item.status === "Devam Ediyor" ? "bg-sky-50 text-sky-700 border-sky-100"
-                                : EXCLUDED_STATUSES.includes(item.status) ? "bg-slate-100 text-slate-500 border-slate-200"
-                                : "bg-amber-50 text-amber-700 border-amber-100"
-                              }`}>
-                                {item.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="text-center text-slate-400 text-xs py-8">Kategori bulunmamaktadır.</div>
-        )}
-      </div>
-
       {/* SECTION 6 & SECTION 7 – TRAINING & FINANCIAL DETAILED VIEW */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
@@ -1037,7 +902,7 @@ export default function OpexProjectDashboard({
               <span className="bg-blue-100 text-blue-800 text-[8.5px] px-2 py-0.5 rounded-full font-extrabold uppercase">Saha Matrisi</span>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mb-4 text-center">
+            <div className="grid grid-cols-3 gap-3 mb-4 text-center">
               <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Eğitim Adeti</span>
                 <span className="text-lg font-mono font-black text-indigo-700">{metrics.trainingSessions} Seans</span>
@@ -1045,6 +910,10 @@ export default function OpexProjectDashboard({
               <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Konu Sayısı</span>
                 <span className="text-lg font-mono font-black text-slate-800">{trainingTopicData.length} Konu</span>
+              </div>
+              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Toplam Adam-Saat</span>
+                <span className="text-lg font-mono font-black text-fuchsia-700">{metrics.totalTrainingManHours}</span>
               </div>
             </div>
           </div>
@@ -1055,9 +924,11 @@ export default function OpexProjectDashboard({
                 <RechartsBarChart data={trainingTopicData.slice(0, 4)} margin={{ top: 5, right: 10, left: -25, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="name" stroke="#94a3b8" fontSize={8} fontStyle="bold" />
-                  <YAxis stroke="#94a3b8" fontSize={8} fontStyle="bold" />
+                  <YAxis yAxisId="left" stroke="#94a3b8" fontSize={8} fontStyle="bold" />
+                  <YAxis yAxisId="right" orientation="right" stroke="#94a3b8" fontSize={8} fontStyle="bold" />
                   <Tooltip />
-                  <Bar dataKey="Eğitim Seans Sayısı" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                  <Bar yAxisId="left" dataKey="Eğitim Seans Sayısı" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                  <Bar yAxisId="right" dataKey="Adam-Saat Eğitim" fill="#c026d3" radius={[4, 4, 0, 0]} />
                 </RechartsBarChart>
               </ResponsiveContainer>
             ) : (

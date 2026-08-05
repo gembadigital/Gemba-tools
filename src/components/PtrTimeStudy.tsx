@@ -232,7 +232,7 @@ interface PtrTimeStudyProps {
 }
 
 export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivity, onAddKaizen, kaizens }: PtrTimeStudyProps) {
-  const { selectedCustomer, globalState, customers } = useFactory();
+  const { selectedCustomer, globalState } = useFactory();
   const currentUser = globalState?.CurrentUser;
   const currency = selectedCustomer?.currency || "₺";
 
@@ -2696,7 +2696,6 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
           activities={activities || []}
           kaizens={kaizens || []}
           selectedCustomer={selectedCustomer}
-          customers={customers || []}
           currentUser={currentUser}
         />
       )}
