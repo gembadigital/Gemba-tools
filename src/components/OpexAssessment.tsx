@@ -275,6 +275,50 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     setAiError(null);
   }, [selectedCustomer?.id]);
 
+  // One-time self-heal: computeOpexScores() was rebuilt (see comment above the function) to fix
+  // category scores that used to be stored as an unweighted 0-5 average while overallScore was a
+  // separately-computed weighted 0-100 figure. Assessments saved before that fix still carry the
+  // old, inconsistent numbers in the DB — recompute from each assessment's own stored `answers`
+  // (the source of truth) against the current formula and persist the correction. Idempotent: once
+  // stored values match the recomputation, this is a no-op.
+  useEffect(() => {
+    if (!isAdmin || !token || !selectedCustomer?.id) return;
+    if (questions.length === 0 || categories.length === 0 || assessments.length === 0) return;
+
+    const stale = assessments.filter(a => {
+      const { categoryScores, overallScore } = computeOpexScores(questions, categories, a.answers || {});
+      if (Math.abs((a.overallScore || 0) - overallScore) > 0.01) return true;
+      return Object.keys(categoryScores).some(
+        catId => Math.abs((a.categoryScores?.[catId] || 0) - categoryScores[catId]) > 0.01
+      );
+    });
+    if (stale.length === 0) return;
+
+    (async () => {
+      for (const assessment of stale) {
+        const { categoryScores, overallScore } = computeOpexScores(questions, categories, assessment.answers || {});
+        const corrected: Assessment = { ...assessment, categoryScores, overallScore, updated_at: new Date().toISOString() };
+        try {
+          const res = await fetch("/api/business/opex-assessments", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`,
+              "x-factory-id": selectedCustomer.id
+            },
+            body: JSON.stringify(corrected)
+          }).then(r => r.json());
+          if (res.success) {
+            setAssessments(prev => prev.map(a => a.id === res.data.id ? res.data : a));
+            setActiveAssessment(prev => prev && prev.id === res.data.id ? res.data : prev);
+          }
+        } catch (e) {
+          console.error("Failed to reconcile stale opex assessment score", assessment.id, e);
+        }
+      }
+    })();
+  }, [isAdmin, token, selectedCustomer?.id, questions, categories, assessments]);
+
   // Switch Active Assessment
   const handleSelectAssessment = (id: string) => {
     const selected = assessments.find(a => a.id === id);
