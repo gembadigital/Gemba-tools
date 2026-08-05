@@ -242,6 +242,15 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     return "MÜKEMMELLİK (WORLD CLASS)";
   };
 
+  // Same red/amber/sky/emerald tiering used for status pills elsewhere in this component —
+  // keeps the score cards' color tied to the actual result instead of a fixed hardcoded green.
+  const getSystemLevelTone = (score: number) => {
+    if (score < 40) return { bg: "bg-red-50", text: "text-red-700" };
+    if (score < 60) return { bg: "bg-amber-50", text: "text-amber-700" };
+    if (score < 80) return { bg: "bg-sky-50", text: "text-sky-700" };
+    return { bg: "bg-emerald-50", text: "text-emerald-700" };
+  };
+
   // AI State
   const [aiReport, setAiReport] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -1400,12 +1409,12 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
               <div className="bg-[#2f5597] text-white text-center py-3 font-extrabold tracking-wider text-xs uppercase border-b-2 border-white">
                 DENETİM PUANI
               </div>
-              <div className="bg-[#e2f0d9] text-[#385723] text-center py-6">
+              <div className={`${getSystemLevelTone(activeAssessment.overallScore).bg} ${getSystemLevelTone(activeAssessment.overallScore).text} text-center py-6`}>
                 <span className="text-4xl font-black font-mono">
                   {activeAssessment.overallScore}
                 </span>
                 <span className="text-xs font-bold block mt-1 opacity-80">
-                  Genel Olgunluk Oranı (%)
+                  Genel Olgunluk Oranı
                 </span>
               </div>
             </div>
@@ -1415,7 +1424,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
               <div className="bg-[#2f5597] text-white text-center py-3 font-extrabold tracking-wider text-xs uppercase border-b-2 border-white">
                 SİSTEM SEVİYESİ
               </div>
-              <div className="bg-[#e2f0d9] text-[#385723] text-center py-6">
+              <div className={`${getSystemLevelTone(activeAssessment.overallScore).bg} ${getSystemLevelTone(activeAssessment.overallScore).text} text-center py-6`}>
                 <span className="text-2xl font-black tracking-tight block uppercase">
                   {getSystemLevelText(activeAssessment.overallScore)}
                 </span>
