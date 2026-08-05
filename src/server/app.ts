@@ -1751,6 +1751,59 @@ app.delete("/api/business/opex-assessments/:id", authenticateToken, async (req, 
   res.json({ success: true });
 });
 
+// OpEx question bank (categories + questions) — org-wide, not per-factory: it's the assessment
+// methodology itself, shared by every customer's audits, not a customer's data. Read is open to
+// any authenticated user; edits are Admin-only.
+app.get("/api/business/opex-categories", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  res.json({ success: true, data: await db.getOpexCategories(user.organization_id) });
+});
+
+app.post("/api/business/opex-categories", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  if (user.role !== "Admin") {
+    res.status(403).json({ success: false, error: "Sadece yöneticiler soru bankasını düzenleyebilir." });
+    return;
+  }
+  const saved = await db.saveOpexCategory(user.organization_id, { ...req.body }, user.id);
+  res.json({ success: true, data: saved });
+});
+
+app.delete("/api/business/opex-categories/:id", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  if (user.role !== "Admin") {
+    res.status(403).json({ success: false, error: "Sadece yöneticiler soru bankasını düzenleyebilir." });
+    return;
+  }
+  await db.deleteOpexCategory(user.organization_id, req.params.id);
+  res.json({ success: true });
+});
+
+app.get("/api/business/opex-questions", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  res.json({ success: true, data: await db.getOpexQuestions(user.organization_id) });
+});
+
+app.post("/api/business/opex-questions", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  if (user.role !== "Admin") {
+    res.status(403).json({ success: false, error: "Sadece yöneticiler soru bankasını düzenleyebilir." });
+    return;
+  }
+  const saved = await db.saveOpexQuestion(user.organization_id, { ...req.body }, user.id);
+  res.json({ success: true, data: saved });
+});
+
+app.delete("/api/business/opex-questions/:id", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  if (user.role !== "Admin") {
+    res.status(403).json({ success: false, error: "Sadece yöneticiler soru bankasını düzenleyebilir." });
+    return;
+  }
+  await db.deleteOpexQuestion(user.organization_id, req.params.id);
+  res.json({ success: true });
+});
+
 
 // Gemini Audit with Multi-tenant protection
 app.post("/api/gemini/audit", authenticateToken, async (req, res) => {

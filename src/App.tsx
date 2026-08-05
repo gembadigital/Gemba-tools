@@ -1141,6 +1141,7 @@ export default function App() {
                   selectedCustomer={selectedCustomer}
                   customers={customers}
                   onUpdateCustomer={handleUpdateCustomer}
+                  currentUser={currentUser}
                 />
               </div>
             )}

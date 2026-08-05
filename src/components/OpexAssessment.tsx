@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useFactory } from "../context/FactoryContext";
-import opexCategoriesData from "../data/opex_categories.json";
-import opexQuestionsData from "../data/opex_questions.json";
-import { 
+import {
   Award, TrendingUp, Shield, Sparkles, BookOpen, AlertCircle, FileText, 
   Plus, Calendar, CheckCircle2, Save, Trash2, Printer, Lock, Layout, 
   ChevronRight, Brain, AlertTriangle, FileSpreadsheet, Activity, Target
@@ -81,17 +79,89 @@ const getPreAssessmentMetrics = (preAnswersArray: number[]) => {
   };
 };
 
+// Scoring engine — verified against the original Power Apps "Denetimi Bitir" formula (decoded
+// from the .msapp source) and the real question bank, where every category's question weights
+// sum to ~20 by design. Because of that, "Σ (soru puanı × soru ağırlığı)" for a category lands
+// naturally in 0-100 — it's already a net score, not a fraction that needs a % sign.
+//
+// -1 = not yet answered (excluded, doesn't donate/receive weight). -2 = N/A (excluded from
+// scoring, but its weight is redistributed equally across the category's *answered* questions —
+// same rule the Power Apps formula applies — so marking something N/A doesn't silently shrink
+// the category's achievable score).
+function computeOpexScores(
+  questions: OpexQuestion[],
+  categories: OpexCategory[],
+  answers: Record<string, number>
+): { categoryScores: Record<string, number>; overallScore: number } {
+  const categoryScores: Record<string, number> = {};
+  const touchedCategoryIds: string[] = [];
+
+  categories.forEach(cat => {
+    const catQuestions = questions.filter(q => q.categoryId === cat.id);
+    const touched = catQuestions.filter(q => {
+      const v = answers[q.id];
+      return v !== undefined && v !== -1;
+    });
+    if (touched.length > 0) touchedCategoryIds.push(cat.id);
+
+    const naQuestions = touched.filter(q => answers[q.id] === -2);
+    const scoredQuestions = touched.filter(q => (answers[q.id] ?? -1) >= 0);
+    const naWeightSum = naQuestions.reduce((s, q) => s + q.weight, 0);
+    const extraPerSurvivor = scoredQuestions.length > 0
+      ? Math.round((naWeightSum / scoredQuestions.length) * 100) / 100
+      : 0;
+
+    const categoryTotal = scoredQuestions.reduce((sum, q) => {
+      const effectiveWeight = Math.round((q.weight + extraPerSurvivor) * 100) / 100;
+      return sum + answers[q.id] * effectiveWeight;
+    }, 0);
+    categoryScores[cat.id] = Math.round(categoryTotal * 100) / 100;
+  });
+
+  const touchedScores = touchedCategoryIds.map(id => categoryScores[id]);
+  const overallScore = touchedScores.length > 0
+    ? Math.round((touchedScores.reduce((s, v) => s + v, 0) / touchedScores.length) * 100) / 100
+    : 0;
+
+  return { categoryScores, overallScore };
+}
+
 interface OpexAssessmentProps {
   selectedCustomer: any;
   customers: any[];
   onUpdateCustomer?: (updatedCustomer: any) => void | Promise<void>;
+  currentUser?: any;
 }
 
-export default function OpexAssessment({ selectedCustomer, customers, onUpdateCustomer }: OpexAssessmentProps) {
+export default function OpexAssessment({ selectedCustomer, customers, onUpdateCustomer, currentUser }: OpexAssessmentProps) {
+  const isAdmin = currentUser?.role === "Admin";
   const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "usr_arcelik_admin";
 
-  const categories = opexCategoriesData as OpexCategory[];
-  const questions = opexQuestionsData as OpexQuestion[];
+  // Question bank (categories + questions) — fetched from the backend, not bundled: this is the
+  // assessment methodology itself, shared org-wide and editable by Admins via the Soru Bankası tab.
+  const [categories, setCategories] = useState<OpexCategory[]>([]);
+  const [questions, setQuestions] = useState<OpexQuestion[]>([]);
+  const [isQuestionBankLoading, setIsQuestionBankLoading] = useState(true);
+
+  const fetchQuestionBank = async () => {
+    if (!token) return;
+    try {
+      const [catRes, qRes] = await Promise.all([
+        fetch("/api/business/opex-categories", { headers: { "Authorization": `Bearer ${token}` } }).then(r => r.json()),
+        fetch("/api/business/opex-questions", { headers: { "Authorization": `Bearer ${token}` } }).then(r => r.json())
+      ]);
+      if (catRes.success) setCategories(catRes.data);
+      if (qRes.success) setQuestions(qRes.data);
+    } catch (e) {
+      console.error("Failed to load OpEx question bank", e);
+    } finally {
+      setIsQuestionBankLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchQuestionBank();
+  }, []);
 
   // App States
   const [assessments, setAssessments] = useState<Assessment[]>([]);
@@ -99,6 +169,27 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>("A");
   const [activeTab, setActiveTab] = useState<"summary" | "target" | "assignment" | "evaluate" | "report">("summary");
   
+  // Admin: Soru Bankası (question bank) editor state
+  const [showQuestionBank, setShowQuestionBank] = useState(false);
+  const [questionBankSaving, setQuestionBankSaving] = useState<string | null>(null);
+
+  const handleUpdateQuestionWeight = async (question: OpexQuestion, newWeight: number) => {
+    if (!token || Number.isNaN(newWeight) || newWeight < 0) return;
+    setQuestionBankSaving(question.id);
+    setQuestions(prev => prev.map(q => q.id === question.id ? { ...q, weight: newWeight } : q));
+    try {
+      await fetch("/api/business/opex-questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ ...question, weight: newWeight })
+      }).then(r => r.json());
+    } catch (e) {
+      console.error("Failed to save question weight", e);
+    } finally {
+      setQuestionBankSaving(null);
+    }
+  };
+
   // Creation state
   const [isCreating, setIsCreating] = useState(false);
   const [newAuditName, setNewAuditName] = useState("");
@@ -169,54 +260,9 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
         const sorted = [...res.data].sort((a, b) => new Date(b.auditDate).getTime() - new Date(a.auditDate).getTime());
         setActiveAssessment(sorted[0]);
       } else {
-        // Create realistic default historical assessments for any customer so the Power BI report is instantly visually appealing!
-        let seeds: Assessment[] = [];
-        const now = new Date();
-        const past6 = new Date(now.getTime() - 6 * 30 * 24 * 60 * 60 * 1000);
-        const past12 = new Date(now.getTime() - 12 * 30 * 24 * 60 * 60 * 1000);
-        const past18 = new Date(now.getTime() - 18 * 30 * 24 * 60 * 60 * 1000);
-
-        if (selectedCustomer.id === "arcelik_bolu") {
-          seeds = [
-            generateSeedAssessment("arcelik_bolu", "Denetim-1", past18.toISOString().split("T")[0], 55, 2.75, 1),
-            generateSeedAssessment("arcelik_bolu", "Denetim-2", past12.toISOString().split("T")[0], 68, 3.4, 2),
-            generateSeedAssessment("arcelik_bolu", "Denetim-3 (Mevcut)", past6.toISOString().split("T")[0], 78, 3.9, 3)
-          ];
-        } else if (selectedCustomer.id === "ford_otosan") {
-          seeds = [
-            generateSeedAssessment("ford_otosan", "Denetim-1", past12.toISOString().split("T")[0], 72, 3.6, 1),
-            generateSeedAssessment("ford_otosan", "Denetim-2 (Mevcut)", past6.toISOString().split("T")[0], 84, 4.2, 2)
-          ];
-        } else {
-          // Standard seed fallback for any other customer
-          seeds = [
-            generateSeedAssessment(selectedCustomer.id, "Denetim-1", past12.toISOString().split("T")[0], 58, 2.9, 1),
-            generateSeedAssessment(selectedCustomer.id, "Denetim-2 (Mevcut)", past6.toISOString().split("T")[0], 75, 3.75, 2)
-          ];
-        }
-
-        if (seeds.length > 0) {
-          // POST each seed to database
-          const savedSeeds: Assessment[] = [];
-          for (const s of seeds) {
-            const saved = await fetch("/api/business/opex-assessments", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}`,
-                "x-factory-id": selectedCustomer.id
-              },
-              body: JSON.stringify(s)
-            }).then(r => r.json());
-            if (saved.success) savedSeeds.push(saved.data);
-          }
-          setAssessments(savedSeeds);
-          const sorted = [...savedSeeds].sort((a, b) => new Date(b.auditDate).getTime() - new Date(a.auditDate).getTime());
-          setActiveAssessment(sorted[0]);
-        } else {
-          setAssessments([]);
-          setActiveAssessment(null);
-        }
+        // No real audits for this customer yet — honest empty state, not fabricated history.
+        setAssessments([]);
+        setActiveAssessment(null);
       }
     } catch (e) {
       console.error("Failed to load opex assessments", e);
@@ -228,77 +274,6 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     setAiReport(null);
     setAiError(null);
   }, [selectedCustomer?.id]);
-
-  // Helper to generate seed opex assessments with realistic scores
-  const generateSeedAssessment = (custId: string, name: string, date: string, overallPct: number, targetScore: number, auditNo: number): Assessment => {
-    const answers: Record<string, number> = {};
-    const comments: Record<string, string> = {};
-    const catScores: Record<string, number> = {};
-    const targetScores: Record<string, number> = {};
-    const targetPriorities: Record<string, boolean> = {};
-    const targetNotes: Record<string, string> = {};
-    const assessorAssignments: Record<string, string> = {};
-
-    // Standard Power Apps division mapping
-    // A, B, C, G, E, F -> lead (Kullanıcı 1)
-    // D, H, K, L -> consultant_1 (Kullanıcı 2)
-    // M, N, O, P, R, S -> consultant_2 (Kullanıcı 3)
-    categories.forEach(cat => {
-      // Set target score default
-      targetScores[cat.id] = 4.0;
-      targetPriorities[cat.id] = cat.id === "A" || cat.id === "D" || cat.id === "M";
-      targetNotes[cat.id] = "Süreç olgunluğu hedeflendi.";
-
-      // Multi-Assessor assignment setup
-      if (["A", "B", "C", "E", "F", "G"].includes(cat.id)) {
-        assessorAssignments[cat.id] = "lead";
-      } else if (["D", "H", "K", "L"].includes(cat.id)) {
-        assessorAssignments[cat.id] = "consultant_1";
-      } else {
-        assessorAssignments[cat.id] = "consultant_2";
-      }
-
-      // Add standard random fluctuation around target score
-      const variance = (Math.random() - 0.5) * 1.0; 
-      const catAvg = Math.max(1, Math.min(5, Math.round((targetScore + variance) * 10) / 10));
-      catScores[cat.id] = catAvg;
-
-      const catQuestions = questions.filter(q => q.categoryId === cat.id);
-      catQuestions.forEach(q => {
-        const qVariance = Math.round((Math.random() - 0.5) * 2);
-        const qScore = Math.max(0, Math.min(5, Math.round(targetScore + qVariance)));
-        answers[q.id] = qScore;
-        if (qScore <= 2) {
-          comments[q.id] = "Süreç olgunluğu zayıf, standartlaştırma yapılması gerekmektedir.";
-        } else {
-          comments[q.id] = "Uygulama başarılı ve sahada takip edilmektedir.";
-        }
-      });
-    });
-
-    return {
-      id: `seed_${custId}_${name.replace(/\s+/g, '_')}`,
-      organization_id: "org_arcelik", // will be forced by backend middleware
-      customerId: custId,
-      auditName: name,
-      auditDate: date,
-      overallScore: overallPct,
-      categoryScores: catScores,
-      answers,
-      comments,
-      categoryComments: {},
-      status: "completed",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      auditNo,
-      assessorParticipants: "Atakan Zehir (Baş Denetçi), Caner Yılmaz (Operasyon Danışmanı)",
-      customerParticipants: "Elif Demir (Fabrika Müdürü), Ahmet Soylu (Operasyon Şefi)",
-      targetScores,
-      targetPriorities,
-      targetNotes,
-      assessorAssignments
-    };
-  };
 
   // Switch Active Assessment
   const handleSelectAssessment = (id: string) => {
@@ -370,15 +345,13 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
       defaultComments[q.id] = "";
     });
 
-    // Use selected target score
-    const defaultTargetVal = creationTargetScore / 20; // 45 -> 2.25/5.0, 70 -> 3.5/5.0
-
+    // Selected target score is already a 0-100 net number — applied as-is to every category.
     categories.forEach(c => {
       defaultCategoryScores[c.id] = 0;
-      defaultTargetScores[c.id] = defaultTargetVal;
+      defaultTargetScores[c.id] = creationTargetScore;
       defaultTargetPriorities[c.id] = false;
-      defaultTargetNotes[c.id] = `Hedef: %${creationTargetScore} (${defaultTargetVal.toFixed(2)} / 5.0)`;
-      
+      defaultTargetNotes[c.id] = `Hedef: ${creationTargetScore}`;
+
       // Load selected assignments configured during creation
       defaultAssessorAssignments[c.id] = creationAssignments[c.id] || "lead";
     });
@@ -445,36 +418,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     const finalComments = updatedComments || baseAssessment.comments;
     const finalCategoryComments = updatedCategoryComments || baseAssessment.categoryComments || {};
 
-    // Recalculate category averages
-    const categoryScores: Record<string, number> = {};
-    categories.forEach(cat => {
-      const catQuestions = questions.filter(q => q.categoryId === cat.id);
-      let answeredSum = 0;
-      let answeredCount = 0;
-      catQuestions.forEach(q => {
-        const score = finalAnswers[q.id];
-        if (score !== undefined && score >= 0) {
-          answeredSum += score;
-          answeredCount++;
-        }
-      });
-      categoryScores[cat.id] = answeredCount > 0 ? Math.round((answeredSum / answeredCount) * 100) / 100 : 0;
-    });
-
-    // Recalculate overall score (weighted)
-    let totalWeightedScore = 0;
-    let totalPossibleWeightedScore = 0;
-    questions.forEach(q => {
-      const score = finalAnswers[q.id];
-      if (score !== undefined && score >= 0) {
-        totalWeightedScore += score * q.weight;
-        totalPossibleWeightedScore += 5 * q.weight;
-      }
-    });
-
-    const overallScore = totalPossibleWeightedScore > 0 
-      ? Math.round((totalWeightedScore / totalPossibleWeightedScore) * 100)
-      : 0;
+    const { categoryScores, overallScore } = computeOpexScores(questions, categories, finalAnswers);
 
     const updatedAssessment: Assessment = {
       ...baseAssessment,
@@ -603,34 +547,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
       }
     });
 
-    const categoryScores: Record<string, number> = {};
-    categories.forEach(cat => {
-      const catQuestions = questions.filter(q => q.categoryId === cat.id);
-      let answeredSum = 0;
-      let answeredCount = 0;
-      catQuestions.forEach(q => {
-        const score = finalAnswers[q.id];
-        if (score !== undefined && score >= 0) {
-          answeredSum += score;
-          answeredCount++;
-        }
-      });
-      categoryScores[cat.id] = answeredCount > 0 ? Math.round((answeredSum / answeredCount) * 100) / 100 : 0;
-    });
-
-    let totalWeightedScore = 0;
-    let totalPossibleWeightedScore = 0;
-    questions.forEach(q => {
-      const score = finalAnswers[q.id];
-      if (score !== undefined && score >= 0) {
-        totalWeightedScore += score * q.weight;
-        totalPossibleWeightedScore += 5 * q.weight;
-      }
-    });
-
-    const overallScore = totalPossibleWeightedScore > 0 
-      ? Math.round((totalWeightedScore / totalPossibleWeightedScore) * 100)
-      : 0;
+    const { categoryScores, overallScore } = computeOpexScores(questions, categories, finalAnswers);
 
     const lockedAssessment: Assessment = {
       ...activeAssessment,
@@ -680,7 +597,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
           });
         }
 
-        alert(`Tebrikler! ${res.data.auditName} başarıyla kilitlendi. Genel OpEx puanı %${overallScore} olarak güncellendi.`);
+        alert(`Tebrikler! ${res.data.auditName} başarıyla kilitlendi. Genel OpEx puanı ${overallScore} olarak güncellendi.`);
       }
     } catch (e) {
       console.error("Failed to complete opex assessment", e);
@@ -746,43 +663,6 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     return results;
   }, [activeAssessment, categories, questions]);
 
-  // Recharts: Radar chart data preparation
-  const radarChartData = useMemo(() => {
-    if (!activeAssessment) return [];
-    return categories.map(cat => ({
-      subject: cat.id,
-      name: cat.name,
-      Skor: activeAssessment.categoryScores[cat.id] || 0,
-      Hedef: (activeAssessment.targetScores && activeAssessment.targetScores[cat.id]) !== undefined
-        ? activeAssessment.targetScores[cat.id]
-        : 4.0
-    }));
-  }, [activeAssessment, categories]);
-
-  // Recharts: Line chart trend data of assessments
-  const trendChartData = useMemo(() => {
-    return [...assessments]
-      .sort((a, b) => new Date(a.auditDate).getTime() - new Date(b.auditDate).getTime())
-      .map(a => ({
-        name: a.auditName,
-        "OpEx Puanı (%)": a.overallScore,
-        Tarih: new Date(a.auditDate).toLocaleDateString("tr-TR")
-      }));
-  }, [assessments]);
-
-  // Recharts: Bar chart comparison of Category scores
-  const barChartData = useMemo(() => {
-    if (!activeAssessment) return [];
-    return categories.map(cat => ({
-      name: cat.id,
-      full_name: cat.name,
-      Skor: activeAssessment.categoryScores[cat.id] || 0,
-      Target: (activeAssessment.targetScores && activeAssessment.targetScores[cat.id]) !== undefined
-        ? activeAssessment.targetScores[cat.id]
-        : 4.0
-    }));
-  }, [activeAssessment, categories]);
-
   // Dynamic calculations for Power BI Report page matching screenshot
   const customerAssessments = useMemo(() => {
     return assessments
@@ -800,12 +680,12 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     if (!activeAssessment) return [];
     return categories.map(cat => {
       const rawScore = activeAssessment.categoryScores[cat.id] || 0;
-      const rawTarget = activeAssessment.targetScores?.[cat.id] ?? 4.0;
+      const rawTarget = activeAssessment.targetScores?.[cat.id] ?? 0;
       return {
         subject: cat.id,
         name: cat.name,
-        "Gerçekleşen": Math.round(rawScore * 20),
-        "Hedef": Math.round(rawTarget * 20)
+        "Gerçekleşen": Math.round(rawScore),
+        "Hedef": Math.round(rawTarget)
       };
     });
   }, [activeAssessment, categories]);
@@ -818,15 +698,15 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
       return {
         subject: cat.id,
         name: cat.name,
-        "Önceki Sonuç": Math.round(prevRawScore * 20),
-        "Mevcut Sonuç": Math.round(currRawScore * 20)
+        "Önceki Sonuç": Math.round(prevRawScore),
+        "Mevcut Sonuç": Math.round(currRawScore)
       };
     });
   }, [activeAssessment, previousAssessment, categories]);
 
   const overallComparisonData = useMemo(() => {
     return customerAssessments.map(a => {
-      let targetPct = 70;
+      let targetPct = 0;
       if (a.targetPreAnswers) {
         const metrics = getPreAssessmentMetrics(a.targetPreAnswers);
         targetPct = metrics.targetPct;
@@ -834,7 +714,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
         const keys = Object.keys(a.targetScores);
         if (keys.length > 0) {
           const sum = keys.reduce((s, k) => s + (a.targetScores?.[k] ?? 0), 0);
-          targetPct = Math.round((sum / keys.length) * 20);
+          targetPct = Math.round(sum / keys.length);
         }
       }
       return {
@@ -844,14 +724,6 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
       };
     });
   }, [customerAssessments]);
-
-  // Get maturity level name
-  const getMaturityLevel = (pctScore: number) => {
-    if (pctScore < 40) return { label: "Aşama 1: Reaktif (Başlangıç)", color: "text-red-600 bg-red-50 border-red-200" };
-    if (pctScore < 60) return { label: "Aşama 2: Gelişmekte Olan (Kurulum)", color: "text-orange-600 bg-orange-50 border-orange-200" };
-    if (pctScore < 80) return { label: "Aşama 3: Standart / Yetkin (Uygulama)", color: "text-blue-600 bg-blue-50 border-blue-200" };
-    return { label: "Aşama 4: Mükemmellik (Sürdürülebilirlik)", color: "text-emerald-600 bg-emerald-50 border-emerald-200" };
-  };
 
   // AI Insights with Gemini
   const handleTriggerAiInsight = async () => {
@@ -882,19 +754,19 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
       
       DENETİM DETAYLARI:
       - Denetim Adı: ${activeAssessment.auditName}
-      - Genel OpEx Olgunluk Puanı: %${activeAssessment.overallScore} (${(activeAssessment.overallScore / 20).toFixed(2)} / 5.0)
+      - Genel OpEx Olgunluk Puanı: ${activeAssessment.overallScore} / 100
       - En Güçlü 3 Alan:
-        ${strengths.map(s => `  * ${s.id} - ${s.name}: ${s.score} / 5.0`).join("\n")}
+        ${strengths.map(s => `  * ${s.id} - ${s.name}: ${s.score} / 100`).join("\n")}
       - En Fazla Gelişime Açık (Zayıf) 3 Alan:
-        ${weaknesses.map(w => `  * ${w.id} - ${w.name}: ${w.score} / 5.0`).join("\n")}
-      
-      Tüm Kategori Puanları (5 üzerinden):
+        ${weaknesses.map(w => `  * ${w.id} - ${w.name}: ${w.score} / 100`).join("\n")}
+
+      Tüm Kategori Puanları (100 üzerinden):
       ${scores.map(s => `* ${s.id} - ${s.name}: ${s.score}`).join("\n")}
       
       Lütfen bu verilere dayanarak, tesis yöneticisine hitaben son derece klinik, net, saha gerçeklerine uygun ve heyecan verici olmayan teknik bir OpEx İyileştirme Yol Haritası hazırla. Rapor tamamen Türkçe olmalı ve şu markdown başlıklarını içermelidir:
       
       ### 1. Genel Olgunluk Seviyesi ve Yalın Durum Değerlendirmesi
-      - Genel olgunluk puanı %${activeAssessment.overallScore} olan bu tesisi sektör kriterlerine göre nerede konumlandırıyoruz? Bu olgunluğun saha kültürüne yansıması nasıldır?
+      - Genel olgunluk puanı ${activeAssessment.overallScore} (100 üzerinden) olan bu tesisi sektör kriterlerine göre nerede konumlandırıyoruz? Bu olgunluğun saha kültürüne yansıması nasıldır?
       
       ### 2. Kritik Güçlü Alanlar ve Sürdürülebilirlik Stratejisi
       - En güçlü 3 alanın (${strengths.map(s => s.name).join(", ")}) getirilerini yorumla. Bu başarıların tesiste standart hale gelmesi için ne yapılmalı?
@@ -983,11 +855,23 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
               >
                 {assessments.map(a => (
                   <option key={a.id} value={a.id}>
-                    {a.auditName} ({a.status === "completed" ? `%${a.overallScore}` : "Taslak"}) - {new Date(a.auditDate).toLocaleDateString("tr-TR")}
+                    {a.auditName} ({a.status === "completed" ? a.overallScore : "Taslak"}) - {new Date(a.auditDate).toLocaleDateString("tr-TR")}
                   </option>
                 ))}
               </select>
             </div>
+          )}
+
+          {isAdmin && (
+            <button
+              onClick={() => setShowQuestionBank(v => !v)}
+              className={`text-xs font-bold px-4 py-2.5 rounded-xl shadow-xs flex items-center space-x-1.5 transition-all cursor-pointer ${
+                showQuestionBank ? "bg-purple-700 text-white" : "bg-white border border-purple-200 text-purple-700 hover:bg-purple-50"
+              }`}
+            >
+              <BookOpen className="w-4 h-4" />
+              <span>Soru Bankası</span>
+            </button>
           )}
 
           {!isCreating ? (
@@ -1069,17 +953,17 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[10px] text-slate-400 font-extrabold uppercase block">Denetim Hedef Puanı (%)</label>
+              <label className="text-[10px] text-slate-400 font-extrabold uppercase block">Denetim Hedef Puanı (0-100)</label>
               <select
                 className="w-full text-xs font-black bg-white border border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-slate-400 text-slate-800 cursor-pointer"
                 value={creationTargetScore}
                 onChange={(e) => setCreationTargetScore(Number(e.target.value))}
               >
-                <option value={45}>%45 (Sınıf B Olgunluk Hedefi - 2.25/5.0)</option>
-                <option value={70}>%70 (Sınıf A Mükemmellik Hedefi - 3.50/5.0)</option>
-                <option value={30}>%30 (Aşama 1 Başlangıç Hedefi - 1.50/5.0)</option>
-                <option value={50}>%50 (Aşama 2 Kurulum Hedefi - 2.50/5.0)</option>
-                <option value={80}>%80 (Sürdürülebilirlik Hedefi - 4.00/5.0)</option>
+                <option value={45}>45 (Sınıf B Olgunluk Hedefi)</option>
+                <option value={70}>70 (Sınıf A Mükemmellik Hedefi)</option>
+                <option value={30}>30 (Aşama 1 Başlangıç Hedefi)</option>
+                <option value={50}>50 (Aşama 2 Kurulum Hedefi)</option>
+                <option value={80}>80 (Sürdürülebilirlik Hedefi)</option>
               </select>
             </div>
           </div>
@@ -1155,7 +1039,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                   </div>
                   <div className="bg-[#2f5597]/5 rounded-xl p-3 text-center border border-[#2f5597]/20">
                     <span className="text-[11px] text-[#2f5597] font-extrabold block uppercase">OTOMATİK HEDEF PUANI</span>
-                    <span className="text-lg font-black text-[#2f5597] font-mono">%{metrics.targetPct}</span>
+                    <span className="text-lg font-black text-[#2f5597] font-mono">{metrics.targetPct}</span>
                   </div>
                 </div>
               );
@@ -1230,6 +1114,68 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
               <span>Denetimi Başlat ve Kaydet</span>
             </button>
           </div>
+        </div>
+      )}
+
+      {/* ADMIN: SORU BANKASI / AĞIRLIK YÖNETİMİ — independent of any specific audit; edits here
+          apply to the shared question bank used by every future denetim. */}
+      {isAdmin && showQuestionBank && (
+        <div className="bg-white border border-purple-200 rounded-2xl p-6 space-y-4 shadow-xs">
+          <div className="flex items-center space-x-2 border-b border-slate-200 pb-3">
+            <BookOpen className="w-5 h-5 text-purple-600" />
+            <div>
+              <h3 className="font-extrabold text-xs text-slate-900 uppercase tracking-tight">Soru Bankası / Ağırlık Yönetimi</h3>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                Her kategorinin soru ağırlıkları toplamı normalde 20'dir (5 puanlık skala × 20 = 100 net kategori puanı). Toplam 20'den farklıysa kırmızı ile işaretlenir.
+              </p>
+            </div>
+          </div>
+
+          {isQuestionBankLoading ? (
+            <p className="text-xs text-slate-400 font-bold text-center py-6">Yükleniyor...</p>
+          ) : (
+            <div className="space-y-5 max-h-[70vh] overflow-y-auto pr-1">
+              {categories.map(cat => {
+                const catQuestions = questions.filter(q => q.categoryId === cat.id);
+                const weightSum = Math.round(catQuestions.reduce((s, q) => s + q.weight, 0) * 100) / 100;
+                const isBalanced = weightSum === 20;
+                return (
+                  <div key={cat.id} className="border border-slate-150 rounded-xl overflow-hidden">
+                    <div className={`flex items-center justify-between px-4 py-2.5 ${isBalanced ? "bg-slate-50" : "bg-red-50"}`}>
+                      <span className="text-xs font-black text-slate-800 uppercase">{cat.id} - {cat.name}</span>
+                      <span className={`text-xs font-mono font-black ${isBalanced ? "text-slate-500" : "text-red-600"}`}>
+                        Toplam Ağırlık: {weightSum} {!isBalanced && "(20 olmalı)"}
+                      </span>
+                    </div>
+                    <table className="w-full text-left text-xs border-collapse">
+                      <tbody className="divide-y divide-slate-100">
+                        {catQuestions.map(q => (
+                          <tr key={q.id}>
+                            <td className="p-2.5 w-16 font-mono font-bold text-slate-500">{q.id}</td>
+                            <td className="p-2.5 text-slate-700 font-semibold">{q.subject} — <span className="text-slate-400 font-normal">{q.idealState.slice(0, 90)}{q.idealState.length > 90 ? "…" : ""}</span></td>
+                            <td className="p-2.5 w-28 text-right">
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.5}
+                                defaultValue={q.weight}
+                                disabled={questionBankSaving === q.id}
+                                onBlur={(e) => {
+                                  const val = Number(e.target.value);
+                                  if (val !== q.weight) handleUpdateQuestionWeight(q, val);
+                                }}
+                                className="w-20 text-xs font-black text-purple-700 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-right focus:outline-none focus:border-purple-400"
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -1332,12 +1278,11 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
               <tbody className="divide-y divide-slate-200 font-semibold text-slate-700">
                 {categories.map(cat => {
                   const stats = categoryProgress[cat.id] || { answered: 0, total: 0, average: 0 };
-                  const targetScoreRaw = activeAssessment.targetScores?.[cat.id] !== undefined
-                    ? activeAssessment.targetScores[cat.id]
-                    : 2.25; // default 45%
-                  const targetPct = Math.round((targetScoreRaw / 5) * 100);
-                  const resultPct = stats.answered > 0 ? Math.round((stats.average / 5) * 100) : 0;
-                  
+                  const targetScore = activeAssessment.targetScores?.[cat.id];
+                  const hasTarget = targetScore !== undefined;
+                  const targetPct = hasTarget ? Math.round(targetScore) : 0;
+                  const resultPct = Math.round(activeAssessment.categoryScores[cat.id] || 0);
+
                   // Status check
                   let statusText = "";
                   let statusColor = "";
@@ -1358,10 +1303,10 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                         {cat.id} - {cat.name}
                       </td>
                       <td className="p-3 text-center border-r border-slate-200 font-black text-slate-900 font-mono text-sm bg-slate-50/30">
-                        %{targetPct}
+                        {hasTarget ? targetPct : "—"}
                       </td>
-                      <td className={`p-3 text-center border-r border-slate-200 font-black font-mono text-sm ${resultPct >= targetPct ? "text-emerald-600 bg-emerald-50/20" : "text-slate-800 bg-slate-50/10"}`}>
-                        %{resultPct}
+                      <td className={`p-3 text-center border-r border-slate-200 font-black font-mono text-sm ${hasTarget && resultPct >= targetPct ? "text-emerald-600 bg-emerald-50/20" : "text-slate-800 bg-slate-50/10"}`}>
+                        {resultPct}
                       </td>
                       <td className="p-2.5 text-center">
                         <span className={`inline-flex items-center text-[10px] font-black uppercase px-2.5 py-1 rounded-full border ${statusColor}`}>
@@ -1658,14 +1603,14 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                       <thead>
                         <tr className="border-b border-purple-100 text-purple-400 font-black text-[11px] uppercase tracking-wider">
                           <th className="py-2.5">KOD & SÜREÇ ALANI</th>
-                          <th className="py-2.5">HEDEF SEVİYE (0-5)</th>
+                          <th className="py-2.5">HEDEF PUAN (0-100)</th>
                           <th className="py-2.5 text-center">ÖNCELİKLİ ALAN</th>
                           <th className="py-2.5">STRATEJİK YOL HARİTASI PLAN NOTU</th>
                         </tr>
                       </thead>
                       <tbody>
                         {categories.map(cat => {
-                          const targetScore = (activeAssessment.targetScores?.[cat.id]) !== undefined ? activeAssessment.targetScores[cat.id] : 4.0;
+                          const targetScore = activeAssessment.targetScores?.[cat.id];
                           const isPriority = !!(activeAssessment.targetPriorities?.[cat.id]);
                           const note = (activeAssessment.targetNotes?.[cat.id]) || "";
 
@@ -1675,16 +1620,17 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                                 {cat.id} - {cat.name}
                               </td>
                               <td className="py-2">
-                                <select
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  step={5}
                                   disabled={activeAssessment.status === "completed"}
-                                  value={targetScore}
-                                  onChange={(e) => handleTargetScoreChange(cat.id, Number(e.target.value))}
-                                  className="text-xs font-black text-purple-700 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:outline-none cursor-pointer"
-                                >
-                                  {[0, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5].map(v => (
-                                    <option key={v} value={v}>{v.toFixed(1)}</option>
-                                  ))}
-                                </select>
+                                  value={targetScore ?? ""}
+                                  placeholder="Belirlenmedi"
+                                  onChange={(e) => handleTargetScoreChange(cat.id, e.target.value === "" ? 0 : Number(e.target.value))}
+                                  className="w-24 text-xs font-black text-purple-700 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:outline-none"
+                                />
                               </td>
                               <td className="py-2 text-center">
                                 <input
@@ -1975,13 +1921,13 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                                   currentPreAnswers[idx] = val;
                                   
                                   const metrics = getPreAssessmentMetrics(currentPreAnswers);
-                                  const targetVal = metrics.targetPct / 20; // 45 -> 2.25, 70 -> 3.5
+                                  const targetVal = metrics.targetPct; // already a 0-100 net number
 
                                   const updatedTargetScores = { ...(activeAssessment.targetScores || {}) };
                                   const updatedTargetNotes = { ...(activeAssessment.targetNotes || {}) };
                                   categories.forEach(c => {
                                     updatedTargetScores[c.id] = targetVal;
-                                    updatedTargetNotes[c.id] = `Hedef sınıfı belirlendi: %${metrics.targetPct} (${targetVal.toFixed(2)}/5.0)`;
+                                    updatedTargetNotes[c.id] = `Hedef sınıfı belirlendi: ${targetVal}`;
                                   });
 
                                   const updatedAssessment: Assessment = {
@@ -2052,9 +1998,9 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                 {/* Target Score panel */}
                 <div className="border-2 border-[#2f5597] rounded-2xl p-5 bg-blue-50/30 flex flex-col items-center justify-center text-center space-y-1">
                   <span className="text-[10px] text-[#2f5597] font-black uppercase tracking-wider">BELİRLENEN HEDEF ORAN</span>
-                  <span className="text-3xl font-black text-[#2f5597] font-mono">%{targetPct}</span>
+                  <span className="text-3xl font-black text-[#2f5597] font-mono">{targetPct}</span>
                   <span className="text-[11px] text-slate-500 font-extrabold uppercase">
-                    ({category === "B" ? "Sınıf B Olgunluk - 2.25/5" : "Sınıf A Mükemmellik - 3.50/5"})
+                    ({category === "B" ? "Sınıf B Olgunluk" : "Sınıf A Mükemmellik"})
                   </span>
                 </div>
               </div>
@@ -2223,11 +2169,9 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                     </thead>
                     <tbody className="divide-y divide-slate-150 font-bold text-slate-700">
                       {categories.map((cat, idx) => {
-                        const rawScore = activeAssessment.categoryScores[cat.id] || 0;
-                        const rawTarget = activeAssessment.targetScores?.[cat.id] ?? 4.0;
-                        const scorePct = Math.round(rawScore * 20);
-                        const targetPct = Math.round(rawTarget * 20);
-                        
+                        const scorePct = Math.round(activeAssessment.categoryScores[cat.id] || 0);
+                        const targetPct = Math.round(activeAssessment.targetScores?.[cat.id] ?? 0);
+
                         return (
                           <tr key={cat.id} className="hover:bg-slate-50/60 transition-colors">
                             <td className="p-2.5 text-center font-black text-[#2f5597] border-r border-slate-100 bg-slate-50/30 w-16">{cat.id}</td>
@@ -2295,14 +2239,14 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                       </thead>
                       <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
                         {customerAssessments.map((a, index) => {
-                          let targetPct = 70;
+                          let targetPct = 0;
                           if (a.targetPreAnswers) {
                             targetPct = getPreAssessmentMetrics(a.targetPreAnswers).targetPct;
                           } else if (a.targetScores) {
                             const keys = Object.keys(a.targetScores);
                             if (keys.length > 0) {
                               const sum = keys.reduce((s, k) => s + (a.targetScores?.[k] ?? 0), 0);
-                              targetPct = Math.round((sum / keys.length) * 20);
+                              targetPct = Math.round(sum / keys.length);
                             }
                           }
                           const isActive = a.id === activeAssessment.id;
@@ -2391,24 +2335,22 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                         </thead>
                         <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
                           {categories.map((cat) => {
-                            const rawScore = activeAssessment.categoryScores[cat.id] || 0;
-                            const rawTarget = activeAssessment.targetScores?.[cat.id] ?? 4.0;
-                            const scorePct = Math.round(rawScore * 20);
-                            const targetPct = Math.round(rawTarget * 20);
+                            const scorePct = Math.round(activeAssessment.categoryScores[cat.id] || 0);
+                            const targetPct = Math.round(activeAssessment.targetScores?.[cat.id] ?? 0);
 
                             return (
                               <tr key={cat.id} className="hover:bg-slate-50/80 transition-colors">
                                 <td className="p-2 text-center font-black text-[#2f5597] border-r border-slate-150 w-12 bg-slate-50/30 font-mono">{cat.id}</td>
                                 <td className="p-2 text-slate-900 font-black uppercase text-[11px] truncate max-w-[150px]" title={cat.name}>{cat.name}</td>
-                                <td className="p-2 text-center font-mono font-extrabold text-slate-500 border-l border-r border-slate-150 w-16 bg-slate-50/10">%{targetPct}</td>
+                                <td className="p-2 text-center font-mono font-extrabold text-slate-500 border-l border-r border-slate-150 w-16 bg-slate-50/10">{targetPct}</td>
                                 <td className={`p-2 text-center font-mono font-black border-r border-slate-150 w-16 ${
-                                  scorePct >= targetPct 
-                                    ? "text-emerald-700 bg-emerald-50/30" 
-                                    : scorePct >= targetPct - 15 
-                                    ? "text-amber-700 bg-amber-50/30" 
+                                  scorePct >= targetPct
+                                    ? "text-emerald-700 bg-emerald-50/30"
+                                    : scorePct >= targetPct - 15
+                                    ? "text-amber-700 bg-amber-50/30"
                                     : "text-red-700 bg-red-50/30"
                                 }`}>
-                                  %{scorePct}
+                                  {scorePct}
                                 </td>
                               </tr>
                             );
@@ -2456,25 +2398,23 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                             </thead>
                             <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
                               {categories.map((cat) => {
-                                const prevRaw = previousAssessment.categoryScores[cat.id] || 0;
-                                const currRaw = activeAssessment.categoryScores[cat.id] || 0;
-                                const prevPct = Math.round(prevRaw * 20);
-                                const currPct = Math.round(currRaw * 20);
+                                const prevPct = Math.round(previousAssessment.categoryScores[cat.id] || 0);
+                                const currPct = Math.round(activeAssessment.categoryScores[cat.id] || 0);
                                 const diff = currPct - prevPct;
 
                                 return (
                                   <tr key={cat.id} className="hover:bg-slate-50/80 transition-colors">
                                     <td className="p-2 text-center font-black text-[#2f5597] border-r border-slate-150 bg-slate-50/30 font-mono">{cat.id}</td>
-                                    <td className="p-2 font-mono text-slate-500">%{prevPct}</td>
-                                    <td className="p-2 font-mono text-slate-900 font-black">%{currPct}</td>
+                                    <td className="p-2 font-mono text-slate-500">{prevPct}</td>
+                                    <td className="p-2 font-mono text-slate-900 font-black">{currPct}</td>
                                     <td className={`p-2 text-center font-mono font-black ${
-                                      diff > 0 
-                                        ? "text-emerald-700 bg-emerald-50/25" 
-                                        : diff < 0 
-                                        ? "text-red-700 bg-red-50/25" 
+                                      diff > 0
+                                        ? "text-emerald-700 bg-emerald-50/25"
+                                        : diff < 0
+                                        ? "text-red-700 bg-red-50/25"
                                         : "text-slate-500 bg-slate-50/20"
                                     }`}>
-                                      {diff > 0 ? `+${diff}%` : `${diff}%`}
+                                      {diff > 0 ? `+${diff}` : `${diff}`}
                                     </td>
                                   </tr>
                                 );

@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { Pool } from "pg";
+import { OPEX_SEED_CATEGORIES, OPEX_SEED_QUESTIONS } from "./opexSeedData.js";
 
 // Schema Definitions
 export interface Organization {
@@ -953,6 +954,54 @@ export class GeminiDb {
 
   public async deleteYamazumiStudy(orgId: string, id: string): Promise<void> {
     await this.removeOne("yamazumi_studies", orgId, id);
+  }
+
+  // OpEx Assessment question bank — shared org-wide (not per-factory), since it represents the
+  // assessment methodology itself, not a customer's data. Auto-seeded from the verified original
+  // question set (ported from the Power Apps source) the first time an org has none, so the
+  // module works immediately; from then on the DB records are the only source of truth and are
+  // editable via the admin Soru Bankası screen.
+  public async getOpexCategories(orgId: string): Promise<any[]> {
+    const existing = await this.listCollection("opex_categories", orgId);
+    if (existing.length > 0) return existing;
+    for (const cat of OPEX_SEED_CATEGORIES) {
+      await this.upsertMerged("opex_categories", orgId, { ...cat, organization_id: orgId });
+    }
+    for (const q of OPEX_SEED_QUESTIONS) {
+      await this.upsertMerged("opex_questions", orgId, { ...q, organization_id: orgId });
+    }
+    return this.listCollection("opex_categories", orgId);
+  }
+
+  public async saveOpexCategory(orgId: string, cat: any, userId: string): Promise<any> {
+    if (!cat.id) cat.id = randomId("opexcat");
+    cat.organization_id = orgId;
+    cat.updated_by = userId;
+    cat.updated_at = new Date().toISOString();
+    return this.upsertMerged("opex_categories", orgId, cat);
+  }
+
+  public async deleteOpexCategory(orgId: string, id: string): Promise<void> {
+    await this.removeOne("opex_categories", orgId, id);
+  }
+
+  public async getOpexQuestions(orgId: string): Promise<any[]> {
+    // Piggyback on getOpexCategories' seeding so a fresh org gets both in one call regardless of
+    // which endpoint the frontend happens to hit first.
+    await this.getOpexCategories(orgId);
+    return this.listCollection("opex_questions", orgId);
+  }
+
+  public async saveOpexQuestion(orgId: string, q: any, userId: string): Promise<any> {
+    if (!q.id) q.id = randomId("opexq");
+    q.organization_id = orgId;
+    q.updated_by = userId;
+    q.updated_at = new Date().toISOString();
+    return this.upsertMerged("opex_questions", orgId, q);
+  }
+
+  public async deleteOpexQuestion(orgId: string, id: string): Promise<void> {
+    await this.removeOne("opex_questions", orgId, id);
   }
 }
 
