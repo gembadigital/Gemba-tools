@@ -129,7 +129,7 @@ export interface ProjectRecord {
   workDone: string;
   output: string;
   responsible: string;
-  status: string; // 'Açık' | 'Devam Ediyor' | 'Kapalı' | 'İptal' | 'Yapılmadı'
+  status: string; // 'Açık' | 'Devam Ediyor' | 'Kapalı' | 'İptal'
   dueDate: string;
   actualDate: string;
   compliance: string; // 'ZAMANINDA' | 'GECİKME'
@@ -142,9 +142,9 @@ export interface ProjectRecord {
   orderNo: number;
 }
 
-// Statuses that must NOT count toward project progress (cancelled or never carried out).
-export const EXCLUDED_STATUSES = ["İptal", "Yapılmadı"];
-export const STATUS_OPTIONS = ["Açık", "Devam Ediyor", "Kapalı", "İptal", "Yapılmadı"];
+// Statuses that must NOT count toward project progress (cancelled).
+export const EXCLUDED_STATUSES = ["İptal"];
+export const STATUS_OPTIONS = ["Açık", "Devam Ediyor", "Kapalı", "İptal"];
 
 // Initial data decoding function
 const parseSeedData = (): ProjectRecord[] => {
@@ -1076,8 +1076,8 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
     return weeks.map((w, idx) => {
       const reason = gapReasons[w] || GAP_REASON_OPTIONS[0];
       // Kontrol ziyareti gerçek bir saha çalışmasıdır; diğer nedenler (ziyaret/aksiyon yok)
-      // ilerleme hesabına dahil edilmemesi için "Yapılmadı" statüsüyle kaydedilir.
-      const status = reason === GAP_REASON_OPTIONS[2] ? "Açık" : "Yapılmadı";
+      // ilerleme hesabına dahil edilmemesi için "İptal" statüsüyle kaydedilir.
+      const status = reason === GAP_REASON_OPTIONS[2] ? "Açık" : "İptal";
       return {
         id: Date.now() + idx,
         orderNo: Date.now() + idx,
@@ -1534,8 +1534,8 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
     // Devam Eden: Açık + Devam Ediyor
     const ongoing = open + inProgress;
 
-    // Aksiyon Performansı: Kapalı / (Toplam - İptal/Yapılmadı) — iptal edilen veya yapılmayan
-    // işler ilerleme yüzdesine dahil edilmez.
+    // Aksiyon Performansı: Kapalı / (Toplam - İptal) — iptal edilen işler ilerleme yüzdesine
+    // dahil edilmez.
     const progressEligible = total - cancelled;
     const actionPerformance = progressEligible > 0 ? Math.round((completed / progressEligible) * 100) : 0;
     
@@ -1571,6 +1571,17 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
     });
     const avgOpenDays = countWithDates > 0 ? Math.round(totalDays / countWithDates) : null;
 
+    // Gecikmiş Aksiyon: henüz kapanmamış (Açık/Devam Ediyor) ve ziyaret tarihinden bu yana
+    // 30 gün veya daha uzun süredir bekleyen aksiyon sayısı.
+    const today = new Date();
+    const staleOpenCount = filteredRecords.filter(r => {
+      if (r.status !== "Açık" && r.status !== "Devam Ediyor") return false;
+      const workD = parseTurkishDate(r.workDate);
+      if (!workD) return false;
+      const diffDays = Math.ceil((today.getTime() - workD.getTime()) / (1000 * 60 * 60 * 24));
+      return diffDays >= 30;
+    }).length;
+
     return {
       ongoing,
       open,
@@ -1579,7 +1590,8 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
       actionPerformance,
       complianceRate,
       savings,
-      avgOpenDays
+      avgOpenDays,
+      staleOpenCount
     };
   }, [filteredRecords]);
 
@@ -1868,7 +1880,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
             </div>
 
             {/* Row 2: Performance and Financial KPIs */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               {/* Card 5: Aksiyon Performansı */}
               <div className="bg-white border border-indigo-200 hover:border-indigo-450 rounded-2xl p-5 shadow-xs transition-all flex flex-col justify-between h-[125px]">
                 <div className="flex items-center space-x-4">
@@ -1946,6 +1958,20 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                     )}
                   </div>
                   <span className="text-[10px] text-slate-400 font-medium block mt-0.5">Average Project Lead Time</span>
+                </div>
+              </div>
+
+              {/* Card 9: Gecikmiş Aksiyon (30+ gün açık bekleyen) */}
+              <div className="bg-white border border-rose-200 hover:border-rose-450 rounded-2xl p-5 shadow-xs transition-all flex items-center space-x-4 h-[125px]">
+                <div className="p-3 bg-rose-50 rounded-xl text-rose-600 shrink-0">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-[10px] text-rose-650 font-extrabold uppercase tracking-wider block">Gecikmiş Aksiyon</span>
+                  <div className="text-2xl font-black text-slate-800 tracking-tight mt-0.5 font-sans">
+                    {executiveKPIs.staleOpenCount}
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-medium block mt-0.5">30+ Gündür Açık Bekleyen</span>
                 </div>
               </div>
             </div>
@@ -2077,7 +2103,6 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                 <option value="Devam Ediyor">Devam Ediyor</option>
                 <option value="Kapalı">Kapalı</option>
                 <option value="İptal">İptal</option>
-                <option value="Yapılmadı">Yapılmadı</option>
               </select>
             </div>
 
@@ -2183,7 +2208,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
               ))}
             </div>
             <p className="text-[10px] text-slate-400 font-semibold">
-              "Sadece kontrol ziyareti yapıldı" seçilen haftalar Açık olarak, diğer nedenler proje ilerlemesine dahil edilmeyecek şekilde "Yapılmadı" olarak kaydedilir.
+              "Sadece kontrol ziyareti yapıldı" seçilen haftalar Açık olarak, diğer nedenler proje ilerlemesine dahil edilmeyecek şekilde "İptal" olarak kaydedilir.
             </p>
             <div className="flex justify-end space-x-2 pt-2 border-t">
               <button
@@ -2467,7 +2492,6 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                   <option value="Devam Ediyor">Devam Ediyor</option>
                   <option value="Kapalı">Kapalı</option>
                   <option value="İptal">İptal</option>
-                  <option value="Yapılmadı">Yapılmadı</option>
                 </select>
               </div>
 
@@ -2721,7 +2745,6 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                           <option value="Devam Ediyor">Devam Ediyor</option>
                           <option value="Kapalı">Kapalı</option>
                           <option value="İptal">İptal</option>
-                          <option value="Yapılmadı">Yapılmadı</option>
                         </select>
                       ) : (
                         <select
@@ -2741,7 +2764,6 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                           <option value="Devam Ediyor">DEVAM EDİYOR</option>
                           <option value="Kapalı">KAPALI</option>
                           <option value="İptal">İPTAL</option>
-                          <option value="Yapılmadı">YAPILMADI</option>
                         </select>
                       )}
                     </td>

@@ -262,7 +262,7 @@ export default function OpexProjectDashboard({
       { name: "Açık (Başlanmadı)", value: openCount, color: "#ef4444" },
       { name: "Devam Ediyor", value: inProgressCount, color: "#f97316" },
       { name: "Kapalı (Tamamlandı)", value: completedCount, color: "#10b981" },
-      { name: "İptal / Yapılmadı", value: cancelledCount, color: "#94a3b8" }
+      { name: "İptal", value: cancelledCount, color: "#94a3b8" }
     ].filter(d => d.value > 0);
   }, [filteredData.records]);
 
@@ -378,6 +378,22 @@ export default function OpexProjectDashboard({
       value: catMap[name],
       color: colors[idx % colors.length]
     })).sort((a, b) => b.value - a.value);
+  }, [filteredData.records]);
+
+  // 5b. Konu Bazlı Detay — same grouping as improvementDistributionData above, but keeping the
+  // underlying improvement descriptions per topic instead of just a count, so a consultant can see
+  // "topic + its improvements" in one place instead of switching to the PTR table and filtering.
+  const [expandedTopic, setExpandedTopic] = useState<string | null>(null);
+  const topicDetailData = useMemo(() => {
+    const map: { [key: string]: { workDone: string; responsible: string; status: string; workDate: string }[] } = {};
+    filteredData.records.forEach(r => {
+      const cat = r.activitySubject || "Diğer";
+      if (!map[cat]) map[cat] = [];
+      map[cat].push({ workDone: r.workDone, responsible: r.responsible, status: r.status, workDate: r.workDate });
+    });
+    return Object.keys(map)
+      .map(name => ({ name, count: map[name].length, items: map[name] }))
+      .sort((a, b) => b.count - a.count);
   }, [filteredData.records]);
 
   // 6. Training Topics — real session counts per topic (no fabricated hours-per-session assumption;
@@ -943,6 +959,68 @@ export default function OpexProjectDashboard({
           </div>
         </div>
 
+      </div>
+
+      {/* Konu Bazlı Aksiyon ve İyileştirme Detayları — count + the actual improvement
+          descriptions per topic, expandable per row, so this doesn't require switching to the
+          PTR table and manually filtering by "Faaliyet Konusu" to see what's behind each number. */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+        <div className="border-b pb-3 mb-4">
+          <h3 className="text-xs font-black text-slate-800 uppercase tracking-tight flex items-center">
+            <Layers className="w-4 h-4 mr-1.5 text-slate-500" />
+            Konu Bazlı Aksiyon ve İyileştirme Detayları
+          </h3>
+          <span className="text-[10.5px] text-slate-500 block">Her konu başlığının altındaki gerçek iyileştirme kayıtlarını görmek için satıra tıklayın</span>
+        </div>
+
+        {topicDetailData.length > 0 ? (
+          <div className="space-y-2">
+            {topicDetailData.map(topic => {
+              const isOpen = expandedTopic === topic.name;
+              return (
+                <div key={topic.name} className="border border-slate-150 rounded-xl overflow-hidden">
+                  <button
+                    onClick={() => setExpandedTopic(isOpen ? null : topic.name)}
+                    className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer"
+                  >
+                    <span className="text-xs font-black text-slate-800 uppercase flex items-center">
+                      <ChevronRight className={`w-3.5 h-3.5 mr-1.5 text-slate-400 transition-transform ${isOpen ? "rotate-90" : ""}`} />
+                      {topic.name}
+                    </span>
+                    <span className="text-[10px] font-mono font-black text-slate-500 bg-white border border-slate-200 rounded-full px-2.5 py-0.5">
+                      {topic.count} Aksiyon
+                    </span>
+                  </button>
+                  {isOpen && (
+                    <table className="w-full text-left text-xs border-collapse">
+                      <tbody className="divide-y divide-slate-100">
+                        {topic.items.map((item, idx) => (
+                          <tr key={idx}>
+                            <td className="p-2.5 text-slate-700 font-semibold w-2/3">{item.workDone || "—"}</td>
+                            <td className="p-2.5 text-slate-500 font-medium">{item.responsible || "—"}</td>
+                            <td className="p-2.5 text-slate-400 font-mono text-[10.5px] whitespace-nowrap">{item.workDate || "—"}</td>
+                            <td className="p-2.5 text-right">
+                              <span className={`text-[9.5px] font-black uppercase px-2 py-0.5 rounded-full border ${
+                                item.status === "Kapalı" ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                                : item.status === "Devam Ediyor" ? "bg-sky-50 text-sky-700 border-sky-100"
+                                : EXCLUDED_STATUSES.includes(item.status) ? "bg-slate-100 text-slate-500 border-slate-200"
+                                : "bg-amber-50 text-amber-700 border-amber-100"
+                              }`}>
+                                {item.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-center text-slate-400 text-xs py-8">Kategori bulunmamaktadır.</div>
+        )}
       </div>
 
       {/* SECTION 6 & SECTION 7 – TRAINING & FINANCIAL DETAILED VIEW */}
