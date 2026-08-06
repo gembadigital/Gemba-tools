@@ -6,10 +6,11 @@ import { Building2, Sparkles, Key, Mail, User, ShieldCheck, ArrowRight, Check, E
 interface AuthScreenProps {
   onAuthSuccess: (token: string, userData: any, orgData: any) => void;
   inviteToken?: string | null;
+  resetToken?: string | null;
 }
 
-export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenProps) {
-  const [mode, setMode] = useState<"login" | "register" | "forgot" | "invite">("login");
+export default function AuthScreen({ onAuthSuccess, inviteToken, resetToken }: AuthScreenProps) {
+  const [mode, setMode] = useState<"login" | "register" | "forgot" | "invite" | "reset">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -52,6 +53,12 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
         });
     }
   }, [inviteToken]);
+
+  useEffect(() => {
+    if (resetToken) {
+      setMode("reset");
+    }
+  }, [resetToken]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,15 +121,23 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
         });
         const data = await resp.json();
         if (data.success) {
-          setMessage(data.message);
-          if (data.tempPassword) {
-            // Fill in password automatically for extreme review comfort
-            setPassword(data.tempPassword);
-            setMessage(`Şifreniz geçici olarak sıfırlandı: "${data.tempPassword}". Şimdi bu şifre ile giriş yapabilirsiniz!`);
-            setMode("login");
-          }
+          setMessage(data.message || "E-postanız sistemde kayıtlıysa, şifre sıfırlama bağlantısı gönderildi. Gelen kutunuzu kontrol edin.");
         } else {
           setError(data.error || "Şifre sıfırlama talebi gönderilemedi.");
+        }
+      }
+      else if (mode === "reset") {
+        const resp = await fetch("/api/auth/reset-password/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ resetToken, newPassword: password })
+        });
+        const data = await resp.json();
+        if (data.success) {
+          localStorage.setItem("gemba_token", data.token);
+          onAuthSuccess(data.token, data.user, data.organization);
+        } else {
+          setError(data.error || "Şifre sıfırlanamadı.");
         }
       }
     } catch (err: any) {
@@ -162,6 +177,7 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
               {mode === "register" && "Yeni Şirket Oluştur / Üye Ol"}
               {mode === "invite" && "Çalışma Alanına Katılın"}
               {mode === "forgot" && "Şifremi Sıfırla (Password Reset)"}
+              {mode === "reset" && "Yeni Şifre Belirleyin"}
             </h3>
           </div>
 
@@ -216,7 +232,7 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
             )}
 
             {/* EMAIL */}
-            {mode !== "invite" && (
+            {mode !== "invite" && mode !== "reset" && (
               <div className="space-y-1">
                 <label className="block text-slate-655 text-xs font-bold uppercase">Kullanıcı Adı (E-posta)</label>
                 <div className="relative rounded-md shadow-xs">
@@ -263,7 +279,9 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
             {/* PASSWORD */}
             {mode !== "forgot" && (
               <div className="space-y-1">
-                <label className="block text-slate-655 text-xs font-bold uppercase">Giriş Şifresi (Password)</label>
+                <label className="block text-slate-655 text-xs font-bold uppercase">
+                  {mode === "reset" ? "Yeni Şifre (en az 6 karakter)" : "Giriş Şifresi (Password)"}
+                </label>
                 <div className="relative rounded-md shadow-xs">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                     <Key className="h-4 w-4" />
@@ -327,7 +345,8 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
                     {mode === "login" && "Çalışma Alanına Bağlan"}
                     {mode === "register" && "Hesap ve Şirket Oluştur"}
                     {mode === "invite" && "Çalışma Alanına Kayıl"}
-                    {mode === "forgot" && "Sıfırlama Bağlantısı / Şifre Al"}
+                    {mode === "forgot" && "Sıfırlama Bağlantısı Gönder"}
+                    {mode === "reset" && "Şifreyi Güncelle ve Giriş Yap"}
                   </span>
                   <ArrowRight className="w-3.5 h-3.5 ml-1" />
                 </span>
@@ -348,7 +367,7 @@ export default function AuthScreen({ onAuthSuccess, inviteToken }: AuthScreenPro
                   Kayıt Ol
                 </button>
               </p>
-            ) : mode === "register" || mode === "forgot" ? (
+            ) : mode === "register" || mode === "forgot" || mode === "reset" ? (
               <p>
                 Zaten bir hesabınız var mı?{" "}
                 <button

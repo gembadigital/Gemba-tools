@@ -83,6 +83,25 @@ function getPool(): Pool {
   return poolInstance;
 }
 
+// Lazily creates the password_resets table on first use (memoized per process) so a code-only
+// deploy doesn't require a manual SQL step against the already-provisioned production database —
+// see supabase/schema.sql for the same definition, kept for fresh installs/documentation.
+let passwordResetsTableEnsured = false;
+async function ensurePasswordResetsTable(): Promise<void> {
+  if (passwordResetsTableEnsured) return;
+  await getPool().query(`
+    create table if not exists password_resets (
+      id text primary key,
+      user_id text not null references users(id) on delete cascade,
+      reset_token text not null unique,
+      expires_at timestamptz not null,
+      used boolean not null default false,
+      created_at timestamptz not null default now()
+    )
+  `);
+  passwordResetsTableEnsured = true;
+}
+
 function randomId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).substr(2, 9)}`;
 }
@@ -357,6 +376,40 @@ export class GeminiDb {
 
     await getPool().query(`update invitations set accepted = true where id = $1`, [invite.id]);
     return newUser;
+  }
+
+  // --- Password resets ---
+  // Self-migrating: this table was added after supabase/schema.sql had already been run once
+  // against production, so it's created lazily here (idempotent CREATE TABLE IF NOT EXISTS)
+  // instead of requiring a manual SQL step against the live database. Also mirrored in
+  // schema.sql for fresh installs.
+  public async createPasswordReset(userId: string): Promise<{ resetToken: string; expiresAt: string }> {
+    await ensurePasswordResetsTable();
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 1); // Short-lived: 1 hour
+
+    // Invalidate any earlier outstanding reset requests for this user.
+    await getPool().query(`delete from password_resets where user_id = $1`, [userId]);
+    await getPool().query(
+      `insert into password_resets (id, user_id, reset_token, expires_at) values ($1, $2, $3, $4)`,
+      [randomId("pwr"), userId, resetToken, expiresAt.toISOString()]
+    );
+    return { resetToken, expiresAt: expiresAt.toISOString() };
+  }
+
+  public async consumePasswordReset(token: string): Promise<{ userId: string } | null> {
+    await ensurePasswordResetsTable();
+    const { rows } = await getPool().query(
+      `select * from password_resets where reset_token = $1 and used = false`,
+      [token]
+    );
+    if (rows.length === 0) return null;
+    const row = rows[0];
+    if (new Date() > new Date(row.expires_at)) return null;
+
+    await getPool().query(`update password_resets set used = true where id = $1`, [row.id]);
+    return { userId: row.user_id };
   }
 
   // --- BUSINESS RECORD MUTATORS (Isolated per organization) ---

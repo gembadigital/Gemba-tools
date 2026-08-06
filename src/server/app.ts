@@ -158,6 +158,32 @@ function signSessionToken(userId: string): string {
   return jwt.sign({ userId }, getJwtSecret(), { expiresIn: SESSION_TOKEN_TTL });
 }
 
+// Builds an absolute origin (e.g. "https://gemba-tools-....vercel.app") from the incoming request
+// so emailed links (invite/reset-password) work outside the app's own SPA — req.protocol reports
+// "http" behind Vercel's proxy unless the forwarded-proto header is read explicitly.
+function getBaseUrl(req: express.Request): string {
+  const proto = (req.headers["x-forwarded-proto"] as string)?.split(",")[0] || req.protocol || "https";
+  return `${proto}://${req.get("host")}`;
+}
+
+// Emails the invite link so onboarding doesn't depend on an admin manually copying/relaying a
+// link out-of-band. Errors are logged but non-fatal — the invitation row already exists either
+// way, and the caller still returns `link` in its response as a manual-share fallback.
+async function sendInvitationEmail(req: express.Request, toEmail: string, organizationName: string, invitationToken: string): Promise<void> {
+  const signupLink = `${getBaseUrl(req)}/invite?token=${invitationToken}`;
+  const mailResult = await sendMail({
+    to: toEmail,
+    subject: `Gemba Tools - ${organizationName} Çalışma Alanına Davet`,
+    html: `<p>Merhaba,</p>
+      <p><strong>${organizationName}</strong> çalışma alanına katılmanız için davet edildiniz.</p>
+      <p>Katılmak için aşağıdaki bağlantıya tıklayın (48 saat geçerlidir):</p>
+      <p><a href="${signupLink}">${signupLink}</a></p>`
+  });
+  if (!mailResult.success) {
+    console.error(`Invitation email failed for ${toEmail}: ${mailResult.error}`);
+  }
+}
+
 // Resolves the effective factory/customer id for a business-data request, enforcing Customer
 // User isolation. Admin/Consultant requests pass through unrestricted (any consultant can work
 // on any customer under the org). A Customer User's requested id is only honored if it's one of
@@ -440,6 +466,10 @@ app.post("/api/auth/change-password", authenticateToken, async (req, res) => {
   }
 });
 
+// Same generic response whether or not the email exists, so this endpoint can't be used to
+// enumerate registered accounts.
+const RESET_PASSWORD_GENERIC_MESSAGE = "Bu e-posta sistemde kayıtlıysa, şifre sıfırlama bağlantısı gönderildi.";
+
 app.post("/api/auth/reset-password", async (req, res) => {
   try {
     const { email } = req.body;
@@ -450,23 +480,67 @@ app.post("/api/auth/reset-password", async (req, res) => {
 
     const user = (await db.getUsers()).find(u => u.email === email.toLowerCase().trim());
     if (!user) {
-      // Prevent user enumeration by sending success anyway
-      res.json({ success: true, message: "If the email is valid, a secure password reset flow will be initiated." });
+      res.json({ success: true, message: RESET_PASSWORD_GENERIC_MESSAGE });
       return;
     }
 
-    // Since we are server-side in sandbox, we'll assign a simulated reset token or simple default password reset:
-    const randomPass = Math.random().toString(36).substring(2, 9);
-    console.log(`[PASSWORD RESET SIMULATION] Password for email ${email} has been reset to: ${randomPass}`);
-    
-    await db.updateUser(user.id, {
-      password_hash: hashPassword(randomPass)
+    // Ownership of the account is proven by clicking the emailed link, not by knowing the email
+    // address — the previous version of this endpoint returned a new password directly in the
+    // API response (and rendered it on screen) to whoever submitted the email, which let anyone
+    // take over any account they knew the email address of.
+    const { resetToken } = await db.createPasswordReset(user.id);
+    const resetLink = `${getBaseUrl(req)}/reset-password?resetToken=${resetToken}`;
+    const mailResult = await sendMail({
+      to: user.email,
+      subject: "Gemba Tools - Şifre Sıfırlama",
+      html: `<p>Merhaba ${user.full_name},</p>
+        <p>Hesabınız için bir şifre sıfırlama talebi aldık. Devam etmek için aşağıdaki bağlantıya tıklayın (1 saat geçerlidir):</p>
+        <p><a href="${resetLink}">${resetLink}</a></p>
+        <p>Bu talebi siz yapmadıysanız bu e-postayı yok sayabilirsiniz; hesabınızda herhangi bir değişiklik yapılmayacaktır.</p>`
     });
+    if (!mailResult.success) {
+      console.error(`Password reset email failed for ${user.email}: ${mailResult.error}`);
+    }
+
+    res.json({ success: true, message: RESET_PASSWORD_GENERIC_MESSAGE });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post("/api/auth/reset-password/confirm", async (req, res) => {
+  try {
+    const { resetToken, newPassword } = req.body;
+    if (!resetToken || !newPassword) {
+      res.status(400).json({ success: false, error: "Eksik bilgi." });
+      return;
+    }
+    if (String(newPassword).length < 6) {
+      res.status(400).json({ success: false, error: "Şifre en az 6 karakter olmalıdır." });
+      return;
+    }
+
+    const consumed = await db.consumePasswordReset(resetToken);
+    if (!consumed) {
+      res.status(400).json({ success: false, error: "Geçersiz veya süresi dolmuş sıfırlama bağlantısı. Lütfen yeni bir talep oluşturun." });
+      return;
+    }
+
+    const user = await db.updateUser(consumed.userId, { password_hash: hashPassword(newPassword) });
+    const org = (await db.getOrganizations()).find(o => o.id === user.organization_id);
 
     res.json({
       success: true,
-      message: "Şifreniz geçici olarak sıfırlandı. Yeni şifre konsol loglarına yazıldı.",
-      tempPassword: randomPass // Exposing temporary password to assist preview flow
+      token: signSessionToken(user.id),
+      user: {
+        id: user.id,
+        full_name: user.full_name,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+        organization_id: user.organization_id
+      },
+      organization: org
     });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -511,15 +585,13 @@ app.post("/api/auth/invite", authenticateToken, async (req, res) => {
     }
 
     const invitation = await db.createInvitation(user.organization_id, emailClean, role);
-    
-    // Simulate invitation URL
-    const signupLink = `/invite?token=${invitation.invitation_token}`;
-    console.log(`[INVITATION SIMULATION] Sent invitation email to: ${emailClean}. Token Registration Link: ${signupLink}`);
+    const organization = (await db.getOrganizations()).find(o => o.id === user.organization_id);
+    await sendInvitationEmail(req, emailClean, organization?.organization_name || "Gemba Tools", invitation.invitation_token);
 
     res.json({
       success: true,
-      message: "Invitation generated and registered.",
-      link: signupLink,
+      message: "Davet e-postası gönderildi.",
+      link: `/invite?token=${invitation.invitation_token}`,
       invitation
     });
   } catch (error: any) {
@@ -709,10 +781,10 @@ app.post("/api/admin/users/:id/resend-invite", authenticateToken, async (req, re
     }
 
     const invitation = await db.createInvitation(adminUser.organization_id, targetUser.email, targetUser.role);
-    const signupLink = `/invite?token=${invitation.invitation_token}`;
-    console.log(`[RESEND INVITATION] Sent renewal invitation. Link: ${signupLink}`);
+    const organization = (await db.getOrganizations()).find(o => o.id === adminUser.organization_id);
+    await sendInvitationEmail(req, targetUser.email, organization?.organization_name || "Gemba Tools", invitation.invitation_token);
 
-    res.json({ success: true, link: signupLink, message: "Yenileme e-postası gönderildi." });
+    res.json({ success: true, link: `/invite?token=${invitation.invitation_token}`, message: "Yenileme e-postası gönderildi." });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -894,7 +966,9 @@ app.post("/api/business/customers/:id/invite-customer-user", authenticateToken, 
   }
 
   const invitation = await db.createInvitation(user.organization_id, emailClean, "Customer User", customer.id);
-  res.json({ success: true, message: "Davet oluşturuldu.", link: `/invite?token=${invitation.invitation_token}`, invitation });
+  const organization = (await db.getOrganizations()).find(o => o.id === user.organization_id);
+  await sendInvitationEmail(req, emailClean, organization?.organization_name || "Gemba Tools", invitation.invitation_token);
+  res.json({ success: true, message: "Davet e-postası gönderildi.", link: `/invite?token=${invitation.invitation_token}`, invitation });
 });
 
 // Resolves a customer's assigned team (primary/secondary consultants, customer users) into

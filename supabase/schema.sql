@@ -41,6 +41,18 @@ create table if not exists invitations (
 );
 create index if not exists invitations_email_idx on invitations (email);
 
+-- Password-reset tokens ("Şifremi Unuttum" flow). Short-lived (1h), single-use. Also created
+-- lazily at runtime by db.ts (ensurePasswordResetsTable) so existing deployments self-migrate
+-- without a manual SQL step; kept here for fresh installs / documentation.
+create table if not exists password_resets (
+  id text primary key,
+  user_id text not null references users(id) on delete cascade,
+  reset_token text not null unique,
+  expires_at timestamptz not null,
+  used boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
 -- Generic store for every loosely-typed business collection (customers, processes, activities,
 -- segments, kaizens, vsm_projects, opex_assessments, yamazumi_studies, copq_snapshots,
 -- loss_capacity_settings, spaghetti_flow_settings, time_studies, smed_projects, ptr_records,

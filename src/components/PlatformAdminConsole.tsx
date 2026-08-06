@@ -330,6 +330,7 @@ export default function PlatformAdminConsole({
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteFormError, setInviteFormError] = useState<string | null>(null);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [resetPasswordUserId, setResetPasswordUserId] = useState<string | null>(null);
   const [resetPasswordValue, setResetPasswordValue] = useState("");
   const [resetPasswordBusy, setResetPasswordBusy] = useState(false);
@@ -418,9 +419,11 @@ export default function PlatformAdminConsole({
         return;
       }
       showToast(t.inviteSuccessToast(inviteEmail.trim()));
+      // Keep the modal open showing the invite link as a manual-share fallback, in case the
+      // automatic email (Microsoft Graph) fails to deliver for any reason.
+      setInviteLink(data.link ? `${window.location.origin}${data.link}` : null);
       setInviteEmail("");
       setInviteRole("Customer User");
-      setIsInviteModalOpen(false);
       fetchUsers();
     } catch (e: any) {
       setInviteFormError(e.message || t.inviteGenericError);
@@ -549,46 +552,78 @@ export default function PlatformAdminConsole({
           <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-4">
               <h4 className="text-sm font-black text-slate-900">{t.inviteModalTitle}</h4>
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-600">{t.emailLabel}</label>
-                <input
-                  type="email"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder={t.emailPlaceholder}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-600">{t.roleLabel}</label>
-                <select
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none"
-                >
-                  <option value="Customer User">{t.roleCustomerUser}</option>
-                  <option value="Consultant">{t.roleConsultant}</option>
-                  <option value="Admin">{t.roleAdmin}</option>
-                </select>
-              </div>
-              {inviteFormError && (
-                <div className="text-xs font-bold text-red-600">{inviteFormError}</div>
+              {inviteLink ? (
+                <>
+                  <div className="text-xs font-semibold text-slate-600 leading-relaxed">
+                    Davet e-postası otomatik gönderildi. E-posta ulaşmazsa, bağlantıyı elle de paylaşabilirsiniz:
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      readOnly
+                      value={inviteLink}
+                      onFocus={(e) => e.currentTarget.select()}
+                      className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono bg-slate-50 focus:outline-none"
+                    />
+                    <button
+                      onClick={() => navigator.clipboard.writeText(inviteLink)}
+                      className="px-3 py-2 rounded-lg text-xs font-bold text-white bg-slate-900 hover:bg-slate-800"
+                    >
+                      Kopyala
+                    </button>
+                  </div>
+                  <div className="flex justify-end pt-1">
+                    <button
+                      onClick={() => { setIsInviteModalOpen(false); setInviteLink(null); }}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-slate-900 hover:bg-slate-800"
+                    >
+                      {t.cancel === "İptal" ? "Kapat" : "Close"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-600">{t.emailLabel}</label>
+                    <input
+                      type="email"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      placeholder={t.emailPlaceholder}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-600">{t.roleLabel}</label>
+                    <select
+                      value={inviteRole}
+                      onChange={(e) => setInviteRole(e.target.value)}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none"
+                    >
+                      <option value="Customer User">{t.roleCustomerUser}</option>
+                      <option value="Consultant">{t.roleConsultant}</option>
+                      <option value="Admin">{t.roleAdmin}</option>
+                    </select>
+                  </div>
+                  {inviteFormError && (
+                    <div className="text-xs font-bold text-red-600">{inviteFormError}</div>
+                  )}
+                  <div className="flex justify-end space-x-2 pt-1">
+                    <button
+                      onClick={() => setIsInviteModalOpen(false)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100"
+                    >
+                      {t.cancel}
+                    </button>
+                    <button
+                      onClick={handleInviteUser}
+                      disabled={inviteBusy}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      {inviteBusy ? t.inviteSending : t.inviteSend}
+                    </button>
+                  </div>
+                </>
               )}
-              <div className="flex justify-end space-x-2 pt-1">
-                <button
-                  onClick={() => setIsInviteModalOpen(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100"
-                >
-                  {t.cancel}
-                </button>
-                <button
-                  onClick={handleInviteUser}
-                  disabled={inviteBusy}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50"
-                >
-                  {inviteBusy ? t.inviteSending : t.inviteSend}
-                </button>
-              </div>
             </div>
           </div>
         )}
@@ -865,7 +900,7 @@ export default function PlatformAdminConsole({
                       className="bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-800 focus:outline-none w-64"
                     />
                     <button
-                      onClick={() => { setInviteFormError(null); setIsInviteModalOpen(true); }}
+                      onClick={() => { setInviteFormError(null); setInviteLink(null); setIsInviteModalOpen(true); }}
                       className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-xs cursor-pointer flex items-center space-x-1"
                     >
                       <Plus className="w-4 h-4" />

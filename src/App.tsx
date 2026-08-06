@@ -52,6 +52,7 @@ export default function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isAdminConsoleOpen, setIsAdminConsoleOpen] = useState(false);
   const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [resetToken, setResetToken] = useState<string | null>(null);
 
   // MULTI-LANGUAGE SUPPORT (TR, EN, DE)
   const [currentLang, setCurrentLang] = useState<"tr" | "en" | "de">(() => {
@@ -182,11 +183,15 @@ export default function App() {
 
   // STARTUP ORCHESTRATION HANDLER
   useEffect(() => {
-    // 1. Intercept invitation parameter tokens automatically
+    // 1. Intercept invitation / password-reset parameter tokens automatically
     const params = new URLSearchParams(window.location.search);
     const t = params.get("token");
     if (t) {
       setInviteToken(t);
+    }
+    const rt = params.get("resetToken");
+    if (rt) {
+      setResetToken(rt);
     }
 
     // 2. Resolve any existing session — only ever grant access if the server actually confirms
@@ -625,7 +630,7 @@ export default function App() {
   }
 
   if (!isAuthorized) {
-    return <AuthScreen inviteToken={inviteToken} onAuthSuccess={handleAuthSuccess} />;
+    return <AuthScreen inviteToken={inviteToken} resetToken={resetToken} onAuthSuccess={handleAuthSuccess} />;
   }
 
   // Initials generator
