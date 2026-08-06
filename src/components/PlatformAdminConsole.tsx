@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import {
   Building2, Users, ShieldCheck, Mail,
   Sparkles, Search, X, CheckCircle2,
-  Plus, Send, Lock, Eye, EyeOff, ShieldAlert,
+  Plus, Lock, ShieldAlert,
   ChevronRight
 } from "lucide-react";
 
@@ -17,9 +17,11 @@ interface PlatformAdminConsoleProps {
 
 const TRANSLATIONS = {
   tr: {
-    searchPlaceholder: "Ayarlarda ara (Örn: SMTP, Gemini, SharePoint)...",
+    consoleTitle: "Platform Yönetim Konsolu",
+    systemAdminBadge: "Sistem Yöneticisi Erişimi",
+    searchPlaceholder: "Ayarlarda ara (Örn: kullanıcı, rol, yetki)...",
     allSystemsOperational: "Tüm Sistemler Çalışıyor",
-    headerSubtitle: "Gemba Tools SaaS Merkezi Yönetim ve Entegrasyon Konsolu",
+    headerSubtitle: "Gemba Tools Merkezi Yönetim Konsolu",
     closeConsole: "Konsoldan Çık",
     inviteModalTitle: "Yeni Kullanıcı Daveti",
     emailLabel: "E-posta",
@@ -45,74 +47,70 @@ const TRANSLATIONS = {
     resetPasswordGenericError: "Şifre sıfırlanamadı.",
     sidebarMenuLabel: "PLATFORM YÖNETİM MENÜSÜ",
     footerTier: "Kurumsal",
-    sec1Title: "Organization", sec1Desc: "Firma, Logo, Vardiya ve Çalışma Takvimi",
-    sec2Title: "User Management", sec2Desc: "Kullanıcılar, Rol, Fabrika ve Proje Atama",
-    sec3Title: "Role & Permissions", sec3Desc: "RBAC Matrisi, Modül İzin Yetkileri",
-    sec4Title: "Mail Services", sec4Desc: "Microsoft Graph, Exchange, SMTP Sihirbazı",
-    sec5Title: "AI Management", sec5Desc: "Gemini API Anahtarı ve Model Seçimi",
-    orgHeading: "1. Organization (Kurum & Firma Ayarları)",
-    orgSubtitle: "SaaS platformunun kiracı (tenant) düzeyindeki kurumsal kimlik ve takvim yapılandırması.",
+    sec1Title: "Organizasyon", sec1Desc: "Firma Adı, Adres, Para Birimi ve Dil",
+    sec2Title: "Kullanıcı Yönetimi", sec2Desc: "Kullanıcılar, Rol ve Müşteri Ataması",
+    sec3Title: "Rol ve Yetkiler", sec3Desc: "RBAC Matrisi, Modül İzin Yetkileri",
+    sec4Title: "E-posta Servisi", sec4Desc: "Gönderim Altyapısı Durumu",
+    sec5Title: "Yapay Zekâ Yönetimi", sec5Desc: "AI Sağlayıcı ve Anahtar Durumu",
+    orgHeading: "1. Organizasyon (Kurum & Firma Ayarları)",
+    orgSubtitle: "Kurumsal kimlik ve genel çalışma alanı ayarları.",
     saveChanges: "Değişiklikleri Kaydet",
-    orgSaveToast: "Not: Bu bölüm demo ortamında backend'e bağlı değil, değişiklik kalıcı olarak kaydedilmedi.",
+    orgSaveToast: "Not: Bu bölüm henüz backend'e bağlı değil, değişiklik kalıcı olarak kaydedilmedi.",
     basicCompanyInfo: "Temel Firma Bilgileri",
     companyLegalName: "Firma Ticari Ünvanı",
     companyAddress: "Firma Adresi",
-    taxOffice: "Vergi Dairesi",
-    taxNumber: "Vergi Numarası",
-    opCalendarSettings: "Operasyonel & Takvim Ayarları",
+    opCalendarSettings: "Genel Ayarlar",
     currencyLabel: "Para Birimi",
     systemLanguageLabel: "Sistem Dili",
     timezoneLabel: "Zaman Dilimi",
     weekStartLabel: "Hafta Başlangıcı",
-    workCalendarLabel: "Çalışma Takvimi",
-    shiftSystemLabel: "Vardiya Sistemi",
     dayMonday: "Pazartesi", daySunday: "Pazar",
-    workCal5: "5 Gün / 40 Saat", workCal6: "6 Gün / 45 Saat", workCal247: "7/24 Sürekli Vardiyalı",
-    shift1: "1 Vardiya (08:00 - 17:00)", shift2: "2 Vardiya (08:00 - 16:00 / 16:00 - 00:00)", shift3: "3 Vardiya (24 Saat)",
-    userMgmtHeading: "2. User Management (Kullanıcı & Lisans Atama)",
-    userMgmtSubtitle: "Kullanıcı hesapları, rol yetkileri, fabrika ve proje erişimlerinin merkezi yönetimi.",
-    totalMembers: (n: number) => `Toplam Üye: ${n} / 50 Lisans`,
+    userMgmtHeading: "2. Kullanıcı Yönetimi",
+    userMgmtSubtitle: "Kullanıcı hesapları, rol yetkileri ve müşteri erişimlerinin merkezi yönetimi.",
+    totalMembers: (n: number) => `Toplam Üye: ${n}`,
     searchUsersPlaceholder: "Kullanıcılarda ara...",
     createUser: "Kullanıcı Oluştur",
-    colNameEmail: "Adı Soyadı & E-Posta", colRole: "Rol", colFactory: "Atanan Fabrika",
-    colStatus: "Durum", colMfa: "MFA", colLastLogin: "Son Giriş", colActions: "Aksiyonlar",
-    statusActive: "Aktif", statusInactive: "Pasif", mfaActive: "Aktif (SMS/TOTP)", noLogin: "Giriş Yok",
+    colNameEmail: "Adı Soyadı & E-Posta", colRole: "Rol", colFactory: "Atanan Müşteri",
+    colStatus: "Durum", colLastLogin: "Son Giriş", colActions: "Aksiyonlar",
+    statusActive: "Aktif", statusInactive: "Pasif", noLogin: "Giriş Yok",
     resetPasswordTitleAttr: "Şifre Sıfırla",
-    rbacHeading: "3. Role & Permission Management (RBAC)",
-    rbacSubtitle: "Sistem geneli hazır roller ve modül bazlı yetkilendirme matrisi.",
-    saveMatrix: "Matrisi Kaydet",
-    rbacSaveToast: "Not: Yetki matrisi backend'e bağlı değil, bu değişiklik kalıcı olarak kaydedilmedi.",
+    allCustomersLabel: "Tüm Müşteriler",
+    noCustomerAssignedLabel: "Atanmamış",
+    youLabel: "(Siz)",
+    roleChangeError: "Rol değiştirilemedi.",
+    statusChangeError: "Durum değiştirilemedi.",
+    rbacHeading: "3. Rol ve Yetki Yönetimi (RBAC)",
+    rbacSubtitle: "Rol bazlı modül erişim matrisi.",
+    rbacDisclaimer: "Bu matris referans/dokümantasyon amaçlıdır — gerçek erişim denetimi backend'de sabit 3 rol (Yönetici / Danışman / Müşteri Kullanıcısı) üzerinden yapılır, bu ekrandaki değişiklikler backend'e kaydedilmez.",
+    adminFullAccessNote: "Yönetici rolü tüm modüllerde tam yetkiye sahiptir.",
     colModule: "Modül / Uygulama Alanı",
     permRead: "Okuma", permCreate: "Oluşturma", permUpdate: "Güncelleme", permDelete: "Silme", permExport: "Dışa Aktar", permAI: "AI Asistan",
-    mailHeading: "4. Mail Services (Kurumsal E-Posta Servisi)",
-    mailSubtitle: "E-posta gönderim sağlayıcısı, Microsoft Graph, Exchange ve SMTP sihirbazı.",
-    saveSettings: "Ayarları Kaydet",
-    mailSaveToast: "Not: Bu workspace'te mail sağlayıcı entegrasyonu yapılandırılmamış, ayar kaydedilmedi.",
-    mailProvGraphDesc: "Microsoft 365 Kurumsal Bağlantı",
-    mailProvExchangeDesc: "On-Premises / Hybrid Exchange",
-    mailProvSmtp: "Standart SMTP", mailProvSmtpDesc: "TLS / SSL SMTP Port 587",
-    mailProvGoogleDesc: "Google OAuth2 / Gmail API",
-    graphOAuthConfig: "Microsoft Graph OAuth Yapılandırması",
-    smtpServerConfig: "SMTP Sunucu Yapılandırması",
-    defaultSenderEmail: "Varsayılan Gönderen E-Posta Adresi",
-    defaultSenderName: "Varsayılan Gönderen Adı",
-    smtpHostLabel: "SMTP Host Sunucu", smtpPortLabel: "SMTP Port",
-    oauthClientIdLabel: "OAuth Client ID (Application ID)", oauthClientSecretLabel: "OAuth Client Secret",
-    testMailConnection: "Mail Bağlantısını Test Et",
-    testMailFailToast: "Bağlantı testi yapılamadı: bu workspace'te gerçek bir mail sunucusu entegrasyonu yok.",
-    aiHeading: "5. AI Management Center (Yapay Zekâ Yönetimi)",
-    aiSubtitle: "Gemini API anahtarı ve model sağlayıcı seçimi.",
-    saveApiKey: "API Anahtarını Kaydet",
-    aiSaveToast: "Not: Gemini API anahtarı sunucu tarafında .env üzerinden yönetilir; buradan girilen değer kaydedilmez.",
-    secureVaultHeading: "Güvenli API Vault & Model Seçimi",
-    geminiApiKeyLabel: "Gemini API Key (process.env.GEMINI_API_KEY)",
-    aiInfoNote: "Gemini API anahtarı bu ekrandan değil, sunucu ortam değişkeni olarak (.env dosyasında GEMINI_API_KEY) yönetilir. VSM, Loss Analysis ve Executive Insights modülleri bu anahtarı kullanır.",
+    mailHeading: "4. E-posta Servisi",
+    mailSubtitle: "Bu workspace'in gerçek e-posta gönderim altyapısının durumu.",
+    mailProviderLabel: "Aktif Sağlayıcı",
+    mailProviderValue: "Microsoft Graph (Microsoft 365, app-only OAuth2)",
+    mailSenderLabel: "Gönderen Adresi",
+    mailSenderNote: "Vercel ortam değişkeni MAIL_FROM ile belirlenir (varsayılan: proje@gembapartner.com).",
+    mailConfigLabel: "Yapılandırma",
+    mailConfigNote: "AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET Vercel proje ayarlarından yönetilir; bu ekrandan değiştirilemez.",
+    mailUsedByLabel: "Kullanıldığı Yerler",
+    mailUsedByValue: "Kullanıcı davetleri, şifre sıfırlama, PTR raporu gönderimi, haftalık danışman özeti, 5S/Gemba Walk raporları.",
+    aiHeading: "5. Yapay Zekâ Yönetim Merkezi",
+    aiSubtitle: "Bu workspace'in gerçek AI sağlayıcı yapılandırmasının durumu.",
+    aiProviderLabel: "Aktif Sağlayıcı",
+    aiProviderValue: "Google Gemini",
+    aiConfigLabel: "Yapılandırma",
+    aiConfigNote: "GEMINI_API_KEY Vercel proje ayarlarından (ortam değişkeni) yönetilir; anahtar bu ekranda görüntülenmez veya girilmez.",
+    aiUsedByLabel: "Kullanıldığı Modüller",
+    aiUsedByValue: "VSM, Loss Analysis, Executive Insights, OpEx Coach, SMED Coach ve diğer AI destekli modüller.",
     moduleNames: { "VSM Kapasite": "VSM Kapasite", "SMED Değişim": "SMED Değişim", "Time Study": "Time Study", "Loss Analysis": "Loss Analysis", "Hat Dengeleme": "Hat Dengeleme", "CI / Kaizen": "CI / Kaizen", "5S Audit": "5S Audit", "OpEx Assessment": "OpEx Assessment", "Raporlar": "Raporlar" } as Record<string, string>
   },
   en: {
-    searchPlaceholder: "Search settings (e.g. SMTP, Gemini, SharePoint)...",
+    consoleTitle: "Platform Management Console",
+    systemAdminBadge: "System Admin Access",
+    searchPlaceholder: "Search settings (e.g. user, role, permission)...",
     allSystemsOperational: "All Systems Operational",
-    headerSubtitle: "Gemba Tools SaaS Central Management & Integration Console",
+    headerSubtitle: "Gemba Tools Central Management Console",
     closeConsole: "Close Console",
     inviteModalTitle: "Invite New User",
     emailLabel: "Email",
@@ -138,74 +136,70 @@ const TRANSLATIONS = {
     resetPasswordGenericError: "Failed to reset password.",
     sidebarMenuLabel: "PLATFORM MANAGEMENT MENU",
     footerTier: "Enterprise",
-    sec1Title: "Organization", sec1Desc: "Company, Logo, Shifts and Work Calendar",
-    sec2Title: "User Management", sec2Desc: "Users, Roles, Factory and Project Assignment",
+    sec1Title: "Organization", sec1Desc: "Company Name, Address, Currency and Language",
+    sec2Title: "User Management", sec2Desc: "Users, Roles and Customer Assignment",
     sec3Title: "Role & Permissions", sec3Desc: "RBAC Matrix, Module Permission Rights",
-    sec4Title: "Mail Services", sec4Desc: "Microsoft Graph, Exchange, SMTP Wizard",
-    sec5Title: "AI Management", sec5Desc: "Gemini API Key and Model Selection",
+    sec4Title: "Mail Services", sec4Desc: "Delivery Infrastructure Status",
+    sec5Title: "AI Management", sec5Desc: "AI Provider and Key Status",
     orgHeading: "1. Organization (Company Settings)",
-    orgSubtitle: "Tenant-level corporate identity and calendar configuration for the SaaS platform.",
+    orgSubtitle: "Corporate identity and general workspace settings.",
     saveChanges: "Save Changes",
-    orgSaveToast: "Note: This section isn't connected to a backend in this demo environment; the change wasn't persisted.",
+    orgSaveToast: "Note: This section isn't connected to a backend yet; the change wasn't persisted.",
     basicCompanyInfo: "Basic Company Information",
     companyLegalName: "Company Legal Name",
     companyAddress: "Company Address",
-    taxOffice: "Tax Office",
-    taxNumber: "Tax Number",
-    opCalendarSettings: "Operational & Calendar Settings",
+    opCalendarSettings: "General Settings",
     currencyLabel: "Currency",
     systemLanguageLabel: "System Language",
     timezoneLabel: "Timezone",
     weekStartLabel: "Week Start",
-    workCalendarLabel: "Work Calendar",
-    shiftSystemLabel: "Shift System",
     dayMonday: "Monday", daySunday: "Sunday",
-    workCal5: "5 Days / 40 Hours", workCal6: "6 Days / 45 Hours", workCal247: "24/7 Continuous Shifts",
-    shift1: "1 Shift (08:00 - 17:00)", shift2: "2 Shifts (08:00 - 16:00 / 16:00 - 00:00)", shift3: "3 Shifts (24 Hours)",
-    userMgmtHeading: "2. User Management (Users & License Assignment)",
-    userMgmtSubtitle: "Central management of user accounts, role permissions, factory and project access.",
-    totalMembers: (n: number) => `Total Members: ${n} / 50 Licenses`,
+    userMgmtHeading: "2. User Management",
+    userMgmtSubtitle: "Central management of user accounts, role permissions and customer access.",
+    totalMembers: (n: number) => `Total Members: ${n}`,
     searchUsersPlaceholder: "Search users...",
     createUser: "Create User",
-    colNameEmail: "Name & Email", colRole: "Role", colFactory: "Assigned Factory",
-    colStatus: "Status", colMfa: "MFA", colLastLogin: "Last Login", colActions: "Actions",
-    statusActive: "Active", statusInactive: "Inactive", mfaActive: "Active (SMS/TOTP)", noLogin: "No Login Yet",
+    colNameEmail: "Name & Email", colRole: "Role", colFactory: "Assigned Customer",
+    colStatus: "Status", colLastLogin: "Last Login", colActions: "Actions",
+    statusActive: "Active", statusInactive: "Inactive", noLogin: "No Login Yet",
     resetPasswordTitleAttr: "Reset Password",
+    allCustomersLabel: "All Customers",
+    noCustomerAssignedLabel: "Not assigned",
+    youLabel: "(You)",
+    roleChangeError: "Failed to change role.",
+    statusChangeError: "Failed to change status.",
     rbacHeading: "3. Role & Permission Management (RBAC)",
-    rbacSubtitle: "System-wide preset roles and module-level permission matrix.",
-    saveMatrix: "Save Matrix",
-    rbacSaveToast: "Note: The permission matrix isn't connected to a backend; this change wasn't persisted.",
+    rbacSubtitle: "Role-based module access matrix.",
+    rbacDisclaimer: "This matrix is for reference/documentation only — real access control is enforced server-side via the 3 fixed roles (Admin / Consultant / Customer User); changes here are not saved to the backend.",
+    adminFullAccessNote: "The Admin role has full access to every module.",
     colModule: "Module / Application Area",
     permRead: "Read", permCreate: "Create", permUpdate: "Update", permDelete: "Delete", permExport: "Export", permAI: "AI Assistant",
-    mailHeading: "4. Mail Services (Corporate Email Service)",
-    mailSubtitle: "Email delivery provider, Microsoft Graph, Exchange and SMTP wizard.",
-    saveSettings: "Save Settings",
-    mailSaveToast: "Note: No mail provider integration is configured for this workspace; the setting wasn't saved.",
-    mailProvGraphDesc: "Microsoft 365 Corporate Connection",
-    mailProvExchangeDesc: "On-Premises / Hybrid Exchange",
-    mailProvSmtp: "Standard SMTP", mailProvSmtpDesc: "TLS / SSL SMTP Port 587",
-    mailProvGoogleDesc: "Google OAuth2 / Gmail API",
-    graphOAuthConfig: "Microsoft Graph OAuth Configuration",
-    smtpServerConfig: "SMTP Server Configuration",
-    defaultSenderEmail: "Default Sender Email Address",
-    defaultSenderName: "Default Sender Name",
-    smtpHostLabel: "SMTP Host Server", smtpPortLabel: "SMTP Port",
-    oauthClientIdLabel: "OAuth Client ID (Application ID)", oauthClientSecretLabel: "OAuth Client Secret",
-    testMailConnection: "Test Mail Connection",
-    testMailFailToast: "Connection test failed: this workspace has no real mail server integration.",
+    mailHeading: "4. Mail Services",
+    mailSubtitle: "Status of this workspace's real email delivery infrastructure.",
+    mailProviderLabel: "Active Provider",
+    mailProviderValue: "Microsoft Graph (Microsoft 365, app-only OAuth2)",
+    mailSenderLabel: "Sender Address",
+    mailSenderNote: "Set via the Vercel MAIL_FROM environment variable (default: proje@gembapartner.com).",
+    mailConfigLabel: "Configuration",
+    mailConfigNote: "AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET are managed in Vercel project settings; not editable from this screen.",
+    mailUsedByLabel: "Used By",
+    mailUsedByValue: "User invites, password reset, PTR report delivery, weekly consultant digest, 5S/Gemba Walk reports.",
     aiHeading: "5. AI Management Center",
-    aiSubtitle: "Gemini API key and model provider selection.",
-    saveApiKey: "Save API Key",
-    aiSaveToast: "Note: The Gemini API key is managed server-side via .env; the value entered here is not saved.",
-    secureVaultHeading: "Secure API Vault & Model Selection",
-    geminiApiKeyLabel: "Gemini API Key (process.env.GEMINI_API_KEY)",
-    aiInfoNote: "The Gemini API key isn't managed from this screen — it's set as a server environment variable (GEMINI_API_KEY in .env). The VSM, Loss Analysis and Executive Insights modules use this key.",
+    aiSubtitle: "Status of this workspace's real AI provider configuration.",
+    aiProviderLabel: "Active Provider",
+    aiProviderValue: "Google Gemini",
+    aiConfigLabel: "Configuration",
+    aiConfigNote: "GEMINI_API_KEY is managed in Vercel project settings (environment variable); the key is never shown or entered on this screen.",
+    aiUsedByLabel: "Used By Modules",
+    aiUsedByValue: "VSM, Loss Analysis, Executive Insights, OpEx Coach, SMED Coach and other AI-assisted modules.",
     moduleNames: { "VSM Kapasite": "VSM Capacity", "SMED Değişim": "SMED Changeover", "Time Study": "Time Study", "Loss Analysis": "Loss Analysis", "Hat Dengeleme": "Line Balancing", "CI / Kaizen": "CI / Kaizen", "5S Audit": "5S Audit", "OpEx Assessment": "OpEx Assessment", "Raporlar": "Reports" } as Record<string, string>
   },
   de: {
-    searchPlaceholder: "Einstellungen durchsuchen (z.B. SMTP, Gemini, SharePoint)...",
+    consoleTitle: "Plattform-Verwaltungskonsole",
+    systemAdminBadge: "Systemadministratorzugriff",
+    searchPlaceholder: "Einstellungen durchsuchen (z.B. Benutzer, Rolle, Recht)...",
     allSystemsOperational: "Alle Systeme funktionsfähig",
-    headerSubtitle: "Gemba Tools SaaS Zentrale Verwaltungs- und Integrationskonsole",
+    headerSubtitle: "Gemba Tools Zentrale Verwaltungskonsole",
     closeConsole: "Konsole schließen",
     inviteModalTitle: "Neuen Benutzer einladen",
     emailLabel: "E-Mail",
@@ -231,68 +225,62 @@ const TRANSLATIONS = {
     resetPasswordGenericError: "Passwort konnte nicht zurückgesetzt werden.",
     sidebarMenuLabel: "PLATTFORM-VERWALTUNGSMENÜ",
     footerTier: "Enterprise",
-    sec1Title: "Organization", sec1Desc: "Firma, Logo, Schichten und Arbeitskalender",
-    sec2Title: "User Management", sec2Desc: "Benutzer, Rollen, Fabrik- und Projektzuweisung",
-    sec3Title: "Role & Permissions", sec3Desc: "RBAC-Matrix, Modulberechtigungen",
-    sec4Title: "Mail Services", sec4Desc: "Microsoft Graph, Exchange, SMTP-Assistent",
-    sec5Title: "AI Management", sec5Desc: "Gemini API-Schlüssel und Modellauswahl",
-    orgHeading: "1. Organization (Firmeneinstellungen)",
-    orgSubtitle: "Mandantenweite Unternehmensidentität und Kalenderkonfiguration der SaaS-Plattform.",
+    sec1Title: "Organisation", sec1Desc: "Firmenname, Adresse, Währung und Sprache",
+    sec2Title: "Benutzerverwaltung", sec2Desc: "Benutzer, Rollen und Kundenzuweisung",
+    sec3Title: "Rollen & Rechte", sec3Desc: "RBAC-Matrix, Modulberechtigungen",
+    sec4Title: "E-Mail-Dienst", sec4Desc: "Status der Zustellinfrastruktur",
+    sec5Title: "KI-Verwaltung", sec5Desc: "KI-Anbieter- und Schlüsselstatus",
+    orgHeading: "1. Organisation (Firmeneinstellungen)",
+    orgSubtitle: "Unternehmensidentität und allgemeine Workspace-Einstellungen.",
     saveChanges: "Änderungen speichern",
-    orgSaveToast: "Hinweis: Dieser Bereich ist in dieser Demo-Umgebung nicht mit einem Backend verbunden; die Änderung wurde nicht dauerhaft gespeichert.",
+    orgSaveToast: "Hinweis: Dieser Bereich ist noch nicht mit einem Backend verbunden; die Änderung wurde nicht dauerhaft gespeichert.",
     basicCompanyInfo: "Grundlegende Firmeninformationen",
     companyLegalName: "Firmenname",
     companyAddress: "Firmenadresse",
-    taxOffice: "Finanzamt",
-    taxNumber: "Steuernummer",
-    opCalendarSettings: "Betriebs- & Kalendereinstellungen",
+    opCalendarSettings: "Allgemeine Einstellungen",
     currencyLabel: "Währung",
     systemLanguageLabel: "Systemsprache",
     timezoneLabel: "Zeitzone",
     weekStartLabel: "Wochenbeginn",
-    workCalendarLabel: "Arbeitskalender",
-    shiftSystemLabel: "Schichtsystem",
     dayMonday: "Montag", daySunday: "Sonntag",
-    workCal5: "5 Tage / 40 Stunden", workCal6: "6 Tage / 45 Stunden", workCal247: "24/7 Durchgehende Schichten",
-    shift1: "1 Schicht (08:00 - 17:00)", shift2: "2 Schichten (08:00 - 16:00 / 16:00 - 00:00)", shift3: "3 Schichten (24 Stunden)",
-    userMgmtHeading: "2. User Management (Benutzer & Lizenzzuweisung)",
-    userMgmtSubtitle: "Zentrale Verwaltung von Benutzerkonten, Rollenrechten, Fabrik- und Projektzugriffen.",
-    totalMembers: (n: number) => `Mitglieder gesamt: ${n} / 50 Lizenzen`,
+    userMgmtHeading: "2. Benutzerverwaltung",
+    userMgmtSubtitle: "Zentrale Verwaltung von Benutzerkonten, Rollenrechten und Kundenzugriffen.",
+    totalMembers: (n: number) => `Mitglieder gesamt: ${n}`,
     searchUsersPlaceholder: "Benutzer suchen...",
     createUser: "Benutzer erstellen",
-    colNameEmail: "Name & E-Mail", colRole: "Rolle", colFactory: "Zugewiesene Fabrik",
-    colStatus: "Status", colMfa: "MFA", colLastLogin: "Letzte Anmeldung", colActions: "Aktionen",
-    statusActive: "Aktiv", statusInactive: "Inaktiv", mfaActive: "Aktiv (SMS/TOTP)", noLogin: "Noch keine Anmeldung",
+    colNameEmail: "Name & E-Mail", colRole: "Rolle", colFactory: "Zugewiesener Kunde",
+    colStatus: "Status", colLastLogin: "Letzte Anmeldung", colActions: "Aktionen",
+    statusActive: "Aktiv", statusInactive: "Inaktiv", noLogin: "Noch keine Anmeldung",
     resetPasswordTitleAttr: "Passwort zurücksetzen",
-    rbacHeading: "3. Role & Permission Management (RBAC)",
-    rbacSubtitle: "Systemweite Standardrollen und modulbasierte Berechtigungsmatrix.",
-    saveMatrix: "Matrix speichern",
-    rbacSaveToast: "Hinweis: Die Berechtigungsmatrix ist nicht mit einem Backend verbunden; diese Änderung wurde nicht dauerhaft gespeichert.",
+    allCustomersLabel: "Alle Kunden",
+    noCustomerAssignedLabel: "Nicht zugewiesen",
+    youLabel: "(Sie)",
+    roleChangeError: "Rolle konnte nicht geändert werden.",
+    statusChangeError: "Status konnte nicht geändert werden.",
+    rbacHeading: "3. Rollen- und Rechteverwaltung (RBAC)",
+    rbacSubtitle: "Rollenbasierte Modulzugriffsmatrix.",
+    rbacDisclaimer: "Diese Matrix dient nur zu Referenz-/Dokumentationszwecken — die tatsächliche Zugriffskontrolle erfolgt serverseitig über die 3 festen Rollen (Administrator / Berater / Kundenbenutzer); Änderungen hier werden nicht im Backend gespeichert.",
+    adminFullAccessNote: "Die Rolle Administrator hat vollen Zugriff auf alle Module.",
     colModule: "Modul / Anwendungsbereich",
     permRead: "Lesen", permCreate: "Erstellen", permUpdate: "Aktualisieren", permDelete: "Löschen", permExport: "Exportieren", permAI: "KI-Assistent",
-    mailHeading: "4. Mail Services (Unternehmens-E-Mail-Dienst)",
-    mailSubtitle: "E-Mail-Zustellanbieter, Microsoft Graph, Exchange und SMTP-Assistent.",
-    saveSettings: "Einstellungen speichern",
-    mailSaveToast: "Hinweis: Für diesen Workspace ist keine Mail-Anbieter-Integration konfiguriert; die Einstellung wurde nicht gespeichert.",
-    mailProvGraphDesc: "Microsoft 365 Unternehmensverbindung",
-    mailProvExchangeDesc: "On-Premises / Hybrid Exchange",
-    mailProvSmtp: "Standard-SMTP", mailProvSmtpDesc: "TLS / SSL SMTP Port 587",
-    mailProvGoogleDesc: "Google OAuth2 / Gmail API",
-    graphOAuthConfig: "Microsoft Graph OAuth-Konfiguration",
-    smtpServerConfig: "SMTP-Serverkonfiguration",
-    defaultSenderEmail: "Standard-Absender-E-Mail-Adresse",
-    defaultSenderName: "Standard-Absendername",
-    smtpHostLabel: "SMTP-Hostserver", smtpPortLabel: "SMTP-Port",
-    oauthClientIdLabel: "OAuth Client ID (Application ID)", oauthClientSecretLabel: "OAuth Client Secret",
-    testMailConnection: "Mail-Verbindung testen",
-    testMailFailToast: "Verbindungstest fehlgeschlagen: Dieser Workspace hat keine echte Mailserver-Integration.",
-    aiHeading: "5. AI Management Center",
-    aiSubtitle: "Gemini API-Schlüssel und Auswahl des Modellanbieters.",
-    saveApiKey: "API-Schlüssel speichern",
-    aiSaveToast: "Hinweis: Der Gemini API-Schlüssel wird serverseitig über .env verwaltet; der hier eingegebene Wert wird nicht gespeichert.",
-    secureVaultHeading: "Sicherer API-Vault & Modellauswahl",
-    geminiApiKeyLabel: "Gemini API Key (process.env.GEMINI_API_KEY)",
-    aiInfoNote: "Der Gemini API-Schlüssel wird nicht über diesen Bildschirm verwaltet, sondern als Server-Umgebungsvariable (GEMINI_API_KEY in .env). Die Module VSM, Loss Analysis und Executive Insights verwenden diesen Schlüssel.",
+    mailHeading: "4. E-Mail-Dienst",
+    mailSubtitle: "Status der echten E-Mail-Zustellinfrastruktur dieses Workspace.",
+    mailProviderLabel: "Aktiver Anbieter",
+    mailProviderValue: "Microsoft Graph (Microsoft 365, app-only OAuth2)",
+    mailSenderLabel: "Absenderadresse",
+    mailSenderNote: "Wird über die Vercel-Umgebungsvariable MAIL_FROM festgelegt (Standard: proje@gembapartner.com).",
+    mailConfigLabel: "Konfiguration",
+    mailConfigNote: "AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET werden in den Vercel-Projekteinstellungen verwaltet; auf diesem Bildschirm nicht änderbar.",
+    mailUsedByLabel: "Verwendet für",
+    mailUsedByValue: "Benutzereinladungen, Passwort-Zurücksetzung, PTR-Berichtsversand, wöchentliche Berater-Zusammenfassung, 5S/Gemba-Walk-Berichte.",
+    aiHeading: "5. KI-Verwaltungszentrale",
+    aiSubtitle: "Status der echten KI-Anbieterkonfiguration dieses Workspace.",
+    aiProviderLabel: "Aktiver Anbieter",
+    aiProviderValue: "Google Gemini",
+    aiConfigLabel: "Konfiguration",
+    aiConfigNote: "GEMINI_API_KEY wird in den Vercel-Projekteinstellungen (Umgebungsvariable) verwaltet; der Schlüssel wird auf diesem Bildschirm nie angezeigt oder eingegeben.",
+    aiUsedByLabel: "Verwendet in Modulen",
+    aiUsedByValue: "VSM, Loss Analysis, Executive Insights, OpEx Coach, SMED Coach und weitere KI-gestützte Module.",
     moduleNames: { "VSM Kapasite": "VSM-Kapazität", "SMED Değişim": "SMED-Rüstzeit", "Time Study": "Zeitstudie", "Loss Analysis": "Verlustanalyse", "Hat Dengeleme": "Linienabstimmung", "CI / Kaizen": "CI / Kaizen", "5S Audit": "5S-Audit", "OpEx Assessment": "OpEx-Bewertung", "Raporlar": "Berichte" } as Record<string, string>
   }
 };
@@ -311,25 +299,20 @@ export default function PlatformAdminConsole({
 
   // Section 1: Organization State
   const [orgData, setOrgData] = useState({
-    name: currentOrg?.organization_name || "Arçelik A.Ş.",
-    logoUrl: "",
-    address: "Organize Sanayi Bölgesi 1. Cadde No: 4 Bolu / Türkiye",
-    taxOffice: "Bolu V.D.",
-    taxNumber: "0790012345",
+    name: currentOrg?.organization_name || "",
+    address: "",
     currency: "₺",
     language: "TR",
     timezone: "UTC+03:00 (İstanbul)",
-    weekStart: "Pazartesi",
-    workCalendar: "5 Gün / 40 Saat",
-    shiftSystem: "3 Vardiya (24 Saat)"
+    weekStart: "Pazartesi"
   });
 
   // Section 2: User Management State
   const [users, setUsers] = useState<any[]>([]);
+  const [customersById, setCustomersById] = useState<Record<string, string>>({});
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("Customer User");
   const [userSearch, setUserSearch] = useState("");
-  const [selectedDeptFilter, setSelectedDeptFilter] = useState("Tüm Departmanlar");
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteFormError, setInviteFormError] = useState<string | null>(null);
@@ -338,38 +321,23 @@ export default function PlatformAdminConsole({
   const [resetPasswordValue, setResetPasswordValue] = useState("");
   const [resetPasswordBusy, setResetPasswordBusy] = useState(false);
   const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
+  const [roleChangeBusyId, setRoleChangeBusyId] = useState<string | null>(null);
+  const [statusChangeBusyId, setStatusChangeBusyId] = useState<string | null>(null);
 
-  // Section 3: Role & Permissions State
+  // Section 3: Role & Permissions State — per-role default matrices. Admin always has full
+  // access (enforced in the backend regardless of this UI); Consultant/Customer User defaults
+  // reflect what those roles can actually do today (Consultant: unrestricted across all of the
+  // org's customers; Customer User: view/export their own assigned customer's data only).
+  // NOTE: this matrix is display-only — see rbacDisclaimer below — the backend has no per-module
+  // permission system, only the 3 fixed roles.
   const [selectedRole, setSelectedRole] = useState<string>("Admin");
-  const [permissionsMatrix, setPermissionsMatrix] = useState<Record<string, Record<string, boolean>>>({
-    "VSM Kapasite": { Read: true, Create: true, Update: true, Delete: true, Export: true, AIAssistant: true },
-    "SMED Değişim": { Read: true, Create: true, Update: true, Delete: true, Export: true, AIAssistant: true },
-    "Time Study": { Read: true, Create: true, Update: true, Delete: true, Export: true, AIAssistant: true },
-    "Loss Analysis": { Read: true, Create: true, Update: true, Delete: true, Export: true, AIAssistant: true },
-    "Hat Dengeleme": { Read: true, Create: true, Update: true, Delete: true, Export: true, AIAssistant: true },
-    "CI / Kaizen": { Read: true, Create: true, Update: true, Delete: true, Export: true, AIAssistant: true },
-    "5S Audit": { Read: true, Create: true, Update: true, Delete: true, Export: true, AIAssistant: true },
-    "OpEx Assessment": { Read: true, Create: true, Update: true, Delete: true, Export: true, AIAssistant: true },
-    "Raporlar": { Read: true, Create: true, Update: true, Delete: true, Export: true, AIAssistant: true },
+  const ALL_TRUE = { Read: true, Create: true, Update: true, Delete: true, Export: true, AIAssistant: true };
+  const MODULE_NAMES = ["VSM Kapasite", "SMED Değişim", "Time Study", "Loss Analysis", "Hat Dengeleme", "CI / Kaizen", "5S Audit", "OpEx Assessment", "Raporlar"];
+  const [permissionsMatrix, setPermissionsMatrix] = useState<Record<string, Record<string, Record<string, boolean>>>>({
+    Admin: Object.fromEntries(MODULE_NAMES.map(m => [m, { ...ALL_TRUE }])),
+    Consultant: Object.fromEntries(MODULE_NAMES.map(m => [m, { ...ALL_TRUE }])),
+    "Customer User": Object.fromEntries(MODULE_NAMES.map(m => [m, { Read: true, Create: false, Update: false, Delete: false, Export: true, AIAssistant: false }]))
   });
-
-  // Section 4: Mail Services
-  const [mailProvider, setMailProvider] = useState<"graph" | "exchange" | "smtp" | "google">("graph");
-  const [mailConfig, setMailConfig] = useState({
-    senderAddress: "noreply@gemba.ai",
-    senderName: "Gemba Tools System",
-    smtpHost: "smtp.office365.com",
-    smtpPort: "587",
-    useSsl: true,
-    clientId: "app_908123847_graph",
-    clientSecret: "••••••••••••••••••••",
-    signatureText: "Gemba Tools SaaS Operational Excellence Platform - Sent via Automated System"
-  });
-
-  // Section 5: AI Management
-  const [aiProvider, setAiProvider] = useState<"gemini" | "claude" | "openai" | "azure" | "local">("gemini");
-  const [apiKeyShow, setApiKeyShow] = useState(false);
-  const [geminiApiKey, setGeminiApiKey] = useState("AIzaSy_Gemini_Vault_Key_Active");
 
   // Global Notification Feedback Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -394,11 +362,72 @@ export default function PlatformAdminConsole({
     .catch(() => {});
   };
 
+  // Resolves real assigned-customer names for the "Atanan Müşteri" column (previously hardcoded).
+  const fetchCustomers = () => {
+    if (!token) return;
+    fetch("/api/business/customers", {
+      headers: { "Authorization": `Bearer ${token}` }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        const map: Record<string, string> = {};
+        for (const c of data.data) map[c.id] = c.companyName || c.id;
+        setCustomersById(map);
+      }
+    })
+    .catch(() => {});
+  };
+
   useEffect(() => {
     if (isOpen && token) {
       fetchUsers();
+      fetchCustomers();
     }
   }, [isOpen, token]);
+
+  const handleChangeRole = async (userId: string, newRole: string) => {
+    setRoleChangeBusyId(userId);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/role`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ role: newRole })
+      });
+      const data = await res.json();
+      if (!data.success) {
+        showToast(data.error || t.roleChangeError);
+        return;
+      }
+      fetchUsers();
+    } catch (e: any) {
+      showToast(e.message || t.roleChangeError);
+    } finally {
+      setRoleChangeBusyId(null);
+    }
+  };
+
+  const handleToggleStatus = async (userId: string, currentStatus: string) => {
+    setStatusChangeBusyId(userId);
+    const nextStatus = currentStatus === "Active" ? "Disabled" : "Active";
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ status: nextStatus })
+      });
+      const data = await res.json();
+      if (!data.success) {
+        showToast(data.error || t.statusChangeError);
+        return;
+      }
+      fetchUsers();
+    } catch (e: any) {
+      showToast(e.message || t.statusChangeError);
+    } finally {
+      setStatusChangeBusyId(null);
+    }
+  };
 
   const handleInviteUser = async () => {
     setInviteFormError(null);
@@ -497,9 +526,9 @@ export default function PlatformAdminConsole({
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h2 className="text-sm font-black tracking-tight text-white uppercase">Platform Management Console</h2>
+                <h2 className="text-sm font-black tracking-tight text-white uppercase">{t.consoleTitle}</h2>
                 <span className="px-2 py-0.5 text-[11px] font-extrabold bg-indigo-500/30 text-indigo-300 border border-indigo-400/30 rounded-full uppercase tracking-wider">
-                  System Admin Access
+                  {t.systemAdminBadge}
                 </span>
               </div>
               <p className="text-[10px] text-slate-400 font-medium leading-none mt-0.5">
@@ -762,26 +791,6 @@ export default function PlatformAdminConsole({
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-slate-600 font-bold mb-1">{t.taxOffice}</label>
-                          <input
-                            type="text"
-                            value={orgData.taxOffice}
-                            onChange={(e) => setOrgData({ ...orgData, taxOffice: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-semibold focus:outline-none"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-slate-600 font-bold mb-1">{t.taxNumber}</label>
-                          <input
-                            type="text"
-                            value={orgData.taxNumber}
-                            onChange={(e) => setOrgData({ ...orgData, taxNumber: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-semibold focus:outline-none"
-                          />
-                        </div>
-                      </div>
                     </div>
                   </div>
 
@@ -841,33 +850,6 @@ export default function PlatformAdminConsole({
                           </select>
                         </div>
                       </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-slate-600 font-bold mb-1">{t.workCalendarLabel}</label>
-                          <select
-                            value={orgData.workCalendar}
-                            onChange={(e) => setOrgData({ ...orgData, workCalendar: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-semibold focus:outline-none"
-                          >
-                            <option value="5 Gün / 40 Saat">{t.workCal5}</option>
-                            <option value="6 Gün / 45 Saat">{t.workCal6}</option>
-                            <option value="7/24 Sürekli">{t.workCal247}</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-slate-600 font-bold mb-1">{t.shiftSystemLabel}</label>
-                          <select
-                            value={orgData.shiftSystem}
-                            onChange={(e) => setOrgData({ ...orgData, shiftSystem: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-semibold focus:outline-none"
-                          >
-                            <option value="1 Vardiya (08:00 - 17:00)">{t.shift1}</option>
-                            <option value="2 Vardiya (08:00 - 16:00 / 16:00 - 00:00)">{t.shift2}</option>
-                            <option value="3 Vardiya (24 Saat)">{t.shift3}</option>
-                          </select>
-                        </div>
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -919,32 +901,67 @@ export default function PlatformAdminConsole({
                           <th className="px-4 py-3">{t.colRole}</th>
                           <th className="px-4 py-3">{t.colFactory}</th>
                           <th className="px-4 py-3">{t.colStatus}</th>
-                          <th className="px-4 py-3">{t.colMfa}</th>
                           <th className="px-4 py-3">{t.colLastLogin}</th>
                           <th className="px-4 py-3 text-right">{t.colActions}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
-                        {users.map((u) => (
+                        {users.filter(u =>
+                          !userSearch.trim() ||
+                          u.full_name.toLowerCase().includes(userSearch.toLowerCase()) ||
+                          u.email.toLowerCase().includes(userSearch.toLowerCase())
+                        ).map((u) => {
+                          const isSelf = u.id === currentUser?.id;
+                          const assignedNames: string[] = u.role === "Customer User"
+                            ? (u.assigned_customer_ids || []).map((id: string) => customersById[id] || id)
+                            : [];
+                          return (
                           <tr key={u.id} className="hover:bg-slate-50/50">
                             <td className="px-4 py-3">
-                              <div className="font-bold text-slate-900">{u.full_name}</div>
+                              <div className="font-bold text-slate-900">{u.full_name} {isSelf && <span className="text-slate-400 font-semibold">{t.youLabel}</span>}</div>
                               <div className="text-[10px] font-mono text-slate-400">{u.email}</div>
                             </td>
                             <td className="px-4 py-3">
-                              <span className="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded text-[10px] font-bold">
-                                {roleDisplayLabel(u.role)}
-                              </span>
+                              {isSelf ? (
+                                <span className="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded text-[10px] font-bold">
+                                  {roleDisplayLabel(u.role)}
+                                </span>
+                              ) : (
+                                <select
+                                  value={u.role}
+                                  disabled={roleChangeBusyId === u.id}
+                                  onChange={(e) => handleChangeRole(u.id, e.target.value)}
+                                  className="bg-indigo-50 text-indigo-700 border border-indigo-200 rounded text-[10px] font-bold px-1.5 py-1 focus:outline-none disabled:opacity-50 cursor-pointer"
+                                >
+                                  <option value="Admin">{t.roleAdmin}</option>
+                                  <option value="Consultant">{t.roleConsultant}</option>
+                                  <option value="Customer User">{t.roleCustomerUser}</option>
+                                </select>
+                              )}
                             </td>
-                            <td className="px-4 py-3 text-slate-600">Arçelik Pişirici Cihazlar</td>
+                            <td className="px-4 py-3 text-slate-600">
+                              {u.role === "Customer User"
+                                ? (assignedNames.length > 0 ? assignedNames.join(", ") : t.noCustomerAssignedLabel)
+                                : t.allCustomersLabel}
+                            </td>
                             <td className="px-4 py-3">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                u.status === "Active" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"
-                              }`}>
-                                {u.status === "Active" ? t.statusActive : t.statusInactive}
-                              </span>
+                              {isSelf ? (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  {t.statusActive}
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => handleToggleStatus(u.id, u.status)}
+                                  disabled={statusChangeBusyId === u.id}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer disabled:opacity-50 ${
+                                    u.status === "Active" ? "bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100" : "bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
+                                  }`}
+                                  title={t.colStatus}
+                                >
+                                  {u.status === "Active" ? t.statusActive : t.statusInactive}
+                                </button>
+                              )}
                             </td>
-                            <td className="px-4 py-3 text-emerald-600 font-mono text-[10px]">{t.mfaActive}</td>
                             <td className="px-4 py-3 text-slate-400 font-mono text-[10px]">
                               {u.last_login ? new Date(u.last_login).toLocaleString("tr-TR") : t.noLogin}
                             </td>
@@ -958,7 +975,8 @@ export default function PlatformAdminConsole({
                               </button>
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -979,12 +997,10 @@ export default function PlatformAdminConsole({
                       {t.rbacSubtitle}
                     </p>
                   </div>
-                  <button
-                    onClick={() => showToast(t.rbacSaveToast)}
-                    className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-xs cursor-pointer"
-                  >
-                    {t.saveMatrix}
-                  </button>
+                </div>
+
+                <div className="bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-semibold leading-relaxed rounded-xl px-4 py-2.5">
+                  ℹ️ {t.rbacDisclaimer}
                 </div>
 
                 {/* Role Selector Tabs */}
@@ -1004,6 +1020,13 @@ export default function PlatformAdminConsole({
                   ))}
                 </div>
 
+                {selectedRole === "Admin" && (
+                  <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-xl px-4 py-2.5 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>{t.adminFullAccessNote}</span>
+                  </div>
+                )}
+
                 {/* Permissions Matrix Table */}
                 <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
                   <table className="min-w-full divide-y divide-slate-100 text-xs text-left">
@@ -1019,21 +1042,30 @@ export default function PlatformAdminConsole({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
-                      {Object.keys(permissionsMatrix).map((mod) => (
+                      {MODULE_NAMES.map((mod) => (
                         <tr key={mod} className="hover:bg-slate-50/50">
                           <td className="px-4 py-3 font-bold text-slate-900">{t.moduleNames[mod] || mod}</td>
                           {["Read", "Create", "Update", "Delete", "Export", "AIAssistant"].map((act) => {
-                            const isChecked = permissionsMatrix[mod][act];
+                            const isChecked = permissionsMatrix[selectedRole][mod][act];
+                            if (selectedRole === "Admin") {
+                              return (
+                                <td key={act} className="px-4 py-3 text-center">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-600 inline-block" />
+                                </td>
+                              );
+                            }
                             return (
                               <td key={act} className="px-4 py-3 text-center">
                                 <input
                                   type="checkbox"
-                                  checked={selectedRole === "Admin" ? true : isChecked}
-                                  disabled={selectedRole === "Admin"}
+                                  checked={isChecked}
                                   onChange={() => {
                                     setPermissionsMatrix(prev => ({
                                       ...prev,
-                                      [mod]: { ...prev[mod], [act]: !prev[mod][act] }
+                                      [selectedRole]: {
+                                        ...prev[selectedRole],
+                                        [mod]: { ...prev[selectedRole][mod], [act]: !prev[selectedRole][mod][act] }
+                                      }
                                     }));
                                   }}
                                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
@@ -1049,209 +1081,71 @@ export default function PlatformAdminConsole({
               </div>
             )}
 
-            {/* 4. MAIL SERVICES */}
+            {/* 4. MAIL SERVICES — read-only status panel; real config lives in Vercel env vars */}
             {activeSection === 4 && (
               <div className="space-y-6 max-w-5xl mx-auto">
-                <div className="border-b border-slate-200 pb-4 flex justify-between items-center">
+                <div className="border-b border-slate-200 pb-4">
+                  <h3 className="text-lg font-black text-slate-900 tracking-tight flex items-center space-x-2">
+                    <Mail className="w-5 h-5 text-indigo-600" />
+                    <span>{t.mailHeading}</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 font-semibold mt-0.5">
+                    {t.mailSubtitle}
+                  </p>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-4 shadow-xs text-xs">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-bold text-slate-600">{t.mailProviderLabel}</div>
+                      <div className="text-slate-900 font-semibold">{t.mailProviderValue}</div>
+                    </div>
+                  </div>
                   <div>
-                    <h3 className="text-lg font-black text-slate-900 tracking-tight flex items-center space-x-2">
-                      <Mail className="w-5 h-5 text-indigo-600" />
-                      <span>{t.mailHeading}</span>
-                    </h3>
-                    <p className="text-xs text-slate-500 font-semibold mt-0.5">
-                      {t.mailSubtitle}
-                    </p>
+                    <div className="font-bold text-slate-600">{t.mailSenderLabel}</div>
+                    <div className="text-slate-500 mt-0.5">{t.mailSenderNote}</div>
                   </div>
-                  <button
-                    onClick={() => showToast(t.mailSaveToast)}
-                    className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-xs cursor-pointer"
-                  >
-                    {t.saveSettings}
-                  </button>
-                </div>
-
-                {/* Mail Provider Selector Cards */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {[
-                    { id: "graph", name: "Microsoft Graph API", desc: t.mailProvGraphDesc },
-                    { id: "exchange", name: "Exchange Server", desc: t.mailProvExchangeDesc },
-                    { id: "smtp", name: t.mailProvSmtp, desc: t.mailProvSmtpDesc },
-                    { id: "google", name: "Google Workspace", desc: t.mailProvGoogleDesc }
-                  ].map((prov) => (
-                    <button
-                      key={prov.id}
-                      onClick={() => setMailProvider(prov.id as any)}
-                      className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
-                        mailProvider === prov.id
-                          ? "bg-indigo-50/80 border-indigo-500 ring-2 ring-indigo-500/20"
-                          : "bg-white border-slate-200 hover:border-slate-300"
-                      }`}
-                    >
-                      <div className="font-extrabold text-xs text-slate-900">{prov.name}</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">{prov.desc}</div>
-                    </button>
-                  ))}
-                </div>
-
-                {/* Mail Wizard Input Panel */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-4 shadow-xs">
-                  <h4 className="font-extrabold text-xs text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-2">
-                    {mailProvider === "graph" ? t.graphOAuthConfig : t.smtpServerConfig}
-                  </h4>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                    <div>
-                      <label className="block text-slate-600 font-bold mb-1">{t.defaultSenderEmail}</label>
-                      <input
-                        type="text"
-                        value={mailConfig.senderAddress}
-                        onChange={(e) => setMailConfig({ ...mailConfig, senderAddress: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-semibold focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-slate-600 font-bold mb-1">{t.defaultSenderName}</label>
-                      <input
-                        type="text"
-                        value={mailConfig.senderName}
-                        onChange={(e) => setMailConfig({ ...mailConfig, senderName: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-semibold focus:outline-none"
-                      />
-                    </div>
-
-                    {mailProvider === "smtp" ? (
-                      <>
-                        <div>
-                          <label className="block text-slate-600 font-bold mb-1">{t.smtpHostLabel}</label>
-                          <input
-                            type="text"
-                            value={mailConfig.smtpHost}
-                            onChange={(e) => setMailConfig({ ...mailConfig, smtpHost: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono text-slate-900"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-slate-600 font-bold mb-1">{t.smtpPortLabel}</label>
-                          <input
-                            type="text"
-                            value={mailConfig.smtpPort}
-                            onChange={(e) => setMailConfig({ ...mailConfig, smtpPort: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono text-slate-900"
-                          />
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div>
-                          <label className="block text-slate-600 font-bold mb-1">{t.oauthClientIdLabel}</label>
-                          <input
-                            type="text"
-                            value={mailConfig.clientId}
-                            onChange={(e) => setMailConfig({ ...mailConfig, clientId: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono text-slate-900"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-slate-600 font-bold mb-1">{t.oauthClientSecretLabel}</label>
-                          <input
-                            type="password"
-                            value={mailConfig.clientSecret}
-                            onChange={(e) => setMailConfig({ ...mailConfig, clientSecret: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono text-slate-900"
-                          />
-                        </div>
-                      </>
-                    )}
+                  <div>
+                    <div className="font-bold text-slate-600">{t.mailConfigLabel}</div>
+                    <div className="text-slate-500 mt-0.5">{t.mailConfigNote}</div>
                   </div>
-
-                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                    <button
-                      onClick={() => {
-                        showToast(t.testMailFailToast);
-                      }}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2 rounded-xl cursor-pointer flex items-center space-x-1"
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      <span>{t.testMailConnection}</span>
-                    </button>
+                  <div className="pt-3 border-t border-slate-100">
+                    <div className="font-bold text-slate-600">{t.mailUsedByLabel}</div>
+                    <div className="text-slate-500 mt-0.5">{t.mailUsedByValue}</div>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* 5. AI MANAGEMENT */}
+            {/* 5. AI MANAGEMENT — read-only status panel; real config lives in Vercel env vars */}
             {activeSection === 5 && (
               <div className="space-y-6 max-w-5xl mx-auto">
-                <div className="border-b border-slate-200 pb-4 flex justify-between items-center">
-                  <div>
-                    <h3 className="text-lg font-black text-slate-900 tracking-tight flex items-center space-x-2">
-                      <Sparkles className="w-5 h-5 text-indigo-600" />
-                      <span>{t.aiHeading}</span>
-                    </h3>
-                    <p className="text-xs text-slate-500 font-semibold mt-0.5">
-                      {t.aiSubtitle}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => showToast(t.aiSaveToast)}
-                    className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-xs cursor-pointer"
-                  >
-                    {t.saveApiKey}
-                  </button>
+                <div className="border-b border-slate-200 pb-4">
+                  <h3 className="text-lg font-black text-slate-900 tracking-tight flex items-center space-x-2">
+                    <Sparkles className="w-5 h-5 text-indigo-600" />
+                    <span>{t.aiHeading}</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 font-semibold mt-0.5">
+                    {t.aiSubtitle}
+                  </p>
                 </div>
 
-                {/* AI Provider Selector */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                  {[
-                    { id: "gemini", name: "Google Gemini", active: true },
-                    { id: "claude", name: "Anthropic Claude", active: false },
-                    { id: "openai", name: "OpenAI GPT-4o", active: false },
-                    { id: "azure", name: "Azure OpenAI", active: false },
-                    { id: "local", name: "Local LLM (Ollama)", active: false }
-                  ].map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => setAiProvider(p.id as any)}
-                      className={`p-3 rounded-2xl border text-center transition-all cursor-pointer ${
-                        aiProvider === p.id
-                          ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
-                          : "bg-white border-slate-200 text-slate-700 hover:bg-slate-100"
-                      }`}
-                    >
-                      <div className="font-extrabold text-xs">{p.name}</div>
-                    </button>
-                  ))}
-                </div>
-
-                {/* API Vault Input Box */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-4 shadow-xs">
-                  <h4 className="font-extrabold text-xs text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-2">
-                    {t.secureVaultHeading}
-                  </h4>
-
-                  <div className="space-y-3 text-xs">
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-4 shadow-xs text-xs">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                     <div>
-                      <label className="block text-slate-600 font-bold mb-1">{t.geminiApiKeyLabel}</label>
-                      <div className="flex space-x-2">
-                        <input
-                          type={apiKeyShow ? "text" : "password"}
-                          value={geminiApiKey}
-                          onChange={(e) => setGeminiApiKey(e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono text-slate-900 font-bold"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setApiKeyShow(!apiKeyShow)}
-                          className="p-2 bg-slate-100 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-200 cursor-pointer"
-                        >
-                          {apiKeyShow ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
+                      <div className="font-bold text-slate-600">{t.aiProviderLabel}</div>
+                      <div className="text-slate-900 font-semibold">{t.aiProviderValue}</div>
                     </div>
-
-                    <div className="pt-3 border-t border-slate-100 text-[11px] text-slate-500 font-semibold leading-relaxed">
-                      ℹ️ {t.aiInfoNote}
-                    </div>
+                  </div>
+                  <div>
+                    <div className="font-bold text-slate-600">{t.aiConfigLabel}</div>
+                    <div className="text-slate-500 mt-0.5">{t.aiConfigNote}</div>
+                  </div>
+                  <div className="pt-3 border-t border-slate-100">
+                    <div className="font-bold text-slate-600">{t.aiUsedByLabel}</div>
+                    <div className="text-slate-500 mt-0.5">{t.aiUsedByValue}</div>
                   </div>
                 </div>
               </div>

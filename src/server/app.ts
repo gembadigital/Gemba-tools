@@ -669,7 +669,8 @@ app.get("/api/admin/users", authenticateToken, async (req, res) => {
       role: u.role,
       status: u.status,
       last_login: u.last_login,
-      created_at: u.created_at
+      created_at: u.created_at,
+      assigned_customer_ids: u.assigned_customer_ids || []
     }));
 
     res.json({ success: true, users: safeUsers });
