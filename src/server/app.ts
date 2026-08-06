@@ -1442,9 +1442,13 @@ app.post("/api/business/ptr-records/send-weekly-report", authenticateToken, asyn
     res.status(503).json({ success: false, error: "Proje Takip Raporu şablon dosyası bulunamadı. PTR_EXCEL_TEMPLATE_PATH ortam değişkenini kontrol edin." });
     return;
   }
-  const records: PtrTemplateRecord[] = (await db.getPtrRecords(user.organization_id, scope.factoryId)).filter((r: any) => r.visitedWeek === String(week));
+  // Full cumulative log, not just this week's rows — the real template's Dashboard/Pivot sheets
+  // summarize the whole project, so feeding them only one week's slice left those sheets (and the
+  // report as a whole) looking empty/incomplete. "week" is still used below for the subject line
+  // ("as of week N"), just no longer filters which rows go into the attachment.
+  const records: PtrTemplateRecord[] = await db.getPtrRecords(user.organization_id, scope.factoryId);
   if (records.length === 0) {
-    res.status(400).json({ success: false, error: `${week}. hafta için kayıt bulunamadı.` });
+    res.status(400).json({ success: false, error: "Gönderilecek proje takip kaydı bulunamadı." });
     return;
   }
   const customer = (await db.getCustomers(user.organization_id)).find((c: any) => c.id === scope.factoryId);
