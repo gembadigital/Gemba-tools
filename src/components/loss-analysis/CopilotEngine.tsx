@@ -214,7 +214,7 @@ Analiz etmek istediğiniz diğer P&L veya saha verimlilik detaylarını sorabili
     setUserQuery("");
     setIsTyping(true);
 
-    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
     const selectedCustomerId = factoryId || "";
 
     try {
@@ -298,7 +298,7 @@ Analiz etmek istediğiniz diğer P&L veya saha verimlilik detaylarını sorabili
                 setUserQuery(p.query);
                 setTimeout(() => {
                   // Trigger sending
-                  const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+                  const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
                   const selectedCustomerId = factoryId || "";
                   fetch("/api/gemini/copilot-chat", {
                     method: "POST",

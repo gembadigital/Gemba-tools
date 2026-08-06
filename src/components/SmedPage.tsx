@@ -27,7 +27,7 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
   // Scope all persistence to the active customer so switching factories doesn't leak SMED data across tenants
   const customerId = selectedCustomer?.id || "default";
   const selectedProjectStorageKey = `smed_selected_project_id_${customerId}`;
-  const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+  const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
 
   // Navigation for SMED sub-modules
   const [smedTab, setSmedTab] = useState<

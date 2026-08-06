@@ -77,7 +77,7 @@ const TYPE_CONFIG = {
 };
 
 export default function TimeStudyPage({ selectedCustomer, vsmProcesses = [] }: TimeStudyPageProps) {
-  const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+  const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
   const [activeTab, setActiveTab] = useState<"study" | "combination">("study");
   const [lineName, setLineName] = useState<string>("Montaj Hattı A");
   const [productName, setProductName] = useState<string>("Ütü Masası");

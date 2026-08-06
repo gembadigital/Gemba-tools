@@ -364,7 +364,7 @@ export default function LineBalancing({ selectedCustomer }: LineBalancingProps) 
 
   useEffect(() => {
     if (!selectedCustomerId) return;
-    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
     fetch(`/api/business/yamazumi-studies?customerId=${encodeURIComponent(selectedCustomerId)}`, {
       headers: { "Authorization": `Bearer ${token}` }
     })
@@ -389,7 +389,7 @@ export default function LineBalancing({ selectedCustomer }: LineBalancingProps) 
 
   useEffect(() => {
     if (!selectedCustomerId) return;
-    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
     fetch("/api/business/time-studies", {
       headers: { "Authorization": `Bearer ${token}`, "x-factory-id": selectedCustomerId }
     })
@@ -472,7 +472,7 @@ export default function LineBalancing({ selectedCustomer }: LineBalancingProps) 
       alert("Aktif fabrika/müşteri bulunamadı.");
       return;
     }
-    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
     setIsSavingDb(true);
     try {
       const scenarioSuffix = scenarioLabel === "current" ? " (Mevcut Durum)" : scenarioLabel === "future" ? " (Gelecek Durum)" : "";
@@ -524,7 +524,7 @@ export default function LineBalancing({ selectedCustomer }: LineBalancingProps) 
   const handleDeleteYamazumiStudy = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!window.confirm("Bu kayıtlı Yamazumi etüdünü silmek istediğinize emin misiniz?")) return;
-    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
     try {
       const res = await fetch(`/api/business/yamazumi-studies/${id}`, {
         method: "DELETE",
@@ -857,7 +857,7 @@ export default function LineBalancing({ selectedCustomer }: LineBalancingProps) 
     if (!selectedCustomerId || stats.bottleneck === "-") return;
     const gapSeconds = parseFloat((stats.max - taktTime).toFixed(2));
     const impactLevel = stats.max > taktTime * 1.5 ? "High" : stats.max > taktTime * 1.15 ? "Medium" : "Low";
-    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
 
     const payload = {
       title: `[Yamazumi] ${stats.bottleneck} Darboğaz İyileştirmesi`,
@@ -1334,7 +1334,7 @@ export default function LineBalancing({ selectedCustomer }: LineBalancingProps) 
     setIsAiLoading(true);
     setAiReport(null);
     try {
-      const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+      const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
       const response = await fetch("/api/gemini/yamazumi-analyze", {
         method: "POST",
         headers: {
@@ -1381,7 +1381,7 @@ export default function LineBalancing({ selectedCustomer }: LineBalancingProps) 
     }, 100);
 
     try {
-      const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+      const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
       const response = await fetch("/api/gemini/yamazumi-chat", {
         method: "POST",
         headers: {

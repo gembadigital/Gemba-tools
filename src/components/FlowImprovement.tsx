@@ -103,7 +103,7 @@ const STATION_ICONS = {
 export default function FlowImprovement({
   selectedCustomer
 }: FlowImprovementProps) {
-  const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+  const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
 
   const [activeTab, setActiveTab] = useState<"current" | "future" | "comparison" | "mali-veri">("current");
   const [flowTypesConfig, setFlowTypesConfig] = useState(FLOW_TYPES_CONFIG);

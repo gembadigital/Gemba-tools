@@ -43,7 +43,7 @@ export const INDUSTRY_OPTIONS: { id: IndustryType; labelTr: string; labelEn: str
 
 export default function LossAnalysis() {
   const { selectedCustomerId, selectedCustomer } = useFactory();
-  const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+  const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
 
   const isDarkMode = false; // Dark mode completely disabled per request
   const [activeTab, setActiveTab] = useState<"cost_model" | "opportunity_matrix" | "recovery_matrix" | "simulation" | "ai_copilot" | "executive_dashboard">("executive_dashboard");

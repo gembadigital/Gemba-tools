@@ -282,7 +282,7 @@ function computeCriticalPath(
 
 export default function VsmPage() {
   const { selectedCustomerId, selectedCustomer } = useFactory();
-  const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+  const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
 
   // --- STATE PERSISTENCE & CONTROL ---
   const [dbProcesses, setDbProcesses] = useState<ProcessRecord[]>([]);

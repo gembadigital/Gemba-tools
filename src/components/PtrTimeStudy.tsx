@@ -337,7 +337,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
     });
   };
 
-  const ptrToken = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+  const ptrToken = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
   const isInitialPtrLoad = useRef(true);
 
   // Proje Ekibi member names (backend-persisted company_workspace) — passed down to

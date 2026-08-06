@@ -135,7 +135,7 @@ interface OpexAssessmentProps {
 
 export default function OpexAssessment({ selectedCustomer, customers, onUpdateCustomer, currentUser }: OpexAssessmentProps) {
   const isAdmin = currentUser?.role === "Admin";
-  const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "usr_arcelik_admin";
+  const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
 
   // Question bank (categories + questions) — fetched from the backend, not bundled: this is the
   // assessment methodology itself, shared org-wide and editable by Admins via the Soru Bankası tab.

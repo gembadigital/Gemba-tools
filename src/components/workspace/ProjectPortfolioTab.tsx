@@ -31,7 +31,7 @@ export default function ProjectPortfolioTab({ workspace, onUpdateProjects }: Pro
 
   useEffect(() => {
     if (!workspace.customerId) return;
-    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
     const headers = { "Authorization": `Bearer ${token}`, "x-factory-id": workspace.customerId };
 
     fetch("/api/business/kaizens", { headers })

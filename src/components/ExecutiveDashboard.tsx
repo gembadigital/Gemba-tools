@@ -321,7 +321,7 @@ export default function ExecutiveDashboard({
       }
     }, 2500);
 
-    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
 
     try {
       const response = await fetch("/api/gemini/executive-insights", {

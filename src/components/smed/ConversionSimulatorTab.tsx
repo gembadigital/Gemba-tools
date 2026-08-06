@@ -32,7 +32,7 @@ export default function ConversionSimulatorTab({
   useEffect(() => {
     const exportedIds = activities.filter((a) => a.ciKaizenId).map((a) => a.ciKaizenId as string);
     if (exportedIds.length === 0) return;
-    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
     fetch("/api/business/kaizens", {
       headers: {
         "Authorization": `Bearer ${token}`,
@@ -190,7 +190,7 @@ export default function ConversionSimulatorTab({
 
   // Export to CI Project Management System
   const handleExportToCI = async (act: ActivityItem) => {
-    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
     const suggestedAction = act.ecrsAction || getSmartSuggestion(act.name);
     const suggestedResponsible = act.ecrsResponsible || (act.originalType === "external" ? "Mustafa Çelik (Üretim Şefi)" : "Zeynep Karahan (Metot Müh.)");
     const suggestedDate = act.ecrsDate || new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split("T")[0];
@@ -253,7 +253,7 @@ export default function ConversionSimulatorTab({
     setAiReport(null);
     setLoadingStep("Shop-floor verileri derleniyor...");
 
-    const token = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
+    const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
 
     // Simulate clinical analysis pipeline steps for visual satisfaction
     setTimeout(() => setLoadingStep("Hızlı kurulum sektörel standartları (Magnetic plates, quick clampings) taranıyor..."), 1200);
