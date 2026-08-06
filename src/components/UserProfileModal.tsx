@@ -1,22 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { 
-  User, 
-  Mail, 
-  ShieldAlert, 
-  Lock, 
-  X, 
+import {
+  User,
+  Lock,
+  X,
   LogOut,
   Users,
-  Settings, 
-  Trash2, 
+  Settings,
+  Trash2,
   RotateCcw,
   Globe,
-  Server,
-  Send,
-  Check,
-  AlertCircle,
-  Key,
-  Info
+  Check
 } from "lucide-react";
 import AdminUsers from "./AdminUsers";
 
@@ -52,7 +45,7 @@ export default function UserProfileModal({
   };
   const roleLabel = (role?: string) => roleLabels[currentLang || "tr"][role || "Customer User"] || role;
 
-  const [activeSubTab, setActiveSubTab] = useState<"profile" | "language" | "mail" | "password" | "users" | "settings">("profile");
+  const [activeSubTab, setActiveSubTab] = useState<"profile" | "language" | "password" | "users" | "settings">("profile");
 
   const [fullName, setFullName] = useState(currentUser?.full_name || "");
   const [email, setEmail] = useState(currentUser?.email || "");
@@ -72,29 +65,6 @@ export default function UserProfileModal({
   // Language preferences state
   const [selectedLang, setSelectedLang] = useState<string>("tr");
   const [langSuccess, setLangSuccess] = useState<string | null>(null);
-
-  // Mail Connection (Exchange & SMTP) state
-  const [mailProvider, setMailProvider] = useState<"smtp" | "exchange" | "disabled">("smtp");
-  
-  // SMTP Fields
-  const [smtpHost, setSmtpHost] = useState("smtp.office365.com");
-  const [smtpPort, setSmtpPort] = useState("587");
-  const [smtpEncryption, setSmtpEncryption] = useState<"tls" | "ssl" | "none">("tls");
-  const [smtpUser, setSmtpUser] = useState("");
-  const [smtpPass, setSmtpPass] = useState("");
-  const [smtpSenderName, setSmtpSenderName] = useState("");
-
-  // Exchange Fields
-  const [exchangeServer, setExchangeServer] = useState("outlook.office365.com");
-  const [exchangePort, setExchangePort] = useState("443");
-  const [exchangeProtocol, setExchangeProtocol] = useState<"ews" | "imap">("ews");
-  const [exchangeUser, setExchangeUser] = useState("");
-  const [exchangePass, setExchangePass] = useState("");
-  const [exchangeDomain, setExchangeDomain] = useState("");
-
-  const [mailTestStatus, setMailTestStatus] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
-  const [isTestingMail, setIsTestingMail] = useState(false);
-  const [mailSuccess, setMailSuccess] = useState<string | null>(null);
 
   // Deleted custom project plans state for recovery bin (trash bin)
   const [deletedPlans, setDeletedPlans] = useState<any[]>([]);
@@ -145,37 +115,11 @@ export default function UserProfileModal({
       // `currentLang`, persisted under "gemba_lang") rather than a separate, disconnected key.
       setSelectedLang(currentLang || "tr");
 
-      // Load mail settings
-      const mailKey = `gemba_mail_config_${currentUser.id}`;
-      const savedMail = localStorage.getItem(mailKey);
-      if (savedMail) {
-        try {
-          const parsed = JSON.parse(savedMail);
-          setMailProvider(parsed.provider || "smtp");
-          setSmtpHost(parsed.smtpHost || "smtp.office365.com");
-          setSmtpPort(parsed.smtpPort || "587");
-          setSmtpEncryption(parsed.smtpEncryption || "tls");
-          setSmtpUser(parsed.smtpUser || currentUser.email || "");
-          setSmtpPass(parsed.smtpPass || "");
-          setSmtpSenderName(parsed.smtpSenderName || currentUser.full_name || "OpEx Sistem Bildirimi");
-
-          setExchangeServer(parsed.exchangeServer || "outlook.office365.com");
-          setExchangePort(parsed.exchangePort || "443");
-          setExchangeProtocol(parsed.exchangeProtocol || "ews");
-          setExchangeUser(parsed.exchangeUser || currentUser.email || "");
-          setExchangePass(parsed.exchangePass || "");
-          setExchangeDomain(parsed.exchangeDomain || "");
-        } catch (e) {
-          // Fallback defaults
-          setSmtpUser(currentUser.email || "");
-          setSmtpSenderName(currentUser.full_name || "");
-          setExchangeUser(currentUser.email || "");
-        }
-      } else {
-        setSmtpUser(currentUser.email || "");
-        setSmtpSenderName(currentUser.full_name || "OpEx Sistem Bildirimi");
-        setExchangeUser(currentUser.email || "");
-      }
+      // The old "Mail Connection" tab stored SMTP/Exchange credentials (including plaintext
+      // passwords) in localStorage without ever sending them anywhere — purely cosmetic, but a
+      // real credential-exposure risk for anyone who'd typed a real password into it. Purge any
+      // leftover entry now that the tab is removed.
+      localStorage.removeItem(`gemba_mail_config_${currentUser.id}`);
     }
   }, [isOpen, currentUser]);
 
@@ -288,46 +232,7 @@ export default function UserProfileModal({
     setTimeout(() => setLangSuccess(null), 4000);
   };
 
-  const handleSaveMailConfig = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentUser) return;
-    const key = `gemba_mail_config_${currentUser.id}`;
-    const config = {
-      provider: mailProvider,
-      smtpHost,
-      smtpPort,
-      smtpEncryption,
-      smtpUser,
-      smtpPass,
-      smtpSenderName,
-      exchangeServer,
-      exchangePort,
-      exchangeProtocol,
-      exchangeUser,
-      exchangePass,
-      exchangeDomain,
-      updatedAt: new Date().toISOString()
-    };
-    localStorage.setItem(key, JSON.stringify(config));
-    setMailSuccess("Ayarlar bu tarayıcıda yerel olarak kaydedildi. Not: Sunucu tarafında henüz gerçek bir SMTP/Exchange bağlantısı kurulmadı — bu bilgiler şu an hiçbir e-posta göndermek için kullanılmıyor.");
-    setTimeout(() => setMailSuccess(null), 6000);
-  };
-
-  const handleTestMailConnection = () => {
-    setIsTestingMail(true);
-    setMailTestStatus(null);
-
-    setTimeout(() => {
-      setIsTestingMail(false);
-      setMailTestStatus({
-        type: "info",
-        message: "Bağlantı testi yapılamadı: bu workspace'te gerçek bir mail sunucusu entegrasyonu yok. Girilen bilgiler sadece tarayıcıda saklanıyor, sunucuya iletilmiyor."
-      });
-    }, 900);
-  };
-
   const isUsersTab = activeSubTab === "users";
-  const canUseMail = currentUser?.role !== "Customer User";
 
   const languageOptions = [
     { id: "tr", name: "Türkçe", flag: "🇹🇷" },
@@ -385,20 +290,6 @@ export default function UserProfileModal({
             <Globe className="w-3.5 h-3.5" />
             <span>Dil & Bölge</span>
           </button>
-
-          {canUseMail && (
-            <button
-              onClick={() => setActiveSubTab("mail")}
-              className={`pb-2 px-0.5 font-black text-[11px] transition-all border-b-2 uppercase tracking-wider flex items-center space-x-1.5 cursor-pointer ${
-                activeSubTab === "mail"
-                  ? "border-slate-900 text-slate-900"
-                  : "border-transparent text-slate-400 hover:text-slate-600"
-              }`}
-            >
-              <Mail className="w-3.5 h-3.5" />
-              <span>E-Posta Entegrasyonu</span>
-            </button>
-          )}
 
           <button
             onClick={() => setActiveSubTab("password")}
@@ -594,260 +485,6 @@ export default function UserProfileModal({
                     <span>Dil Tercihini Kaydet</span>
                   </button>
                 </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB CONTENT: MAIL CONNECTION (EXCHANGE & SMTP) */}
-          {activeSubTab === "mail" && canUseMail && (
-            <div className="space-y-4">
-              {mailSuccess && (
-                <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl font-medium flex items-center space-x-2">
-                  <Check className="w-4 h-4 text-emerald-600" />
-                  <span>{mailSuccess}</span>
-                </div>
-              )}
-
-              {/* Microsoft Graph Notice Banner */}
-              <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3.5 flex items-start space-x-3 text-amber-900">
-                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <div className="space-y-0.5 text-[11px]">
-                  <span className="font-extrabold block">Microsoft Graph API Notu:</span>
-                  <p className="text-[10px] text-amber-800 leading-normal">
-                    Microsoft Graph kurumsal Azure OAuth 2.0 entegrasyon ayarları sonraki aşamada aktifleşecektir. Şu anda doğrudan <strong>Exchange (IMAP/EWS)</strong> ve <strong>SMTP</strong> sunucu bağlantılarını yapılandırabilirsiniz.
-                  </p>
-                </div>
-              </div>
-
-              {currentUser?.role === "Admin" ? (
-                <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl p-3.5 flex items-start space-x-3 text-indigo-900">
-                  <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-                  <p className="text-[11px] leading-relaxed">
-                    <strong>Sistem Genel Kutusu:</strong> Yönetici hesabından yapılandırılan bu bağlantı, sistemin ortak proje kutusu içindir (örn. <span className="font-mono">proje@gembapartner.com</span>). Danışmanlar ise kendi kişisel kurumsal e-posta adreslerini bu ekrandan ayrıca bağlayabilir.
-                  </p>
-                </div>
-              ) : (
-                <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl p-3.5 flex items-start space-x-3 text-indigo-900">
-                  <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-                  <p className="text-[11px] leading-relaxed">
-                    Burada yalnızca kendi kişisel e-posta hesabınızı bağlayabilirsiniz. Sistemin ortak proje kutusu (<span className="font-mono">proje@gembapartner.com</span>) Yönetici hesabından ayrıca yapılandırılır.
-                  </p>
-                </div>
-              )}
-
-              <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs">
-                <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-                  <span className="font-extrabold text-slate-800 uppercase tracking-wider text-[10px] flex items-center space-x-1.5">
-                    <Server className="w-4 h-4 text-slate-600" />
-                    <span>Kurumsal E-Posta Bağlantısı</span>
-                  </span>
-                  <div className="flex items-center space-x-2">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase">Protokol:</label>
-                    <select
-                      value={mailProvider}
-                      onChange={(e: any) => setMailProvider(e.target.value)}
-                      className="bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 focus:outline-none"
-                    >
-                      <option value="smtp">SMTP (Standart)</option>
-                      <option value="exchange">Exchange (IMAP / EWS)</option>
-                      <option value="disabled">Devre Dışı (Pasif)</option>
-                    </select>
-                  </div>
-                </div>
-
-                <form onSubmit={handleSaveMailConfig} className="space-y-4">
-                  {mailProvider === "smtp" && (
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <div className="space-y-1">
-                          <label className="block text-[10px] font-bold uppercase text-slate-600">SMTP Sunucu Adresi</label>
-                          <input
-                            type="text"
-                            required
-                            placeholder="smtp.office365.com"
-                            value={smtpHost}
-                            onChange={(e) => setSmtpHost(e.target.value)}
-                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-slate-900"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="block text-[10px] font-bold uppercase text-slate-600">Port Numarası</label>
-                          <input
-                            type="text"
-                            required
-                            placeholder="587"
-                            value={smtpPort}
-                            onChange={(e) => setSmtpPort(e.target.value)}
-                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-slate-900"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="block text-[10px] font-bold uppercase text-slate-600">Şifreleme Türü</label>
-                          <select
-                            value={smtpEncryption}
-                            onChange={(e: any) => setSmtpEncryption(e.target.value)}
-                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-slate-900"
-                          >
-                            <option value="tls">STARTTLS / TLS (Önerilen)</option>
-                            <option value="ssl">SSL (Port 465)</option>
-                            <option value="none">Şifrelemesiz (Güvensiz)</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <label className="block text-[10px] font-bold uppercase text-slate-600">Kullanıcı Adı / E-Posta</label>
-                          <input
-                            type="email"
-                            required
-                            placeholder="kullanici@sirket.com"
-                            value={smtpUser}
-                            onChange={(e) => setSmtpUser(e.target.value)}
-                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-slate-900"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="block text-[10px] font-bold uppercase text-slate-600">Parola / Uygulama Şifresi</label>
-                          <input
-                            type="password"
-                            placeholder="••••••••••••"
-                            value={smtpPass}
-                            onChange={(e) => setSmtpPass(e.target.value)}
-                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-slate-900"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="block text-[10px] font-bold uppercase text-slate-600">Gönderen Unvanı (Sender Display Name)</label>
-                        <input
-                          type="text"
-                          placeholder="OpEx Sistem Bildirimi"
-                          value={smtpSenderName}
-                          onChange={(e) => setSmtpSenderName(e.target.value)}
-                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-slate-900"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {mailProvider === "exchange" && (
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <div className="space-y-1">
-                          <label className="block text-[10px] font-bold uppercase text-slate-600">Exchange Sunucu</label>
-                          <input
-                            type="text"
-                            required
-                            placeholder="outlook.office365.com"
-                            value={exchangeServer}
-                            onChange={(e) => setExchangeServer(e.target.value)}
-                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-slate-900"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="block text-[10px] font-bold uppercase text-slate-600">Exchange Port</label>
-                          <input
-                            type="text"
-                            required
-                            placeholder="443"
-                            value={exchangePort}
-                            onChange={(e) => setExchangePort(e.target.value)}
-                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-slate-900"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="block text-[10px] font-bold uppercase text-slate-600">Exchange Protokol</label>
-                          <select
-                            value={exchangeProtocol}
-                            onChange={(e: any) => setExchangeProtocol(e.target.value)}
-                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-slate-900"
-                          >
-                            <option value="ews">EWS (Exchange Web Services)</option>
-                            <option value="imap">IMAP4 (TLS)</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <div className="space-y-1">
-                          <label className="block text-[10px] font-bold uppercase text-slate-600">Domain (İsteğe Bağlı)</label>
-                          <input
-                            type="text"
-                            placeholder="SIRKETDOMAIN"
-                            value={exchangeDomain}
-                            onChange={(e) => setExchangeDomain(e.target.value)}
-                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-slate-900"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="block text-[10px] font-bold uppercase text-slate-600">Exchange Kullanıcı Adı</label>
-                          <input
-                            type="email"
-                            required
-                            placeholder="kullanici@sirket.com"
-                            value={exchangeUser}
-                            onChange={(e) => setExchangeUser(e.target.value)}
-                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-slate-900"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="block text-[10px] font-bold uppercase text-slate-600">Parola</label>
-                          <input
-                            type="password"
-                            placeholder="••••••••••••"
-                            value={exchangePass}
-                            onChange={(e) => setExchangePass(e.target.value)}
-                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-slate-900"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {mailProvider === "disabled" && (
-                    <div className="text-center py-6 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400">
-                      <Mail className="w-8 h-8 mx-auto mb-1 opacity-40" />
-                      <p className="font-semibold text-[11px]">E-Posta entegrasyonu pasif konumdadır.</p>
-                      <p className="text-[10px] opacity-75">Sistem üzerinden otomatik e-posta gönderimi yapılmayacaktır.</p>
-                    </div>
-                  )}
-
-                  {mailTestStatus && (
-                    <div className={`p-3 rounded-xl border text-[11px] font-medium ${
-                      mailTestStatus.type === "success" 
-                        ? "bg-emerald-50 border-emerald-200 text-emerald-800" 
-                        : mailTestStatus.type === "error"
-                        ? "bg-red-50 border-red-200 text-red-800"
-                        : "bg-slate-100 border-slate-200 text-slate-700"
-                    }`}>
-                      {mailTestStatus.message}
-                    </div>
-                  )}
-
-                  {mailProvider !== "disabled" && (
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                      <button
-                        type="button"
-                        disabled={isTestingMail}
-                        onClick={handleTestMailConnection}
-                        className="bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 font-bold rounded-lg px-3.5 py-2 text-xs transition-colors cursor-pointer flex items-center space-x-1.5"
-                      >
-                        <Send className="w-3.5 h-3.5" />
-                        <span>{isTestingMail ? "Bağlantı Sınanıyor..." : "Bağlantıyı Test Et"}</span>
-                      </button>
-
-                      <button
-                        type="submit"
-                        className="bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg px-4 py-2 text-xs transition-colors cursor-pointer flex items-center space-x-1.5"
-                      >
-                        <Check className="w-4 h-4" />
-                        <span>E-Posta Ayarlarını Kaydet</span>
-                      </button>
-                    </div>
-                  )}
-                </form>
               </div>
             </div>
           )}
