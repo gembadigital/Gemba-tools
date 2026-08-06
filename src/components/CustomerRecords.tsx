@@ -131,9 +131,24 @@ export default function CustomerRecords({
         if (cancelled) return;
         if (res.success && res.data) {
           setWorkspace(res.data);
-        } else {
-          initializeWorkspace(selectedCustomer);
+          return;
         }
+        // One-time migration: nothing in the backend yet — if this browser has real,
+        // previously-entered data under the old localStorage key, upload it instead of silently
+        // discarding it in favor of freshly-generated template defaults.
+        const legacyCached = localStorage.getItem(`gemba_company_workspace_${selectedCustomer.id}`);
+        if (legacyCached) {
+          try {
+            const parsed = JSON.parse(legacyCached);
+            setWorkspace(parsed);
+            persistWorkspace(selectedCustomer.id, parsed);
+            localStorage.removeItem(`gemba_company_workspace_${selectedCustomer.id}`);
+            return;
+          } catch (e) {
+            // fall through to fresh defaults
+          }
+        }
+        initializeWorkspace(selectedCustomer);
       })
       .catch(e => {
         console.error("Failed to load company workspace", e);
