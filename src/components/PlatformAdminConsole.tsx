@@ -29,6 +29,7 @@ const TRANSLATIONS = {
     roleConsultant: "Danışman",
     roleAdmin: "Yönetici",
     cancel: "İptal",
+    close: "Kapat",
     inviteSending: "Gönderiliyor...",
     inviteSend: "Davet Gönder",
     inviteMissingEmailError: "Lütfen bir e-posta adresi girin.",
@@ -121,6 +122,7 @@ const TRANSLATIONS = {
     roleConsultant: "Consultant",
     roleAdmin: "Admin",
     cancel: "Cancel",
+    close: "Close",
     inviteSending: "Sending...",
     inviteSend: "Send Invite",
     inviteMissingEmailError: "Please enter an email address.",
@@ -213,6 +215,7 @@ const TRANSLATIONS = {
     roleConsultant: "Berater",
     roleAdmin: "Administrator",
     cancel: "Abbrechen",
+    close: "Schließen",
     inviteSending: "Wird gesendet...",
     inviteSend: "Einladung senden",
     inviteMissingEmailError: "Bitte geben Sie eine E-Mail-Adresse ein.",
@@ -576,7 +579,7 @@ export default function PlatformAdminConsole({
                       onClick={() => { setIsInviteModalOpen(false); setInviteLink(null); }}
                       className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-slate-900 hover:bg-slate-800"
                     >
-                      {t.cancel === "İptal" ? "Kapat" : "Close"}
+                      {t.close}
                     </button>
                   </div>
                 </>
