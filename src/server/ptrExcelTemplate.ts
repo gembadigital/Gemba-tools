@@ -155,6 +155,11 @@ export async function generatePtrTemplateExcel(records: PtrTemplateRecord[], cus
   const workbookPath = "xl/workbook.xml";
   let workbook = await zip.file(workbookPath)!.async("string");
   workbook = workbook.replace(/<calcPr calcId="(\d+)"\/>/, '<calcPr calcId="$1" fullCalcOnLoad="1"/>');
+  // "Pivot" and "Bilgiler" are internal/technical sheets (raw pivot workings, the customer-name
+  // lookup cell) — not meant for the customer to see. Hidden, not removed: DashBoard's pivot
+  // tables still read live from them, and Proje Raporu's A1 formula still reads Bilgiler!A2.
+  workbook = workbook.replace(/<sheet name="Pivot"([^>]*)\/>/, '<sheet name="Pivot"$1 state="hidden"/>');
+  workbook = workbook.replace(/<sheet name="Bilgiler"([^>]*)\/>/, '<sheet name="Bilgiler"$1 state="hidden"/>');
   zip.file(workbookPath, workbook);
 
   // 5. Strip the now-stale calcChain (Excel rebuilds it silently; leaving it risks a "repair" prompt)
