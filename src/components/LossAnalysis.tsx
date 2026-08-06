@@ -1296,6 +1296,14 @@ export default function LossAnalysis() {
     XLSX.writeFile(wb, `Loss_Capacity_Analizi_${companyNameExport.replace(/\s+/g, "_")}.xlsx`);
   };
 
+  // jsPDF's standard "Helvetica" font only supports WinAnsi/Latin-1 — İ, ı, Ş, ş, Ğ, ğ aren't in
+  // that set and render as garbled digits/symbols (Ç/ç/Ö/ö/Ü/ü are fine, they're valid Latin-1).
+  // Transliterate just those five letters rather than embedding a custom Unicode font.
+  const pdfSafe = (s: unknown): string => String(s ?? "")
+    .replace(/İ/g, "I").replace(/ı/g, "i")
+    .replace(/Ş/g, "S").replace(/ş/g, "s")
+    .replace(/Ğ/g, "G").replace(/ğ/g, "g");
+
   const handleExportPdf = () => {
     const doc = new jsPDF();
     doc.setFont("Helvetica");
@@ -1304,20 +1312,20 @@ export default function LossAnalysis() {
     doc.rect(0, 0, 210, 40, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(18);
-    doc.text("LOSS CAPACITY ANALİZİ RAPORU", 14, 18);
+    doc.text(pdfSafe("LOSS CAPACITY ANALİZİ RAPORU"), 14, 18);
     doc.setFontSize(10);
-    doc.text(`${companyNameExport} | ${scopeLabelExport}`, 14, 27);
-    doc.text(`Oluşturma Tarihi: ${new Date().toLocaleDateString("tr-TR")}`, 14, 34);
+    doc.text(pdfSafe(`${companyNameExport} | ${scopeLabelExport}`), 14, 27);
+    doc.text(pdfSafe(`Oluşturma Tarihi: ${new Date().toLocaleDateString("tr-TR")}`), 14, 34);
 
     doc.setTextColor(15, 23, 42);
     doc.setFontSize(12);
-    doc.text("1. GENEL ÖZET METRİKLERİ", 14, 52);
+    doc.text(pdfSafe("1. GENEL ÖZET METRİKLERİ"), 14, 52);
 
     autoTable(doc, {
       body: [
-        ["Toplam COPQ Kaybı", `${currencySymbol} ${copqData.totalCOPQ_TL.toLocaleString()}`, "COPQ / Ciro Oranı", `%${copqData.copqPercentOfRevenue.toFixed(2)}`],
-        ["Ortalama Beklenen Kazanç", `${currencySymbol} ${totalAverageRecoveryExport.toLocaleString()}`, "Gerçekleşen Tasarruf", `${currencySymbol} ${totalRealizedSavingsExport.toLocaleString()}`],
-        ["Benchmark Durumu", copqData.benchmarkStatus, "Model Cirosu", `${currencySymbol} ${effectiveRevenue.toLocaleString()}`]
+        [pdfSafe("Toplam COPQ Kaybı"), `${currencySymbol} ${copqData.totalCOPQ_TL.toLocaleString()}`, pdfSafe("COPQ / Ciro Oranı"), `%${copqData.copqPercentOfRevenue.toFixed(2)}`],
+        [pdfSafe("Ortalama Beklenen Kazanç"), `${currencySymbol} ${totalAverageRecoveryExport.toLocaleString()}`, pdfSafe("Gerçekleşen Tasarruf"), `${currencySymbol} ${totalRealizedSavingsExport.toLocaleString()}`],
+        [pdfSafe("Benchmark Durumu"), pdfSafe(copqData.benchmarkStatus), pdfSafe("Model Cirosu"), `${currencySymbol} ${effectiveRevenue.toLocaleString()}`]
       ],
       startY: 56,
       theme: "grid",
@@ -1325,10 +1333,10 @@ export default function LossAnalysis() {
       columnStyles: { 0: { fontStyle: "bold", fillColor: [240, 240, 240] }, 2: { fontStyle: "bold", fillColor: [240, 240, 240] } }
     });
 
-    doc.text("2. COPQ FİNANSAL KAYIP MATRİSİ", 14, (doc as any).lastAutoTable.finalY + 12);
+    doc.text(pdfSafe("2. COPQ FİNANSAL KAYIP MATRİSİ"), 14, (doc as any).lastAutoTable.finalY + 12);
     autoTable(doc, {
-      head: [["Maliyet Konusu", "Fırsat Alanı", "Maliyet Bütçe Grubu", `Min (${currencySymbol})`, `Max (${currencySymbol})`]],
-      body: copqMatrixRows.map(r => [r.subject, r.area, r.costGroup, `${Math.round(r.min).toLocaleString()}`, `${Math.round(r.max).toLocaleString()}`]),
+      head: [[pdfSafe("Maliyet Konusu"), pdfSafe("Fırsat Alanı"), pdfSafe("Maliyet Bütçe Grubu"), pdfSafe(`Min (${currencySymbol})`), pdfSafe(`Max (${currencySymbol})`)]],
+      body: copqMatrixRows.map(r => [pdfSafe(r.subject), pdfSafe(r.area), pdfSafe(r.costGroup), `${Math.round(r.min).toLocaleString()}`, `${Math.round(r.max).toLocaleString()}`]),
       startY: (doc as any).lastAutoTable.finalY + 16,
       theme: "striped",
       styles: { fontSize: 7.5 }
@@ -1336,11 +1344,11 @@ export default function LossAnalysis() {
 
     doc.addPage();
     doc.setFontSize(12);
-    doc.text("3. FİNANSAL GERİ KAZANIM VE İYİLEŞTİRME FIRSATLARI MATRİSİ", 14, 16);
+    doc.text(pdfSafe("3. FİNANSAL GERİ KAZANIM VE İYİLEŞTİRME FIRSATLARI MATRİSİ"), 14, 16);
     autoTable(doc, {
-      head: [["Maliyet Konusu", "Yalın/WCM Aracı", `Ort. Kayıp (${currencySymbol})`, `Ort. Tasarruf (${currencySymbol})`, `Yatırım (${currencySymbol})`, "Geri Ödeme", "ROI", `Gerçekleşen (${currencySymbol})`, "Önem"]],
+      head: [[pdfSafe("Maliyet Konusu"), pdfSafe("Yalın/WCM Aracı"), pdfSafe(`Ort. Kayıp (${currencySymbol})`), pdfSafe(`Ort. Tasarruf (${currencySymbol})`), pdfSafe(`Yatırım (${currencySymbol})`), pdfSafe("Geri Ödeme"), pdfSafe("ROI"), pdfSafe(`Gerçekleşen (${currencySymbol})`), pdfSafe("Önem")]],
       body: recoveryMatrixDataWithRealized.map(r => [
-        r.subject, r.leanTool, `${Math.round(r.avgLoss).toLocaleString()}`, `${Math.round(r.avgGain).toLocaleString()}`, `${Math.round(r.investmentCost).toLocaleString()}`, r.paybackMonths !== null ? `${r.paybackMonths.toFixed(1)} Ay` : "-", `${r.roiPercent >= 0 ? "+" : ""}${r.roiPercent.toFixed(0)}%`, `${Math.round(r.realizedSavings).toLocaleString()}`, r.severity
+        pdfSafe(r.subject), pdfSafe(r.leanTool), `${Math.round(r.avgLoss).toLocaleString()}`, `${Math.round(r.avgGain).toLocaleString()}`, `${Math.round(r.investmentCost).toLocaleString()}`, r.paybackMonths !== null ? `${r.paybackMonths.toFixed(1)} Ay` : "-", `${r.roiPercent >= 0 ? "+" : ""}${r.roiPercent.toFixed(0)}%`, `${Math.round(r.realizedSavings).toLocaleString()}`, pdfSafe(r.severity)
       ]),
       startY: 20,
       theme: "striped",

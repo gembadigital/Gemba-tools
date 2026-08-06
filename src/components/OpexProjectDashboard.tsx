@@ -11,6 +11,7 @@ import {
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { domToCanvas } from "modern-screenshot";
 import { Customer, GanttActivity, KaizenCard } from "../types";
 import { ProjectRecord, EXCLUDED_STATUSES } from "./PtrTimeStudy";
 
@@ -543,140 +544,209 @@ export default function OpexProjectDashboard({
   // Real landscape "Power BI style" PDF report — built with jsPDF/autoTable directly (KPI cards,
   // section tables) instead of window.print()'ing the live web page, which produced a portrait,
   // web-styled printout rather than something that reads as an actual report document.
-  const handleExportDashboardPdf = () => {
-    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const marginX = 12;
-    const customerName = selectedCustomer?.companyName || "OPEX Tesis";
-
-    // Header banner
-    doc.setFillColor(15, 23, 42);
-    doc.rect(0, 0, pageWidth, 26, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("Helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text(pdfSafe("OPEX PROJE TAKİP RAPORU"), marginX, 12);
-    doc.setFont("Helvetica", "normal");
-    doc.setFontSize(9);
-    doc.text(pdfSafe(customerName), marginX, 19);
-    doc.setFontSize(8);
-    const monthLabel = filterMonth !== "ALL" ? monthsList.find(m => m.value === filterMonth)?.label : null;
-    doc.text(
-      pdfSafe(`Dönem: ${filterYear === "ALL" ? "Tüm Yıllar" : filterYear}${monthLabel ? " / " + monthLabel : ""}  •  Oluşturma: ${new Date().toLocaleDateString("tr-TR")}`),
-      pageWidth - marginX, 12, { align: "right" }
-    );
-    doc.text(
-      pdfSafe(`Bölüm: ${filterDepartment === "ALL" ? "Tümü" : filterDepartment}  •  Sorumlu: ${filterConsultant === "ALL" ? "Tümü" : filterConsultant}`),
-      pageWidth - marginX, 19, { align: "right" }
-    );
-
-    let y = 34;
-
-    // KPI cards row
-    const kpis: { label: string; value: string; color: [number, number, number] }[] = [
-      { label: "PROJE İLERLEME", value: metrics.projectProgress !== null ? `%${metrics.projectProgress}` : "—", color: [79, 70, 229] },
-      { label: "TOPLAM AKSİYON", value: `${metrics.totalActions}`, color: [51, 65, 85] },
-      { label: "AKSİYON BAŞARISI", value: `%${metrics.actionPerformance}`, color: metrics.actionPerformance >= 70 ? [5, 150, 105] : metrics.actionPerformance >= 40 ? [217, 119, 6] : [225, 29, 72] },
-      { label: "TERMİNE UYUM", value: metrics.dueDateCompliance !== null ? `%${metrics.dueDateCompliance}` : "—", color: (metrics.dueDateCompliance ?? 0) >= 70 ? [5, 150, 105] : [217, 119, 6] },
-      { label: "DOĞRULANMIŞ KAZANÇ", value: `${currencySymbol}${metrics.verifiedKaizenSavings.toLocaleString("tr-TR")}`, color: [6, 95, 70] },
-      { label: "EĞİTİM (ADAM-SAAT)", value: `${metrics.trainingSessions} Seans / ${metrics.totalTrainingManHours} sa`, color: [67, 56, 202] }
-    ];
-    const kpiGap = 4;
-    const kpiWidth = (pageWidth - marginX * 2 - kpiGap * (kpis.length - 1)) / kpis.length;
-    const kpiHeight = 22;
-    kpis.forEach((kpi, i) => {
-      const x = marginX + i * (kpiWidth + kpiGap);
-      doc.setFillColor(kpi.color[0], kpi.color[1], kpi.color[2]);
-      doc.roundedRect(x, y, kpiWidth, kpiHeight, 2, 2, "F");
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(6.5);
-      doc.setFont("Helvetica", "bold");
-      doc.text(pdfSafe(kpi.label), x + 3, y + 7, { maxWidth: kpiWidth - 6 });
-      doc.setFontSize(13);
-      doc.text(pdfSafe(kpi.value), x + 3, y + 16, { maxWidth: kpiWidth - 6 });
-    });
-    y += kpiHeight + 10;
-
-    doc.setTextColor(15, 23, 42);
-
-    // Two-panel row: Aksiyon Durum Dağılımı (left) + Yalın Dönüşüm Konularına Göre Dağılım (right)
-    const colWidth = (pageWidth - marginX * 2 - 8) / 2;
-    doc.setFontSize(10);
-    doc.setFont("Helvetica", "bold");
-    doc.text(pdfSafe("AKSİYON DURUM DAĞILIMI"), marginX, y);
-    doc.text(pdfSafe("YALIN DÖNÜŞÜM KONULARINA GÖRE DAĞILIM"), marginX + colWidth + 8, y);
-
-    autoTable(doc, {
-      head: [[pdfSafe("Durum"), pdfSafe("Adet")]],
-      body: actionStatusData.map(d => [pdfSafe(d.name), d.value.toString()]),
-      startY: y + 3,
-      margin: { left: marginX },
-      tableWidth: colWidth,
-      theme: "striped",
-      styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [51, 65, 85] }
-    });
-    const leftTableEndY = (doc as any).lastAutoTable.finalY;
-
-    autoTable(doc, {
-      head: [[pdfSafe("Konu"), pdfSafe("Adet")]],
-      body: improvementDistributionData.slice(0, 8).map(d => [pdfSafe(d.name), d.value.toString()]),
-      startY: y + 3,
-      margin: { left: marginX + colWidth + 8 },
-      tableWidth: colWidth,
-      theme: "striped",
-      styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [51, 65, 85] }
-    });
-    const rightTableEndY = (doc as any).lastAutoTable.finalY;
-    y = Math.max(leftTableEndY, rightTableEndY) + 10;
-
-    // Ekip Aksiyon Performansı
-    doc.setFontSize(10);
-    doc.text(pdfSafe("EKİP AKSİYON PERFORMANSI"), marginX, y);
-    autoTable(doc, {
-      head: [[pdfSafe("Sorumlu"), pdfSafe("Açık"), pdfSafe("Devam Ediyor"), pdfSafe("Kapalı")]],
-      body: teamPerformanceData.map(t => [pdfSafe(t.name), t["Açık"].toString(), t["Devam Ediyor"].toString(), t["Kapalı"].toString()]),
-      startY: y + 3,
-      margin: { left: marginX, right: marginX },
-      theme: "striped",
-      styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [51, 65, 85] }
-    });
-    y = (doc as any).lastAutoTable.finalY + 10;
-
-    if (y > pageHeight - 40) {
-      doc.addPage();
-      y = 16;
+  // Captures a live chart card (the actual Recharts DOM, not a redrawn approximation) via
+  // modern-screenshot's domToCanvas — same library/technique VsmPage.tsx already uses for its
+  // diagram export, rendered through the browser's own engine (SVG foreignObject) rather than
+  // html2canvas. Returns null (skips silently) if the card isn't in the DOM or captured empty.
+  const captureChartImage = async (elementId: string): Promise<{ dataUrl: string; aspectRatio: number } | null> => {
+    const el = document.getElementById(elementId);
+    if (!el) return null;
+    try {
+      const canvas = await domToCanvas(el, { scale: 2, backgroundColor: "#ffffff" });
+      if (canvas.width === 0 || canvas.height === 0) return null;
+      return { dataUrl: canvas.toDataURL("image/png", 1.0), aspectRatio: canvas.width / canvas.height };
+    } catch (e) {
+      console.error(`Failed to capture chart ${elementId} for PDF export`, e);
+      return null;
     }
+  };
 
-    // Eğitim Özeti
-    if (trainingTopicData.length > 0) {
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+
+  const handleExportDashboardPdf = async () => {
+    setIsExportingPdf(true);
+    try {
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const marginX = 12;
+      const footerMargin = 14;
+      const customerName = selectedCustomer?.companyName || "OPEX Tesis";
+
+      const drawHeaderBanner = () => {
+        doc.setFillColor(15, 23, 42);
+        doc.rect(0, 0, pageWidth, 26, "F");
+        doc.setTextColor(255, 255, 255);
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(16);
+        doc.text(pdfSafe("OPEX PROJE TAKİP RAPORU"), marginX, 12);
+        doc.setFont("Helvetica", "normal");
+        doc.setFontSize(9);
+        doc.text(pdfSafe(customerName), marginX, 19);
+        doc.setFontSize(8);
+        const monthLabel = filterMonth !== "ALL" ? monthsList.find(m => m.value === filterMonth)?.label : null;
+        doc.text(
+          pdfSafe(`Dönem: ${filterYear === "ALL" ? "Tüm Yıllar" : filterYear}${monthLabel ? " / " + monthLabel : ""}  •  Oluşturma: ${new Date().toLocaleDateString("tr-TR")}`),
+          pageWidth - marginX, 12, { align: "right" }
+        );
+        doc.text(
+          pdfSafe(`Bölüm: ${filterDepartment === "ALL" ? "Tümü" : filterDepartment}  •  Sorumlu: ${filterConsultant === "ALL" ? "Tümü" : filterConsultant}`),
+          pageWidth - marginX, 19, { align: "right" }
+        );
+        doc.setTextColor(15, 23, 42);
+      };
+
+      drawHeaderBanner();
+      let y = 34;
+
+      // KPI cards row
+      const kpis: { label: string; value: string; color: [number, number, number] }[] = [
+        { label: "PROJE İLERLEME", value: metrics.projectProgress !== null ? `%${metrics.projectProgress}` : "—", color: [79, 70, 229] },
+        { label: "TOPLAM AKSİYON", value: `${metrics.totalActions}`, color: [51, 65, 85] },
+        { label: "AKSİYON BAŞARISI", value: `%${metrics.actionPerformance}`, color: metrics.actionPerformance >= 70 ? [5, 150, 105] : metrics.actionPerformance >= 40 ? [217, 119, 6] : [225, 29, 72] },
+        { label: "TERMİNE UYUM", value: metrics.dueDateCompliance !== null ? `%${metrics.dueDateCompliance}` : "—", color: (metrics.dueDateCompliance ?? 0) >= 70 ? [5, 150, 105] : [217, 119, 6] },
+        { label: "DOĞRULANMIŞ KAZANÇ", value: `${currencySymbol}${metrics.verifiedKaizenSavings.toLocaleString("tr-TR")}`, color: [6, 95, 70] },
+        { label: "EĞİTİM (ADAM-SAAT)", value: `${metrics.trainingSessions} Seans / ${metrics.totalTrainingManHours} sa`, color: [67, 56, 202] }
+      ];
+      const kpiGap = 4;
+      const kpiWidth = (pageWidth - marginX * 2 - kpiGap * (kpis.length - 1)) / kpis.length;
+      const kpiHeight = 22;
+      kpis.forEach((kpi, i) => {
+        const x = marginX + i * (kpiWidth + kpiGap);
+        doc.setFillColor(kpi.color[0], kpi.color[1], kpi.color[2]);
+        doc.roundedRect(x, y, kpiWidth, kpiHeight, 2, 2, "F");
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(6.5);
+        doc.setFont("Helvetica", "bold");
+        doc.text(pdfSafe(kpi.label), x + 3, y + 7, { maxWidth: kpiWidth - 6 });
+        doc.setFontSize(13);
+        doc.text(pdfSafe(kpi.value), x + 3, y + 16, { maxWidth: kpiWidth - 6 });
+      });
+      y += kpiHeight + 10;
+      doc.setTextColor(15, 23, 42);
+
+      // Capture every chart card up front (parallel), then lay them out — real Recharts
+      // renders, not redrawn approximations, so the PDF actually matches what's on screen.
+      const chartIds = [
+        "pdf-chart-value-creation", "pdf-chart-action-status",
+        "pdf-chart-team-performance", "pdf-chart-topic-distribution",
+        "pdf-chart-training"
+      ];
+      const captured = Object.fromEntries(
+        await Promise.all(chartIds.map(async id => [id, await captureChartImage(id)] as const))
+      ) as Record<string, { dataUrl: string; aspectRatio: number } | null>;
+
+      // Places two chart images side by side at the current y, returns the row's bottom y.
+      // Falls back to a "grafik oluşturulamadı" placeholder box so a capture failure doesn't
+      // silently produce a blank gap.
+      const drawChartRow = (leftId: string, leftTitle: string, rightId: string, rightTitle: string, startY: number): number => {
+        const colW = (pageWidth - marginX * 2 - 8) / 2;
+        const maxH = 78;
+        doc.setFontSize(10);
+        doc.setFont("Helvetica", "bold");
+        doc.text(pdfSafe(leftTitle), marginX, startY);
+        doc.text(pdfSafe(rightTitle), marginX + colW + 8, startY);
+
+        let maxBottom = startY + 4;
+        [{ id: leftId, x: marginX }, { id: rightId, x: marginX + colW + 8 }].forEach(({ id, x }) => {
+          const chart = captured[id];
+          if (chart) {
+            const h = Math.min(maxH, colW / chart.aspectRatio);
+            const w = h * chart.aspectRatio;
+            doc.addImage(chart.dataUrl, "PNG", x, startY + 4, w, h);
+            maxBottom = Math.max(maxBottom, startY + 4 + h);
+          } else {
+            doc.setDrawColor(226, 232, 240);
+            doc.setFillColor(248, 250, 252);
+            doc.roundedRect(x, startY + 4, colW, 40, 2, 2, "FD");
+            doc.setFontSize(8);
+            doc.setFont("Helvetica", "normal");
+            doc.setTextColor(148, 163, 184);
+            doc.text(pdfSafe("Grafik yakalanamadı"), x + colW / 2, startY + 4 + 20, { align: "center" });
+            doc.setTextColor(15, 23, 42);
+            maxBottom = Math.max(maxBottom, startY + 4 + 40);
+          }
+        });
+        return maxBottom;
+      };
+
+      y = drawChartRow(
+        "pdf-chart-value-creation", "PROJE DEĞER OLUŞTURMA ZAMAN ÇİZGİSİ",
+        "pdf-chart-action-status", "AKSİYON TAKİP STATÜLERİ & DÖNÜŞÜM DERECESİ",
+        y
+      ) + 10;
+
+      doc.addPage();
+      drawHeaderBanner();
+      y = 34;
+
+      y = drawChartRow(
+        "pdf-chart-team-performance", "SAHA SORUMLUSU GÖREV DAĞILIM ANALİZİ",
+        "pdf-chart-topic-distribution", "YALIN DÖNÜŞÜM KONULARINA GÖRE DAĞILIM",
+        y
+      ) + 10;
+
+      // Ekip Aksiyon Performansı — exact counts alongside the chart above
       doc.setFontSize(10);
-      doc.text(pdfSafe("EĞİTİM ÖZETİ"), marginX, y);
+      doc.text(pdfSafe("EKİP AKSİYON PERFORMANSI (SAYISAL DÖKÜM)"), marginX, y);
       autoTable(doc, {
-        head: [[pdfSafe("Konu"), pdfSafe("Seans Sayısı"), pdfSafe("Adam-Saat")]],
-        body: trainingTopicData.map(t => [pdfSafe(t.name), t["Eğitim Seans Sayısı"].toString(), t["Adam-Saat Eğitim"].toString()]),
+        head: [[pdfSafe("Sorumlu"), pdfSafe("Açık"), pdfSafe("Devam Ediyor"), pdfSafe("Kapalı")]],
+        body: teamPerformanceData.map(t => [pdfSafe(t.name), t["Açık"].toString(), t["Devam Ediyor"].toString(), t["Kapalı"].toString()]),
         startY: y + 3,
         margin: { left: marginX, right: marginX },
         theme: "striped",
         styles: { fontSize: 8, cellPadding: 2 },
-        headStyles: { fillColor: [67, 56, 202] }
+        headStyles: { fillColor: [51, 65, 85] }
       });
       y = (doc as any).lastAutoTable.finalY + 10;
-    }
 
-    // Footer — page numbers on every page
-    const pageCount = doc.getNumberOfPages();
-    for (let p = 1; p <= pageCount; p++) {
-      doc.setPage(p);
-      doc.setFontSize(7.5);
-      doc.setTextColor(148, 163, 184);
-      doc.text(pdfSafe(`Gemba Partner — OPEX Proje Takip Raporu | Sayfa ${p}/${pageCount}`), pageWidth / 2, pageHeight - 6, { align: "center" });
-    }
+      if (captured["pdf-chart-training"] || trainingTopicData.length > 0) {
+        if (y > pageHeight - footerMargin - 90) {
+          doc.addPage();
+          drawHeaderBanner();
+          y = 34;
+        }
 
-    doc.save(`OPEX_Dashboard_Raporu_${customerName.replace(/\s+/g, "_")}.pdf`);
+        const chart = captured["pdf-chart-training"];
+        doc.setFontSize(10);
+        doc.setFont("Helvetica", "bold");
+        doc.text(pdfSafe("EĞİTİM ÖZETİ"), marginX, y);
+        if (chart) {
+          const h = Math.min(78, (pageWidth - marginX * 2) / chart.aspectRatio);
+          const w = h * chart.aspectRatio;
+          doc.addImage(chart.dataUrl, "PNG", marginX, y + 4, w, h);
+          y += 4 + h + 10;
+        } else {
+          y += 4;
+        }
+
+        if (trainingTopicData.length > 0) {
+          autoTable(doc, {
+            head: [[pdfSafe("Konu"), pdfSafe("Seans Sayısı"), pdfSafe("Adam-Saat")]],
+            body: trainingTopicData.map(t => [pdfSafe(t.name), t["Eğitim Seans Sayısı"].toString(), t["Adam-Saat Eğitim"].toString()]),
+            startY: y,
+            margin: { left: marginX, right: marginX },
+            tableWidth: (pageWidth - marginX * 2 - 8) / 2,
+            theme: "striped",
+            styles: { fontSize: 8, cellPadding: 2 },
+            headStyles: { fillColor: [67, 56, 202] }
+          });
+        }
+      }
+
+      // Footer — page numbers on every page
+      const pageCount = doc.getNumberOfPages();
+      for (let p = 1; p <= pageCount; p++) {
+        doc.setPage(p);
+        doc.setFontSize(7.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text(pdfSafe(`Gemba Partner — OPEX Proje Takip Raporu | Sayfa ${p}/${pageCount}`), pageWidth / 2, pageHeight - 6, { align: "center" });
+      }
+
+      doc.save(`OPEX_Dashboard_Raporu_${customerName.replace(/\s+/g, "_")}.pdf`);
+    } finally {
+      setIsExportingPdf(false);
+    }
   };
 
   return (
@@ -703,10 +773,15 @@ export default function OpexProjectDashboard({
           </button>
           <button
             onClick={handleExportDashboardPdf}
-            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer"
+            disabled={isExportingPdf}
+            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-60 disabled:cursor-wait"
           >
-            <Printer className="w-4 h-4 text-slate-300" />
-            <span>PDF Rapor İndir (Yatay)</span>
+            {isExportingPdf ? (
+              <RefreshCw className="w-4 h-4 text-slate-300 animate-spin" />
+            ) : (
+              <Printer className="w-4 h-4 text-slate-300" />
+            )}
+            <span>{isExportingPdf ? "Grafikler Yakalanıyor..." : "PDF Rapor İndir (Yatay)"}</span>
           </button>
         </div>
       </div>
@@ -879,7 +954,7 @@ export default function OpexProjectDashboard({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
         {/* Value Creation Timeline Cumulative Line Graph */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+        <div id="pdf-chart-value-creation" className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
           <div className="border-b pb-3 mb-4">
             <h3 className="text-xs font-black text-slate-800 uppercase tracking-tight flex items-center justify-between">
               <span className="flex items-center">
@@ -915,7 +990,7 @@ export default function OpexProjectDashboard({
         </div>
 
         {/* Action Status Donut & Priority distribution */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+        <div id="pdf-chart-action-status" className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
           <div className="border-b pb-3 mb-4">
             <h3 className="text-xs font-black text-slate-800 uppercase tracking-tight flex items-center">
               <Percent className="w-4 h-4 mr-1.5 text-slate-500" />
@@ -977,7 +1052,7 @@ export default function OpexProjectDashboard({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
         {/* Stacked Team Action Distribution Chart */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+        <div id="pdf-chart-team-performance" className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
           <div className="border-b pb-3 mb-4">
             <h3 className="text-xs font-black text-slate-800 uppercase tracking-tight flex items-center">
               <Users className="w-4 h-4 mr-1.5 text-slate-500" />
@@ -1007,7 +1082,7 @@ export default function OpexProjectDashboard({
         </div>
 
         {/* Improvement topics donut chart */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+        <div id="pdf-chart-topic-distribution" className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
           <div className="border-b pb-3 mb-4">
             <h3 className="text-xs font-black text-slate-800 uppercase tracking-tight flex items-center">
               <Building className="w-4 h-4 mr-1.5 text-slate-500" />
@@ -1043,7 +1118,7 @@ export default function OpexProjectDashboard({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
         {/* Training Dashboard Overview */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+        <div id="pdf-chart-training" className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
           <div>
             <div className="border-b pb-3 mb-4 flex justify-between items-center">
               <h3 className="text-xs font-black text-slate-800 uppercase tracking-tight flex items-center">

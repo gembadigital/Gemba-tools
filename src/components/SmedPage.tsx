@@ -494,6 +494,14 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
   // Real, styled PDF report — mirrors the dark-header + autoTable pattern used by Time Study's and
   // Yamazumi's PDF exports: proje özeti, aktivite/Gantt listesi, ECRS kazanım özeti, finansal
   // fizibilite ve (bağlıysa) OEE entegrasyonu tek raporda birleştirilir.
+  // jsPDF's standard "Helvetica" font only supports WinAnsi/Latin-1 — İ, ı, Ş, ş, Ğ, ğ aren't in
+  // that set and render as garbled digits/symbols (Ç/ç/Ö/ö/Ü/ü are fine, they're valid Latin-1).
+  // Transliterate just those five letters rather than embedding a custom Unicode font.
+  const pdfSafe = (s: unknown): string => String(s ?? "")
+    .replace(/İ/g, "I").replace(/ı/g, "i")
+    .replace(/Ş/g, "S").replace(/ş/g, "s")
+    .replace(/Ğ/g, "G").replace(/ğ/g, "g");
+
   const handleExportSmedPdf = () => {
     if (!activeProject) return;
     const doc = new jsPDF();
@@ -503,20 +511,20 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
     doc.rect(0, 0, 210, 34, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(16);
-    doc.text("SMED ETÜT & SETUP EXCELLENCE RAPORU", 14, 14);
+    doc.text(pdfSafe("SMED ETÜT & SETUP EXCELLENCE RAPORU"), 14, 14);
     doc.setFontSize(10);
-    doc.text(`${selectedCustomer?.companyName || "Müşteri"} | ${activeProject.code} - ${activeProject.name}`, 14, 23);
-    doc.text(`Makine: ${activeProject.machineNo || "—"} | Kalıp: ${activeProject.moldNo || "—"} | Tarih: ${new Date().toLocaleDateString("tr-TR")}`, 14, 30);
+    doc.text(pdfSafe(`${selectedCustomer?.companyName || "Müşteri"} | ${activeProject.code} - ${activeProject.name}`), 14, 23);
+    doc.text(pdfSafe(`Makine: ${activeProject.machineNo || "—"} | Kalıp: ${activeProject.moldNo || "—"} | Tarih: ${new Date().toLocaleDateString("tr-TR")}`), 14, 30);
 
     doc.setTextColor(15, 23, 42);
     doc.setFontSize(12);
-    doc.text("1. PROJE ÖZETİ", 14, 44);
+    doc.text(pdfSafe("1. PROJE ÖZETİ"), 14, 44);
     autoTable(doc, {
       body: [
-        ["Proje Lideri", activeProject.leader || "—", "Yalın Ekip", activeProject.team || "—"],
-        ["Fabrika / Hat", `${activeProject.factory || "—"} / ${activeProject.productionLine || "—"}`, "Ürün (Mevcut→Yeni)", `${activeProject.productCode || "—"} → ${activeProject.productName || "—"}`],
-        ["Mevcut Setup Süresi", `${totalDuration} dk`, "Hedef Setup Süresi", `${activeProject.targetSetupTime} dk`],
-        ["İç Hazırlık / Dış Hazırlık", `${internalDuration} dk / ${externalDuration} dk`, "ECRS ile Simüle Edilen Hedef", `${targetSetupTime} dk (-${totalEcrsGain} dk)`]
+        [pdfSafe("Proje Lideri"), pdfSafe(activeProject.leader || "—"), pdfSafe("Yalın Ekip"), pdfSafe(activeProject.team || "—")],
+        [pdfSafe("Fabrika / Hat"), pdfSafe(`${activeProject.factory || "—"} / ${activeProject.productionLine || "—"}`), pdfSafe("Ürün (Mevcut→Yeni)"), pdfSafe(`${activeProject.productCode || "—"} → ${activeProject.productName || "—"}`)],
+        [pdfSafe("Mevcut Setup Süresi"), `${totalDuration} dk`, pdfSafe("Hedef Setup Süresi"), `${activeProject.targetSetupTime} dk`],
+        [pdfSafe("İç Hazırlık / Dış Hazırlık"), `${internalDuration} dk / ${externalDuration} dk`, pdfSafe("ECRS ile Simüle Edilen Hedef"), `${targetSetupTime} dk (-${totalEcrsGain} dk)`]
       ],
       startY: 48,
       theme: "grid",
@@ -526,16 +534,16 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
 
     let nextY = (doc as any).lastAutoTable.finalY + 10;
     doc.setFontSize(12);
-    doc.text("2. AKTİVİTE LİSTESİ (GÖZLEM SIRASI)", 14, nextY);
+    doc.text(pdfSafe("2. AKTİVİTE LİSTESİ (GÖZLEM SIRASI)"), 14, nextY);
     autoTable(doc, {
-      head: [["No", "Adım", "Başlangıç", "Bitiş", "Süre (dk)", "Tip", "ECRS Kazanım"]],
+      head: [[pdfSafe("No"), pdfSafe("Adım"), pdfSafe("Başlangıç"), pdfSafe("Bitiş"), pdfSafe("Süre (dk)"), pdfSafe("Tip"), pdfSafe("ECRS Kazanım")]],
       body: activities.map((a) => [
         `${a.sequence}`,
-        a.name,
+        pdfSafe(a.name),
         a.startTime,
         a.endTime,
         `${a.dur}`,
-        a.type === "internal" ? "İç Hazırlık" : "Dış Hazırlık",
+        a.type === "internal" ? pdfSafe("İç Hazırlık") : pdfSafe("Dış Hazırlık"),
         getEcrsGain(a) > 0 ? `-${getEcrsGain(a)} dk` : "—"
       ]),
       startY: nextY + 4,
@@ -547,12 +555,12 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
     nextY = (doc as any).lastAutoTable.finalY + 10;
     if (nextY > 250) { doc.addPage(); nextY = 16; }
     doc.setFontSize(12);
-    doc.text("3. FİNANSAL FİZİBİLİTE ÖZETİ", 14, nextY);
+    doc.text(pdfSafe("3. FİNANSAL FİZİBİLİTE ÖZETİ"), 14, nextY);
     autoTable(doc, {
       body: [
-        ["Yıllık Kazanılan Süre", `${savedHrs} saat`, "Ek Kapasite Kazancı", `%${capPct}`],
-        ["Yıllık Finansal Fayda", `₺${benefit.toLocaleString("tr-TR")}`, "ROI Oranı", `%${roi}`],
-        ["Geri Ödeme Süresi", `${payback} ay`, "3 Yıllık Net NPV", `₺${npv.toLocaleString("tr-TR")}`]
+        [pdfSafe("Yıllık Kazanılan Süre"), `${savedHrs} saat`, pdfSafe("Ek Kapasite Kazancı"), `%${capPct}`],
+        [pdfSafe("Yıllık Finansal Fayda"), `₺${benefit.toLocaleString("tr-TR")}`, pdfSafe("ROI Oranı"), `%${roi}`],
+        [pdfSafe("Geri Ödeme Süresi"), `${payback} ay`, pdfSafe("3 Yıllık Net NPV"), `₺${npv.toLocaleString("tr-TR")}`]
       ],
       startY: nextY + 4,
       theme: "grid",
@@ -564,11 +572,11 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
       nextY = (doc as any).lastAutoTable.finalY + 10;
       if (nextY > 250) { doc.addPage(); nextY = 16; }
       doc.setFontSize(12);
-      doc.text(`4. OEE ENTEGRASYONU (${activeProject.linkedProcessName || "VSM Prosesi"})`, 14, nextY);
+      doc.text(pdfSafe(`4. OEE ENTEGRASYONU (${activeProject.linkedProcessName || "VSM Prosesi"})`), 14, nextY);
       autoTable(doc, {
         body: [
-          ["Mevcut OEE", `%${oeeProjection.currentOee}`, "SMED Sonrası Tahmini OEE", `%${oeeProjection.projectedOee}`],
-          ["OEE Net Kazancı", `+${oeeProjection.gainPoints} Puan`, "Yıllık Setup Kaynaklı Kayıp (Önce→Sonra)", `${oeeProjection.annualDowntimeBeforeHrs} sa → ${oeeProjection.annualDowntimeAfterHrs} sa`]
+          [pdfSafe("Mevcut OEE"), `%${oeeProjection.currentOee}`, pdfSafe("SMED Sonrası Tahmini OEE"), `%${oeeProjection.projectedOee}`],
+          [pdfSafe("OEE Net Kazancı"), `+${oeeProjection.gainPoints} Puan`, pdfSafe("Yıllık Setup Kaynaklı Kayıp (Önce→Sonra)"), `${oeeProjection.annualDowntimeBeforeHrs} sa → ${oeeProjection.annualDowntimeAfterHrs} sa`]
         ],
         startY: nextY + 4,
         theme: "grid",
@@ -581,11 +589,11 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
       nextY = (doc as any).lastAutoTable.finalY + 10;
       if (nextY > 240) { doc.addPage(); nextY = 16; }
       doc.setFontSize(12);
-      doc.text(`${oeeProjection && !oeeProjection.isSnapshotOnly ? "5" : "4"}. İYİLEŞTİRME AKSİYON TAKİP LİSTESİ`, 14, nextY);
+      doc.text(pdfSafe(`${oeeProjection && !oeeProjection.isSnapshotOnly ? "5" : "4"}. İYİLEŞTİRME AKSİYON TAKİP LİSTESİ`), 14, nextY);
       const columnLabel: Record<ActionCard["column"], string> = { open: "Açık", progress: "Devam Ediyor", hold: "Beklemede", done: "Tamamlandı", cancel: "İptal" };
       autoTable(doc, {
-        head: [["Aksiyon", "Öncelik", "Sorumlu", "Hedef Tarih", "Durum", "Etki"]],
-        body: actions.map((a) => [a.title, a.priority, a.assignee, a.dueDate, columnLabel[a.column], a.benefit]),
+        head: [[pdfSafe("Aksiyon"), pdfSafe("Öncelik"), pdfSafe("Sorumlu"), pdfSafe("Hedef Tarih"), pdfSafe("Durum"), pdfSafe("Etki")]],
+        body: actions.map((a) => [pdfSafe(a.title), pdfSafe(a.priority), pdfSafe(a.assignee), a.dueDate, pdfSafe(columnLabel[a.column]), pdfSafe(a.benefit)]),
         startY: nextY + 4,
         theme: "striped",
         styles: { fontSize: 7.5 },

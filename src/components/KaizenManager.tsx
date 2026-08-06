@@ -1224,6 +1224,14 @@ export default function KaizenManager({
     XLSX.writeFile(wb, `CI_Portfoy_Raporu_${(selectedCustomer?.companyName || "musteri").replace(/\s+/g, "_")}.xlsx`);
   };
 
+  // jsPDF's standard "Helvetica" font only supports WinAnsi/Latin-1 — İ, ı, Ş, ş, Ğ, ğ aren't in
+  // that set and render as garbled digits/symbols (Ç/ç/Ö/ö/Ü/ü are fine, they're valid Latin-1).
+  // Transliterate just those five letters rather than embedding a custom Unicode font.
+  const pdfSafe = (s: unknown): string => String(s ?? "")
+    .replace(/İ/g, "I").replace(/ı/g, "i")
+    .replace(/Ş/g, "S").replace(/ş/g, "s")
+    .replace(/Ğ/g, "G").replace(/ğ/g, "g");
+
   const handleExportPortfolioPdf = () => {
     const doc = new jsPDF();
     doc.setFont("Helvetica");
@@ -1232,17 +1240,17 @@ export default function KaizenManager({
     doc.rect(0, 0, 210, 32, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(16);
-    doc.text("CI PROJE YÖNETİMİ PORTFÖY RAPORU", 14, 15);
+    doc.text(pdfSafe("CI PROJE YÖNETİMİ PORTFÖY RAPORU"), 14, 15);
     doc.setFontSize(9);
-    doc.text(`${selectedCustomer?.companyName || ""} | ${new Date().toLocaleDateString("tr-TR")}`, 14, 23);
+    doc.text(pdfSafe(`${selectedCustomer?.companyName || ""} | ${new Date().toLocaleDateString("tr-TR")}`), 14, 23);
 
     doc.setTextColor(15, 23, 42);
     doc.setFontSize(11);
-    doc.text("GENEL ÖZET", 14, 42);
+    doc.text(pdfSafe("GENEL ÖZET"), 14, 42);
     autoTable(doc, {
       body: [
-        ["Toplam Proje", String(totalCIProjects), "Tamamlanan", String(completedProjects)],
-        ["Beklenen Kazanç", `${currency} ${totalExpectedFinancialGain.toLocaleString()}`, "Gerçekleşen Kazanım", `${currency} ${realizedFinancialGain.toLocaleString()}`]
+        [pdfSafe("Toplam Proje"), String(totalCIProjects), pdfSafe("Tamamlanan"), String(completedProjects)],
+        [pdfSafe("Beklenen Kazanç"), `${currency} ${totalExpectedFinancialGain.toLocaleString()}`, pdfSafe("Gerçekleşen Kazanım"), `${currency} ${realizedFinancialGain.toLocaleString()}`]
       ],
       startY: 46,
       theme: "grid",
@@ -1250,13 +1258,13 @@ export default function KaizenManager({
       columnStyles: { 0: { fontStyle: "bold", fillColor: [240, 240, 240] }, 2: { fontStyle: "bold", fillColor: [240, 240, 240] } }
     });
 
-    doc.text("PROJE PORTFÖYÜ", 14, (doc as any).lastAutoTable.finalY + 10);
+    doc.text(pdfSafe("PROJE PORTFÖYÜ"), 14, (doc as any).lastAutoTable.finalY + 10);
     autoTable(doc, {
-      head: [["No", "Başlık", "Lider", "Durum", `Bütçe (${currency})`, `Gerçekleşen (${currency})`]],
+      head: [[pdfSafe("No"), pdfSafe("Başlık"), pdfSafe("Lider"), pdfSafe("Durum"), pdfSafe(`Bütçe (${currency})`), pdfSafe(`Gerçekleşen (${currency})`)]],
       body: [...filteredProjects]
         .sort((a, b) => getProjectNo(a).localeCompare(getProjectNo(b), undefined, { numeric: true, sensitivity: 'base' }))
         .map(proj => [
-          getProjectNo(proj), proj.title, proj.projectLeader || proj.originator || "-", proj.kanbanStatus || proj.status,
+          pdfSafe(getProjectNo(proj)), pdfSafe(proj.title), pdfSafe(proj.projectLeader || proj.originator || "-"), pdfSafe(proj.kanbanStatus || proj.status),
           (proj.estimatedCost || 0).toLocaleString(), (proj.actualSavings || 0).toLocaleString()
         ]),
       startY: (doc as any).lastAutoTable.finalY + 14,

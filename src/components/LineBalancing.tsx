@@ -1223,6 +1223,14 @@ export default function LineBalancing({ selectedCustomer }: LineBalancingProps) 
   // Real, styled PDF report (replaces the previous "PDF Motion Report" export, which — despite
   // its name — just downloaded a raw JSON blob renamed to .pdf and would fail to open in any PDF
   // reader). Mirrors the dark-header + autoTable pattern used by the other modules' exports.
+  // jsPDF's standard "Helvetica" font only supports WinAnsi/Latin-1 — İ, ı, Ş, ş, Ğ, ğ aren't in
+  // that set and render as garbled digits/symbols (Ç/ç/Ö/ö/Ü/ü are fine, they're valid Latin-1).
+  // Transliterate just those five letters rather than embedding a custom Unicode font.
+  const pdfSafe = (s: unknown): string => String(s ?? "")
+    .replace(/İ/g, "I").replace(/ı/g, "i")
+    .replace(/Ş/g, "S").replace(/ş/g, "s")
+    .replace(/Ğ/g, "G").replace(/ğ/g, "g");
+
   const handleExportPdf = () => {
     const doc = new jsPDF();
     doc.setFont("Helvetica");
@@ -1231,18 +1239,18 @@ export default function LineBalancing({ selectedCustomer }: LineBalancingProps) 
     doc.rect(0, 0, 210, 32, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(16);
-    doc.text("YAMAZUMI AI ANALİZÖRÜ RAPORU", 14, 14);
+    doc.text(pdfSafe("YAMAZUMI AI ANALİZÖRÜ RAPORU"), 14, 14);
     doc.setFontSize(10);
-    doc.text(`${selectedCustomerName || "Müşteri"} | Hedef Takt Zamanı: ${taktTime}s | Tarih: ${new Date().toLocaleDateString("tr-TR")}`, 14, 23);
-    doc.text(`Darboğaz: ${stats.bottleneck} (${stats.max}s) | En Büyük İsraf: ${stats.largestLoss}`, 14, 29);
+    doc.text(pdfSafe(`${selectedCustomerName || "Müşteri"} | Hedef Takt Zamanı: ${taktTime}s | Tarih: ${new Date().toLocaleDateString("tr-TR")}`), 14, 23);
+    doc.text(pdfSafe(`Darboğaz: ${stats.bottleneck} (${stats.max}s) | En Büyük İsraf: ${stats.largestLoss}`), 14, 29);
 
     doc.setTextColor(15, 23, 42);
     doc.setFontSize(12);
-    doc.text("1. İŞ ELEMANI ETÜT KÜTÜĞÜ", 14, 42);
+    doc.text(pdfSafe("1. İŞ ELEMANI ETÜT KÜTÜĞÜ"), 14, 42);
     autoTable(doc, {
-      head: [["No", "Proses", "İş Elemanı", "Sınıf", "Tip", "Standart Ç/S (sn)"]],
+      head: [[pdfSafe("No"), pdfSafe("Proses"), pdfSafe("İş Elemanı"), pdfSafe("Sınıf"), pdfSafe("Tip"), pdfSafe("Standart Ç/S (sn)")]],
       body: elements.map(el => [
-        `${el.seqNo}`, el.processName, el.workElement, el.workClass, el.workType, el.standardCycleTime.toFixed(2)
+        `${el.seqNo}`, pdfSafe(el.processName), pdfSafe(el.workElement), pdfSafe(el.workClass), pdfSafe(el.workType), el.standardCycleTime.toFixed(2)
       ]),
       startY: 46,
       theme: "striped",
@@ -1252,12 +1260,12 @@ export default function LineBalancing({ selectedCustomer }: LineBalancingProps) 
 
     let nextY = (doc as any).lastAutoTable.finalY + 12;
     doc.setFontSize(12);
-    doc.text("2. OPERASYONEL MÜKEMMELLİK KPI ÖZETİ", 14, nextY);
+    doc.text(pdfSafe("2. OPERASYONEL MÜKEMMELLİK KPI ÖZETİ"), 14, nextY);
     autoTable(doc, {
       body: [
-        ["Toplam Çevrim Süresi", `${stats.totalCT}s`, "VA / NVA / Waste %", `${stats.vaRate}% / ${stats.nvaRate}% / ${stats.wRate}%`],
-        ["Ortalama Çevrim Süresi", `${stats.avg}s`, "Standart Sapma (CV)", `${stats.sd}s (${stats.cv}%)`],
-        ["Potansiyel İyileşme", `${stats.potentialSaving}s (%${stats.savingPercent})`, "Tahmini Yeni Ç/S", `${stats.estNewCt}s`]
+        [pdfSafe("Toplam Çevrim Süresi"), `${stats.totalCT}s`, pdfSafe("VA / NVA / Waste %"), `${stats.vaRate}% / ${stats.nvaRate}% / ${stats.wRate}%`],
+        [pdfSafe("Ortalama Çevrim Süresi"), `${stats.avg}s`, pdfSafe("Standart Sapma (CV)"), `${stats.sd}s (${stats.cv}%)`],
+        [pdfSafe("Potansiyel İyileşme"), `${stats.potentialSaving}s (%${stats.savingPercent})`, pdfSafe("Tahmini Yeni Ç/S"), `${stats.estNewCt}s`]
       ],
       startY: nextY + 4,
       theme: "grid",
@@ -1268,9 +1276,9 @@ export default function LineBalancing({ selectedCustomer }: LineBalancingProps) 
     if (aiReport) {
       doc.addPage();
       doc.setFontSize(12);
-      doc.text("3. YAPAY ZEKA ANALİZ RAPORU", 14, 16);
+      doc.text(pdfSafe("3. YAPAY ZEKA ANALİZ RAPORU"), 14, 16);
       doc.setFontSize(8.5);
-      const lines = doc.splitTextToSize(aiReport.replace(/#{1,3}\s*/g, "").replace(/\*\*/g, ""), 180);
+      const lines = doc.splitTextToSize(pdfSafe(aiReport.replace(/#{1,3}\s*/g, "").replace(/\*\*/g, "")), 180);
       doc.text(lines, 14, 24);
     }
 

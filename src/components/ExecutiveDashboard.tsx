@@ -433,6 +433,14 @@ Veri madenciliği ve kapasite denetimi sonuçlarına göre executive kararları 
     XLSX.writeFile(wb, `Yalin_Yonetici_KPI_Raporu_${selectedYear}.xlsx`);
   };
 
+  // jsPDF's standard "Helvetica" font only supports WinAnsi/Latin-1 — İ, ı, Ş, ş, Ğ, ğ aren't in
+  // that set and render as garbled digits/symbols (Ç/ç/Ö/ö/Ü/ü are fine, they're valid Latin-1).
+  // Transliterate just those five letters rather than embedding a custom Unicode font.
+  const pdfSafe = (s: unknown): string => String(s ?? "")
+    .replace(/İ/g, "I").replace(/ı/g, "i")
+    .replace(/Ş/g, "S").replace(/ş/g, "s")
+    .replace(/Ğ/g, "G").replace(/ğ/g, "g");
+
   const handleExportPdf = () => {
     const doc = new jsPDF();
     doc.setFont("Helvetica");
@@ -440,23 +448,23 @@ Veri madenciliği ve kapasite denetimi sonuçlarına göre executive kararları 
     // Title / Header Banner
     doc.setFillColor(15, 23, 42); // slate-900 background
     doc.rect(0, 0, 210, 40, "F");
-    
+
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(20);
-    doc.text("YÖNETİCİ PERFORMANS & KPI RAPORU", 14, 20);
+    doc.text(pdfSafe("YÖNETİCİ PERFORMANS & KPI RAPORU"), 14, 20);
     doc.setFontSize(10);
-    doc.text(`Rapor Dönemi: ${selectedYear} | Oluşturma Tarihi: ${new Date().toLocaleDateString("tr-TR")}`, 14, 30);
+    doc.text(pdfSafe(`Rapor Dönemi: ${selectedYear} | Oluşturma Tarihi: ${new Date().toLocaleDateString("tr-TR")}`), 14, 30);
 
     doc.setTextColor(15, 23, 42);
     doc.setFontSize(12);
-    doc.text("1. GENEL OPEX YÖNETİCİ ÖZET METRİKLERİ", 14, 52);
+    doc.text(pdfSafe("1. GENEL OPEX YÖNETİCİ ÖZET METRİKLERİ"), 14, 52);
 
     // General KPI Table
     const generalKpisBody = [
-      ["Aktif Müşteri", stats.activeCustomers.toString(), "Devam Eden Proje", stats.ongoingProjects.toString()],
-      ["Tamamlanan Proje", stats.completedProjects.toString(), "Toplam CI Projesi", stats.totalCiProjects.toString()],
-      ["Toplam Kaizen", stats.totalKaizens.toString(), "Termin Başarısı", `%${stats.avgSuccessRate}`],
-      ["Beklenen Kazanç", `TL ${stats.expectedSavings.toLocaleString()}`, "Gerçekleşen Tasarruf", `TL ${stats.realizedSavings.toLocaleString()}`]
+      [pdfSafe("Aktif Müşteri"), stats.activeCustomers.toString(), pdfSafe("Devam Eden Proje"), stats.ongoingProjects.toString()],
+      [pdfSafe("Tamamlanan Proje"), stats.completedProjects.toString(), pdfSafe("Toplam CI Projesi"), stats.totalCiProjects.toString()],
+      [pdfSafe("Toplam Kaizen"), stats.totalKaizens.toString(), pdfSafe("Termin Başarısı"), `%${stats.avgSuccessRate}`],
+      [pdfSafe("Beklenen Kazanç"), `TL ${stats.expectedSavings.toLocaleString()}`, pdfSafe("Gerçekleşen Tasarruf"), `TL ${stats.realizedSavings.toLocaleString()}`]
     ];
 
     autoTable(doc, {
@@ -471,11 +479,11 @@ Veri madenciliği ve kapasite denetimi sonuçlarına göre executive kararları 
     });
 
     // Consultant Table
-    doc.text("2. DANIŞMAN LİDERLİK TABLOSU (LEADERBOARD)", 14, (doc as any).lastAutoTable.finalY + 12);
-    
-    const consultantHead = [["Danışman", "Aktif", "Kapalı", "Kaizen", "Kazanç (TL)", "Termin %"]];
+    doc.text(pdfSafe("2. DANIŞMAN LİDERLİK TABLOSU (LEADERBOARD)"), 14, (doc as any).lastAutoTable.finalY + 12);
+
+    const consultantHead = [[pdfSafe("Danışman"), pdfSafe("Aktif"), pdfSafe("Kapalı"), pdfSafe("Kaizen"), pdfSafe("Kazanç (TL)"), pdfSafe("Termin %")]];
     const consultantBody = leaderboard.map(l => [
-      l.name, l.activeProjects, l.closedProjects, l.kaizensCount, `TL ${l.savings.toLocaleString()}`, `%${l.deadlineSuccess}`
+      pdfSafe(l.name), l.activeProjects, l.closedProjects, l.kaizensCount, `TL ${l.savings.toLocaleString()}`, `%${l.deadlineSuccess}`
     ]);
 
     autoTable(doc, {
@@ -487,10 +495,10 @@ Veri madenciliği ve kapasite denetimi sonuçlarına göre executive kararları 
     });
 
     // Customer Portfolio Table
-    doc.text("3. MÜŞTERİ PORTFÖYÜ VE SAĞLIK DURUMU", 14, (doc as any).lastAutoTable.finalY + 12);
-    const customerHead = [["Şirket", "Sorumlu Danışman", "Projeler", "Kaizenler", "Kazanç (TL)", "Risk Sınıfı", "İlerleme %"]];
+    doc.text(pdfSafe("3. MÜŞTERİ PORTFÖYÜ VE SAĞLIK DURUMU"), 14, (doc as any).lastAutoTable.finalY + 12);
+    const customerHead = [[pdfSafe("Şirket"), pdfSafe("Sorumlu Danışman"), pdfSafe("Projeler"), pdfSafe("Kaizenler"), pdfSafe("Kazanç (TL)"), pdfSafe("Risk Sınıfı"), pdfSafe("İlerleme %")]];
     const customerBody = portfolio.map(p => [
-      p.companyName, p.consultantName, p.projectCount, p.kaizenCount, `TL ${p.savings.toLocaleString()}`, p.riskStatus, `%${p.completion}`
+      pdfSafe(p.companyName), pdfSafe(p.consultantName), p.projectCount, p.kaizenCount, `TL ${p.savings.toLocaleString()}`, pdfSafe(p.riskStatus), `%${p.completion}`
     ]);
 
     autoTable(doc, {

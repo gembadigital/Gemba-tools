@@ -2019,6 +2019,14 @@ export default function TimeStudyPage({ selectedCustomer, vsmProcesses = [] }: T
 
   // Real, styled PDF report (replaces the previous browser-print-only "PDF" button) — mirrors the
   // dark-header + autoTable pattern used by the other modules' exports (e.g. Loss Capacity Analizi).
+  // jsPDF's standard "Helvetica" font only supports WinAnsi/Latin-1 — İ, ı, Ş, ş, Ğ, ğ aren't in
+  // that set and render as garbled digits/symbols (Ç/ç/Ö/ö/Ü/ü are fine, they're valid Latin-1).
+  // Transliterate just those five letters rather than embedding a custom Unicode font.
+  const pdfSafe = (s: unknown): string => String(s ?? "")
+    .replace(/İ/g, "I").replace(/ı/g, "i")
+    .replace(/Ş/g, "S").replace(/ş/g, "s")
+    .replace(/Ğ/g, "G").replace(/ğ/g, "g");
+
   const handleExportPdf = () => {
     const doc = new jsPDF();
     doc.setFont("Helvetica");
@@ -2027,26 +2035,26 @@ export default function TimeStudyPage({ selectedCustomer, vsmProcesses = [] }: T
     doc.rect(0, 0, 210, 40, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(16);
-    doc.text("ZAMAN ETÜDÜ & STANDART İŞ ANALİZ RAPORU", 14, 16);
+    doc.text(pdfSafe("ZAMAN ETÜDÜ & STANDART İŞ ANALİZ RAPORU"), 14, 16);
     doc.setFontSize(10);
-    doc.text(`${selectedCustomer.companyName} | Hat: ${lineName} | Ürün: ${productName}`, 14, 25);
-    doc.text(`Vardiya: ${shiftHours} Saat • Hedef Takt: ${taktTime} sn • Oluşturma Tarihi: ${new Date().toLocaleDateString("tr-TR")}`, 14, 32);
+    doc.text(pdfSafe(`${selectedCustomer.companyName} | Hat: ${lineName} | Ürün: ${productName}`), 14, 25);
+    doc.text(pdfSafe(`Vardiya: ${shiftHours} Saat • Hedef Takt: ${taktTime} sn • Oluşturma Tarihi: ${new Date().toLocaleDateString("tr-TR")}`), 14, 32);
     if (linkedVsmProcessId) {
       const vsmName = vsmProcesses.find(p => p.id === linkedVsmProcessId)?.name;
       doc.setFontSize(9);
-      doc.text(`VSM Bağlantılı Proses: ${vsmName || linkedVsmProcessId}`, 14, 38);
+      doc.text(pdfSafe(`VSM Bağlantılı Proses: ${vsmName || linkedVsmProcessId}`), 14, 38);
     }
 
     doc.setTextColor(15, 23, 42);
     doc.setFontSize(12);
-    doc.text("1. PROSES ZAMAN ETÜDÜ & KAPASİTE TABLOSU", 14, 52);
+    doc.text(pdfSafe("1. PROSES ZAMAN ETÜDÜ & KAPASİTE TABLOSU"), 14, 52);
     autoTable(doc, {
-      head: [["#", "Proses Adımı", "CT (sn)", "Mak. CT (sn)", "C/O Setup (sn)", "Saatlik Kap.", "Vardiya Kap.", "C/O Kayıp (ad)"]],
+      head: [[pdfSafe("#"), pdfSafe("Proses Adımı"), pdfSafe("CT (sn)"), pdfSafe("Mak. CT (sn)"), pdfSafe("C/O Setup (sn)"), pdfSafe("Saatlik Kap."), pdfSafe("Vardiya Kap."), pdfSafe("C/O Kayıp (ad)")]],
       body: processes.map((p, idx) => {
         const ct = getProcessCT(p);
         return [
           `${idx + 1}`,
-          p.name,
+          pdfSafe(p.name),
           ct > 0 ? ct.toFixed(1) : "—",
           p.mct > 0 ? p.mct.toFixed(1) : "—",
           p.co > 0 ? p.co.toFixed(1) : "—",
@@ -2063,22 +2071,22 @@ export default function TimeStudyPage({ selectedCustomer, vsmProcesses = [] }: T
 
     let nextY = (doc as any).lastAutoTable.finalY + 12;
     doc.setFontSize(12);
-    doc.text(`2. DARBOĞAZ: ${bottleneckInfo.name || "—"} (${bottleneckInfo.maxCT.toFixed(1)} sn)`, 14, nextY);
+    doc.text(pdfSafe(`2. DARBOĞAZ: ${bottleneckInfo.name || "—"} (${bottleneckInfo.maxCT.toFixed(1)} sn)`), 14, nextY);
 
     if (ccEls.length > 0) {
       doc.addPage();
       doc.setFontSize(12);
-      doc.text("3. STANDART İŞ KOMBİNASYON TABLOSU (SWCC)", 14, 16);
+      doc.text(pdfSafe("3. STANDART İŞ KOMBİNASYON TABLOSU (SWCC)"), 14, 16);
       autoTable(doc, {
-        head: [["Sıra", "Açıklama", "Başlangıç (sn)", "Bitiş (sn)", "Süre (sn)", "Aktivite Tipi", "Mak. Beklemesi"]],
+        head: [[pdfSafe("Sıra"), pdfSafe("Açıklama"), pdfSafe("Başlangıç (sn)"), pdfSafe("Bitiş (sn)"), pdfSafe("Süre (sn)"), pdfSafe("Aktivite Tipi"), pdfSafe("Mak. Beklemesi")]],
         body: resolvedElements.map(el => [
           `${el.seq}`,
-          el.desc,
+          pdfSafe(el.desc),
           el.startTime.toFixed(1),
           el.endTime.toFixed(1),
           el.time.toFixed(1),
-          TYPE_CONFIG[el.type]?.label.split(" (")[0] || el.type,
-          el.hasMachineWaiting ? "Evet" : "Hayır"
+          pdfSafe(TYPE_CONFIG[el.type]?.label.split(" (")[0] || el.type),
+          el.hasMachineWaiting ? pdfSafe("Evet") : pdfSafe("Hayır")
         ]),
         startY: 20,
         theme: "striped",
@@ -2088,12 +2096,12 @@ export default function TimeStudyPage({ selectedCustomer, vsmProcesses = [] }: T
 
       const swctY = (doc as any).lastAutoTable.finalY + 12;
       doc.setFontSize(11);
-      doc.text("Özet Metrikler", 14, swctY);
+      doc.text(pdfSafe("Özet Metrikler"), 14, swctY);
       autoTable(doc, {
         body: [
-          ["Toplam Çevrim Süresi", `${ccTotals.total.toFixed(1)} sn`, "Katma Değerli Oran (VA)", `%${vaPercent.toFixed(1)}`],
-          ["Katma Değersiz Oran (NVA)", `%${nvaPercent.toFixed(1)}`, "Operatör Kullanım Oranı", `%${utilizationPercent.toFixed(1)}`],
-          ["Operatör Boşta Süresi", `${operatorIdleTime.toFixed(1)} sn`, "Makine Bekleme Süresi", `${machineWaitingTime.toFixed(1)} sn`]
+          [pdfSafe("Toplam Çevrim Süresi"), `${ccTotals.total.toFixed(1)} sn`, pdfSafe("Katma Değerli Oran (VA)"), `%${vaPercent.toFixed(1)}`],
+          [pdfSafe("Katma Değersiz Oran (NVA)"), `%${nvaPercent.toFixed(1)}`, pdfSafe("Operatör Kullanım Oranı"), `%${utilizationPercent.toFixed(1)}`],
+          [pdfSafe("Operatör Boşta Süresi"), `${operatorIdleTime.toFixed(1)} sn`, pdfSafe("Makine Bekleme Süresi"), `${machineWaitingTime.toFixed(1)} sn`]
         ],
         startY: swctY + 4,
         theme: "grid",
