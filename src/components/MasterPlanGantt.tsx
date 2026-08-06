@@ -73,11 +73,12 @@ export default function MasterPlanGantt({
   const [isCreatingPlan, setIsCreatingPlan] = useState(false);
   const [newPlanInputName, setNewPlanInputName] = useState("");
 
-  // Active Customer ID/Key for Local Storage isolation
-  const activeCustomerId = propActiveCustomerId || localStorage.getItem("gemba_active_factory_id_usr_arcelik_admin") || "arcelik_bolu";
+  // Active Customer ID/Key for this module's server-persisted per-customer state.
+  const activeCustomerId = propActiveCustomerId || "";
   // Real active customer's display name for reports/exports — falls back to the id only if the
   // parent hasn't resolved a name yet, never to a different customer's hardcoded name.
   const activeCustomerName = customerName || activeCustomerId;
+  const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
 
   // Load Proje Takip Raporu (PTR) records for syncing actual weeks. PTR is backend-persisted
   // (previously read a `gemba_ptr_records_*` localStorage key that PTR itself no longer writes).
@@ -87,7 +88,7 @@ export default function MasterPlanGantt({
     const loadPtr = () => {
       fetch("/api/business/ptr-records", {
         headers: {
-          "Authorization": `Bearer ${localStorage.getItem("gemba_token") || "usr_arcelik_admin"}`,
+          "Authorization": `Bearer ${token}`,
           "x-factory-id": activeCustomerId
         }
       })
@@ -101,51 +102,84 @@ export default function MasterPlanGantt({
   // Top Tabbed Navigation State
   const [currentTopTab, setCurrentTopTab] = useState<string>("master");
 
-  // Separate Dynamic Project Plans State
-  const [customPlans, setCustomPlans] = useState<{ id: string; name: string; activities: any[] }[]>(() => {
-    const saved = localStorage.getItem(`gemba_custom_project_plans_${activeCustomerId}`);
-    if (saved) return JSON.parse(saved);
-    return [];
-  });
+  // Module state persisted server-side as one blob per customer (weekly consulting-package
+  // capacity + custom project plans) — previously entirely localStorage-only
+  // (gemba_contract_pkg_*, gemba_custom_project_plans_*, gemba_deleted_custom_project_plans_*),
+  // so it only ever existed in whichever browser last edited it and was invisible to the rest of
+  // the team. Deleted plans stay in `customPlans` with `deletedAt` set (soft delete) so the trash
+  // bin in Sistem Ayarları can restore or permanently delete them.
+  const [customPlans, setCustomPlans] = useState<{ id: string; name: string; activities: any[]; deletedAt?: string }[]>([]);
+  const [selectedPackageId, setSelectedPackageId] = useState<string>("pkg_2");
+  const [customCapacity, setCustomCapacity] = useState<number>(4);
+  const [masterPlanStateReady, setMasterPlanStateReady] = useState(false);
 
-  // Automatically persist custom project plans
+  const fetchMasterPlanState = () => {
+    if (!activeCustomerId || !token) return;
+    setMasterPlanStateReady(false);
+    fetch("/api/business/master-plan-state", {
+      headers: { "Authorization": `Bearer ${token}`, "x-factory-id": activeCustomerId }
+    })
+      .then(res => res.json())
+      .then(data => {
+        const s = (data.success && data.data) ? data.data : null;
+        setCustomPlans(s?.customPlans ?? []);
+        setSelectedPackageId(s?.contractPackageId ?? "pkg_2");
+        setCustomCapacity(s?.customCapacity ?? 4);
+        setMasterPlanStateReady(true);
+      })
+      .catch(err => {
+        console.error("Failed to load Master Plan state", err);
+        setMasterPlanStateReady(true);
+      });
+  };
+
+  useEffect(fetchMasterPlanState, [activeCustomerId, token]);
+
+  // Debounced auto-save whenever the module's persisted state changes (mirrors the pattern used
+  // by Loss Capacity Analizi / Company Workspace) — `masterPlanStateReady` gates this so it never
+  // fires with default/empty values before the real saved state (or "nothing saved yet") arrives.
   useEffect(() => {
-    localStorage.setItem(`gemba_custom_project_plans_${activeCustomerId}`, JSON.stringify(customPlans));
-  }, [customPlans, activeCustomerId]);
+    if (!masterPlanStateReady || !activeCustomerId || !token) return;
+    const timeoutId = setTimeout(() => {
+      fetch("/api/business/master-plan-state", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "x-factory-id": activeCustomerId,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ state: { contractPackageId: selectedPackageId, customCapacity, customPlans } })
+      }).catch(err => console.error("Failed to save Master Plan state", err));
+    }, 800);
+    return () => clearTimeout(timeoutId);
+  }, [customPlans, selectedPackageId, customCapacity, masterPlanStateReady, activeCustomerId, token]);
 
-  // Listen for external custom plans changes (e.g. from trash restoration in system settings)
+  // Listen for external changes (e.g. trash restore/permanent-delete from Sistem Ayarları) and
+  // reload from the server so this view stays in sync.
   useEffect(() => {
-    const handlePlansChange = () => {
-      const saved = localStorage.getItem(`gemba_custom_project_plans_${activeCustomerId}`);
-      if (saved) {
-        setCustomPlans(JSON.parse(saved));
-      } else {
-        setCustomPlans([]);
-      }
-    };
+    window.addEventListener("CustomPlansChanged", fetchMasterPlanState);
+    return () => window.removeEventListener("CustomPlansChanged", fetchMasterPlanState);
+  }, [activeCustomerId, token]);
 
-    window.addEventListener("CustomPlansChanged", handlePlansChange);
-    return () => {
-      window.removeEventListener("CustomPlansChanged", handlePlansChange);
-    };
-  }, [activeCustomerId]);
+  // Only non-deleted plans are shown as tabs / selectable.
+  const activePlans = customPlans.filter(p => !p.deletedAt);
 
   // Dynamic selector for current active activities list
-  const activeCustomPlan = customPlans.find(p => p.id === currentTopTab);
+  const activeCustomPlan = activePlans.find(p => p.id === currentTopTab);
   const currentActivities = currentTopTab === "master" ? activities : (activeCustomPlan ? activeCustomPlan.activities : []);
 
   // Trigger naming modal
   const handleCreateProjectPlan = () => {
-    setNewPlanInputName(`Proje Planı ${customPlans.length + 1}`);
+    setNewPlanInputName(`Proje Planı ${activePlans.length + 1}`);
     setIsCreatingPlan(true);
   };
 
   // Creator function that clones the current master plan activities as a starting template with selected name
   const handleCreateProjectPlanSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmedName = newPlanInputName.trim() || `Proje Planı ${customPlans.length + 1}`;
+    const trimmedName = newPlanInputName.trim() || `Proje Planı ${activePlans.length + 1}`;
     const newPlanId = "plan_" + Math.random().toString(36).substring(2, 9);
-    
+
     // Copy current master plan's activities to act as a template copy
     const clonedActivities = activities.map(act => ({
       ...act,
@@ -209,7 +243,8 @@ export default function MasterPlanGantt({
   const [endWeek, setEndWeek] = useState(39);
   const totalWeeks = endWeek - startWeek + 1;
 
-  // 1. Consulting Package Contract State
+  // 1. Consulting Package Contract State (selectedPackageId/customCapacity are declared above,
+  // loaded from and auto-saved to the server as part of the module's persisted state)
   const packages: ContractPackage[] = [
     { id: "pkg_1", name: "Haftalık 1 Adam-Gün (Weekly 1 Man-Day)", value: 1 },
     { id: "pkg_2", name: "Haftalık 2 Adam-Gün (Weekly 2 Man-Days)", value: 2 },
@@ -217,19 +252,9 @@ export default function MasterPlanGantt({
     { id: "pkg_5", name: "Haftalık 5 Adam-Gün (Weekly 5 Man-Days)", value: 5 },
     { id: "pkg_custom", name: "Özel Paket (Custom)", value: 4 }
   ];
-  
-  const [selectedPackageId, setSelectedPackageId] = useState<string>(() => {
-    return localStorage.getItem(`gemba_contract_pkg_${activeCustomerId}`) || "pkg_2";
-  });
-  const [customCapacity, setCustomCapacity] = useState<number>(4);
 
   const activePackage = packages.find(p => p.id === selectedPackageId) || packages[1];
   const weeklyCapacity = selectedPackageId === "pkg_custom" ? customCapacity : activePackage.value;
-
-  // Save Package selection
-  useEffect(() => {
-    localStorage.setItem(`gemba_contract_pkg_${activeCustomerId}`, selectedPackageId);
-  }, [selectedPackageId]);
 
   // 3. Screen Expansion State
   const [isExpanded, setIsExpanded] = useState(false);
@@ -248,7 +273,7 @@ export default function MasterPlanGantt({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${localStorage.getItem("gemba_token") || "usr_arcelik_admin"}`
+          "Authorization": `Bearer ${localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || ""}`
         },
         body: JSON.stringify({
           activities: currentActivities.map((a, index) => ({
@@ -900,7 +925,7 @@ export default function MasterPlanGantt({
           </button>
 
           {/* Dynamic custom project plans tabs */}
-          {customPlans.map((plan) => {
+          {activePlans.map((plan) => {
             const isActive = currentTopTab === plan.id;
             return (
               <div 
@@ -2285,25 +2310,15 @@ export default function MasterPlanGantt({
                 type="button"
                 onClick={() => {
                   const plan = planToDelete;
-                  // Save to deleted plans list
-                  const deletedKey = `gemba_deleted_custom_project_plans_${activeCustomerId}`;
-                  const existingDeleted = JSON.parse(localStorage.getItem(deletedKey) || "[]");
-                  const newDeletedPlan = {
-                    ...plan,
-                    deletedAt: new Date().toISOString()
-                  };
-                  localStorage.setItem(deletedKey, JSON.stringify([...existingDeleted, newDeletedPlan]));
-
-                  // Remove from custom plans
-                  const updatedPlans = customPlans.filter(p => p.id !== plan.id);
-                  setCustomPlans(updatedPlans);
-                  localStorage.setItem(`gemba_custom_project_plans_${activeCustomerId}`, JSON.stringify(updatedPlans));
+                  // Soft delete: mark deletedAt inline rather than moving to a separate list — the
+                  // debounced auto-save effect persists this to the server, where the trash bin in
+                  // Sistem Ayarları reads it from the same per-customer state.
+                  setCustomPlans(prev => prev.map(p => p.id === plan.id ? { ...p, deletedAt: new Date().toISOString() } : p));
 
                   if (currentTopTab === plan.id) {
                     setCurrentTopTab("master");
                   }
 
-                  // Dispatch global event
                   window.dispatchEvent(new CustomEvent("CustomPlansChanged"));
                   setPlanToDelete(null);
                 }}

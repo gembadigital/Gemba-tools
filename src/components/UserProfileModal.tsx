@@ -66,36 +66,61 @@ export default function UserProfileModal({
   const [selectedLang, setSelectedLang] = useState<string>("tr");
   const [langSuccess, setLangSuccess] = useState<string | null>(null);
 
-  // Deleted custom project plans state for recovery bin (trash bin)
-  const [deletedPlans, setDeletedPlans] = useState<any[]>([]);
-  const customerId = activeCustomerId || "arcelik_bolu";
+  // Trash bin (soft-deleted Master Plan Gantt custom project plans) — server-persisted per
+  // customer via /api/business/master-plan-state, same blob Master Plan Gantt itself reads/writes.
+  const customerId = activeCustomerId || "";
+  const [masterPlanCustomPlans, setMasterPlanCustomPlans] = useState<any[]>([]);
+  const deletedPlans = masterPlanCustomPlans.filter((p: any) => p.deletedAt);
 
-  const loadDeletedPlans = () => {
-    const deletedKey = `gemba_deleted_custom_project_plans_${customerId}`;
-    const saved = localStorage.getItem(deletedKey);
-    if (saved) {
-      setDeletedPlans(JSON.parse(saved));
-    } else {
-      setDeletedPlans([]);
+  const loadMasterPlanState = () => {
+    if (!customerId || !token) {
+      setMasterPlanCustomPlans([]);
+      return;
     }
+    fetch("/api/business/master-plan-state", {
+      headers: { "Authorization": `Bearer ${token}`, "x-factory-id": customerId }
+    })
+      .then(res => res.json())
+      .then(data => setMasterPlanCustomPlans(data.success && data.data?.customPlans ? data.data.customPlans : []))
+      .catch(() => setMasterPlanCustomPlans([]));
   };
 
   useEffect(() => {
     if (isOpen) {
-      loadDeletedPlans();
+      loadMasterPlanState();
     }
   }, [isOpen, customerId]);
 
   // Listen for CustomPlansChanged globally to keep Trash Bin sync up-to-date
   useEffect(() => {
-    const handlePlansChange = () => {
-      loadDeletedPlans();
-    };
-    window.addEventListener("CustomPlansChanged", handlePlansChange);
+    window.addEventListener("CustomPlansChanged", loadMasterPlanState);
     return () => {
-      window.removeEventListener("CustomPlansChanged", handlePlansChange);
+      window.removeEventListener("CustomPlansChanged", loadMasterPlanState);
     };
   }, [customerId]);
+
+  // Persists an updated customPlans array back to the shared per-customer blob (preserving the
+  // contract-package fields Master Plan Gantt also stores there) and notifies it to refresh.
+  const saveMasterPlanCustomPlans = (updatedCustomPlans: any[]) => {
+    if (!customerId || !token) return;
+    fetch("/api/business/master-plan-state", {
+      headers: { "Authorization": `Bearer ${token}`, "x-factory-id": customerId }
+    })
+      .then(res => res.json())
+      .then(data => {
+        const prevState = (data.success && data.data) ? data.data : {};
+        return fetch("/api/business/master-plan-state", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}`, "x-factory-id": customerId, "Content-Type": "application/json" },
+          body: JSON.stringify({ state: { ...prevState, customPlans: updatedCustomPlans } })
+        });
+      })
+      .then(() => {
+        setMasterPlanCustomPlans(updatedCustomPlans);
+        window.dispatchEvent(new CustomEvent("CustomPlansChanged"));
+      })
+      .catch(() => {});
+  };
 
   // Sync state with incoming user on open & load persisted settings
   useEffect(() => {
@@ -134,34 +159,15 @@ export default function UserProfileModal({
   };
 
   const handleRestorePlan = (plan: any) => {
-    const activeKey = `gemba_custom_project_plans_${customerId}`;
-    const activePlans = JSON.parse(localStorage.getItem(activeKey) || "[]");
-    
-    if (!activePlans.some((p: any) => p.id === plan.id)) {
-      activePlans.push({
-        id: plan.id,
-        name: plan.name,
-        activities: plan.activities || []
-      });
-      localStorage.setItem(activeKey, JSON.stringify(activePlans));
-    }
-
-    const deletedKey = `gemba_deleted_custom_project_plans_${customerId}`;
-    const updatedDeleted = deletedPlans.filter((p: any) => p.id !== plan.id);
-    localStorage.setItem(deletedKey, JSON.stringify(updatedDeleted));
-    setDeletedPlans(updatedDeleted);
-
-    window.dispatchEvent(new CustomEvent("CustomPlansChanged"));
+    const updated = masterPlanCustomPlans.map((p: any) => p.id === plan.id ? { ...p, deletedAt: undefined } : p);
+    saveMasterPlanCustomPlans(updated);
   };
 
   const handlePermanentDeletePlan = (plan: any) => {
     const confirmed = window.confirm(`"${plan.name}" planını kalıcı olarak silmek istediğinizden emin misiniz?\nBu plan ve içindeki tüm faaliyetler kurtarılamayacak şekilde silinecektir.`);
     if (confirmed) {
-      const deletedKey = `gemba_deleted_custom_project_plans_${customerId}`;
-      const updatedDeleted = deletedPlans.filter((p: any) => p.id !== plan.id);
-      localStorage.setItem(deletedKey, JSON.stringify(updatedDeleted));
-      setDeletedPlans(updatedDeleted);
-      window.dispatchEvent(new CustomEvent("CustomPlansChanged"));
+      const updated = masterPlanCustomPlans.filter((p: any) => p.id !== plan.id);
+      saveMasterPlanCustomPlans(updated);
     }
   };
 

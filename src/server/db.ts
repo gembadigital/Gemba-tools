@@ -917,6 +917,32 @@ export class GeminiDb {
     return record;
   }
 
+  // Master Plan Gantt module state (weekly consulting-package capacity + custom project plans,
+  // with soft-deleted plans kept inline via a `deletedAt` marker for the trash bin) — one record
+  // per customer/factory. Previously entirely client-only (gemba_contract_pkg_*,
+  // gemba_custom_project_plans_*, gemba_deleted_custom_project_plans_* localStorage keys), so
+  // contract capacity and custom plans only existed in whichever browser last edited them.
+  public async getMasterPlanState(orgId: string, factoryId?: string): Promise<any | null> {
+    const all = await this.listCollection("master_plan_state", orgId);
+    const found = all.find(r => !factoryId || r.factory_id === factoryId);
+    return found ? found.state : null;
+  }
+
+  public async saveMasterPlanState(orgId: string, factoryId: string, state: Record<string, any>, userId: string): Promise<any> {
+    const all = await this.listCollection("master_plan_state", orgId);
+    const existing = all.find(r => r.factory_id === factoryId);
+    const record = {
+      id: existing ? existing.id : randomId("mpstate"),
+      organization_id: orgId,
+      factory_id: factoryId,
+      state,
+      updated_by: userId,
+      updated_at: new Date().toISOString()
+    };
+    await this.upsertMerged("master_plan_state", orgId, record);
+    return record.state;
+  }
+
   // Company Workspace (Proje Ekibi, Şirket Profili, Varlık Kaydı, Zaman Çizelgesi, Doküman
   // Kasası, Proje Portföyü tabs on the customer card) — one record per customer/factory, was
   // previously client-only (gemba_company_workspace_${customerId} localStorage), so it only

@@ -1273,6 +1273,33 @@ app.post("/api/business/loss-capacity-settings", authenticateToken, async (req, 
   res.json({ success: true, data: saved });
 });
 
+// 5d. Master Plan Gantt module state — weekly consulting-package capacity + custom project plans
+// (soft-deleted ones kept inline for the trash bin), one blob per customer.
+app.get("/api/business/master-plan-state", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  res.json({ success: true, data: await db.getMasterPlanState(user.organization_id, scope.factoryId) });
+});
+
+app.post("/api/business/master-plan-state", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  if (!scope.factoryId) {
+    res.status(400).json({ success: false, error: "x-factory-id header is required." });
+    return;
+  }
+  const saved = await db.saveMasterPlanState(user.organization_id, scope.factoryId, req.body.state || {}, user.id);
+  res.json({ success: true, data: saved });
+});
+
 // Company Workspace (Proje Ekibi / Şirket Profili / Varlık Kaydı / Zaman Çizelgesi / Doküman
 // Kasası / Proje Portföyü) — one record per customer. See db.ts for why this replaced the
 // client-only localStorage version.
