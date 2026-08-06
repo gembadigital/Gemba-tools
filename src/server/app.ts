@@ -1374,9 +1374,10 @@ app.post("/api/business/ptr-records/send-weekly-report", authenticateToken, asyn
 //   1. 30+ gündür kapanmayan aksiyonlar (same staleness rule as the in-app weekly report tab)
 //   2. Termini geçmiş, henüz kapanmamış iyileştirme projeleri (dueDate < today, status açık)
 //   3. Kritik öneme sahip açık maddeler (the Outlook-style red flag toggled on in the PTR table)
-// One email per consultant aggregating across all their assigned customers, so a consultant
-// covering several customers doesn't get spammed with one email per customer. Customers with
-// nothing to report are skipped entirely — no empty "all clear" emails.
+// One email per (consultant, customer) pair — subject line is per-customer, so this can't be
+// collapsed into one aggregate email per consultant. Customers with nothing to report are
+// skipped entirely — no empty "all clear" emails. Sent from proje@gembapartner.com (sendMail's
+// own default, matching the existing "Mail Gönder" PTR export).
 const PTR_EXCLUDED_STATUSES = ["İptal"];
 
 function parseTrDate(dateStr: string): Date | null {
@@ -1406,9 +1407,8 @@ app.get("/api/cron/weekly-consultant-digest", async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // consultantId -> { consultant, customers: { customerName -> { overdue, missedTermin, critical } } }
-    type Bucket = { overdue: any[]; missedTermin: any[]; critical: any[] };
-    const digest = new Map<string, { consultant: User; customers: Map<string, Bucket> }>();
+    const results: { consultant: string; customer: string; success: boolean; error?: string }[] = [];
+    const formatItem = (r: any) => `   - ${r.workDone || r.improvementSubject || "(açıklama yok)"} — Sorumlu: ${r.responsible || "—"}, Termin: ${r.dueDate || "belirtilmemiş"}`;
 
     const organizations = await db.getOrganizations();
     for (const org of organizations) {
@@ -1445,41 +1445,32 @@ app.get("/api/cron/weekly-consultant-digest", async (req, res) => {
         if (overdue.length === 0 && missedTermin.length === 0 && critical.length === 0) continue;
 
         const customerName = customer.companyName || "Müşteri";
+        // Same fallback used elsewhere in the app (CustomerRecords.tsx) when no explicit short
+        // name exists — the real "shortName" field only ever lives client-side in workspace
+        // localStorage, never persisted to the customer record this cron job can read.
+        const shortName = customerName.substring(0, 10);
+
+        const parts: string[] = [];
+        if (overdue.length > 0) {
+          parts.push(`🔴 30+ Gündür Kapanmayan Aksiyonlar (${overdue.length}):`, ...overdue.map(formatItem));
+        }
+        if (missedTermin.length > 0) {
+          parts.push(`⏰ Termini Geçmiş İyileştirme Projeleri (${missedTermin.length}):`, ...missedTermin.map(formatItem));
+        }
+        if (critical.length > 0) {
+          parts.push(`🚩 Kritik Öneme Sahip Açık Maddeler (${critical.length}):`, ...critical.map(formatItem));
+        }
+
         for (const consultant of consultants) {
-          if (!digest.has(consultant.id)) {
-            digest.set(consultant.id, { consultant, customers: new Map() });
-          }
-          digest.get(consultant.id)!.customers.set(customerName, { overdue, missedTermin, critical });
+          const body = `Sayın ${consultant.full_name},\n\n${customerName} için takip gerektiren maddeler bulunmaktadır:\n\n${parts.join("\n")}\n\nBu otomatik haftalık hatırlatma Proje Takip Raporu modülünden gönderilmiştir.`;
+          const result = await sendMail({
+            to: consultant.email,
+            subject: `[${shortName}- ] Haftalık Özet`,
+            text: body
+          });
+          results.push({ consultant: consultant.email, customer: customerName, success: result.success, error: result.error });
         }
       }
-    }
-
-    const results: { consultant: string; success: boolean; error?: string }[] = [];
-    const formatItem = (r: any) => `   - ${r.workDone || r.improvementSubject || "(açıklama yok)"} — Sorumlu: ${r.responsible || "—"}, Termin: ${r.dueDate || "belirtilmemiş"}`;
-
-    for (const { consultant, customers } of digest.values()) {
-      const sections: string[] = [];
-      for (const [customerName, bucket] of customers.entries()) {
-        const parts: string[] = [`━━━ ${customerName} ━━━`];
-        if (bucket.overdue.length > 0) {
-          parts.push(`🔴 30+ Gündür Kapanmayan Aksiyonlar (${bucket.overdue.length}):`, ...bucket.overdue.map(formatItem));
-        }
-        if (bucket.missedTermin.length > 0) {
-          parts.push(`⏰ Termini Geçmiş İyileştirme Projeleri (${bucket.missedTermin.length}):`, ...bucket.missedTermin.map(formatItem));
-        }
-        if (bucket.critical.length > 0) {
-          parts.push(`🚩 Kritik Öneme Sahip Açık Maddeler (${bucket.critical.length}):`, ...bucket.critical.map(formatItem));
-        }
-        sections.push(parts.join("\n"));
-      }
-
-      const body = `Sayın ${consultant.full_name},\n\nAşağıdaki müşterilerinizde takip gerektiren maddeler bulunmaktadır:\n\n${sections.join("\n\n")}\n\nBu otomatik haftalık hatırlatma Proje Takip Raporu modülünden gönderilmiştir.`;
-      const result = await sendMail({
-        to: consultant.email,
-        subject: `Haftalık Takip Hatırlatması — ${consultant.full_name}`,
-        text: body
-      });
-      results.push({ consultant: consultant.email, success: result.success, error: result.error });
     }
 
     res.json({ success: true, sent: results.filter(r => r.success).length, results });
