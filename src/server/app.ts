@@ -1367,6 +1367,128 @@ app.post("/api/business/ptr-records/send-weekly-report", authenticateToken, asyn
   }
 });
 
+// 6g. Weekly consultant digest — Vercel Cron hits this on a schedule (see vercel.json "crons"),
+// no logged-in user involved, so it's gated by CRON_SECRET instead of authenticateToken. For
+// every customer, mails each assigned @gembapartner.com consultant (customer.primaryConsultantId
+// + customer.consultantIds — the real assignment, not a name-matching heuristic) a summary of:
+//   1. 30+ gündür kapanmayan aksiyonlar (same staleness rule as the in-app weekly report tab)
+//   2. Termini geçmiş, henüz kapanmamış iyileştirme projeleri (dueDate < today, status açık)
+//   3. Kritik öneme sahip açık maddeler (the Outlook-style red flag toggled on in the PTR table)
+// One email per consultant aggregating across all their assigned customers, so a consultant
+// covering several customers doesn't get spammed with one email per customer. Customers with
+// nothing to report are skipped entirely — no empty "all clear" emails.
+const PTR_EXCLUDED_STATUSES = ["İptal"];
+
+function parseTrDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const parts = dateStr.trim().split(".");
+  if (parts.length !== 3) return null;
+  const day = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  const year = parseInt(parts[2], 10);
+  const d = new Date(year, month, day);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+app.get("/api/cron/weekly-consultant-digest", async (req, res) => {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    res.status(503).json({ success: false, error: "CRON_SECRET ortam değişkeni tanımlı değil." });
+    return;
+  }
+  if (req.headers.authorization !== `Bearer ${cronSecret}`) {
+    res.status(401).json({ success: false, error: "Unauthorized." });
+    return;
+  }
+
+  try {
+    const allUsers = await db.getUsers();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // consultantId -> { consultant, customers: { customerName -> { overdue, missedTermin, critical } } }
+    type Bucket = { overdue: any[]; missedTermin: any[]; critical: any[] };
+    const digest = new Map<string, { consultant: User; customers: Map<string, Bucket> }>();
+
+    const organizations = await db.getOrganizations();
+    for (const org of organizations) {
+      const customers = await db.getCustomers(org.id);
+      for (const customer of customers) {
+        const consultantIds: string[] = [
+          ...(customer.primaryConsultantId ? [customer.primaryConsultantId] : []),
+          ...(customer.consultantIds || [])
+        ];
+        if (consultantIds.length === 0) continue;
+
+        const consultants = consultantIds
+          .map(id => allUsers.find(u => u.id === id))
+          .filter((u): u is User => !!u && u.email.toLowerCase().endsWith("@gembapartner.com"));
+        if (consultants.length === 0) continue;
+
+        const records = await db.getPtrRecords(org.id, customer.id);
+        const overdue = records.filter(r => {
+          if (r.status !== "Açık" && r.status !== "Devam Ediyor") return false;
+          const workD = parseTrDate(r.workDate);
+          if (!workD) return false;
+          const diffDays = Math.floor((today.getTime() - workD.getTime()) / (1000 * 60 * 60 * 24));
+          return diffDays >= 30;
+        });
+        const missedTermin = records.filter(r => {
+          if (r.status === "Kapalı" || PTR_EXCLUDED_STATUSES.includes(r.status)) return false;
+          const due = parseTrDate(r.dueDate);
+          return !!due && due.getTime() < today.getTime();
+        });
+        const critical = records.filter(r =>
+          r.flagged && r.status !== "Kapalı" && !PTR_EXCLUDED_STATUSES.includes(r.status)
+        );
+
+        if (overdue.length === 0 && missedTermin.length === 0 && critical.length === 0) continue;
+
+        const customerName = customer.companyName || "Müşteri";
+        for (const consultant of consultants) {
+          if (!digest.has(consultant.id)) {
+            digest.set(consultant.id, { consultant, customers: new Map() });
+          }
+          digest.get(consultant.id)!.customers.set(customerName, { overdue, missedTermin, critical });
+        }
+      }
+    }
+
+    const results: { consultant: string; success: boolean; error?: string }[] = [];
+    const formatItem = (r: any) => `   - ${r.workDone || r.improvementSubject || "(açıklama yok)"} — Sorumlu: ${r.responsible || "—"}, Termin: ${r.dueDate || "belirtilmemiş"}`;
+
+    for (const { consultant, customers } of digest.values()) {
+      const sections: string[] = [];
+      for (const [customerName, bucket] of customers.entries()) {
+        const parts: string[] = [`━━━ ${customerName} ━━━`];
+        if (bucket.overdue.length > 0) {
+          parts.push(`🔴 30+ Gündür Kapanmayan Aksiyonlar (${bucket.overdue.length}):`, ...bucket.overdue.map(formatItem));
+        }
+        if (bucket.missedTermin.length > 0) {
+          parts.push(`⏰ Termini Geçmiş İyileştirme Projeleri (${bucket.missedTermin.length}):`, ...bucket.missedTermin.map(formatItem));
+        }
+        if (bucket.critical.length > 0) {
+          parts.push(`🚩 Kritik Öneme Sahip Açık Maddeler (${bucket.critical.length}):`, ...bucket.critical.map(formatItem));
+        }
+        sections.push(parts.join("\n"));
+      }
+
+      const body = `Sayın ${consultant.full_name},\n\nAşağıdaki müşterilerinizde takip gerektiren maddeler bulunmaktadır:\n\n${sections.join("\n\n")}\n\nBu otomatik haftalık hatırlatma Proje Takip Raporu modülünden gönderilmiştir.`;
+      const result = await sendMail({
+        to: consultant.email,
+        subject: `Haftalık Takip Hatırlatması — ${consultant.full_name}`,
+        text: body
+      });
+      results.push({ consultant: consultant.email, success: result.success, error: result.error });
+    }
+
+    res.json({ success: true, sent: results.filter(r => r.success).length, results });
+  } catch (e: any) {
+    console.error("Failed to run weekly consultant digest", e);
+    res.status(500).json({ success: false, error: e.message || "Haftalık hatırlatma çalıştırılamadı." });
+  }
+});
+
 // 6f. 5S Audit module — ported from a legacy Power Apps app that ran this same facility-hierarchy
 // / question-bank / audit-scoring / Gemba Walk workflow for one plant. Simple entities (setup data)
 // use the generic FiveS collection CRUD in db.ts directly; the audit-scoring workflow gets its own

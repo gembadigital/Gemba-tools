@@ -9,5 +9,8 @@
     "api/index.ts": {
       "includeFiles": "assets/**"
     }
-  }
+  },
+  "crons": [
+    { "path": "/api/cron/weekly-consultant-digest", "schedule": "0 5 * * 1" }
+  ]
 }

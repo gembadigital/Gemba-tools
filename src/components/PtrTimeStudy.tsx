@@ -3,7 +3,7 @@ import {
   FileSpreadsheet, Search, PlusCircle, Trash2, Edit, Download, Upload,
   Check, X, RefreshCw, Layers, TrendingUp, AlertCircle, HelpCircle,
   Calendar, CheckCircle, Clock, Percent, DollarSign, ArrowRight, Table, BarChart2,
-  Flame, Zap, Maximize2, Minimize2,
+  Flame, Zap, Maximize2, Minimize2, Flag,
   Filter, FilePlus, Sparkles, Mail
 } from "lucide-react";
 import { useFactory } from "../context/FactoryContext";
@@ -138,6 +138,10 @@ export interface ProjectRecord {
   equivalentProduct: string;
   year: number;
   orderNo: number;
+  // Outlook-style follow-up flag: grey/inactive by default, red once toggled on. Marks the item
+  // as critical — feeds the "Kritik Öneme Sahip Açık Maddeler" section of the weekly consultant
+  // reminder email (see /api/cron/weekly-consultant-digest in server/app.ts).
+  flagged?: boolean;
 }
 
 // Statuses that must NOT count toward project progress (cancelled).
@@ -654,6 +658,10 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
       }
       return r;
     }));
+  };
+
+  const handleToggleFlag = (id: number) => {
+    setRecords(prev => prev.map(r => r.id === id ? { ...r, flagged: !r.flagged } : r));
   };
 
   const handleUpdateCompliance = (id: number, val: string) => {
@@ -2502,48 +2510,61 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
 
                     {/* Operation Action controls */}
                     <td className="p-2 text-center bg-gray-50/50">
-                      {isEditing ? (
-                        <div className="flex items-center justify-center space-x-1.5">
-                          <button
-                            onClick={handleSaveEdit}
-                            className="p-1 hover:bg-emerald-50 text-emerald-700 border border-emerald-300 rounded cursor-pointer"
-                            title="Kaydet"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setEditingRowId(null)}
-                            className="p-1 hover:bg-red-50 text-red-700 border border-red-300 rounded cursor-pointer"
-                            title="Vazgeç"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-center space-x-1">
-                          <button
-                            onClick={() => handleOpenCIWizard(item)}
-                            className="p-1 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded cursor-pointer transition-colors"
-                            title="CI Proje Kartına Aktar (Kanban P Adımı)"
-                          >
-                            <TrendingUp className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleEditClick(item)}
-                            className="p-1 text-slate-650 hover:text-emerald-700 rounded hover:bg-slate-200 cursor-pointer"
-                            title="Satırı Düzenle"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteRow(item.id)}
-                            className="p-1 text-slate-450 hover:text-red-700 rounded hover:bg-red-50 cursor-pointer"
-                            title="Satırı Temizle"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
+                      <div className="flex items-center justify-center space-x-1">
+                        <button
+                          onClick={() => handleToggleFlag(item.id)}
+                          className={`p-1 rounded cursor-pointer transition-colors ${
+                            item.flagged
+                              ? "text-red-600 hover:text-red-700 hover:bg-red-50"
+                              : "text-slate-300 hover:text-slate-500 hover:bg-slate-100"
+                          }`}
+                          title={item.flagged ? "Takipten Kaldır" : "Takibe Al (Kritik İşaretle)"}
+                        >
+                          <Flag className="w-3.5 h-3.5" fill={item.flagged ? "currentColor" : "none"} />
+                        </button>
+                        {isEditing ? (
+                          <>
+                            <button
+                              onClick={handleSaveEdit}
+                              className="p-1 hover:bg-emerald-50 text-emerald-700 border border-emerald-300 rounded cursor-pointer"
+                              title="Kaydet"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setEditingRowId(null)}
+                              className="p-1 hover:bg-red-50 text-red-700 border border-red-300 rounded cursor-pointer"
+                              title="Vazgeç"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleOpenCIWizard(item)}
+                              className="p-1 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded cursor-pointer transition-colors"
+                              title="CI Proje Kartına Aktar (Kanban P Adımı)"
+                            >
+                              <TrendingUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleEditClick(item)}
+                              className="p-1 text-slate-650 hover:text-emerald-700 rounded hover:bg-slate-200 cursor-pointer"
+                              title="Satırı Düzenle"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteRow(item.id)}
+                              className="p-1 text-slate-450 hover:text-red-700 rounded hover:bg-red-50 cursor-pointer"
+                              title="Satırı Temizle"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
 
                   </tr>

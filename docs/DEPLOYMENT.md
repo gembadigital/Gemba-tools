@@ -36,6 +36,18 @@ connector is re-authorized against the right account.
 - All app data lives in one generic table keyed by `collection` (customers, opex_assessments,
   five_s_*, etc. — see the comment block above `FIVE_S_COLLECTIONS` in `db.ts`).
 
+## Scheduled jobs — Vercel Cron
+
+- `vercel.json` → `crons`: weekly consultant digest, Monday 05:00 UTC (~08:00 Europe/Istanbul),
+  hits `/api/cron/weekly-consultant-digest` (handler in `src/server/app.ts`). Mails each customer's
+  assigned @gembapartner.com consultant(s) — `customer.primaryConsultantId` /
+  `customer.consultantIds` — a summary of 30+ day stale actions, past-due improvement projects, and
+  red-flagged critical items from that customer's Proje Takip Raporu.
+- **Requires a `CRON_SECRET` env var set in the Vercel project** (Settings → Environment Variables)
+  — the route checks `Authorization: Bearer <CRON_SECRET>`, which Vercel Cron sends automatically
+  once the var exists. Not set by this repo/agent; generate one (`openssl rand -hex 32`) and add it
+  manually. See `.env.example` for the same var for local testing.
+
 ## Local dev
 
 Local checkouts (e.g. this Claude Code workspace) do **not** have `DATABASE_URL` set by default —
