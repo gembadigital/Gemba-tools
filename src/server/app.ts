@@ -60,7 +60,7 @@ function getMailTransporter(): nodemailer.Transporter | null {
   return mailTransporter;
 }
 
-async function sendMail(options: { to: string; subject: string; text: string; attachments?: { filename: string; content: Buffer }[] }): Promise<{ success: boolean; error?: string }> {
+async function sendMail(options: { to: string | string[]; cc?: string | string[]; subject: string; text: string; attachments?: { filename: string; content: Buffer }[] }): Promise<{ success: boolean; error?: string }> {
   const transporter = getMailTransporter();
   if (!transporter) {
     return { success: false, error: "E-posta gönderimi yapılandırılmamış: sunucu ortam değişkenlerinde SMTP_HOST/SMTP_USER/SMTP_PASS eksik." };
@@ -69,6 +69,7 @@ async function sendMail(options: { to: string; subject: string; text: string; at
     await transporter.sendMail({
       from: process.env.EMAIL_FROM || "proje@gembapartner.com",
       to: options.to,
+      cc: options.cc,
       subject: options.subject,
       text: options.text,
       attachments: options.attachments
@@ -1328,9 +1329,10 @@ app.post("/api/business/ptr-records/send-weekly-report", authenticateToken, asyn
     res.status(403).json({ success: false, error: "Access Denied." });
     return;
   }
-  const { week, year, recipientEmail } = req.body;
-  if (!week || !recipientEmail) {
-    res.status(400).json({ success: false, error: "Hafta ve alıcı e-posta adresi gereklidir." });
+  const { week, to, cc } = req.body;
+  const toList: string[] = Array.isArray(to) ? to.filter(Boolean) : (to ? [to] : []);
+  if (!week || toList.length === 0) {
+    res.status(400).json({ success: false, error: "Hafta ve en az bir alıcı (proje ekibi) gereklidir." });
     return;
   }
   if (!isPtrTemplateAvailable()) {
@@ -1344,14 +1346,33 @@ app.post("/api/business/ptr-records/send-weekly-report", authenticateToken, asyn
   }
   const customer = (await db.getCustomers(user.organization_id)).find((c: any) => c.id === scope.factoryId);
   const customerName = customer?.companyName || "Müşteri";
-  const reportYear = year || records[0].year || new Date().getFullYear();
+
+  // Cc always carries the customer's assigned consultants (real assignment — primaryConsultantId
+  // + consultantIds, same as the weekly digest cron) plus a.zehir@gembapartner.com, on every send.
+  const allUsers = await db.getUsers();
+  const consultantIds: string[] = [
+    ...(customer?.primaryConsultantId ? [customer.primaryConsultantId] : []),
+    ...(customer?.consultantIds || [])
+  ];
+  const consultantEmails = consultantIds
+    .map(id => allUsers.find(u => u.id === id)?.email)
+    .filter((e): e is string => !!e);
+  const ccList = Array.from(new Set([
+    ...(Array.isArray(cc) ? cc.filter(Boolean) : (cc ? [cc] : [])),
+    ...consultantEmails,
+    "a.zehir@gembapartner.com"
+  ]));
+
+  // "Çelikel Tarım Ekipmanları San. Tic. A.Ş." -> "Çelikel", "Mazsan Makina San Tic A.Ş" -> "Mazsan"
+  const shortName = customerName.trim().split(/\s+/)[0] || customerName;
 
   try {
     const buffer = await generatePtrTemplateExcel(records, customerName);
-    const subject = `${customerName} ${reportYear}-W${week} Ziyaret Raporu`;
+    const subject = `[PTR] ${shortName} W#${week} Proje Raporu`;
     const body = `Sayın İlgililer,\n\n${week}. hafta ziyareti sırasında yapılan çalışma ve aksiyon raporu ektedir. Lütfen termin tarihlerine uyum sağlamaya özen gösteriniz.\n\nSaygılarımızla,\nGemba Partner`;
     const result = await sendMail({
-      to: recipientEmail,
+      to: toList,
+      cc: ccList,
       subject,
       text: body,
       attachments: [{ filename: buildPtrExportFilename(customerName), content: buffer }]
@@ -1445,10 +1466,9 @@ app.get("/api/cron/weekly-consultant-digest", async (req, res) => {
         if (overdue.length === 0 && missedTermin.length === 0 && critical.length === 0) continue;
 
         const customerName = customer.companyName || "Müşteri";
-        // Same fallback used elsewhere in the app (CustomerRecords.tsx) when no explicit short
-        // name exists — the real "shortName" field only ever lives client-side in workspace
-        // localStorage, never persisted to the customer record this cron job can read.
-        const shortName = customerName.substring(0, 10);
+        // "Çelikel Tarım Ekipmanları San. Tic. A.Ş." -> "Çelikel", "Mazsan Makina San Tic A.Ş" ->
+        // "Mazsan" — same first-word rule used by the "Mail Gönder" report subject.
+        const shortName = customerName.trim().split(/\s+/)[0] || customerName;
 
         const parts: string[] = [];
         if (overdue.length > 0) {

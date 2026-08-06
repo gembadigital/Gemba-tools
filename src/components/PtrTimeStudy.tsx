@@ -1049,34 +1049,37 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
   };
 
   // "Mail Gönder": sends that week's visit report (real template Excel attached) straight to the
-  // customer from proje@gembapartner.com via the backend's send-weekly-report route. Recipient
-  // defaults to the customer card's own contact emails but can be overridden freely.
+  // customer from proje@gembapartner.com via the backend's send-weekly-report route. Recipients
+  // are no longer freely chosen — To is the customer's Proje Ekibi ("member" category), Cc is its
+  // Yönetim Kadrosu ("management" category), both from the customer card's Proje Ekibi tab. The
+  // backend adds the assigned consultants + a.zehir@gembapartner.com to Cc on every send.
   const [showMailPanel, setShowMailPanel] = useState(false);
-  const [mailRecipient, setMailRecipient] = useState("");
   const [isSendingMail, setIsSendingMail] = useState(false);
 
-  const mailRecipientOptions = useMemo(() => {
-    const opts: { label: string; email: string }[] = [];
-    if (selectedCustomer?.mainContactEmail) {
-      opts.push({ label: `${selectedCustomer.mainContactPerson || "Ana İrtibat"} — ${selectedCustomer.mainContactEmail}`, email: selectedCustomer.mainContactEmail });
+  // Proje Ekibi tab persists to localStorage only (gemba_company_workspace_${customerId}), same
+  // key OpexProjectDashboard.tsx reads for team performance — no backend collection for it yet.
+  const workspaceTeamContacts = useMemo(() => {
+    const customerId = selectedCustomer?.id || "default";
+    const cached = localStorage.getItem(`gemba_company_workspace_${customerId}`);
+    if (!cached) return { to: [] as { name: string; email: string }[], cc: [] as { name: string; email: string }[] };
+    try {
+      const parsed = JSON.parse(cached);
+      const team: any[] = parsed.projectTeam || [];
+      const to = team.filter(m => m.category === "member" && m.email).map(m => ({ name: m.name, email: m.email }));
+      const cc = team.filter(m => m.category === "management" && m.email).map(m => ({ name: m.name, email: m.email }));
+      return { to, cc };
+    } catch (e) {
+      return { to: [] as { name: string; email: string }[], cc: [] as { name: string; email: string }[] };
     }
-    if (selectedCustomer?.factoryManagerEmail) {
-      opts.push({ label: `${selectedCustomer.factoryManager || "Fabrika Müdürü"} — ${selectedCustomer.factoryManagerEmail}`, email: selectedCustomer.factoryManagerEmail });
-    }
-    if (selectedCustomer?.generalManagerEmail) {
-      opts.push({ label: `${selectedCustomer.generalManager || "Genel Müdür"} — ${selectedCustomer.generalManagerEmail}`, email: selectedCustomer.generalManagerEmail });
-    }
-    return opts;
   }, [selectedCustomer]);
 
   const handleOpenMailPanel = () => {
-    setMailRecipient(mailRecipientOptions[0]?.email || "");
     setShowMailPanel(true);
   };
 
   const handleSendWeeklyReportMail = async () => {
-    if (!mailRecipient || !mailRecipient.includes("@")) {
-      showToast("Lütfen geçerli bir alıcı e-posta adresi girin.");
+    if (workspaceTeamContacts.to.length === 0) {
+      showToast("Proje ekibinde e-posta adresi tanımlı üye yok. Lütfen müşteri kartı > Proje Ekibi sekmesinden ekleyin.");
       return;
     }
     setIsSendingMail(true);
@@ -1090,15 +1093,15 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
         },
         body: JSON.stringify({
           week: activeReportWeek,
-          year: new Date().getFullYear(),
-          recipientEmail: mailRecipient
+          to: workspaceTeamContacts.to.map(c => c.email),
+          cc: workspaceTeamContacts.cc.map(c => c.email)
         })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
         throw new Error(data.error || "Rapor e-postası gönderilemedi.");
       }
-      showToast(`${activeReportWeek}. Hafta ziyaret raporu ${mailRecipient} adresine gönderildi.`);
+      showToast(`${activeReportWeek}. Hafta ziyaret raporu proje ekibine gönderildi.`);
       setShowMailPanel(false);
     } catch (e: any) {
       showToast(`Hata: ${e.message || "Rapor e-postası gönderilemedi."}`);
@@ -1962,12 +1965,12 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                   <Mail className="w-4 h-4 text-emerald-600" />
                 </button>
                 {showMailPanel && (
-                  <div className="absolute right-0 top-full mt-1.5 w-72 bg-white border border-gray-200 rounded-xl shadow-lg z-30 p-3 space-y-2.5">
+                  <div className="absolute right-0 top-full mt-1.5 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-30 p-3 space-y-2.5">
                     <p className="font-extrabold text-slate-700 text-[11px] uppercase tracking-wider">
                       Haftalık Ziyaret Raporunu Gönder
                     </p>
                     <p className="text-[10px] text-slate-500 leading-snug">
-                      proje@gembapartner.com adresinden, şablon Excel raporu ek olarak, aşağıdaki alıcıya gönderilecek.
+                      proje@gembapartner.com adresinden, şablon Excel raporu ek olarak aşağıdaki alıcılara gönderilecek.
                     </p>
                     <div className="space-y-1">
                       <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Hafta</label>
@@ -1981,25 +1984,22 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                         ))}
                       </select>
                     </div>
-                    {mailRecipientOptions.length > 0 && (
-                      <select
-                        value={mailRecipientOptions.some(o => o.email === mailRecipient) ? mailRecipient : ""}
-                        onChange={(e) => e.target.value && setMailRecipient(e.target.value)}
-                        className="w-full p-2 border border-gray-200 rounded-lg bg-slate-50 text-slate-800 font-bold text-[11px] focus:ring-1 focus:ring-emerald-500 focus:outline-none cursor-pointer"
-                      >
-                        {mailRecipientOptions.map(o => (
-                          <option key={o.email} value={o.email}>{o.label}</option>
-                        ))}
-                        <option value="">Diğer (aşağıya yazın)...</option>
-                      </select>
-                    )}
-                    <input
-                      type="email"
-                      value={mailRecipient}
-                      onChange={(e) => setMailRecipient(e.target.value)}
-                      placeholder="ornek@musteri.com"
-                      className="w-full p-2 border border-gray-200 rounded-lg bg-white text-slate-800 font-bold text-[11px] focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                    />
+                    <div className="space-y-1.5 text-[10.5px] bg-slate-50 border border-slate-150 rounded-lg p-2.5">
+                      <div>
+                        <span className="font-extrabold text-slate-500 uppercase tracking-wider block mb-0.5">Kime (Proje Ekibi):</span>
+                        {workspaceTeamContacts.to.length > 0 ? (
+                          <span className="text-slate-700 font-semibold">{workspaceTeamContacts.to.map(c => c.name || c.email).join(", ")}</span>
+                        ) : (
+                          <span className="text-rose-600 font-bold">Tanımlı üye yok — müşteri kartı &gt; Proje Ekibi</span>
+                        )}
+                      </div>
+                      <div>
+                        <span className="font-extrabold text-slate-500 uppercase tracking-wider block mb-0.5">Bilgi (Cc):</span>
+                        <span className="text-slate-700 font-semibold">
+                          {[...workspaceTeamContacts.cc.map(c => c.name || c.email), "Proje Danışmanları", "a.zehir@gembapartner.com"].join(", ")}
+                        </span>
+                      </div>
+                    </div>
                     <div className="flex justify-end space-x-2 pt-1">
                       <button
                         onClick={() => setShowMailPanel(false)}
