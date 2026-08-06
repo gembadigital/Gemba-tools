@@ -110,36 +110,56 @@ export default function CustomerRecords({
     notes: ""
   });
 
-  // Load and sync extended workspace whenever selectedCustomer changes
+  // Load and sync extended workspace whenever selectedCustomer changes. Backend-persisted
+  // (company_workspaces table via /api/business/company-workspace) — was localStorage-only
+  // before, which meant "Proje Ekibi" and the rest of this data only existed in whichever
+  // browser last edited it and was invisible to the server (Mail Gönder recipients, dashboards).
   useEffect(() => {
     if (!selectedCustomer) {
       setWorkspace(null);
       return;
     }
-
-    const storageKey = `gemba_company_workspace_${selectedCustomer.id}`;
-    const cached = localStorage.getItem(storageKey);
-
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        // Ensure properties are properly loaded
-        setWorkspace(parsed);
-      } catch (e) {
-        console.error("Error parsing cached workspace", e);
-        initializeWorkspace(selectedCustomer);
+    let cancelled = false;
+    fetch("/api/business/company-workspace", {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "x-factory-id": selectedCustomer.id
       }
-    } else {
-      initializeWorkspace(selectedCustomer);
-    }
-  }, [selectedCustomer]);
+    })
+      .then(res => res.json())
+      .then(res => {
+        if (cancelled) return;
+        if (res.success && res.data) {
+          setWorkspace(res.data);
+        } else {
+          initializeWorkspace(selectedCustomer);
+        }
+      })
+      .catch(e => {
+        console.error("Failed to load company workspace", e);
+        if (!cancelled) initializeWorkspace(selectedCustomer);
+      });
+    return () => { cancelled = true; };
+  }, [selectedCustomer, token]);
+
+  const persistWorkspace = (customerId: string, data: CompanyWorkspaceExtended) => {
+    fetch("/api/business/company-workspace", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "x-factory-id": customerId,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ workspace: data })
+    }).catch(e => console.error("Failed to save company workspace", e));
+  };
 
   const initializeWorkspace = (cust: Customer) => {
     // Check if we have hardcoded default templates (like arcelik_bolu or ford_otosan)
     const defaults = defaultWorkspaces[cust.id];
     if (defaults) {
       setWorkspace(defaults);
-      localStorage.setItem(`gemba_company_workspace_${cust.id}`, JSON.stringify(defaults));
+      persistWorkspace(cust.id, defaults);
     } else {
       // Create a new customized workspace based on customer parameters
       const template = getWorkspaceData(cust.id);
@@ -182,14 +202,14 @@ export default function CustomerRecords({
         }
       };
       setWorkspace(customized);
-      localStorage.setItem(`gemba_company_workspace_${cust.id}`, JSON.stringify(customized));
+      persistWorkspace(cust.id, customized);
     }
   };
 
   const saveWorkspaceData = (updated: CompanyWorkspaceExtended) => {
     if (!selectedCustomer) return;
     setWorkspace(updated);
-    localStorage.setItem(`gemba_company_workspace_${selectedCustomer.id}`, JSON.stringify(updated));
+    persistWorkspace(selectedCustomer.id, updated);
 
     // Sync back critical core fields to the main Customer state in App.tsx
     onUpdateCustomer({

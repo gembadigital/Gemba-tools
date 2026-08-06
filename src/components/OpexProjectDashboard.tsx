@@ -18,6 +18,9 @@ interface OpexProjectDashboardProps {
   kaizens: KaizenCard[];
   selectedCustomer: Customer;
   currentUser: any;
+  // Proje Ekibi member names (backend company_workspace, fetched once by the parent) — pre-seeds
+  // the team performance chart with registered members who have no PTR records yet.
+  projectTeamNames?: string[];
 }
 
 export default function OpexProjectDashboard({
@@ -25,7 +28,8 @@ export default function OpexProjectDashboard({
   activities,
   kaizens,
   selectedCustomer,
-  currentUser
+  currentUser,
+  projectTeamNames = []
 }: OpexProjectDashboardProps) {
   // Local active filters state
   const [filterYear, setFilterYear] = useState<string>("ALL");
@@ -269,24 +273,12 @@ export default function OpexProjectDashboard({
   // 3. Team Action Performance (Open / In Progress / Completed by responsible person)
   const teamPerformanceData = useMemo(() => {
     const respMap: { [key: string]: { open: number; inProgress: number; completed: number } } = {};
-    
-    // Pre-populate with registered Project Team members
-    const customerId = selectedCustomer?.id || "default";
-    const cachedWorkspace = localStorage.getItem(`gemba_company_workspace_${customerId}`);
-    if (cachedWorkspace) {
-      try {
-        const parsed = JSON.parse(cachedWorkspace);
-        if (parsed.projectTeam && Array.isArray(parsed.projectTeam)) {
-          parsed.projectTeam.forEach((member: any) => {
-            if (member.name) {
-              respMap[member.name.trim()] = { open: 0, inProgress: 0, completed: 0 };
-            }
-          });
-        }
-      } catch (e) {
-        // ignore
-      }
-    }
+
+    // Pre-populate with registered Project Team members (passed down from PtrTimeStudy.tsx,
+    // fetched from the backend company_workspace)
+    projectTeamNames.forEach(name => {
+      respMap[name] = { open: 0, inProgress: 0, completed: 0 };
+    });
 
     filteredData.records.forEach(r => {
       const name = r.responsible || "Atanmamış";
@@ -308,7 +300,7 @@ export default function OpexProjectDashboard({
       "Devam Ediyor": respMap[name].inProgress,
       "Kapalı": respMap[name].completed
     })).sort((a, b) => (b["Kapalı"] + b["Devam Ediyor"]) - (a["Kapalı"] + a["Devam Ediyor"]));
-  }, [filteredData.records, selectedCustomer]);
+  }, [filteredData.records, projectTeamNames]);
 
   // 4. Team Due Date Compliance % Ranking
   const teamComplianceData = useMemo(() => {

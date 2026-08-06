@@ -1123,6 +1123,34 @@ app.post("/api/business/loss-capacity-settings", authenticateToken, async (req, 
   res.json({ success: true, data: saved });
 });
 
+// Company Workspace (Proje Ekibi / Şirket Profili / Varlık Kaydı / Zaman Çizelgesi / Doküman
+// Kasası / Proje Portföyü) — one record per customer. See db.ts for why this replaced the
+// client-only localStorage version.
+app.get("/api/business/company-workspace", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  res.json({ success: true, data: await db.getCompanyWorkspace(user.organization_id, scope.factoryId) });
+});
+
+app.post("/api/business/company-workspace", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  if (!scope.factoryId) {
+    res.status(400).json({ success: false, error: "x-factory-id header is required." });
+    return;
+  }
+  const saved = await db.saveCompanyWorkspace(user.organization_id, scope.factoryId, req.body.workspace || {}, user.id);
+  res.json({ success: true, data: saved });
+});
+
 // 5d. Spaghetti Akış Sketcher module state — one record per customer (scenarios/layouts/nodes/
 // flows drawing model, editable flow-type & vertical-transfer cost coefficients, financial
 // parameters), so the whole module survives session resets per customer.

@@ -340,6 +340,26 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
   const ptrToken = localStorage.getItem("gemba_token") || "usr_arcelik_admin";
   const isInitialPtrLoad = useRef(true);
 
+  // Proje Ekibi member names (backend-persisted company_workspace) — passed down to
+  // OpexProjectDashboard so its team performance chart pre-populates registered members even
+  // before they have any PTR records of their own, without that dashboard fetching independently.
+  const [projectTeamNames, setProjectTeamNames] = useState<string[]>([]);
+  useEffect(() => {
+    const customerId = selectedCustomer?.id || "default";
+    fetch("/api/business/company-workspace", {
+      headers: { "Authorization": `Bearer ${ptrToken}`, "x-factory-id": customerId }
+    })
+      .then(res => res.json())
+      .then(res => {
+        const team: any[] = (res.success && res.data?.projectTeam) || [];
+        setProjectTeamNames(team.map(m => m.name?.trim()).filter(Boolean));
+      })
+      .catch(err => {
+        console.error("Failed to load company workspace team", err);
+        setProjectTeamNames([]);
+      });
+  }, [selectedCustomer, ptrToken]);
+
   // Load records for active customer from the backend. If none exist yet, show the illustrative
   // seed data locally (not persisted) so the module isn't empty on first use for a new customer.
   useEffect(() => {
@@ -1056,25 +1076,31 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
   const [showMailPanel, setShowMailPanel] = useState(false);
   const [isSendingMail, setIsSendingMail] = useState(false);
 
-  // Proje Ekibi tab persists to localStorage only (gemba_company_workspace_${customerId}), same
-  // key OpexProjectDashboard.tsx reads for team performance — no backend collection for it yet.
-  const workspaceTeamContacts = useMemo(() => {
-    const customerId = selectedCustomer?.id || "default";
-    const cached = localStorage.getItem(`gemba_company_workspace_${customerId}`);
-    if (!cached) return { to: [] as { name: string; email: string }[], cc: [] as { name: string; email: string }[] };
-    try {
-      const parsed = JSON.parse(cached);
-      const team: any[] = parsed.projectTeam || [];
-      const to = team.filter(m => m.category === "member" && m.email).map(m => ({ name: m.name, email: m.email }));
-      const cc = team.filter(m => m.category === "management" && m.email).map(m => ({ name: m.name, email: m.email }));
-      return { to, cc };
-    } catch (e) {
-      return { to: [] as { name: string; email: string }[], cc: [] as { name: string; email: string }[] };
-    }
-  }, [selectedCustomer]);
+  // Proje Ekibi tab — backend-persisted (company_workspaces table), fetched fresh whenever the
+  // mail panel opens so the To/Cc list always reflects the customer card's current team.
+  const [workspaceTeamContacts, setWorkspaceTeamContacts] = useState<{
+    to: { name: string; email: string }[];
+    cc: { name: string; email: string }[];
+  }>({ to: [], cc: [] });
 
   const handleOpenMailPanel = () => {
     setShowMailPanel(true);
+    const customerId = selectedCustomer?.id || "default";
+    fetch("/api/business/company-workspace", {
+      headers: { "Authorization": `Bearer ${ptrToken}`, "x-factory-id": customerId }
+    })
+      .then(res => res.json())
+      .then(res => {
+        const team: any[] = (res.success && res.data?.projectTeam) || [];
+        setWorkspaceTeamContacts({
+          to: team.filter(m => m.category === "member" && m.email).map(m => ({ name: m.name, email: m.email })),
+          cc: team.filter(m => m.category === "management" && m.email).map(m => ({ name: m.name, email: m.email }))
+        });
+      })
+      .catch(e => {
+        console.error("Failed to load company workspace", e);
+        setWorkspaceTeamContacts({ to: [], cc: [] });
+      });
   };
 
   const handleSendWeeklyReportMail = async () => {
@@ -2718,6 +2744,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
           kaizens={kaizens || []}
           selectedCustomer={selectedCustomer}
           currentUser={currentUser}
+          projectTeamNames={projectTeamNames}
         />
       )}
 

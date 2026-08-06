@@ -52,8 +52,8 @@ export interface YamazumiStudy {
 
 // Every loosely-typed business collection (customers, processes, activities, segments, kaizens,
 // vsm_projects, opex_assessments, yamazumi_studies, copq_snapshots, loss_capacity_settings,
-// spaghetti_flow_settings, time_studies, smed_projects, ptr_records, five_s_* x10,
-// gemba_walk_findings) lives as one row per record in a single generic Postgres table (see
+// spaghetti_flow_settings, time_studies, smed_projects, ptr_records, company_workspaces,
+// five_s_* x10, gemba_walk_findings) lives as one row per record in a single generic Postgres table (see
 // supabase/schema.sql), keyed by `collection` — the same pattern this file already used for just
 // the 5S module (FIVE_S_COLLECTIONS below), now generalized to the whole app. `data` holds the
 // full record exactly as the app already shapes it (id/organization_id/factory_id duplicated
@@ -862,6 +862,32 @@ export class GeminiDb {
     };
     await this.upsertMerged("loss_capacity_settings", orgId, record);
     return record;
+  }
+
+  // Company Workspace (Proje Ekibi, Şirket Profili, Varlık Kaydı, Zaman Çizelgesi, Doküman
+  // Kasası, Proje Portföyü tabs on the customer card) — one record per customer/factory, was
+  // previously client-only (gemba_company_workspace_${customerId} localStorage), so it only
+  // existed in whichever browser last edited it and nothing server-side (Mail Gönder recipients,
+  // dashboards) could read it reliably.
+  public async getCompanyWorkspace(orgId: string, factoryId?: string): Promise<any | null> {
+    const all = await this.listCollection("company_workspaces", orgId);
+    const found = all.find(r => !factoryId || r.factory_id === factoryId);
+    return found ? found.workspace : null;
+  }
+
+  public async saveCompanyWorkspace(orgId: string, factoryId: string, workspace: Record<string, any>, userId: string): Promise<any> {
+    const all = await this.listCollection("company_workspaces", orgId);
+    const existing = all.find(r => r.factory_id === factoryId);
+    const record = {
+      id: existing ? existing.id : randomId("workspace"),
+      organization_id: orgId,
+      factory_id: factoryId,
+      workspace,
+      updated_by: userId,
+      updated_at: new Date().toISOString()
+    };
+    await this.upsertMerged("company_workspaces", orgId, record);
+    return record.workspace;
   }
 
   // Spaghetti Akış Sketcher module state — one record per customer/factory (not a list): the
