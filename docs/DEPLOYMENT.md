@@ -36,6 +36,20 @@ connector is re-authorized against the right account.
 - All app data lives in one generic table keyed by `collection` (customers, opex_assessments,
   five_s_*, etc. — see the comment block above `FIVE_S_COLLECTIONS` in `db.ts`).
 
+## Outgoing mail — Microsoft Graph
+
+- All app-sent email (PTR "Mail Gönder", the weekly consultant digest cron, 5S/Gemba Walk report
+  emails, and the generic `POST /api/send-email`) goes through Microsoft Graph's
+  `POST /users/{MAIL_FROM}/sendMail` using OAuth2 **client credentials** (app-only, no user
+  sign-in) — see `sendMail()`/`getGraphAccessToken()` in `src/server/app.ts`. This replaced an
+  earlier SMTP/nodemailer transport that was built but never actually configured in production.
+- Requires an Azure AD app registration with **application** permission `Mail.Send`
+  (admin-consented) scoped to send as the `MAIL_FROM` mailbox, plus these Vercel env vars:
+  `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `MAIL_FROM`. Set up by the user
+  directly in Azure/Vercel, not by this repo/agent.
+- The access token is cached in memory only (per server instance) and is never persisted to Neon
+  or logged anywhere; only HTTP status codes and Graph's own error bodies get logged on failure.
+
 ## Scheduled jobs — Vercel Cron
 
 - `vercel.json` → `crons`: weekly consultant digest, Monday 05:00 UTC (~08:00 Europe/Istanbul),

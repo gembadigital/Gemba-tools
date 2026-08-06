@@ -2,7 +2,6 @@ import express from "express";
 import { GoogleGenAI } from "@google/genai";
 import { db, hashPassword, verifyPassword, needsRehash, User } from "./db.js";
 import jwt from "jsonwebtoken";
-import nodemailer from "nodemailer";
 import { generatePtrTemplateExcel, isPtrTemplateAvailable, buildPtrExportFilename, PtrTemplateRecord } from "./ptrExcelTemplate.js";
 import * as XLSX from "xlsx";
 
@@ -40,44 +39,102 @@ function getGeminiClient(): GoogleGenAI {
   return aiClient;
 }
 
-// Real outgoing mail (SMTP). Unlike GEMINI_API_KEY/JWT_SECRET this is optional at startup — the
-// server still runs without it, and sendMail() below returns a clear, honest error per request
-// instead of silently no-oping or claiming success, matching how the rest of this app handles
-// features that need external credentials the operator hasn't configured yet.
-let mailTransporter: nodemailer.Transporter | null = null;
-function getMailTransporter(): nodemailer.Transporter | null {
-  if (mailTransporter) return mailTransporter;
-  const host = process.env.SMTP_HOST;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  if (!host || !user || !pass) return null;
-  mailTransporter = nodemailer.createTransport({
-    host,
-    port: Number(process.env.SMTP_PORT) || 587,
-    secure: process.env.SMTP_SECURE === "true",
-    auth: { user, pass }
+// Real outgoing mail via Microsoft Graph (OAuth2 client credentials flow — app-only, no user
+// sign-in). Replaces the previous SMTP/nodemailer transport, which was never actually configured
+// in production (SMTP_HOST/USER/PASS were never set). Unlike GEMINI_API_KEY/JWT_SECRET this is
+// optional at startup — the server still runs without it, and sendMail() below returns a clear,
+// honest error per request instead of silently no-oping or claiming success.
+//
+// Security notes:
+// - AZURE_CLIENT_SECRET is read only from process.env, never logged, never sent to the client.
+// - The access token is cached in memory only (module-level variable) — never persisted to the
+//   database or any other store — and is never logged either.
+// - Error logging below only ever includes HTTP status codes and Graph's own error response body
+//   (which describes what went wrong, not credentials), so secrets/tokens can't leak into logs.
+let graphTokenCache: { accessToken: string; expiresAt: number } | null = null;
+
+async function getGraphAccessToken(): Promise<string> {
+  // 60s safety margin before the real expiry so a token doesn't expire mid-request.
+  if (graphTokenCache && graphTokenCache.expiresAt > Date.now() + 60_000) {
+    return graphTokenCache.accessToken;
+  }
+  const tenantId = process.env.AZURE_TENANT_ID;
+  const clientId = process.env.AZURE_CLIENT_ID;
+  const clientSecret = process.env.AZURE_CLIENT_SECRET;
+  if (!tenantId || !clientId || !clientSecret) {
+    throw new Error("Microsoft Graph yapılandırılmamış: AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET eksik.");
+  }
+  const params = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    scope: "https://graph.microsoft.com/.default",
+    grant_type: "client_credentials"
   });
-  return mailTransporter;
+  const tokenRes = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString()
+  });
+  if (!tokenRes.ok) {
+    const errBody = await tokenRes.text().catch(() => "");
+    console.error("Failed to acquire Microsoft Graph access token", tokenRes.status, errBody);
+    throw new Error("Microsoft Graph kimlik doğrulaması başarısız oldu.");
+  }
+  const data = await tokenRes.json() as { access_token: string; expires_in: number };
+  graphTokenCache = { accessToken: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
+  return graphTokenCache.accessToken;
 }
 
-async function sendMail(options: { to: string | string[]; cc?: string | string[]; subject: string; text: string; attachments?: { filename: string; content: Buffer }[] }): Promise<{ success: boolean; error?: string }> {
-  const transporter = getMailTransporter();
-  if (!transporter) {
-    return { success: false, error: "E-posta gönderimi yapılandırılmamış: sunucu ortam değişkenlerinde SMTP_HOST/SMTP_USER/SMTP_PASS eksik." };
-  }
+function toGraphRecipients(addr?: string | string[]): { emailAddress: { address: string } }[] {
+  if (!addr) return [];
+  return (Array.isArray(addr) ? addr : [addr]).filter(Boolean).map(address => ({ emailAddress: { address } }));
+}
+
+async function sendMail(options: {
+  to: string | string[];
+  cc?: string | string[];
+  subject: string;
+  text?: string;
+  html?: string;
+  attachments?: { filename: string; content: Buffer }[];
+}): Promise<{ success: boolean; error?: string }> {
+  const mailFrom = process.env.MAIL_FROM || process.env.EMAIL_FROM || "proje@gembapartner.com";
   try {
-    await transporter.sendMail({
-      from: process.env.EMAIL_FROM || "proje@gembapartner.com",
-      to: options.to,
-      cc: options.cc,
+    const accessToken = await getGraphAccessToken();
+    const message: Record<string, any> = {
       subject: options.subject,
-      text: options.text,
-      attachments: options.attachments
+      body: {
+        contentType: options.html ? "HTML" : "Text",
+        content: options.html || options.text || ""
+      },
+      toRecipients: toGraphRecipients(options.to),
+      ccRecipients: toGraphRecipients(options.cc)
+    };
+    if (options.attachments && options.attachments.length > 0) {
+      message.attachments = options.attachments.map(a => ({
+        "@odata.type": "#microsoft.graph.fileAttachment",
+        name: a.filename,
+        contentBytes: a.content.toString("base64")
+      }));
+    }
+
+    const sendRes = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(mailFrom)}/sendMail`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ message, saveToSentItems: true })
     });
+    if (!sendRes.ok) {
+      const errBody = await sendRes.text().catch(() => "");
+      console.error("Microsoft Graph sendMail failed", sendRes.status, errBody);
+      return { success: false, error: `E-posta gönderilemedi (Graph API hatası, durum ${sendRes.status}).` };
+    }
     return { success: true };
   } catch (e: any) {
-    console.error("Failed to send email", e);
-    return { success: false, error: e.message || "E-posta gönderilemedi." };
+    console.error("Failed to send email via Microsoft Graph", e?.message || e);
+    return { success: false, error: e?.message || "E-posta gönderilemedi." };
   }
 }
 
@@ -164,6 +221,24 @@ async function authenticateToken(req: express.Request, res: express.Response, ne
 
   next();
 }
+
+// Generic Microsoft Graph mail-send endpoint. Requires an authenticated app session — this can
+// send mail as MAIL_FROM (proje@gembapartner.com), so leaving it unauthenticated would make it an
+// open spam relay; every other route in this app is authenticateToken-gated the same way.
+app.post("/api/send-email", authenticateToken, async (req, res) => {
+  const { to, subject, html } = req.body;
+  const toList: string[] = Array.isArray(to) ? to.filter(Boolean) : (to ? [to] : []);
+  if (toList.length === 0 || !subject || !html) {
+    res.status(400).json({ success: false, error: "to, subject ve html alanları gereklidir." });
+    return;
+  }
+  const result = await sendMail({ to: toList, subject, html });
+  if (!result.success) {
+    res.status(502).json(result);
+    return;
+  }
+  res.status(200).json({ success: true });
+});
 
 // AUTH API ENDPOINTS
 app.post("/api/auth/register", async (req, res) => {
