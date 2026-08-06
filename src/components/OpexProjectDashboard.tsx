@@ -4,7 +4,7 @@ import {
   PieChart, Pie, Cell, LineChart, Line, AreaChart, Area, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar
 } from "recharts";
 import { 
-  Layers, CheckCircle, AlertCircle, Clock, TrendingUp, Award, Users, BookOpen, DollarSign,
+  Layers, AlertCircle, Clock, TrendingUp, Award, Users, BookOpen, DollarSign,
   FileSpreadsheet, Printer, RefreshCw, Sparkles, SlidersHorizontal, ArrowUpRight, ArrowDownRight,
   Calendar, Building, Landmark, Percent, Zap, Shield, Check
 } from "lucide-react";
@@ -21,6 +21,55 @@ interface OpexProjectDashboardProps {
   // Proje Ekibi member names (backend company_workspace, fetched once by the parent) — pre-seeds
   // the team performance chart with registered members who have no PTR records yet.
   projectTeamNames?: string[];
+}
+
+// Modern semicircle speedometer gauge (used for Aksiyon Başarı Oranı / Termine Uyum Oranı) —
+// gradient progress arc over a flat track, color zone driven by value (red < 40, amber < 70,
+// emerald >= 70), tuned for a compact KPI card rather than a full dashboard widget.
+function GaugeChart({ value, label, sublabel, size = 168 }: { value: number; label: string; sublabel?: string; size?: number }) {
+  const clamped = Math.max(0, Math.min(100, Math.round(value)));
+  const r = size / 2 - 12;
+  const cx = size / 2;
+  const cy = size / 2;
+  const circumference = Math.PI * r;
+  const progressLen = (clamped / 100) * circumference;
+  const tone = clamped < 40
+    ? { from: "#fb7185", to: "#e11d48", text: "text-rose-600" }
+    : clamped < 70
+    ? { from: "#fbbf24", to: "#d97706", text: "text-amber-600" }
+    : { from: "#34d399", to: "#059669", text: "text-emerald-600" };
+  const gid = `gauge-${label.replace(/[^a-zA-Z0-9]/g, "")}`;
+  const arcPath = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`;
+
+  return (
+    <div className="flex flex-col items-center">
+      <svg width={size} height={cy + 4} viewBox={`0 0 ${size} ${cy + 4}`} className="overflow-visible">
+        <defs>
+          <linearGradient id={gid} x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor={tone.from} />
+            <stop offset="100%" stopColor={tone.to} />
+          </linearGradient>
+        </defs>
+        <path d={arcPath} fill="none" stroke="#f1f5f9" strokeWidth="11" strokeLinecap="round" />
+        <path
+          d={arcPath}
+          fill="none"
+          stroke={`url(#${gid})`}
+          strokeWidth="11"
+          strokeLinecap="round"
+          strokeDasharray={`${progressLen} ${circumference}`}
+          style={{ transition: "stroke-dasharray 0.7s cubic-bezier(0.4,0,0.2,1)", filter: `drop-shadow(0 2px 5px ${tone.from}70)` }}
+        />
+      </svg>
+      <div className="-mt-2 text-center">
+        <span className={`text-[28px] font-black font-mono tracking-tight ${tone.text}`}>%{clamped}</span>
+      </div>
+      <div className="text-center mt-0.5">
+        <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">{label}</div>
+        {sublabel && <div className="text-[9px] text-slate-400 font-semibold mt-0.5">{sublabel}</div>}
+      </div>
+    </div>
+  );
 }
 
 export default function OpexProjectDashboard({
@@ -668,36 +717,21 @@ export default function OpexProjectDashboard({
           <AlertCircle className="absolute right-3 top-3 w-8 h-8 text-slate-100 opacity-60 pointer-events-none" />
         </div>
 
-        {/* KPI 3: Action Performance */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-xs flex flex-col justify-between relative overflow-hidden">
-          <div className="space-y-1 z-10">
-            <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">Aksiyon Başarı Oranı</span>
-            <span className="text-3xl font-mono font-black text-emerald-600">%{metrics.actionPerformance}</span>
-            <div className="text-[10px] text-emerald-600 font-bold mt-1">Kapalı / Toplam Aksiyon</div>
-          </div>
-          <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-3">
-            <div className="bg-emerald-500 h-1.5 rounded" style={{ width: `${metrics.actionPerformance}%` }} />
-          </div>
-          <CheckCircle className="absolute right-3 top-3 w-8 h-8 text-emerald-100 opacity-60 pointer-events-none" />
+        {/* KPI 3: Action Performance — speedometer gauge */}
+        <div className="bg-gradient-to-b from-white to-slate-50/60 border border-gray-200 rounded-2xl p-3 shadow-xs flex flex-col items-center justify-center relative overflow-hidden">
+          <GaugeChart value={metrics.actionPerformance} label="Aksiyon Başarı Oranı" sublabel="Kapalı / Toplam Aksiyon" />
         </div>
 
-        {/* KPI 4: Due Date Compliance */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-xs flex flex-col justify-between relative overflow-hidden">
-          <div className="space-y-1 z-10">
-            <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">Termine Uyum Oranı</span>
-            {metrics.dueDateCompliance !== null ? (
-              <span className={`${metrics.dueDateCompliance >= 80 ? "text-emerald-600" : "text-amber-500"} text-3xl font-mono font-black`}>
-                %{metrics.dueDateCompliance}
-              </span>
-            ) : (
-              <span className="text-lg text-slate-400 font-bold">Henüz kapatılan aksiyon yok</span>
-            )}
-            <div className="text-[9.5px] text-slate-500 font-semibold mt-1">Zamanında / Tamamlanan</div>
-          </div>
-          <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-3">
-            <div className={`${(metrics.dueDateCompliance ?? 0) >= 80 ? "bg-emerald-500" : "bg-amber-500"} h-1.5 rounded`} style={{ width: `${metrics.dueDateCompliance ?? 0}%` }} />
-          </div>
-          <Clock className="absolute right-3 top-3 w-8 h-8 text-amber-100 opacity-65 pointer-events-none" />
+        {/* KPI 4: Due Date Compliance — speedometer gauge */}
+        <div className="bg-gradient-to-b from-white to-slate-50/60 border border-gray-200 rounded-2xl p-3 shadow-xs flex flex-col items-center justify-center relative overflow-hidden">
+          {metrics.dueDateCompliance !== null ? (
+            <GaugeChart value={metrics.dueDateCompliance} label="Termine Uyum Oranı" sublabel="Zamanında / Tamamlanan" />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-[92px] space-y-1.5">
+              <Clock className="w-7 h-7 text-slate-200" />
+              <span className="text-[11px] text-slate-400 font-bold text-center px-2">Henüz kapatılan aksiyon yok</span>
+            </div>
+          )}
         </div>
 
         {/* KPI 5: Verified Kaizen Savings */}
