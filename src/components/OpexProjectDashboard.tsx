@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo } from "react";
 import { 
   BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, AreaChart, Area, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar
@@ -9,6 +9,8 @@ import {
   Calendar, Building, Landmark, Percent, Zap, Shield, Check
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 import { Customer, GanttActivity, KaizenCard } from "../types";
 import { ProjectRecord, EXCLUDED_STATUSES } from "./PtrTimeStudy";
 
@@ -85,8 +87,6 @@ export default function OpexProjectDashboard({
   const [filterMonth, setFilterMonth] = useState<string>("ALL");
   const [filterDepartment, setFilterDepartment] = useState<string>("ALL");
   const [filterConsultant, setFilterConsultant] = useState<string>("ALL");
-
-  const printRef = useRef<HTMLDivElement>(null);
 
   // Real, user-editable investment input for ROI/payback — was a hardcoded ₺85.000/340%/3.5 ay,
   // presented to management as if measured. No investment tracking exists elsewhere in PTR, so
@@ -531,16 +531,159 @@ export default function OpexProjectDashboard({
     XLSX.writeFile(wb, `OPEX_PowerBI_SteeringCommittee_Report_${customerName}.xlsx`);
   };
 
-  // Printing trigger
-  const handlePrintReport = () => {
-    window.print();
+  // jsPDF's built-in standard fonts (Helvetica etc.) only support WinAnsi/Latin-1 — İ, ı, Ş, ş,
+  // Ğ, ğ aren't in that set and render as garbled digits/symbols (Ç/ç/Ö/ö/Ü/ü are fine, they're
+  // valid Latin-1). Transliterate just those five letters for anything drawn into the PDF rather
+  // than embedding a custom Unicode font just for this export.
+  const pdfSafe = (s: string): string => String(s)
+    .replace(/İ/g, "I").replace(/ı/g, "i")
+    .replace(/Ş/g, "S").replace(/ş/g, "s")
+    .replace(/Ğ/g, "G").replace(/ğ/g, "g");
+
+  // Real landscape "Power BI style" PDF report — built with jsPDF/autoTable directly (KPI cards,
+  // section tables) instead of window.print()'ing the live web page, which produced a portrait,
+  // web-styled printout rather than something that reads as an actual report document.
+  const handleExportDashboardPdf = () => {
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginX = 12;
+    const customerName = selectedCustomer?.companyName || "OPEX Tesis";
+
+    // Header banner
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, pageWidth, 26, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text(pdfSafe("OPEX PROJE TAKİP RAPORU"), marginX, 12);
+    doc.setFont("Helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text(pdfSafe(customerName), marginX, 19);
+    doc.setFontSize(8);
+    const monthLabel = filterMonth !== "ALL" ? monthsList.find(m => m.value === filterMonth)?.label : null;
+    doc.text(
+      pdfSafe(`Dönem: ${filterYear === "ALL" ? "Tüm Yıllar" : filterYear}${monthLabel ? " / " + monthLabel : ""}  •  Oluşturma: ${new Date().toLocaleDateString("tr-TR")}`),
+      pageWidth - marginX, 12, { align: "right" }
+    );
+    doc.text(
+      pdfSafe(`Bölüm: ${filterDepartment === "ALL" ? "Tümü" : filterDepartment}  •  Sorumlu: ${filterConsultant === "ALL" ? "Tümü" : filterConsultant}`),
+      pageWidth - marginX, 19, { align: "right" }
+    );
+
+    let y = 34;
+
+    // KPI cards row
+    const kpis: { label: string; value: string; color: [number, number, number] }[] = [
+      { label: "PROJE İLERLEME", value: metrics.projectProgress !== null ? `%${metrics.projectProgress}` : "—", color: [79, 70, 229] },
+      { label: "TOPLAM AKSİYON", value: `${metrics.totalActions}`, color: [51, 65, 85] },
+      { label: "AKSİYON BAŞARISI", value: `%${metrics.actionPerformance}`, color: metrics.actionPerformance >= 70 ? [5, 150, 105] : metrics.actionPerformance >= 40 ? [217, 119, 6] : [225, 29, 72] },
+      { label: "TERMİNE UYUM", value: metrics.dueDateCompliance !== null ? `%${metrics.dueDateCompliance}` : "—", color: (metrics.dueDateCompliance ?? 0) >= 70 ? [5, 150, 105] : [217, 119, 6] },
+      { label: "DOĞRULANMIŞ KAZANÇ", value: `${currencySymbol}${metrics.verifiedKaizenSavings.toLocaleString("tr-TR")}`, color: [6, 95, 70] },
+      { label: "EĞİTİM (ADAM-SAAT)", value: `${metrics.trainingSessions} Seans / ${metrics.totalTrainingManHours} sa`, color: [67, 56, 202] }
+    ];
+    const kpiGap = 4;
+    const kpiWidth = (pageWidth - marginX * 2 - kpiGap * (kpis.length - 1)) / kpis.length;
+    const kpiHeight = 22;
+    kpis.forEach((kpi, i) => {
+      const x = marginX + i * (kpiWidth + kpiGap);
+      doc.setFillColor(kpi.color[0], kpi.color[1], kpi.color[2]);
+      doc.roundedRect(x, y, kpiWidth, kpiHeight, 2, 2, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(6.5);
+      doc.setFont("Helvetica", "bold");
+      doc.text(pdfSafe(kpi.label), x + 3, y + 7, { maxWidth: kpiWidth - 6 });
+      doc.setFontSize(13);
+      doc.text(pdfSafe(kpi.value), x + 3, y + 16, { maxWidth: kpiWidth - 6 });
+    });
+    y += kpiHeight + 10;
+
+    doc.setTextColor(15, 23, 42);
+
+    // Two-panel row: Aksiyon Durum Dağılımı (left) + Yalın Dönüşüm Konularına Göre Dağılım (right)
+    const colWidth = (pageWidth - marginX * 2 - 8) / 2;
+    doc.setFontSize(10);
+    doc.setFont("Helvetica", "bold");
+    doc.text(pdfSafe("AKSİYON DURUM DAĞILIMI"), marginX, y);
+    doc.text(pdfSafe("YALIN DÖNÜŞÜM KONULARINA GÖRE DAĞILIM"), marginX + colWidth + 8, y);
+
+    autoTable(doc, {
+      head: [[pdfSafe("Durum"), pdfSafe("Adet")]],
+      body: actionStatusData.map(d => [pdfSafe(d.name), d.value.toString()]),
+      startY: y + 3,
+      margin: { left: marginX },
+      tableWidth: colWidth,
+      theme: "striped",
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [51, 65, 85] }
+    });
+    const leftTableEndY = (doc as any).lastAutoTable.finalY;
+
+    autoTable(doc, {
+      head: [[pdfSafe("Konu"), pdfSafe("Adet")]],
+      body: improvementDistributionData.slice(0, 8).map(d => [pdfSafe(d.name), d.value.toString()]),
+      startY: y + 3,
+      margin: { left: marginX + colWidth + 8 },
+      tableWidth: colWidth,
+      theme: "striped",
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [51, 65, 85] }
+    });
+    const rightTableEndY = (doc as any).lastAutoTable.finalY;
+    y = Math.max(leftTableEndY, rightTableEndY) + 10;
+
+    // Ekip Aksiyon Performansı
+    doc.setFontSize(10);
+    doc.text(pdfSafe("EKİP AKSİYON PERFORMANSI"), marginX, y);
+    autoTable(doc, {
+      head: [[pdfSafe("Sorumlu"), pdfSafe("Açık"), pdfSafe("Devam Ediyor"), pdfSafe("Kapalı")]],
+      body: teamPerformanceData.map(t => [pdfSafe(t.name), t["Açık"].toString(), t["Devam Ediyor"].toString(), t["Kapalı"].toString()]),
+      startY: y + 3,
+      margin: { left: marginX, right: marginX },
+      theme: "striped",
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [51, 65, 85] }
+    });
+    y = (doc as any).lastAutoTable.finalY + 10;
+
+    if (y > pageHeight - 40) {
+      doc.addPage();
+      y = 16;
+    }
+
+    // Eğitim Özeti
+    if (trainingTopicData.length > 0) {
+      doc.setFontSize(10);
+      doc.text(pdfSafe("EĞİTİM ÖZETİ"), marginX, y);
+      autoTable(doc, {
+        head: [[pdfSafe("Konu"), pdfSafe("Seans Sayısı"), pdfSafe("Adam-Saat")]],
+        body: trainingTopicData.map(t => [pdfSafe(t.name), t["Eğitim Seans Sayısı"].toString(), t["Adam-Saat Eğitim"].toString()]),
+        startY: y + 3,
+        margin: { left: marginX, right: marginX },
+        theme: "striped",
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: [67, 56, 202] }
+      });
+      y = (doc as any).lastAutoTable.finalY + 10;
+    }
+
+    // Footer — page numbers on every page
+    const pageCount = doc.getNumberOfPages();
+    for (let p = 1; p <= pageCount; p++) {
+      doc.setPage(p);
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text(pdfSafe(`Gemba Partner — OPEX Proje Takip Raporu | Sayfa ${p}/${pageCount}`), pageWidth / 2, pageHeight - 6, { align: "center" });
+    }
+
+    doc.save(`OPEX_Dashboard_Raporu_${customerName.replace(/\s+/g, "_")}.pdf`);
   };
 
   return (
-    <div className="space-y-6" ref={printRef}>
+    <div className="space-y-6">
       
       {/* ACTION HEADER BAR */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white p-4.5 rounded-2xl border border-slate-200 shadow-xs print:hidden">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white p-4.5 rounded-2xl border border-slate-200 shadow-xs">
         <div>
           <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center">
             <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 mr-2 animate-pulse" />
@@ -559,17 +702,17 @@ export default function OpexProjectDashboard({
             <span>Excel'e Çoklu Tab Raporu Çıkar</span>
           </button>
           <button
-            onClick={handlePrintReport}
+            onClick={handleExportDashboardPdf}
             className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer"
           >
             <Printer className="w-4 h-4 text-slate-300" />
-            <span>PDF / Sunum Raporu Yazdır</span>
+            <span>PDF Rapor İndir (Yatay)</span>
           </button>
         </div>
       </div>
 
       {/* FILTER PANEL */}
-      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3 shadow-inner print:hidden">
+      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3 shadow-inner">
         <div className="flex items-center space-x-2 text-slate-700 pb-1.5 border-b border-slate-200">
           <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
           <span className="text-xs font-black uppercase tracking-wider">Gelişmiş Çok Kriterli Süzgeçler (Dinamik Power BI Filtreleri)</span>
@@ -657,24 +800,6 @@ export default function OpexProjectDashboard({
               Tüm Filtreleri Temizle
             </button>
           )}
-        </div>
-      </div>
-
-      {/* PRINT BANNER - ONLY VISIBLE DURING PRINT/PDF EXPORT */}
-      <div className="hidden print:block border-b-2 border-slate-800 pb-4 mb-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <div className="flex items-center space-x-2">
-              <Award className="w-7 h-7 text-indigo-700" />
-              <span className="text-xl font-black text-slate-900 tracking-wider">OPEX EXECUTIVE STEERING REPORT</span>
-            </div>
-            <p className="text-xs text-slate-600 font-bold">Yönetim Kurulu & Yürütme Komitesi Proje Durum Sunumu</p>
-          </div>
-          <div className="text-right text-xs text-slate-650 space-y-0.5">
-            <div><strong>Müşteri:</strong> {selectedCustomer?.companyName || "OPEX Müşteri Tesisleri"}</div>
-            <div><strong>Proje:</strong> {(selectedCustomer as any)?.projectName || "Yalın Dönüşüm & Olgunluk Projesi"}</div>
-            <div><strong>Oluşturma Tarihi:</strong> {new Date().toLocaleDateString("tr-TR")}</div>
-          </div>
         </div>
       </div>
 
