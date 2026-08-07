@@ -745,6 +745,28 @@ export default function MasterPlanGantt({
     });
   };
 
+  // Mouse drag-to-reorder via the Sıra No badge (native HTML5 drag-and-drop — no extra
+  // dependency), alongside the Up/Down buttons above. Same renumber-and-save logic as
+  // handleMoveActivity, just for an arbitrary distance instead of a single adjacent swap.
+  const [draggingActivityId, setDraggingActivityId] = useState<string | null>(null);
+  const [dragOverActivityId, setDragOverActivityId] = useState<string | null>(null);
+
+  const handleReorderActivity = (draggedId: string, targetId: string) => {
+    if (draggedId === targetId) return;
+    const listCopy = [...filteredActivities];
+    const fromIdx = listCopy.findIndex(a => a.id === draggedId);
+    const toIdx = listCopy.findIndex(a => a.id === targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const [item] = listCopy.splice(fromIdx, 1);
+    listCopy.splice(toIdx, 0, item);
+    listCopy.forEach((act, idx) => {
+      onUpdateActivityLocal({
+        ...act,
+        activityNo: String(idx + 1).padStart(2, "0")
+      });
+    });
+  };
+
   // Precise week shifting arrows
   const handleShiftWeek = (act: any, type: 'planned' | 'actual', edge: 'start' | 'finish', amount: number) => {
     const updated = { ...act };
@@ -1739,12 +1761,30 @@ export default function MasterPlanGantt({
                   else if (act.status === "In Progress") actualColor = "bg-orange-500 shadow-xs shadow-orange-500/10";
                   else if (act.status === "Delayed") actualColor = "bg-red-500 shadow-xs shadow-red-500/10";
 
+                  const isDragOverRow = dragOverActivityId === act.id && draggingActivityId !== act.id;
+
                   return (
-                    <div key={act.id} className="grid grid-cols-12 py-3 items-center group hover:bg-slate-50/40 transition-colors">
-                      
+                    <div
+                      key={act.id}
+                      className={`grid grid-cols-12 py-3 items-center group hover:bg-slate-50/40 transition-colors ${
+                        draggingActivityId === act.id ? "opacity-40" : ""
+                      } ${isDragOverRow ? "border-t-2 border-emerald-500" : ""}`}
+                      onDragOver={(e) => {
+                        if (!draggingActivityId) return;
+                        e.preventDefault();
+                        if (dragOverActivityId !== act.id) setDragOverActivityId(act.id);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (draggingActivityId) handleReorderActivity(draggingActivityId, act.id);
+                        setDraggingActivityId(null);
+                        setDragOverActivityId(null);
+                      }}
+                    >
+
                       {/* Left: Info Card */}
                       <div className="col-span-5 px-4 flex items-start space-x-2.5">
-                        
+
                         {/* Drag handles & Order Controls */}
                         <div className="flex flex-col items-center justify-center space-y-0.5 shrink-0">
                           <button
@@ -1754,7 +1794,19 @@ export default function MasterPlanGantt({
                           >
                             <ChevronUp className="w-3.5 h-3.5 text-gray-600" />
                           </button>
-                          <span className="font-mono text-[11px] font-bold text-gray-400">
+                          <span
+                            draggable
+                            onDragStart={(e) => {
+                              setDraggingActivityId(act.id);
+                              e.dataTransfer.effectAllowed = "move";
+                            }}
+                            onDragEnd={() => {
+                              setDraggingActivityId(null);
+                              setDragOverActivityId(null);
+                            }}
+                            title="Sürükleyerek sırasını değiştirin"
+                            className="font-mono text-[11px] font-bold text-gray-400 cursor-grab active:cursor-grabbing hover:text-gray-700 hover:bg-gray-100 rounded px-0.5"
+                          >
                             {act.activityNo}
                           </span>
                           <button
@@ -1944,7 +1996,11 @@ export default function MasterPlanGantt({
                             <div className="relative h-4 w-full group/actual" data-week-track>
                               {(() => {
                                 const blocks = getWeekBlocks(act.actualWeeks || []);
-                                if (blocks.length === 0) {
+                                // A single (or empty) contiguous range always renders as one draggable bar.
+                                // While a drag is live, force this branch too — otherwise the static
+                                // multi-block view below wouldn't visually track the mouse (its segments
+                                // are keyed to the last-saved actualWeeks, not the live drag preview).
+                                if (blocks.length <= 1 || isDraggingActual) {
                                   return (
                                     <div
                                       className={`absolute rounded h-2.5 flex items-center justify-between text-[11px] text-white font-mono px-1 transition-all cursor-grab active:cursor-grabbing ${actualColor}`}
@@ -1978,30 +2034,51 @@ export default function MasterPlanGantt({
                                     </div>
                                   );
                                 }
+                                // Genuinely non-contiguous actual weeks (e.g. gaps from PTR visit data):
+                                // every segment can still be dragged to move the whole envelope, and the
+                                // first/last segment carry the resize handles. A drag/resize here commits
+                                // through the same manualActualOverride path as the single-bar case above,
+                                // which rebuilds actualWeeks as one plain range — so the next render
+                                // collapses back to the simpler single-bar view.
                                 return blocks.map((b, bIdx) => {
                                   const bLeft = Math.max(0, ((b.start - startWeek) / totalWeeks) * 100);
                                   const bWidth = Math.max(2.5, (((b.finish - b.start + 1) / totalWeeks) * 100));
                                   return (
-                                    <div 
+                                    <div
                                       key={bIdx}
-                                      className={`absolute rounded h-2.5 flex items-center justify-between text-[11px] text-white font-mono px-1 transition-all ${actualColor}`}
+                                      className={`absolute rounded h-2.5 flex items-center justify-between text-[11px] text-white font-mono px-1 transition-all cursor-grab active:cursor-grabbing ${actualColor}`}
                                       style={{ left: `${bLeft}%`, width: `${bWidth}%` }}
-                                      title={`Gerçekleşen Uygulama: Hafta ${b.start}${b.finish > b.start ? ' - Hafta ' + b.finish : ''}`}
+                                      title={`Gerçekleşen Uygulama: Hafta ${b.start}${b.finish > b.start ? ' - Hafta ' + b.finish : ''} — sürükleyerek tek parça haline getirebilirsiniz`}
+                                      onMouseDown={(e) => beginBarDrag(e, act, 'actual', 'move')}
                                     >
+                                      {bIdx === 0 && (
+                                        <div
+                                          onMouseDown={(e) => beginBarDrag(e, act, 'actual', 'resize-start')}
+                                          className="absolute -left-1 top-0 h-full w-2 cursor-ew-resize z-10"
+                                        />
+                                      )}
                                       {bIdx === 0 && (
                                         <button
                                           onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'actual', 'start', -1); }}
+                                          onMouseDown={(e) => e.stopPropagation()}
                                           className="absolute -left-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 w-3 h-3.5 rounded flex items-center justify-center text-[11px] font-bold opacity-0 group-hover/actual:opacity-100 transition-opacity"
                                         >
                                           ‹
                                         </button>
                                       )}
-                                      <span className="truncate block leading-none font-bold scale-90 font-mono">
+                                      <span className="truncate block leading-none font-bold scale-90 font-mono pointer-events-none">
                                         W{b.start}{b.finish > b.start ? `-${b.finish}` : ''}
                                       </span>
                                       {bIdx === blocks.length - 1 && (
+                                        <div
+                                          onMouseDown={(e) => beginBarDrag(e, act, 'actual', 'resize-end')}
+                                          className="absolute -right-1 top-0 h-full w-2 cursor-ew-resize z-10"
+                                        />
+                                      )}
+                                      {bIdx === blocks.length - 1 && (
                                         <button
                                           onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'actual', 'finish', 1); }}
+                                          onMouseDown={(e) => e.stopPropagation()}
                                           className="absolute -right-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 w-3 h-3.5 rounded flex items-center justify-center text-[11px] font-bold opacity-0 group-hover/actual:opacity-100 transition-opacity"
                                         >
                                           ›
