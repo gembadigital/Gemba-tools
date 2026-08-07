@@ -108,6 +108,10 @@ export interface ProjectPortfolioItem {
   currency: string;
   roiPercent: number;
   projectManager: string;
+  // Links projectManager back to a real assigned consultant (see ProjectTeamTab's
+  // primaryConsultantId/consultantIds system) when picked from that list rather than typed as
+  // free text — undefined for legacy projects saved before this existed.
+  projectManagerId?: string;
   sourceModule?: "CI" | "VSM" | "Manual"; // Nereden yansıdığı
 }
 

@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { CompanyWorkspaceExtended, ProjectPortfolioItem } from "../../types/workspace";
-import { Plus, Briefcase, Calendar, CheckCircle2, AlertCircle, Trash2, Edit, RefreshCw, Zap, GitCommit } from "lucide-react";
+import { Plus, Briefcase, Calendar, CheckCircle2, AlertCircle, Trash2, Edit, RefreshCw, Zap, GitCommit, UserPlus, Users } from "lucide-react";
+
+interface ConsultantBrief {
+  id: string;
+  full_name: string;
+  email: string;
+}
 
 interface ProjectPortfolioTabProps {
   workspace: CompanyWorkspaceExtended;
@@ -9,9 +15,11 @@ interface ProjectPortfolioTabProps {
   // fields here default to it instead of always being ₺, so portfolio reports stay in one
   // consistent currency per customer.
   defaultCurrency?: string;
+  token: string;
+  currentUser: any;
 }
 
-export default function ProjectPortfolioTab({ workspace, onUpdateProjects, defaultCurrency }: ProjectPortfolioTabProps) {
+export default function ProjectPortfolioTab({ workspace, onUpdateProjects, defaultCurrency, token, currentUser }: ProjectPortfolioTabProps) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -26,6 +34,80 @@ export default function ProjectPortfolioTab({ workspace, onUpdateProjects, defau
   const [currency, setCurrency] = useState(defaultCurrency || "₺");
   const [roiPercent, setRoiPercent] = useState("");
   const [projectManager, setProjectManager] = useState("");
+  const [projectManagerId, setProjectManagerId] = useState("");
+
+  // Real consultant assignment (same customer-level system as the "Proje Ekibi" tab) — lets
+  // "Proje Lideri" be picked from the customer's actual assigned consultants instead of typed as
+  // free text, and makes it obvious at a glance who this customer's project consultants are.
+  const [primaryConsultant, setPrimaryConsultant] = useState<ConsultantBrief | null>(null);
+  const [consultants, setConsultants] = useState<ConsultantBrief[]>([]);
+  const [showAddConsultantForm, setShowAddConsultantForm] = useState(false);
+  const [newConsultantEmail, setNewConsultantEmail] = useState("");
+  const [consultantError, setConsultantError] = useState("");
+  const [consultantBusy, setConsultantBusy] = useState(false);
+  const [consultantSuccessMessage, setConsultantSuccessMessage] = useState("");
+
+  const assignedConsultants = useMemo(
+    () => [primaryConsultant, ...consultants].filter((c): c is ConsultantBrief => !!c),
+    [primaryConsultant, consultants]
+  );
+  const isAdmin = currentUser?.role === "Admin";
+  const isPrimaryConsultant = !!primaryConsultant && currentUser?.id === primaryConsultant.id;
+  const canManageConsultants = isAdmin || isPrimaryConsultant;
+
+  const fetchTeam = () => {
+    if (!token || !workspace.customerId) return;
+    fetch(`/api/business/customers/${workspace.customerId}/team`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) {
+          setPrimaryConsultant(res.data.primaryConsultant || null);
+          setConsultants(res.data.consultants || []);
+        }
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchTeam();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace.customerId, token]);
+
+  const handleAddConsultant = async (e: React.SyntheticEvent) => {
+    e.preventDefault();
+    setConsultantError("");
+    if (!newConsultantEmail.trim()) return;
+    setConsultantBusy(true);
+    try {
+      const res = await fetch(`/api/business/customers/${workspace.customerId}/consultants`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ email: newConsultantEmail.trim() })
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setConsultantError(data.error || "Danışman eklenemedi.");
+        return;
+      }
+      setNewConsultantEmail("");
+      setShowAddConsultantForm(false);
+      fetchTeam();
+      if (data.added) {
+        setProjectManagerId(data.added.id);
+        setProjectManager(data.added.full_name);
+        setConsultantSuccessMessage(`${data.added.full_name} danışman olarak eklendi.`);
+      } else {
+        setConsultantSuccessMessage("Davet gönderildi. Danışman daveti kabul ettiğinde listede görünecek.");
+      }
+      setTimeout(() => setConsultantSuccessMessage(""), 5000);
+    } catch {
+      setConsultantError("Bağlantı hatası oluştu.");
+    } finally {
+      setConsultantBusy(false);
+    }
+  };
 
   // Sync projects from the real CI/Kaizen and VSM backend collections (previously this read from
   // localStorage keys — gemba_kaizens/gemba_vsms/vsm_maps/etc. — that are never written anywhere;
@@ -112,6 +194,7 @@ export default function ProjectPortfolioTab({ workspace, onUpdateProjects, defau
     setCurrency(defaultCurrency || "₺");
     setRoiPercent("");
     setProjectManager("");
+    setProjectManagerId("");
     setShowForm(true);
   };
 
@@ -127,7 +210,14 @@ export default function ProjectPortfolioTab({ workspace, onUpdateProjects, defau
     setCurrency(prj.currency);
     setRoiPercent(prj.roiPercent.toString());
     setProjectManager(prj.projectManager);
+    setProjectManagerId(prj.projectManagerId || "");
     setShowForm(true);
+  };
+
+  const handleSelectProjectManager = (userId: string) => {
+    setProjectManagerId(userId);
+    const picked = assignedConsultants.find(c => c.id === userId);
+    setProjectManager(picked?.full_name || "");
   };
 
   const handleSaveProject = (e: React.FormEvent) => {
@@ -146,6 +236,7 @@ export default function ProjectPortfolioTab({ workspace, onUpdateProjects, defau
       currency,
       roiPercent: parseFloat(roiPercent) || 0,
       projectManager,
+      projectManagerId: projectManagerId || undefined,
       sourceModule: "Manual"
     };
 
@@ -184,6 +275,19 @@ export default function ProjectPortfolioTab({ workspace, onUpdateProjects, defau
         <div>
           <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Müşteri Proje Portföyü (Project Portfolio)</h4>
           <p className="text-[10px] text-gray-500 mt-1">Sürekli İyileştirme (CI) ve VSM modüllerindeki aktif projeler bu panele otomatik yansır.</p>
+          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+            <Users className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            <span className="text-[10px] font-bold text-gray-400 uppercase">Danışmanlar:</span>
+            {assignedConsultants.length === 0 ? (
+              <span className="text-[10px] text-amber-600">Henüz atanmamış</span>
+            ) : (
+              assignedConsultants.map((c) => (
+                <span key={c.id} className="text-[10px] font-semibold bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">
+                  {c.full_name}{primaryConsultant?.id === c.id ? " ★" : ""}
+                </span>
+              ))
+            )}
+          </div>
         </div>
         {!showForm && (
           <button
@@ -227,14 +331,36 @@ export default function ProjectPortfolioTab({ workspace, onUpdateProjects, defau
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-bold text-gray-400 uppercase">Proje Lideri / Yöneticisi</label>
-              <input
-                id="input-project-manager"
-                type="text"
-                value={projectManager}
-                onChange={(e) => setProjectManager(e.target.value)}
-                className="px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden"
-              />
+              <label className="text-[10px] font-bold text-gray-400 uppercase">Proje Lideri (Danışman)</label>
+              <div className="flex items-center gap-1.5">
+                <select
+                  id="input-project-manager"
+                  value={projectManagerId}
+                  onChange={(e) => handleSelectProjectManager(e.target.value)}
+                  className="flex-1 px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden bg-white"
+                >
+                  <option value="">Seçiniz...</option>
+                  {assignedConsultants.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.full_name}{primaryConsultant?.id === c.id ? " (Ana Danışman)" : ""}
+                    </option>
+                  ))}
+                </select>
+                {canManageConsultants && (
+                  <button
+                    type="button"
+                    id="btn-add-consultant-portfolio"
+                    onClick={() => setShowAddConsultantForm(!showAddConsultantForm)}
+                    className="shrink-0 p-2 border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-50 hover:text-gray-800 transition-colors"
+                    title="Danışman Ekle"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              {assignedConsultants.length === 0 && (
+                <p className="text-[10px] text-amber-600">Bu müşteriye henüz danışman atanmamış.</p>
+              )}
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-bold text-gray-400 uppercase">Başlangıç Tarihi</label>
@@ -314,6 +440,49 @@ export default function ProjectPortfolioTab({ workspace, onUpdateProjects, defau
               />
             </div>
           </div>
+
+          {showAddConsultantForm && (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+              <div className="flex items-end gap-2">
+                <div className="flex-1 flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase">Danışman E-postası</label>
+                  <input
+                    id="input-new-consultant-email"
+                    type="email"
+                    required
+                    value={newConsultantEmail}
+                    onChange={(e) => setNewConsultantEmail(e.target.value)}
+                    placeholder="ornek@sirket.com"
+                    className="px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddConsultant}
+                  disabled={consultantBusy}
+                  className="px-3 py-2 bg-zinc-950 text-white rounded-lg text-xs font-medium hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+                >
+                  Ekle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowAddConsultantForm(false); setConsultantError(""); }}
+                  className="px-3 py-2 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Vazgeç
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-500">
+                Sistemde kayıtlı bir danışmansa doğrudan atanır; değilse bu müşteri için danışman daveti oluşturulur.
+              </p>
+              {consultantError && <p className="text-[10px] text-red-600 font-medium">{consultantError}</p>}
+            </div>
+          )}
+          {consultantSuccessMessage && (
+            <p className="text-[11px] text-emerald-700 font-medium bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+              {consultantSuccessMessage}
+            </p>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <button

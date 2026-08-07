@@ -517,6 +517,8 @@ export default function CustomerRecords({
                 <ProjectPortfolioTab
                   workspace={workspace}
                   defaultCurrency={selectedCustomer?.currency}
+                  token={token}
+                  currentUser={currentUser}
                   onUpdateProjects={(updatedProjects) => {
                     saveWorkspaceData({ ...workspace, projects: updatedProjects });
                   }}
