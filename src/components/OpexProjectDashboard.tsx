@@ -211,7 +211,10 @@ export default function OpexProjectDashboard({
 
     // Consultant Man-Days calculations — real Master Plan data only, no fabricated fallbacks.
     // plannedManDays default of 5 matches MasterPlanGantt.tsx's own default (was inconsistently 8 here).
-    const totalPlannedManDays = filteredData.activities.reduce((sum, a) => sum + ((a as any).plannedManDays || 5), 0);
+    // `?? 5` (not `|| 5`) so an intentionally-entered 0 stays 0 instead of being overridden back to 5.
+    // Activities flagged "Paralel Faaliyet" (parallelWith set) don't add their man-days again — that
+    // capacity was already counted on the activity they run parallel to (mirrors MasterPlanGantt.tsx).
+    const totalPlannedManDays = filteredData.activities.reduce((sum, a) => sum + ((a as any).parallelWith ? 0 : ((a as any).plannedManDays ?? 5)), 0);
     const totalCompletedManDays = filteredData.activities.reduce((sum, a) => sum + ((a as any).consumedManDays || 0), 0);
     const projectProgress = totalPlannedManDays > 0 ? Math.min(100, Math.round((totalCompletedManDays / totalPlannedManDays) * 100)) : null;
 

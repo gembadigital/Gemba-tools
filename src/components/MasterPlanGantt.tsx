@@ -99,6 +99,36 @@ export default function MasterPlanGantt({
     loadPtr();
   }, [activeCustomerId]);
 
+  // Records from the rest of the gemba-tools toolset, loaded here (not passed as props — App.tsx
+  // doesn't centralize these) purely so "İlişkili Yalın Modül" / "İlişkili Kayıt" can link a Master
+  // Plan activity to a real record from any tool, not just 5S/Kaizen/Processes.
+  const [smedProjects, setSmedProjects] = useState<any[]>([]);
+  const [vsmProjects, setVsmProjects] = useState<any[]>([]);
+  const [timeStudies, setTimeStudies] = useState<any[]>([]);
+  const [yamazumiStudies, setYamazumiStudies] = useState<any[]>([]);
+  const [opexAssessments, setOpexAssessments] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!activeCustomerId || !token) return;
+    const authHeaders = { "Authorization": `Bearer ${token}`, "x-factory-id": activeCustomerId };
+    const loadList = (url: string, setter: (v: any[]) => void) => {
+      fetch(url, { headers: authHeaders })
+        .then(res => res.json())
+        .then(res => setter(res.success && Array.isArray(res.data) ? res.data : []))
+        .catch(() => setter([]));
+    };
+    loadList("/api/business/smed-projects", setSmedProjects);
+    loadList("/api/business/vsm-projects", setVsmProjects);
+    loadList("/api/business/time-studies", setTimeStudies);
+    loadList("/api/business/yamazumi-studies", setYamazumiStudies);
+    loadList("/api/business/opex-assessments", setOpexAssessments);
+  }, [activeCustomerId, token]);
+
+  // Generic label picker for cross-module record dropdowns — each tool names its own record field
+  // differently (project/study/line name), so try the common ones in order.
+  const getRecordLabel = (r: any): string =>
+    r.name || r.projectName || r.title || r.lineName || r.productName || r.studyName || `Kayıt ${String(r.id).slice(-6)}`;
+
   // Top Tabbed Navigation State
   const [currentTopTab, setCurrentTopTab] = useState<string>("master");
 
@@ -321,7 +351,6 @@ export default function MasterPlanGantt({
 
   // 4. Form States for Add/Edit Activity
   const [formName, setFormName] = useState("");
-  const [formOwner, setFormOwner] = useState("Yalın Koordinatör");
   const [formCategory, setFormCategory] = useState("5S Audit");
   const [formPriority, setFormPriority] = useState<"High" | "Medium" | "Low">("Medium");
   const [formStatus, setFormStatus] = useState<any>("Planned");
@@ -337,6 +366,12 @@ export default function MasterPlanGantt({
   const [formDependencies, setFormDependencies] = useState<string>("");
   const [formRelatedModule, setFormRelatedModule] = useState("");
   const [formLinkedItemId, setFormLinkedItemId] = useState("");
+  const [formParallelWith, setFormParallelWith] = useState<string>("");
+  const [pendingParentActivityId, setPendingParentActivityId] = useState<string>("");
+
+  // Which top-level activities have their alt faaliyet (sub-activity) rows hidden. Starts empty
+  // (everything expanded) — collapsing is opt-in per activity via the "alt ›" / "‹" toggle.
+  const [collapsedParents, setCollapsedParents] = useState<Set<string>>(new Set());
 
   // Filters State
   const [filterConsultant, setFilterConsultant] = useState("");
@@ -365,6 +400,7 @@ export default function MasterPlanGantt({
 
     const actNo = (act as any).activityNo || String(index + 1).padStart(2, "0");
     const category = (act as any).category || (act.name.toLowerCase().includes("5s") ? "5S Audit" : act.name.toLowerCase().includes("smed") ? "SMED" : "Kaizen");
+    const resolvedConsultant = (act as any).responsibleConsultant || "Ahmet Yılmaz";
 
     // Collect actual active weeks from PTR records if available. Case-insensitive EXACT name
     // match only — the previous bidirectional substring test on activitySubject/workDone/category
@@ -398,14 +434,18 @@ export default function MasterPlanGantt({
       actualStartWeek: resolvedActualStart,
       actualFinishWeek: resolvedActualFinish,
       actualWeeks: rawActualWeeks,
-      plannedManDays: (act as any).plannedManDays || 5,
+      plannedManDays: (act as any).plannedManDays ?? 5,
       consumedManDays: (act as any).consumedManDays || 0,
-      responsibleConsultant: (act as any).responsibleConsultant || "Ahmet Yılmaz",
-      customerOwner: (act as any).customerOwner || act.owner,
+      responsibleConsultant: resolvedConsultant,
+      // "Müşteri Sahibi" segment was removed — `owner` now always mirrors the responsible
+      // consultant, which is what ExecutiveDashboard/OpexProjectDashboard already read `.owner` as.
+      owner: resolvedConsultant,
       milestone: (act as any).milestone || false,
       dependencies: (act as any).dependencies || [],
       relatedModule: (act as any).relatedModule || "",
-      linkedItemId: (act as any).linkedItemId || ""
+      linkedItemId: (act as any).linkedItemId || "",
+      parallelWith: (act as any).parallelWith || "",
+      parentActivityId: (act as any).parentActivityId || ""
     };
   });
 
@@ -429,7 +469,10 @@ export default function MasterPlanGantt({
   }, [upgradedActivities]);
 
   // Calculate KPIs
-  const totalPlannedManDays = upgradedActivities.reduce((acc, a) => acc + (a.plannedManDays || 0), 0);
+  // Activities flagged as "Paralel Faaliyet" (running at the same time as another activity, e.g.
+  // two consultants working simultaneously) don't add their man-days again to the project total —
+  // that capacity was already counted on the activity they run parallel to.
+  const totalPlannedManDays = upgradedActivities.reduce((acc, a) => acc + (a.parallelWith ? 0 : (a.plannedManDays || 0)), 0);
   // Consumed effort is sourced entirely from Proje Takip Raporu (synced onto each activity's consumedManDays), never entered directly here.
   const consumedManDays = upgradedActivities.reduce((acc, a) => acc + (a.consumedManDays || 0), 0);
   const remainingManDays = Math.max(0, totalPlannedManDays - consumedManDays);
@@ -532,14 +575,14 @@ export default function MasterPlanGantt({
     const newAct: any = {
       id: "act_" + Math.random().toString(36).substring(2, 9),
       name: formName,
-      owner: formOwner,
+      owner: formConsultant,
       startDate: "2026-06", // Compatibility fallback
       endDate: "2026-08",
       progressPercent: Number(formProgress),
       priority: formPriority,
       status: formStatus,
       notes: formNotes,
-      
+
       // Extended fields
       activityNo: newActNo,
       category: formCategory,
@@ -550,14 +593,22 @@ export default function MasterPlanGantt({
       plannedManDays: Number(formPlannedManDays),
       consumedManDays: 0,
       responsibleConsultant: formConsultant,
-      customerOwner: formOwner,
       milestone: formMilestone,
       dependencies: formDependencies ? formDependencies.split(",").map(d => d.trim()) : [],
       relatedModule: formRelatedModule,
-      linkedItemId: formLinkedItemId
+      linkedItemId: formLinkedItemId,
+      parallelWith: formParallelWith.trim(),
+      parentActivityId: pendingParentActivityId || ""
     };
 
     onAddActivityLocal(newAct);
+    if (pendingParentActivityId) {
+      setCollapsedParents(prev => {
+        const next = new Set(prev);
+        next.delete(pendingParentActivityId);
+        return next;
+      });
+    }
     setIsAdding(false);
     resetForm();
   };
@@ -570,7 +621,7 @@ export default function MasterPlanGantt({
     const updatedAct = {
       ...editingActivity,
       name: formName,
-      owner: formOwner,
+      owner: formConsultant,
       progressPercent: Number(formProgress),
       priority: formPriority,
       status: formStatus,
@@ -582,11 +633,11 @@ export default function MasterPlanGantt({
       actualFinishWeek: Number(formActualFinishWeek),
       plannedManDays: Number(formPlannedManDays),
       responsibleConsultant: formConsultant,
-      customerOwner: formOwner,
       milestone: formMilestone,
       dependencies: formDependencies ? formDependencies.split(",").map(d => d.trim()) : [],
       relatedModule: formRelatedModule,
-      linkedItemId: formLinkedItemId
+      linkedItemId: formLinkedItemId,
+      parallelWith: formParallelWith.trim()
     };
 
     onUpdateActivityLocal(updatedAct);
@@ -597,7 +648,6 @@ export default function MasterPlanGantt({
   const openEditModal = (act: any) => {
     setEditingActivity(act);
     setFormName(act.name);
-    setFormOwner(act.customerOwner || act.owner);
     setFormCategory(act.category || "Kaizen");
     setFormPriority(act.priority);
     setFormStatus(act.status);
@@ -607,12 +657,19 @@ export default function MasterPlanGantt({
     setFormPlannedFinishWeek(act.plannedFinishWeek || 28);
     setFormActualStartWeek(act.actualStartWeek || act.plannedStartWeek || 24);
     setFormActualFinishWeek(act.actualFinishWeek || act.plannedFinishWeek || 28);
-    setFormPlannedManDays(act.plannedManDays || 5);
+    setFormPlannedManDays(act.plannedManDays ?? 5);
     setFormConsultant(act.responsibleConsultant || "Ahmet Yılmaz");
     setFormMilestone(act.milestone || false);
     setFormDependencies(act.dependencies ? act.dependencies.join(", ") : "");
     setFormRelatedModule(act.relatedModule || "");
     setFormLinkedItemId(act.linkedItemId || "");
+    setFormParallelWith(act.parallelWith || "");
+  };
+
+  const openAddSubActivityModal = (parentId: string) => {
+    resetForm();
+    setPendingParentActivityId(parentId);
+    setIsAdding(true);
   };
 
   const resetForm = () => {
@@ -622,6 +679,8 @@ export default function MasterPlanGantt({
     setFormDependencies("");
     setFormRelatedModule("");
     setFormLinkedItemId("");
+    setFormParallelWith("");
+    setPendingParentActivityId("");
   };
 
   // Reorder activities
@@ -679,12 +738,35 @@ export default function MasterPlanGantt({
   const uniqueConsultants = Array.from(new Set(upgradedActivities.map(a => a.responsibleConsultant)));
   const uniqueCategories = Array.from(new Set(upgradedActivities.map(a => a.category)));
 
+  // Alt Faaliyet (sub-activity) hierarchy: how many children a given parent has, so its row can
+  // show the "alt ›" / "‹" toggle only when it actually has sub-activities.
+  const childCountByParent = useMemo(() => {
+    const m: Record<string, number> = {};
+    upgradedActivities.forEach(a => {
+      const pid = (a as any).parentActivityId;
+      if (pid) m[pid] = (m[pid] || 0) + 1;
+    });
+    return m;
+  }, [upgradedActivities]);
+
+  const toggleParentCollapsed = (parentId: string) => {
+    setCollapsedParents(prev => {
+      const next = new Set(prev);
+      if (next.has(parentId)) next.delete(parentId);
+      else next.add(parentId);
+      return next;
+    });
+  };
+
+  // A sub-activity row is hidden while its parent is collapsed.
+  const isRowHidden = (act: any) => !!act.parentActivityId && collapsedParents.has(act.parentActivityId);
+
   // Excel Gantt Export with actual visual 2-line stacked Gantt chart representation in grid cells
   // Real visual Gantt chart export — bordered week-grid cells with fill colors for planned vs
   // actual weeks (the previous version used plain text glyphs like "█ PLAN █" because the `xlsx`
   // (SheetJS community) package cannot write cell borders/fills at all; ExcelJS supports both).
   const handleExportXlsx = async () => {
-    const INFO_COLS = 14; // No..Sapma, before the "Tür" column
+    const INFO_COLS = 13; // No..Sapma, before the "Tür" column
     const TYPE_COL = INFO_COLS + 1;
     const FIRST_WEEK_COL = TYPE_COL + 1;
     const totalCols = FIRST_WEEK_COL + (endWeek - startWeek);
@@ -715,7 +797,7 @@ export default function MasterPlanGantt({
 
     // Column Headers
     const headers = [
-      "No", "Yalın Faaliyet / Proje Adı", "Kategori", "Sorumlu Danışman", "Müşteri Sorumlusu",
+      "No", "Yalın Faaliyet / Proje Adı", "Kategori", "Sorumlu Danışman",
       "Öncelik", "Durum", "İlerleme", "Adam-Gün", "Plan Başlangıç", "Plan Bitiş",
       "Gerçekleşen Başlangıç", "Gerçekleşen Bitiş", "Plan/Gerçek Sapması", "Tür"
     ];
@@ -736,7 +818,7 @@ export default function MasterPlanGantt({
       const devStr = dev > 0 ? `+${dev} Hafta Sapma` : dev < 0 ? `${Math.abs(dev)} Hafta Erken` : "Plana Tam Uygun";
 
       const planRow = ws.addRow([
-        act.activityNo, act.name, act.category, act.responsibleConsultant, act.customerOwner || act.owner,
+        act.activityNo, act.name, act.category, act.responsibleConsultant,
         act.priority, act.status, `%${act.progressPercent}`, act.plannedManDays,
         `W${act.plannedStartWeek}`, `W${act.plannedFinishWeek}`, `W${act.actualStartWeek}`, `W${act.actualFinishWeek}`,
         devStr, "PLANLANAN"
@@ -758,7 +840,7 @@ export default function MasterPlanGantt({
         : Array.from({ length: Math.max(0, act.actualFinishWeek - act.actualStartWeek + 1) }, (_, i) => act.actualStartWeek + i);
 
       const actualRow = ws.addRow([
-        "", act.name, act.category, "", "", "", "", "", act.consumedManDays || 0,
+        "", act.name, act.category, "", "", "", "", act.consumedManDays || 0,
         "", "", `W${act.actualStartWeek}`, `W${act.actualFinishWeek}`, "", "GERÇEKLEŞEN"
       ]);
       actualRow.eachCell((cell, colNumber) => {
@@ -774,7 +856,7 @@ export default function MasterPlanGantt({
     });
 
     // Column widths
-    const widths = [6, 38, 16, 18, 18, 10, 12, 10, 10, 12, 12, 16, 16, 18, 12];
+    const widths = [6, 38, 16, 18, 10, 12, 10, 10, 12, 12, 16, 16, 18, 12];
     widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
     for (let w = startWeek; w <= endWeek; w++) ws.getColumn(FIRST_WEEK_COL + (w - startWeek)).width = 5;
 
@@ -798,8 +880,8 @@ export default function MasterPlanGantt({
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const bstr = evt.target?.result;
-        const workbook = XLSX.read(bstr, { type: "binary" });
+        const data = evt.target?.result;
+        const workbook = XLSX.read(data, { type: "array" });
         const sheetName = workbook.SheetNames[0];
         const ws = workbook.Sheets[sheetName];
         const rows = XLSX.utils.sheet_to_json<any>(ws);
@@ -816,8 +898,7 @@ export default function MasterPlanGantt({
           if (!name) return; // Skip invalid rows
 
           const category = row["Kategori"] || row["Yalın Sınıfı"] || row["Yalın Modül"] || row["Category"] || "Kaizen";
-          const owner = row["Müşteri Sorumlusu"] || row["Müşteri Sahibi"] || row["Sorumlu"] || row["Owner"] || "Yalın Koordinatör";
-          const consultant = row["Sorumlu Danışman"] || row["Danışman"] || row["Consultant"] || "Ahmet Yılmaz";
+          const consultant = row["Sorumlu Danışman"] || row["Danışman"] || row["Sorumlu"] || row["Consultant"] || "Ahmet Yılmaz";
           const priority = row["Öncelik"] || row["Priority"] || "Medium";
           
           let progressPercent = 0;
@@ -850,7 +931,7 @@ export default function MasterPlanGantt({
           const newAct: any = {
             id: "act_" + Math.random().toString(36).substring(2, 9),
             name,
-            owner,
+            owner: consultant,
             startDate: "2026-06",
             endDate: "2026-08",
             progressPercent,
@@ -866,11 +947,12 @@ export default function MasterPlanGantt({
             plannedManDays,
             consumedManDays: 0,
             responsibleConsultant: consultant,
-            customerOwner: owner,
             milestone: false,
             dependencies: [],
             relatedModule: "",
-            linkedItemId: ""
+            linkedItemId: "",
+            parallelWith: "",
+            parentActivityId: ""
           };
 
           onAddActivityLocal(newAct);
@@ -879,11 +961,12 @@ export default function MasterPlanGantt({
 
         alert(`${importedCount} adet faaliyet başarıyla içe aktarıldı!`);
       } catch (err: any) {
-        console.error(err);
-        alert("Excel dosyası ayrıştırılırken bir hata oluştu.");
+        console.error("Excel import failed:", err);
+        alert(`Excel dosyası ayrıştırılırken bir hata oluştu: ${err?.message || err}`);
       }
     };
-    reader.readAsBinaryString(file);
+    reader.onerror = () => alert("Excel dosyası okunamadı (dosya bozuk olabilir).");
+    reader.readAsArrayBuffer(file);
   };
 
   // Simple Markdown Renderer
@@ -1445,7 +1528,11 @@ export default function MasterPlanGantt({
                 <div className="text-center py-8 text-xs text-gray-400">Aranan kriterlerde faaliyet bulunmamaktadır.</div>
               ) : (
                 filteredActivities.map((act, idx) => {
-                  
+                  if (isRowHidden(act)) return null;
+                  const childCount = childCountByParent[act.id] || 0;
+                  const isCollapsed = collapsedParents.has(act.id);
+                  const isSubActivity = !!(act as any).parentActivityId;
+
                   // Compute planned relative positions in percentage
                   const pStartRel = act.plannedStartWeek;
                   const pFinishRel = act.plannedFinishWeek;
@@ -1492,9 +1579,20 @@ export default function MasterPlanGantt({
                         </div>
 
                         {/* Title, Category and Linked Badge */}
-                        <div className="space-y-1 overflow-hidden">
+                        <div className={`space-y-1 overflow-hidden ${isSubActivity ? "pl-4" : ""}`}>
                           <div className="flex items-center space-x-1.5 flex-wrap">
-                            <span 
+                            {!isSubActivity && childCount > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => toggleParentCollapsed(act.id)}
+                                className="text-[10px] font-mono font-bold text-blue-600 hover:text-blue-800 shrink-0"
+                                title={isCollapsed ? "Alt faaliyetleri göster" : "Alt faaliyetleri gizle"}
+                              >
+                                {isCollapsed ? "alt ›" : "‹"}
+                              </button>
+                            )}
+                            {isSubActivity && <span className="text-gray-300 shrink-0">↳</span>}
+                            <span
                               onClick={() => openEditModal(act)}
                               className="font-bold text-[12px] text-gray-900 hover:text-blue-600 cursor-pointer block truncate"
                             >
@@ -1503,10 +1601,25 @@ export default function MasterPlanGantt({
                             {act.milestone && (
                               <span className="bg-amber-100 text-amber-800 text-[11px] font-bold px-1 rounded uppercase">Milestone</span>
                             )}
+                            {!isSubActivity && (
+                              <button
+                                type="button"
+                                onClick={() => openAddSubActivityModal(act.id)}
+                                className="text-[10px] text-gray-400 hover:text-blue-600 font-bold shrink-0"
+                                title="Alt Faaliyet Ekle"
+                              >
+                                + Alt Faaliyet
+                              </button>
+                            )}
                           </div>
-                          
+
                           <div className="flex items-center space-x-2 text-[10px] text-gray-500 flex-wrap gap-y-1">
                             <span className="bg-gray-100 text-gray-700 font-bold px-1 rounded text-[11px]">{act.category}</span>
+                            {act.parallelWith && (
+                              <span className="bg-purple-50 text-purple-700 border border-purple-200 font-bold px-1 rounded text-[11px]" title="Bu faaliyet paralel yürütülüyor, adam-gün toplamına dahil edilmiyor">
+                                ∥ No {act.parallelWith}
+                              </span>
+                            )}
                             <span>•</span>
                             <span className="flex items-center">
                               <User className="w-3 h-3 text-gray-400 mr-0.5" />
@@ -1706,7 +1819,6 @@ export default function MasterPlanGantt({
                   <th className="py-2.5 px-3">Faaliyet Adı</th>
                   <th className="py-2.5 px-3">Kategori</th>
                   <th className="py-2.5 px-3">Danışman</th>
-                  <th className="py-2.5 px-3">Müşteri Sahibi</th>
                   <th className="py-2.5 px-3 text-center">Plan Hafta</th>
                   <th className="py-2.5 px-3 text-center">Gerçekleşen Hafta</th>
                   <th className="py-2.5 px-3 text-center">İlerleme Oranı</th>
@@ -1716,15 +1828,49 @@ export default function MasterPlanGantt({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-gray-700">
-                {filteredActivities.map(act => (
-                  <tr key={act.id} className="hover:bg-gray-50/50">
+                {filteredActivities.map(act => {
+                  if (isRowHidden(act)) return null;
+                  const childCount = childCountByParent[act.id] || 0;
+                  const isCollapsed = collapsedParents.has(act.id);
+                  const isSubActivity = !!(act as any).parentActivityId;
+                  return (
+                  <tr key={act.id} className={`hover:bg-gray-50/50 ${isSubActivity ? "bg-slate-50/40" : ""}`}>
                     <td className="py-3 px-3 font-mono font-bold text-gray-400">{act.activityNo}</td>
-                    <td className="py-3 px-3 font-bold text-gray-900">{act.name}</td>
+                    <td className={`py-3 px-3 font-bold text-gray-900 ${isSubActivity ? "pl-8" : ""}`}>
+                      <div className="flex items-center space-x-1.5">
+                        {!isSubActivity && childCount > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => toggleParentCollapsed(act.id)}
+                            className="text-[10px] font-mono font-bold text-blue-600 hover:text-blue-800 shrink-0"
+                            title={isCollapsed ? "Alt faaliyetleri göster" : "Alt faaliyetleri gizle"}
+                          >
+                            {isCollapsed ? "alt ›" : "‹"}
+                          </button>
+                        )}
+                        {isSubActivity && <span className="text-gray-300 shrink-0">↳</span>}
+                        <span>{act.name}</span>
+                        {!isSubActivity && (
+                          <button
+                            type="button"
+                            onClick={() => openAddSubActivityModal(act.id)}
+                            className="text-[10px] text-gray-400 hover:text-blue-600 font-bold shrink-0"
+                            title="Alt Faaliyet Ekle"
+                          >
+                            + Alt Faaliyet
+                          </button>
+                        )}
+                      </div>
+                    </td>
                     <td className="py-3 px-3">
                       <span className="bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded text-[10px] font-semibold">{act.category}</span>
+                      {act.parallelWith && (
+                        <span className="ml-1 bg-purple-50 text-purple-700 border border-purple-200 px-1 py-0.5 rounded text-[10px] font-semibold" title="Bu faaliyet paralel yürütülüyor, adam-gün toplamına dahil edilmiyor">
+                          ∥ No {act.parallelWith}
+                        </span>
+                      )}
                     </td>
                     <td className="py-3 px-3">{act.responsibleConsultant}</td>
-                    <td className="py-3 px-3">{act.customerOwner}</td>
                     <td className="py-3 px-3 font-mono text-center">W{act.plannedStartWeek} - W{act.plannedFinishWeek}</td>
                     <td className="py-3 px-3 font-mono text-center text-gray-500">W{act.actualStartWeek} - W{act.actualFinishWeek}</td>
                     <td className="py-3 px-3 text-center">
@@ -1773,7 +1919,8 @@ export default function MasterPlanGantt({
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1799,7 +1946,7 @@ export default function MasterPlanGantt({
                     <span className="bg-gray-100 text-gray-750 px-1 rounded text-[11px] font-bold font-mono">{act.category}</span>
                     <span className="text-gray-400 text-[11px] font-bold font-mono">#{act.activityNo}</span>
                   </div>
-                  <span className="font-bold text-[12px] text-gray-900 block leading-tight">{act.name}</span>
+                  <span className="font-bold text-[12px] text-gray-900 block leading-tight">{(act as any).parentActivityId ? "↳ " : ""}{act.name}</span>
                   <div className="flex justify-between items-center text-[10px] pt-1 text-gray-500 border-t border-gray-100">
                     <span>{act.responsibleConsultant}</span>
                     <span className="font-mono font-bold text-blue-600 text-[11px]">W{act.plannedStartWeek}</span>
@@ -1824,7 +1971,7 @@ export default function MasterPlanGantt({
                     <span className="bg-blue-50 text-blue-750 px-1 rounded text-[11px] font-bold font-mono">{act.category}</span>
                     <span className="text-gray-400 text-[11px] font-bold font-mono">#{act.activityNo}</span>
                   </div>
-                  <span className="font-bold text-[12px] text-gray-900 block leading-tight">{act.name}</span>
+                  <span className="font-bold text-[12px] text-gray-900 block leading-tight">{(act as any).parentActivityId ? "↳ " : ""}{act.name}</span>
                   
                   {/* Progress Line */}
                   <div className="w-full bg-gray-100 h-1 rounded overflow-hidden">
@@ -1902,13 +2049,14 @@ export default function MasterPlanGantt({
             
             <div className="bg-gray-55 px-5 py-3 border-b border-gray-200 flex justify-between items-center">
               <h3 className="text-xs font-bold text-gray-900 uppercase">
-                {editingActivity ? `Yalın Faaliyeti Revize Et [No: ${editingActivity.activityNo}]` : "Yeni Yalın Faaliyet Planla"}
+                {editingActivity ? `Yalın Faaliyeti Revize Et [No: ${editingActivity.activityNo}]` : pendingParentActivityId ? "Alt Faaliyet Ekle" : "Yeni Yalın Faaliyet Planla"}
               </h3>
-              <button 
+              <button
                 onClick={() => {
                   setIsAdding(false);
                   setEditingActivity(null);
-                }} 
+                  resetForm();
+                }}
                 className="text-gray-400 hover:text-gray-600 font-bold"
               >
                 ✕
@@ -1946,6 +2094,10 @@ export default function MasterPlanGantt({
                     <option value="Kaizen">Kaizen Projesi</option>
                     <option value="OEE">OEE İyileştirme</option>
                     <option value="Capacity Analysis">Kapasite Analizi</option>
+                    <option value="Saha Gözlemi">Saha Gözlemi</option>
+                    <option value="Süreç Analizi">Süreç Analizi</option>
+                    <option value="Kick Off">Kick Off</option>
+                    <option value="Eğitim">Eğitim</option>
                   </select>
                 </div>
 
@@ -1961,17 +2113,7 @@ export default function MasterPlanGantt({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-gray-500 font-bold mb-1">Müşteri Sahibi</label>
-                  <input
-                    type="text"
-                    className="w-full bg-white border border-gray-300 rounded p-2"
-                    value={formOwner}
-                    onChange={(e) => setFormOwner(e.target.value)}
-                  />
-                </div>
-
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-gray-500 font-bold mb-1">Öncelik Seviyesi</label>
                   <select
@@ -1989,7 +2131,7 @@ export default function MasterPlanGantt({
                   <label className="block text-gray-500 font-bold mb-1">Planlanan Man-Day</label>
                   <input
                     type="number"
-                    min="1"
+                    min="0"
                     className="w-full bg-white border border-gray-300 rounded p-2"
                     value={formPlannedManDays}
                     onChange={(e) => setFormPlannedManDays(Number(e.target.value))}
@@ -2133,6 +2275,11 @@ export default function MasterPlanGantt({
                       <option value="Kaizen Projects">Kaizen Projects (Panosu)</option>
                       <option value="OEE Improvement">OEE Improvement / Kayıp Analizi</option>
                       <option value="Capacity Analysis">Kapasite Analizi (Süreç Verileri)</option>
+                      <option value="SMED Projects">SMED (Hızlı Kalıp Değişimi Projeleri)</option>
+                      <option value="Yamazumi Studies">Yamazumi (Hat Dengeleme Etütleri)</option>
+                      <option value="VSM Projects">VSM (Değer Akış Haritaları)</option>
+                      <option value="Time Studies">Time Study (Zaman Etütleri)</option>
+                      <option value="OpEx Assessments">OpEx Assessment (Olgunluk Denetimleri)</option>
                     </select>
                   </div>
 
@@ -2145,7 +2292,7 @@ export default function MasterPlanGantt({
                       disabled={!formRelatedModule}
                     >
                       <option value="">Seçiniz...</option>
-                      
+
                       {formRelatedModule === "5S Audits" && audits5S.map(a => (
                         <option key={a.id} value={a.id}>Denetim No {a.auditNo} ({a.status}{a.overallScore !== null && a.overallScore !== undefined ? ` — ${a.overallScore}/5` : ""})</option>
                       ))}
@@ -2157,23 +2304,62 @@ export default function MasterPlanGantt({
                       {(formRelatedModule === "OEE Improvement" || formRelatedModule === "Capacity Analysis") && processes.map(p => (
                         <option key={p.id} value={p.id}>{p.name} (OEE: % {p.oee})</option>
                       ))}
+
+                      {formRelatedModule === "SMED Projects" && smedProjects.map(s => (
+                        <option key={s.id} value={s.id}>{getRecordLabel(s)}</option>
+                      ))}
+
+                      {formRelatedModule === "Yamazumi Studies" && yamazumiStudies.map(y => (
+                        <option key={y.id} value={y.id}>{getRecordLabel(y)}</option>
+                      ))}
+
+                      {formRelatedModule === "VSM Projects" && vsmProjects.map(v => (
+                        <option key={v.id} value={v.id}>{getRecordLabel(v)}</option>
+                      ))}
+
+                      {formRelatedModule === "Time Studies" && timeStudies.map(t => (
+                        <option key={t.id} value={t.id}>{getRecordLabel(t)}</option>
+                      ))}
+
+                      {formRelatedModule === "OpEx Assessments" && opexAssessments.map(o => (
+                        <option key={o.id} value={o.id}>{getRecordLabel(o)}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
                 <span className="text-[11px] text-blue-800 leading-normal block">
-                  * Seçilen kaydın durumu tamamlandığında, master plan göreviniz otomatik biter. Veri mükerrerliğini önler.
+                  * "İlişkili Kayıt", bu faaliyeti seçilen modüldeki gerçek bir kayda bağlar (aynı çalışmayı
+                  iki yerde ayrı ayrı girmek yerine tek kayıttan referans verirsiniz). 5S / Kaizen / OEE-Kapasite
+                  için kayıt tamamlandığında bu faaliyet de otomatik "Completed" olur; diğer modüller (SMED,
+                  Yamazumi, VSM, Time Study, OpEx Assessment) için bağlantı referans amaçlıdır, otomatik senkron
+                  henüz o modüllere eklenmedi.
                 </span>
               </div>
 
-              <div>
-                <label className="block text-gray-500 font-bold mb-1">Öncüller (Dependencies - Örn: 01,02)</label>
-                <input
-                  type="text"
-                  placeholder="01, 02 vb."
-                  className="w-full bg-white border border-gray-300 rounded p-1.5 font-mono"
-                  value={formDependencies}
-                  onChange={(e) => setFormDependencies(e.target.value)}
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-gray-500 font-bold mb-1">Öncüller (Dependencies - Örn: 01,02)</label>
+                  <input
+                    type="text"
+                    placeholder="01, 02 vb."
+                    className="w-full bg-white border border-gray-300 rounded p-1.5 font-mono"
+                    value={formDependencies}
+                    onChange={(e) => setFormDependencies(e.target.value)}
+                  />
+                  <span className="text-[10px] text-gray-400 block mt-0.5">Bu faaliyetin hangi faaliyet no'larından sonra başlaması gerektiğini not eder (bilgi amaçlı; tarihleri otomatik kaydırmaz).</span>
+                </div>
+
+                <div>
+                  <label className="block text-gray-500 font-bold mb-1">Paralel Faaliyet No (Adam-Gün Tekrar Sayılmasın)</label>
+                  <input
+                    type="text"
+                    placeholder="Örn: 03"
+                    className="w-full bg-white border border-gray-300 rounded p-1.5 font-mono"
+                    value={formParallelWith}
+                    onChange={(e) => setFormParallelWith(e.target.value)}
+                  />
+                  <span className="text-[10px] text-gray-400 block mt-0.5">Bu faaliyet, girilen numaralı faaliyetle aynı anda yürütülüyorsa doldurun — adam-gün toplamına ikinci kez eklenmez.</span>
+                </div>
               </div>
 
               <div>
@@ -2193,6 +2379,7 @@ export default function MasterPlanGantt({
                   onClick={() => {
                     setIsAdding(false);
                     setEditingActivity(null);
+                    resetForm();
                   }}
                   className="bg-gray-100 text-gray-600 font-semibold px-4 py-1.5 rounded-lg"
                 >
