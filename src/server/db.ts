@@ -223,6 +223,27 @@ export class GeminiDb {
     );
   }
 
+  // One-time cleanup for a specific known bug: App.tsx's "no real customer selected" placeholder
+  // used to have a truthy sentinel id ("none_default"), which silently flowed into every module as
+  // a real x-factory-id whenever an org had zero real customers — so test/demo records could get
+  // created and then resurface under that literal id for any brand-new org. Different collections
+  // store their scoping key under different field names (top-level `factory_id` column vs
+  // `customerId`/`factory_id` inside the JSONB `data`), so this checks all three rather than
+  // guessing per collection. Scoped to the caller's own org; "none_default" is specific enough that
+  // it can never collide with a real id. Admin-triggered only (see /api/admin/cleanup-orphaned-data).
+  public async deleteOrphanedPlaceholderData(orgId: string): Promise<{ collection: string; count: number }[]> {
+    const { rows } = await getPool().query(
+      `delete from records
+       where organization_id = $1
+         and (factory_id = 'none_default' or data->>'customerId' = 'none_default' or data->>'factory_id' = 'none_default')
+       returning collection`,
+      [orgId]
+    );
+    const counts = new Map<string, number>();
+    for (const row of rows) counts.set(row.collection, (counts.get(row.collection) || 0) + 1);
+    return Array.from(counts.entries()).map(([collection, count]) => ({ collection, count }));
+  }
+
   private async removeByIds(collection: string, orgId: string, ids: string[]): Promise<void> {
     if (ids.length === 0) return;
     await getPool().query(

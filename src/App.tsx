@@ -348,9 +348,14 @@ export default function App() {
     window.location.reload();
   };
 
-  // Safe selected customer resolving (provides beautiful default empty states to welcome fresh registers)
+  // Safe selected customer resolving (provides beautiful default empty states to welcome fresh registers).
+  // id MUST be falsy ("") — every module's `if (!selectedCustomer?.id) return` / `?? "default"`
+  // no-real-customer guard relies on that. A previous truthy sentinel ("none_default") silently
+  // flowed into every module as a real x-factory-id, so backend records could get created/fetched
+  // under that literal id whenever the org had zero real customers — see project memory for the
+  // 2026-08-08 cleanup of "OpEx Denetim 1/2" that had been orphaned there.
   const selectedCustomer = (customers.find(c => c.id === selectedCustomerId) || customers[0] || {
-    id: "none_default",
+    id: "",
     companyName: "Yeni Tesis / Boş Çalışma Alanı",
     address: "Lütfen Müşteri Kartoteksine gidip yeni tesis ekleyin.",
     industry: "Tanımsız Sektör",

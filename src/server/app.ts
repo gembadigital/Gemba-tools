@@ -739,6 +739,22 @@ app.post("/api/admin/users/:id/status", authenticateToken, async (req, res) => {
   }
 });
 
+// One-time cleanup for the "none_default" placeholder-id bug (see App.tsx / db.ts comments) —
+// deletes any records that ended up scoped to that literal synthetic id in this org.
+app.post("/api/admin/cleanup-orphaned-data", authenticateToken, async (req, res) => {
+  try {
+    const adminUser = (req as any).user;
+    if (adminUser.role !== "Admin") {
+      res.status(403).json({ success: false, error: "Access Denied." });
+      return;
+    }
+    const removed = await db.deleteOrphanedPlaceholderData(adminUser.organization_id);
+    res.json({ success: true, removed });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.post("/api/admin/users/:id/reset-password", authenticateToken, async (req, res) => {
   try {
     const adminUser = (req as any).user;

@@ -3,7 +3,7 @@ import {
   Building2, Users, ShieldCheck, Mail,
   Sparkles, Search, X, CheckCircle2,
   Plus, Lock, ShieldAlert,
-  ChevronRight
+  ChevronRight, Trash2, Loader2, AlertTriangle
 } from "lucide-react";
 
 interface PlatformAdminConsoleProps {
@@ -103,7 +103,18 @@ const TRANSLATIONS = {
     aiConfigNote: "GEMINI_API_KEY Vercel proje ayarlarından (ortam değişkeni) yönetilir; anahtar bu ekranda görüntülenmez veya girilmez.",
     aiUsedByLabel: "Kullanıldığı Modüller",
     aiUsedByValue: "VSM, Loss Analysis, Executive Insights, OpEx Coach, SMED Coach ve diğer AI destekli modüller.",
-    moduleNames: { "VSM Kapasite": "VSM Kapasite", "SMED Değişim": "SMED Değişim", "Time Study": "Time Study", "Loss Analysis": "Loss Analysis", "Hat Dengeleme": "Hat Dengeleme", "CI / Kaizen": "CI / Kaizen", "5S Audit": "5S Audit", "OpEx Assessment": "OpEx Assessment", "Raporlar": "Raporlar" } as Record<string, string>
+    moduleNames: { "VSM Kapasite": "VSM Kapasite", "SMED Değişim": "SMED Değişim", "Time Study": "Time Study", "Loss Analysis": "Loss Analysis", "Hat Dengeleme": "Hat Dengeleme", "CI / Kaizen": "CI / Kaizen", "5S Audit": "5S Audit", "OpEx Assessment": "OpEx Assessment", "Raporlar": "Raporlar" } as Record<string, string>,
+    sec6Title: "Sistem Bakımı", sec6Desc: "Sahipsiz Test Verisi Temizliği",
+    maintHeading: "Sistem Bakımı",
+    maintSubtitle: "Artık kullanılmayan sistem verilerini kalıcı olarak temizleyin",
+    maintOrphanTitle: "Sahipsiz Test/Demo Verisi Temizliği",
+    maintOrphanDesc: "Uygulamanın eski bir sürümünde, hiçbir gerçek müşteri kartına bağlı olmayan bir sistem yer tutucusu (\"none_default\") altında test amaçlı kayıtlar (OpEx denetimi, SMED projesi, zaman etüdü vb.) oluşturulabiliyordu. Bu araç yalnızca o bilinen, kesin sistem kimliğine bağlı kayıtları bulur ve kalıcı olarak siler — gerçek müşterilerinizin verilerine kesinlikle dokunulmaz.",
+    maintRunButton: "Taramayı Çalıştır ve Temizle",
+    maintRunning: "Temizleniyor...",
+    maintConfirm: "Sahipsiz test verilerini kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz.",
+    maintNoneFound: "Temizlenecek sahipsiz veri bulunamadı — sistem zaten temiz.",
+    maintSuccessPrefix: "Temizlendi:",
+    maintError: "Temizlik sırasında bir hata oluştu."
   },
   en: {
     consoleTitle: "Platform Management Console",
@@ -192,7 +203,18 @@ const TRANSLATIONS = {
     aiConfigNote: "GEMINI_API_KEY is managed in Vercel project settings (environment variable); the key is never shown or entered on this screen.",
     aiUsedByLabel: "Used By Modules",
     aiUsedByValue: "VSM, Loss Analysis, Executive Insights, OpEx Coach, SMED Coach and other AI-assisted modules.",
-    moduleNames: { "VSM Kapasite": "VSM Capacity", "SMED Değişim": "SMED Changeover", "Time Study": "Time Study", "Loss Analysis": "Loss Analysis", "Hat Dengeleme": "Line Balancing", "CI / Kaizen": "CI / Kaizen", "5S Audit": "5S Audit", "OpEx Assessment": "OpEx Assessment", "Raporlar": "Reports" } as Record<string, string>
+    moduleNames: { "VSM Kapasite": "VSM Capacity", "SMED Değişim": "SMED Changeover", "Time Study": "Time Study", "Loss Analysis": "Loss Analysis", "Hat Dengeleme": "Line Balancing", "CI / Kaizen": "CI / Kaizen", "5S Audit": "5S Audit", "OpEx Assessment": "OpEx Assessment", "Raporlar": "Reports" } as Record<string, string>,
+    sec6Title: "System Maintenance", sec6Desc: "Orphaned Test Data Cleanup",
+    maintHeading: "System Maintenance",
+    maintSubtitle: "Permanently clean up system data that's no longer in use",
+    maintOrphanTitle: "Orphaned Test/Demo Data Cleanup",
+    maintOrphanDesc: "An earlier version of the app could create test records (OpEx assessment, SMED project, time study, etc.) under a system placeholder id (\"none_default\") not linked to any real customer card. This tool finds and permanently deletes only records tied to that exact known system id — your real customers' data is never touched.",
+    maintRunButton: "Run Scan and Clean Up",
+    maintRunning: "Cleaning up...",
+    maintConfirm: "Permanently delete orphaned test data? This cannot be undone.",
+    maintNoneFound: "No orphaned data found to clean up — the system is already clean.",
+    maintSuccessPrefix: "Cleaned up:",
+    maintError: "An error occurred during cleanup."
   },
   de: {
     consoleTitle: "Plattform-Verwaltungskonsole",
@@ -281,7 +303,18 @@ const TRANSLATIONS = {
     aiConfigNote: "GEMINI_API_KEY wird in den Vercel-Projekteinstellungen (Umgebungsvariable) verwaltet; der Schlüssel wird auf diesem Bildschirm nie angezeigt oder eingegeben.",
     aiUsedByLabel: "Verwendet in Modulen",
     aiUsedByValue: "VSM, Loss Analysis, Executive Insights, OpEx Coach, SMED Coach und weitere KI-gestützte Module.",
-    moduleNames: { "VSM Kapasite": "VSM-Kapazität", "SMED Değişim": "SMED-Rüstzeit", "Time Study": "Zeitstudie", "Loss Analysis": "Verlustanalyse", "Hat Dengeleme": "Linienabstimmung", "CI / Kaizen": "CI / Kaizen", "5S Audit": "5S-Audit", "OpEx Assessment": "OpEx-Bewertung", "Raporlar": "Berichte" } as Record<string, string>
+    moduleNames: { "VSM Kapasite": "VSM-Kapazität", "SMED Değişim": "SMED-Rüstzeit", "Time Study": "Zeitstudie", "Loss Analysis": "Verlustanalyse", "Hat Dengeleme": "Linienabstimmung", "CI / Kaizen": "CI / Kaizen", "5S Audit": "5S-Audit", "OpEx Assessment": "OpEx-Bewertung", "Raporlar": "Berichte" } as Record<string, string>,
+    sec6Title: "Systemwartung", sec6Desc: "Bereinigung verwaister Testdaten",
+    maintHeading: "Systemwartung",
+    maintSubtitle: "Nicht mehr verwendete Systemdaten dauerhaft bereinigen",
+    maintOrphanTitle: "Bereinigung verwaister Test-/Demodaten",
+    maintOrphanDesc: "Eine frühere Version der App konnte Testdatensätze (OpEx-Bewertung, SMED-Projekt, Zeitstudie usw.) unter einer System-Platzhalter-ID (\"none_default\") anlegen, die mit keiner echten Kundenkarte verknüpft ist. Dieses Tool findet und löscht dauerhaft ausschließlich Datensätze mit dieser exakten bekannten System-ID — die Daten Ihrer echten Kunden bleiben unberührt.",
+    maintRunButton: "Scan ausführen und bereinigen",
+    maintRunning: "Wird bereinigt...",
+    maintConfirm: "Verwaiste Testdaten dauerhaft löschen? Dies kann nicht rückgängig gemacht werden.",
+    maintNoneFound: "Keine verwaisten Daten zum Bereinigen gefunden — das System ist bereits sauber.",
+    maintSuccessPrefix: "Bereinigt:",
+    maintError: "Bei der Bereinigung ist ein Fehler aufgetreten."
   }
 };
 
@@ -341,6 +374,9 @@ export default function PlatformAdminConsole({
 
   // Global Notification Feedback Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<{ collection: string; count: number }[] | null>(null);
+  const [cleanupError, setCleanupError] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -429,6 +465,29 @@ export default function PlatformAdminConsole({
     }
   };
 
+  const handleCleanupOrphanedData = async () => {
+    if (!window.confirm(t.maintConfirm)) return;
+    setCleanupBusy(true);
+    setCleanupResult(null);
+    setCleanupError(null);
+    try {
+      const res = await fetch("/api/admin/cleanup-orphaned-data", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setCleanupError(data.error || t.maintError);
+        return;
+      }
+      setCleanupResult(data.removed || []);
+    } catch (e: any) {
+      setCleanupError(e.message || t.maintError);
+    } finally {
+      setCleanupBusy(false);
+    }
+  };
+
   const handleInviteUser = async () => {
     setInviteFormError(null);
     if (!inviteEmail.trim()) {
@@ -504,7 +563,8 @@ export default function PlatformAdminConsole({
     { id: 2, title: t.sec2Title, icon: Users, desc: t.sec2Desc },
     { id: 3, title: t.sec3Title, icon: ShieldCheck, desc: t.sec3Desc },
     { id: 4, title: t.sec4Title, icon: Mail, desc: t.sec4Desc },
-    { id: 5, title: t.sec5Title, icon: Sparkles, desc: t.sec5Desc }
+    { id: 5, title: t.sec5Title, icon: Sparkles, desc: t.sec5Desc },
+    { id: 6, title: t.sec6Title, icon: Trash2, desc: t.sec6Desc }
   ];
 
   const filteredSections = sectionsList.filter(s =>
@@ -1147,6 +1207,55 @@ export default function PlatformAdminConsole({
                     <div className="font-bold text-slate-600">{t.aiUsedByLabel}</div>
                     <div className="text-slate-500 mt-0.5">{t.aiUsedByValue}</div>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {activeSection === 6 && (
+              <div className="space-y-6 max-w-5xl mx-auto">
+                <div className="border-b border-slate-200 pb-4">
+                  <h3 className="text-lg font-black text-slate-900 tracking-tight flex items-center space-x-2">
+                    <Trash2 className="w-5 h-5 text-rose-600" />
+                    <span>{t.maintHeading}</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 font-semibold mt-0.5">
+                    {t.maintSubtitle}
+                  </p>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-4 shadow-xs text-xs">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="space-y-2">
+                      <div className="font-bold text-slate-700">{t.maintOrphanTitle}</div>
+                      <p className="text-slate-500 leading-relaxed">{t.maintOrphanDesc}</p>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+                    <button
+                      onClick={handleCleanupOrphanedData}
+                      disabled={cleanupBusy}
+                      className="flex items-center space-x-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white font-bold rounded-xl text-xs transition-all cursor-pointer"
+                    >
+                      {cleanupBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      <span>{cleanupBusy ? t.maintRunning : t.maintRunButton}</span>
+                    </button>
+                  </div>
+
+                  {cleanupError && (
+                    <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 font-semibold">
+                      {cleanupError}
+                    </div>
+                  )}
+
+                  {cleanupResult && (
+                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 font-semibold">
+                      {cleanupResult.length === 0
+                        ? t.maintNoneFound
+                        : `${t.maintSuccessPrefix} ${cleanupResult.map(r => `${r.collection} (${r.count})`).join(", ")}`}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
