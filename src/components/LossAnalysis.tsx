@@ -10,9 +10,10 @@ import {
   FileSpreadsheet, FileText
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Legend, LineChart, AreaChart, Area, BarChart, Treemap } from "recharts";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { domToCanvas } from "modern-screenshot";
 
 import { useFactory } from "../context/FactoryContext";
 import { ProcessItem, CalculatedProcess, IndustryType } from "./loss-analysis/types";
@@ -75,6 +76,8 @@ export default function LossAnalysis() {
 
   const [copqSnapshots, setCopqSnapshots] = useState<any[]>([]);
   const [isSavingSnapshot, setIsSavingSnapshot] = useState<boolean>(false);
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+  const [isExportingExcel, setIsExportingExcel] = useState<boolean>(false);
   const [costModelScope, setCostModelScope] = useState<"factory" | "product_group">("factory");
   const [productVolumeShare, setProductVolumeShare] = useState<number>(100);
 
@@ -1262,38 +1265,199 @@ export default function LossAnalysis() {
     ? `${selectedVsmProject?.productGroup || "Özel Ürün Grubu"} (%${productVolumeShare} Ciro Payı)`
     : "Fabrika Geneli (%100 Ciro)";
 
-  const handleExportExcel = () => {
-    const summaryData = [
-      ["Loss Capacity Analizi Raporu", companyNameExport],
-      ["Rapor Tarihi", new Date().toLocaleDateString("tr-TR")],
-      ["Maliyet Modeli Kapsamı", scopeLabelExport],
-      ["Model Cirosu", `${currencySymbol}${effectiveRevenue.toLocaleString()}`],
-      [],
-      ["KPI Metrik Adı", "Değer"],
-      ["Toplam COPQ Kaybı", `${currencySymbol}${copqData.totalCOPQ_TL.toLocaleString()}`],
-      ["COPQ / Ciro Oranı", `%${copqData.copqPercentOfRevenue.toFixed(2)}`],
-      ["Benchmark Durumu", copqData.benchmarkStatus],
-      ["Ortalama Beklenen Kazanç", `${currencySymbol}${totalAverageRecoveryExport.toLocaleString()}`],
-      ["Gerçekleşen Tasarruf (Tamamlanan Kaizen)", `${currencySymbol}${totalRealizedSavingsExport.toLocaleString()}`],
-      ["Gerçekleşme Oranı", `%${(totalAverageRecoveryExport > 0 ? (totalRealizedSavingsExport / totalAverageRecoveryExport) * 100 : 0).toFixed(1)}`]
-    ];
+  // Real Recharts DOM captures (not redrawn approximations) for both the PDF and XLS exports —
+  // same modern-screenshot/domToCanvas technique already used by VsmPage/OpexProjectDashboard.
+  // "wide" charts span the full grid width instead of one of the 3 columns.
+  const CHART_CAPTURE_LIST: { id: string; title: string; wide?: boolean }[] = [
+    { id: "lc-chart-waterfall", title: "1. Toplam Finansal Geri Kazanım (Waterfall)" },
+    { id: "lc-chart-area-earnings", title: "2. Fırsat Alanlarına Göre Kazanç" },
+    { id: "lc-chart-direct-donut", title: "3. Doğrudan Maliyet Azaltma Dağılımı" },
+    { id: "lc-chart-capacity-donut", title: "4. Kapasite Kazanım Dağılımı" },
+    { id: "lc-chart-treemap", title: "5. Stratejik Kazanç Dağılımı" },
+    { id: "lc-chart-minmax", title: "6. Min / Max Kazanç Karşılaştırması" },
+    { id: "lc-chart-profit-before-after", title: "7. Faaliyet Karı Öncesi / Sonrası" },
+    { id: "lc-chart-pareto", title: "8. En Büyük İlk 5 Fırsat (Pareto)" },
+    { id: "lc-chart-once-sonra", title: "9. Önce / Sonra Kazanım Karşılaştırması" },
+    { id: "lc-chart-profit-curve", title: "10. İyileştirmelerin Faaliyet Kâr Marjına Etki Eğrisi", wide: true }
+  ];
 
-    const copqHeaders = ["Maliyet Konusu", "Fırsat Alanı", "Maliyet Bütçe Grubu", `Min (${currencySymbol})`, `Max (${currencySymbol})`];
-    const copqRows = copqMatrixRows.map(r => [r.subject, r.area, r.costGroup, r.min, r.max]);
-    const copqSheetData = [["COPQ Finansal Kayıp Matrisi (Maliyet Ağacı Kırılımı)"], [], copqHeaders, ...copqRows];
+  const captureChartImage = async (elementId: string): Promise<{ dataUrl: string; aspectRatio: number } | null> => {
+    const el = document.getElementById(elementId);
+    if (!el) return null;
+    try {
+      const canvas = await domToCanvas(el, { scale: 2, backgroundColor: "#ffffff" });
+      if (canvas.width === 0 || canvas.height === 0) return null;
+      return { dataUrl: canvas.toDataURL("image/png", 1.0), aspectRatio: canvas.width / canvas.height };
+    } catch (e) {
+      console.error(`Failed to capture chart ${elementId} for export`, e);
+      return null;
+    }
+  };
 
-    const recoveryHeaders = ["Fırsat Alanı", "Maliyet Konusu", "Yalın/WCM Aracı", `Ortalama Kayıp (${currencySymbol})`, "İyileştirme Min (%)", "İyileştirme Max (%)", `Ortalama Tasarruf (${currencySymbol})`, `Yatırım Maliyeti (${currencySymbol})`, "Geri Ödeme (Ay)", "ROI (%)", `Gerçekleşen Tasarruf (${currencySymbol})`, `Kalan Potansiyel (${currencySymbol})`, "Önem Derecesi"];
-    const recoveryRows = recoveryMatrixDataWithRealized.map(r => [
-      r.area, r.subject, r.leanTool, r.avgLoss, r.improvementMin, r.improvementMax, r.avgGain, r.investmentCost, r.paybackMonths !== null ? r.paybackMonths.toFixed(1) : "-", r.roiPercent.toFixed(0), r.realizedSavings, r.remainingPotential, r.severity
-    ]);
-    const recoverySheetData = [["Finansal Geri Kazanım ve İyileştirme Fırsatları Matrisi"], [], recoveryHeaders, ...recoveryRows];
+  // The "10 Power BI Charts" grid + the historical COPQ trend chart only exist in the DOM while
+  // the "Dashboard" tab is active. Both export buttons live in the global header, reachable from
+  // any tab, so this temporarily switches there, waits for Recharts to paint, captures, then
+  // restores whatever tab the user was actually on.
+  const captureDashboardCharts = async (): Promise<{
+    trend: { dataUrl: string; aspectRatio: number } | null;
+    charts: Record<string, { dataUrl: string; aspectRatio: number } | null>;
+  }> => {
+    const previousTab = activeTab;
+    const needsSwitch = activeTab !== "executive_dashboard";
+    if (needsSwitch) {
+      setActiveTab("executive_dashboard");
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    const trend = await captureChartImage("lc-chart-copq-trend");
+    const charts = Object.fromEntries(
+      await Promise.all(CHART_CAPTURE_LIST.map(async c => [c.id, await captureChartImage(c.id)] as const))
+    ) as Record<string, { dataUrl: string; aspectRatio: number } | null>;
+    if (needsSwitch) setActiveTab(previousTab);
+    return { trend, charts };
+  };
 
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryData), "Ozet");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(copqSheetData), "COPQ_Matrisi");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(recoverySheetData), "Geri_Kazanim_Matrisi");
+  // Cell styling shared by every sheet — plain `xlsx` (SheetJS community) can't write borders or
+  // fills at all; ExcelJS supports both (same pattern MasterPlanGantt.tsx's export already uses).
+  const XLS_THIN: Partial<ExcelJS.Border> = { style: "thin", color: { argb: "FFCBD5E1" } };
+  const XLS_BORDER: Partial<ExcelJS.Borders> = { top: XLS_THIN, left: XLS_THIN, bottom: XLS_THIN, right: XLS_THIN };
+  const XLS_HEADER_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF9F1239" } };
+  const XLS_TITLE_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
+  const XLS_ALT_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFDF2F4" } };
+  const XLS_SEVERITY_FILL: Record<string, ExcelJS.Fill> = {
+    Critical: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFE4E6" } },
+    High: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFEDD5" } },
+    Medium: { type: "pattern", pattern: "solid", fgColor: { argb: "FFDBEAFE" } },
+    Low: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } }
+  };
+  const XLS_SEVERITY_FONT: Record<string, string> = {
+    Critical: "FFBE123C", High: "FFC2410C", Medium: "FF1D4ED8", Low: "FF334155"
+  };
 
-    XLSX.writeFile(wb, `Loss_Capacity_Analizi_${companyNameExport.replace(/\s+/g, "_")}.xlsx`);
+  const addTitleRow = (ws: ExcelJS.Worksheet, text: string, cols: number) => {
+    const row = ws.addRow([text]);
+    ws.mergeCells(row.number, 1, row.number, cols);
+    row.getCell(1).font = { bold: true, size: 13, color: { argb: "FFFFFFFF" } };
+    row.getCell(1).fill = XLS_TITLE_FILL;
+    row.getCell(1).alignment = { vertical: "middle" };
+    ws.getRow(row.number).height = 24;
+  };
+
+  const addHeaderRow = (ws: ExcelJS.Worksheet, headers: string[]) => {
+    const row = ws.addRow(headers);
+    row.eachCell(cell => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 9.5 };
+      cell.fill = XLS_HEADER_FILL;
+      cell.border = XLS_BORDER;
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    });
+    ws.getRow(row.number).height = 26;
+  };
+
+  const addDataRow = (ws: ExcelJS.Worksheet, values: (string | number)[], rowIndex: number) => {
+    const row = ws.addRow(values);
+    row.eachCell(cell => {
+      cell.border = XLS_BORDER;
+      cell.font = { size: 9.5 };
+      if (rowIndex % 2 === 1) cell.fill = XLS_ALT_FILL;
+    });
+    return row;
+  };
+
+  const handleExportExcel = async () => {
+    setIsExportingExcel(true);
+    try {
+      const { trend, charts } = await captureDashboardCharts();
+
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Gemba Tools";
+      wb.created = new Date();
+
+      // 1. Özet (Summary) sheet
+      const wsSummary = wb.addWorksheet("Ozet", { views: [{ state: "frozen", ySplit: 1 }] });
+      wsSummary.getColumn(1).width = 34;
+      wsSummary.getColumn(2).width = 30;
+      addTitleRow(wsSummary, `LOSS CAPACITY ANALİZİ RAPORU — ${companyNameExport}`, 2);
+      wsSummary.addRow(["Maliyet Modeli Kapsamı", scopeLabelExport]);
+      wsSummary.addRow(["Rapor Tarihi", new Date().toLocaleDateString("tr-TR")]);
+      wsSummary.addRow(["Model Cirosu", `${currencySymbol}${effectiveRevenue.toLocaleString()}`]);
+      wsSummary.addRow([]);
+      addHeaderRow(wsSummary, ["KPI Metrik Adı", "Değer"]);
+      [
+        ["Toplam COPQ Kaybı", `${currencySymbol}${copqData.totalCOPQ_TL.toLocaleString()}`],
+        ["COPQ / Ciro Oranı", `%${copqData.copqPercentOfRevenue.toFixed(2)}`],
+        ["Benchmark Durumu", copqData.benchmarkStatus],
+        ["Ortalama Beklenen Kazanç", `${currencySymbol}${totalAverageRecoveryExport.toLocaleString()}`],
+        ["Gerçekleşen Tasarruf (Tamamlanan Kaizen)", `${currencySymbol}${totalRealizedSavingsExport.toLocaleString()}`],
+        ["Gerçekleşme Oranı", `%${(totalAverageRecoveryExport > 0 ? (totalRealizedSavingsExport / totalAverageRecoveryExport) * 100 : 0).toFixed(1)}`]
+      ].forEach((r, i) => addDataRow(wsSummary, r, i));
+
+      // 2. COPQ Matrisi sheet
+      const wsCopq = wb.addWorksheet("COPQ_Matrisi", { views: [{ state: "frozen", ySplit: 2 }] });
+      const copqHeaders = ["Maliyet Konusu", "Fırsat Alanı", "Maliyet Bütçe Grubu", `Min (${currencySymbol})`, `Max (${currencySymbol})`];
+      wsCopq.columns = [{ width: 32 }, { width: 26 }, { width: 26 }, { width: 18 }, { width: 18 }];
+      addTitleRow(wsCopq, "COPQ FİNANSAL KAYIP MATRİSİ (Maliyet Ağacı Kırılımı)", copqHeaders.length);
+      addHeaderRow(wsCopq, copqHeaders);
+      copqMatrixRows.forEach((r, i) => addDataRow(wsCopq, [r.subject, r.area, r.costGroup, Math.round(r.min), Math.round(r.max)], i));
+
+      // 3. Geri Kazanım Matrisi sheet — severity column gets a real traffic-light fill/font
+      const wsRecovery = wb.addWorksheet("Geri_Kazanim_Matrisi", { views: [{ state: "frozen", ySplit: 2, xSplit: 2 }] });
+      const recoveryHeaders = ["Fırsat Alanı", "Maliyet Konusu", "Yalın/WCM Aracı", `Ort. Kayıp (${currencySymbol})`, "İyileştirme Min (%)", "İyileştirme Max (%)", `Ort. Tasarruf (${currencySymbol})`, `Yatırım (${currencySymbol})`, "Geri Ödeme (Ay)", "ROI (%)", `Gerçekleşen (${currencySymbol})`, `Kalan Potansiyel (${currencySymbol})`, "Önem Derecesi"];
+      wsRecovery.columns = [{ width: 20 }, { width: 30 }, { width: 26 }, { width: 16 }, { width: 14 }, { width: 14 }, { width: 16 }, { width: 16 }, { width: 14 }, { width: 12 }, { width: 16 }, { width: 18 }, { width: 14 }];
+      addTitleRow(wsRecovery, "FİNANSAL GERİ KAZANIM VE İYİLEŞTİRME FIRSATLARI MATRİSİ", recoveryHeaders.length);
+      addHeaderRow(wsRecovery, recoveryHeaders);
+      recoveryMatrixDataWithRealized.forEach((r, i) => {
+        const row = addDataRow(wsRecovery, [
+          r.area, r.subject, r.leanTool, Math.round(r.avgLoss), r.improvementMin, r.improvementMax, Math.round(r.avgGain),
+          Math.round(r.investmentCost), r.paybackMonths !== null ? Number(r.paybackMonths.toFixed(1)) : "-", Number(r.roiPercent.toFixed(0)),
+          Math.round(r.realizedSavings), Math.round(r.remainingPotential), r.severity
+        ], i);
+        const severityCell = row.getCell(recoveryHeaders.length);
+        severityCell.fill = XLS_SEVERITY_FILL[r.severity] || XLS_SEVERITY_FILL.Low;
+        severityCell.font = { bold: true, size: 9.5, color: { argb: XLS_SEVERITY_FONT[r.severity] || XLS_SEVERITY_FONT.Low } };
+        severityCell.alignment = { horizontal: "center" };
+      });
+
+      // 4. Grafikler sheet — embeds the live Power BI-style Recharts captures as real images
+      const wsCharts = wb.addWorksheet("Grafikler");
+      wsCharts.getColumn(1).width = 4;
+      addTitleRow(wsCharts, "PANO GRAFİKLERİ (DASHBOARD SEKMESİNDEN CANLI YAKALAMA)", 12);
+      let chartRowCursor = 3;
+      const embedChart = (chart: { dataUrl: string; aspectRatio: number } | null, title: string) => {
+        if (!chart) return;
+        const titleRow = wsCharts.getRow(chartRowCursor);
+        titleRow.getCell(2).value = title;
+        titleRow.getCell(2).font = { bold: true, size: 10, color: { argb: "FF9F1239" } };
+        const widthCols = 12;
+        const heightRows = Math.max(14, Math.round(widthCols * (1 / chart.aspectRatio) * 5.5));
+        const imageId = wb.addImage({ base64: chart.dataUrl, extension: "png" });
+        wsCharts.addImage(imageId, {
+          tl: { col: 1, row: chartRowCursor + 0.2 },
+          ext: { width: widthCols * 64, height: heightRows * 15.5 }
+        });
+        chartRowCursor += heightRows + 2;
+      };
+      embedChart(trend, "Tarihsel COPQ Trend Analizi");
+      embedChart(charts["lc-chart-profit-curve"], "İyileştirmelerin Faaliyet Kâr Marjına Etki Eğrisi");
+      embedChart(charts["lc-chart-waterfall"], "Toplam Finansal Geri Kazanım (Waterfall)");
+      embedChart(charts["lc-chart-pareto"], "En Büyük İlk 5 Fırsat (Pareto)");
+      if (chartRowCursor === 3) {
+        wsCharts.getRow(3).getCell(2).value = "Grafikler yakalanamadı — dışa aktarmadan önce Dashboard sekmesini ziyaret etmeyi deneyin.";
+        wsCharts.getRow(3).getCell(2).font = { italic: true, color: { argb: "FF94A3B8" } };
+      }
+
+      const buffer = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `Loss_Capacity_Analizi_${companyNameExport.replace(/\s+/g, "_")}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } finally {
+      setIsExportingExcel(false);
+    }
   };
 
   // jsPDF's standard "Helvetica" font only supports WinAnsi/Latin-1 — İ, ı, Ş, ş, Ğ, ğ aren't in
@@ -1304,58 +1468,172 @@ export default function LossAnalysis() {
     .replace(/Ş/g, "S").replace(/ş/g, "s")
     .replace(/Ğ/g, "G").replace(/ğ/g, "g");
 
-  const handleExportPdf = () => {
-    const doc = new jsPDF();
-    doc.setFont("Helvetica");
+  // Real landscape "Power BI style" PDF report — colored KPI cards plus the actual live Recharts
+  // dashboard captured as images (via modern-screenshot's domToCanvas, see captureDashboardCharts
+  // above), instead of the previous portrait, tables-only layout.
+  const handleExportPdf = async () => {
+    setIsExportingPdf(true);
+    try {
+      const { trend, charts } = await captureDashboardCharts();
 
-    doc.setFillColor(15, 23, 42);
-    doc.rect(0, 0, 210, 40, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(18);
-    doc.text(pdfSafe("LOSS CAPACITY ANALİZİ RAPORU"), 14, 18);
-    doc.setFontSize(10);
-    doc.text(pdfSafe(`${companyNameExport} | ${scopeLabelExport}`), 14, 27);
-    doc.text(pdfSafe(`Oluşturma Tarihi: ${new Date().toLocaleDateString("tr-TR")}`), 14, 34);
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      doc.setFont("Helvetica");
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const marginX = 12;
+      const footerMargin = 12;
 
-    doc.setTextColor(15, 23, 42);
-    doc.setFontSize(12);
-    doc.text(pdfSafe("1. GENEL ÖZET METRİKLERİ"), 14, 52);
+      const drawHeaderBanner = () => {
+        doc.setFillColor(15, 23, 42);
+        doc.rect(0, 0, pageWidth, 28, "F");
+        doc.setTextColor(255, 255, 255);
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(16);
+        doc.text(pdfSafe("LOSS CAPACITY ANALİZİ RAPORU"), marginX, 12);
+        doc.setFont("Helvetica", "normal");
+        doc.setFontSize(9);
+        doc.text(pdfSafe(`${companyNameExport} | ${scopeLabelExport}`), marginX, 20);
+        doc.setFontSize(8);
+        doc.text(pdfSafe(`Oluşturma Tarihi: ${new Date().toLocaleDateString("tr-TR")}`), pageWidth - marginX, 12, { align: "right" });
+        doc.setTextColor(15, 23, 42);
+      };
 
-    autoTable(doc, {
-      body: [
-        [pdfSafe("Toplam COPQ Kaybı"), `${currencySymbol} ${copqData.totalCOPQ_TL.toLocaleString()}`, pdfSafe("COPQ / Ciro Oranı"), `%${copqData.copqPercentOfRevenue.toFixed(2)}`],
-        [pdfSafe("Ortalama Beklenen Kazanç"), `${currencySymbol} ${totalAverageRecoveryExport.toLocaleString()}`, pdfSafe("Gerçekleşen Tasarruf"), `${currencySymbol} ${totalRealizedSavingsExport.toLocaleString()}`],
-        [pdfSafe("Benchmark Durumu"), pdfSafe(copqData.benchmarkStatus), pdfSafe("Model Cirosu"), `${currencySymbol} ${effectiveRevenue.toLocaleString()}`]
-      ],
-      startY: 56,
-      theme: "grid",
-      styles: { fontSize: 8.5, cellPadding: 3 },
-      columnStyles: { 0: { fontStyle: "bold", fillColor: [240, 240, 240] }, 2: { fontStyle: "bold", fillColor: [240, 240, 240] } }
-    });
+      drawHeaderBanner();
+      let y = 36;
 
-    doc.text(pdfSafe("2. COPQ FİNANSAL KAYIP MATRİSİ"), 14, (doc as any).lastAutoTable.finalY + 12);
-    autoTable(doc, {
-      head: [[pdfSafe("Maliyet Konusu"), pdfSafe("Fırsat Alanı"), pdfSafe("Maliyet Bütçe Grubu"), pdfSafe(`Min (${currencySymbol})`), pdfSafe(`Max (${currencySymbol})`)]],
-      body: copqMatrixRows.map(r => [pdfSafe(r.subject), pdfSafe(r.area), pdfSafe(r.costGroup), `${Math.round(r.min).toLocaleString()}`, `${Math.round(r.max).toLocaleString()}`]),
-      startY: (doc as any).lastAutoTable.finalY + 16,
-      theme: "striped",
-      styles: { fontSize: 7.5 }
-    });
+      // KPI color cards row
+      const kpis: { label: string; value: string; color: [number, number, number] }[] = [
+        { label: "TOPLAM COPQ KAYBI", value: `${currencySymbol} ${copqData.totalCOPQ_TL.toLocaleString()}`, color: [190, 18, 60] },
+        { label: "COPQ / CİRO ORANI", value: `%${copqData.copqPercentOfRevenue.toFixed(2)}`, color: [51, 65, 85] },
+        { label: "ORT. BEKLENEN KAZANÇ", value: `${currencySymbol} ${totalAverageRecoveryExport.toLocaleString()}`, color: [79, 70, 229] },
+        { label: "GERÇEKLEŞEN TASARRUF", value: `${currencySymbol} ${totalRealizedSavingsExport.toLocaleString()}`, color: [5, 150, 105] },
+        { label: "BENCHMARK DURUMU", value: pdfSafe(copqData.benchmarkStatus), color: [217, 119, 6] },
+        { label: "MODEL CİROSU", value: `${currencySymbol} ${effectiveRevenue.toLocaleString()}`, color: [30, 41, 59] }
+      ];
+      const kpiGap = 4;
+      const kpiWidth = (pageWidth - marginX * 2 - kpiGap * (kpis.length - 1)) / kpis.length;
+      const kpiHeight = 22;
+      kpis.forEach((kpi, i) => {
+        const x = marginX + i * (kpiWidth + kpiGap);
+        doc.setFillColor(kpi.color[0], kpi.color[1], kpi.color[2]);
+        doc.roundedRect(x, y, kpiWidth, kpiHeight, 2, 2, "F");
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(6.5);
+        doc.setFont("Helvetica", "bold");
+        doc.text(pdfSafe(kpi.label), x + 3, y + 7, { maxWidth: kpiWidth - 6 });
+        doc.setFontSize(11.5);
+        doc.text(pdfSafe(kpi.value), x + 3, y + 16, { maxWidth: kpiWidth - 6 });
+      });
+      y += kpiHeight + 8;
+      doc.setTextColor(15, 23, 42);
 
-    doc.addPage();
-    doc.setFontSize(12);
-    doc.text(pdfSafe("3. FİNANSAL GERİ KAZANIM VE İYİLEŞTİRME FIRSATLARI MATRİSİ"), 14, 16);
-    autoTable(doc, {
-      head: [[pdfSafe("Maliyet Konusu"), pdfSafe("Yalın/WCM Aracı"), pdfSafe(`Ort. Kayıp (${currencySymbol})`), pdfSafe(`Ort. Tasarruf (${currencySymbol})`), pdfSafe(`Yatırım (${currencySymbol})`), pdfSafe("Geri Ödeme"), pdfSafe("ROI"), pdfSafe(`Gerçekleşen (${currencySymbol})`), pdfSafe("Önem")]],
-      body: recoveryMatrixDataWithRealized.map(r => [
-        pdfSafe(r.subject), pdfSafe(r.leanTool), `${Math.round(r.avgLoss).toLocaleString()}`, `${Math.round(r.avgGain).toLocaleString()}`, `${Math.round(r.investmentCost).toLocaleString()}`, r.paybackMonths !== null ? `${r.paybackMonths.toFixed(1)} Ay` : "-", `${r.roiPercent >= 0 ? "+" : ""}${r.roiPercent.toFixed(0)}%`, `${Math.round(r.realizedSavings).toLocaleString()}`, pdfSafe(r.severity)
-      ]),
-      startY: 20,
-      theme: "striped",
-      styles: { fontSize: 7.5 }
-    });
+      // Historical COPQ trend chart (real capture) fills the rest of page 1, if available
+      if (trend) {
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(10);
+        doc.text(pdfSafe("TARİHSEL COPQ TREND ANALİZİ"), marginX, y);
+        const availW = pageWidth - marginX * 2;
+        const availH = pageHeight - footerMargin - (y + 4);
+        const h = Math.min(availH, availW / trend.aspectRatio);
+        const w = h * trend.aspectRatio;
+        doc.addImage(trend.dataUrl, "PNG", marginX, y + 4, w, h);
+      }
 
-    doc.save(`Loss_Capacity_Analizi_${companyNameExport.replace(/\s+/g, "_")}.pdf`);
+      // Chart grid pages — the "10 Power BI Charts" from the Dashboard tab, captured live
+      doc.addPage();
+      drawHeaderBanner();
+      y = 36;
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text(pdfSafe("GELİŞMİŞ YALIN FİNANSAL DASHBOARD (POWER BI MODELİ)"), marginX, y);
+      y += 8;
+
+      const cols = 3;
+      const gap = 6;
+      const colW = (pageWidth - marginX * 2 - gap * (cols - 1)) / cols;
+      const rowH = 58;
+      let colIndex = 0;
+
+      const drawChartCell = (x: number, cellY: number, w: number, title: string, chart: { dataUrl: string; aspectRatio: number } | null) => {
+        doc.setFont("Helvetica", "bold");
+        doc.setFontSize(7.5);
+        doc.setTextColor(51, 65, 85);
+        doc.text(pdfSafe(title), x, cellY, { maxWidth: w });
+        const availH = rowH - 6;
+        if (chart) {
+          const h = Math.min(availH, w / chart.aspectRatio);
+          const imgW = h * chart.aspectRatio;
+          doc.addImage(chart.dataUrl, "PNG", x, cellY + 3, imgW, h);
+        } else {
+          doc.setDrawColor(226, 232, 240);
+          doc.setFillColor(248, 250, 252);
+          doc.roundedRect(x, cellY + 3, w, availH, 2, 2, "FD");
+          doc.setFontSize(7);
+          doc.setTextColor(148, 163, 184);
+          doc.text(pdfSafe("Grafik yakalanamadı"), x + w / 2, cellY + 3 + availH / 2, { align: "center" });
+        }
+        doc.setTextColor(15, 23, 42);
+      };
+
+      CHART_CAPTURE_LIST.forEach(c => {
+        const isWide = !!c.wide;
+        if (isWide && colIndex !== 0) { y += rowH + 8; colIndex = 0; }
+        if (y + rowH + 8 > pageHeight - footerMargin) {
+          doc.addPage();
+          drawHeaderBanner();
+          y = 36;
+          colIndex = 0;
+        }
+        const x = marginX + colIndex * (colW + gap);
+        const w = isWide ? pageWidth - marginX * 2 : colW;
+        drawChartCell(x, y, w, c.title, charts[c.id]);
+        if (isWide) {
+          y += rowH + 8;
+          colIndex = 0;
+        } else {
+          colIndex++;
+          if (colIndex >= cols) { colIndex = 0; y += rowH + 8; }
+        }
+      });
+
+      // COPQ Financial Loss Matrix
+      doc.addPage();
+      drawHeaderBanner();
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(12);
+      doc.text(pdfSafe("COPQ FİNANSAL KAYIP MATRİSİ"), marginX, 36);
+      autoTable(doc, {
+        head: [[pdfSafe("Maliyet Konusu"), pdfSafe("Fırsat Alanı"), pdfSafe("Maliyet Bütçe Grubu"), pdfSafe(`Min (${currencySymbol})`), pdfSafe(`Max (${currencySymbol})`)]],
+        body: copqMatrixRows.map(r => [pdfSafe(r.subject), pdfSafe(r.area), pdfSafe(r.costGroup), `${Math.round(r.min).toLocaleString()}`, `${Math.round(r.max).toLocaleString()}`]),
+        startY: 40,
+        margin: { left: marginX, right: marginX },
+        theme: "striped",
+        headStyles: { fillColor: [159, 18, 57] },
+        styles: { fontSize: 8.5 }
+      });
+
+      // Financial Recovery Matrix
+      doc.addPage();
+      drawHeaderBanner();
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(12);
+      doc.text(pdfSafe("FİNANSAL GERİ KAZANIM VE İYİLEŞTİRME FIRSATLARI MATRİSİ"), marginX, 36);
+      autoTable(doc, {
+        head: [[pdfSafe("Maliyet Konusu"), pdfSafe("Yalın/WCM Aracı"), pdfSafe(`Ort. Kayıp (${currencySymbol})`), pdfSafe(`Ort. Tasarruf (${currencySymbol})`), pdfSafe(`Yatırım (${currencySymbol})`), pdfSafe("Geri Ödeme"), pdfSafe("ROI"), pdfSafe(`Gerçekleşen (${currencySymbol})`), pdfSafe("Önem")]],
+        body: recoveryMatrixDataWithRealized.map(r => [
+          pdfSafe(r.subject), pdfSafe(r.leanTool), `${Math.round(r.avgLoss).toLocaleString()}`, `${Math.round(r.avgGain).toLocaleString()}`, `${Math.round(r.investmentCost).toLocaleString()}`, r.paybackMonths !== null ? `${r.paybackMonths.toFixed(1)} Ay` : "-", `${r.roiPercent >= 0 ? "+" : ""}${r.roiPercent.toFixed(0)}%`, `${Math.round(r.realizedSavings).toLocaleString()}`, pdfSafe(r.severity)
+        ]),
+        startY: 40,
+        margin: { left: marginX, right: marginX },
+        theme: "striped",
+        headStyles: { fillColor: [159, 18, 57] },
+        styles: { fontSize: 8.5 }
+      });
+
+      doc.save(`Loss_Capacity_Analizi_${companyNameExport.replace(/\s+/g, "_")}.pdf`);
+    } finally {
+      setIsExportingPdf(false);
+    }
   };
 
   // Saves a point-in-time snapshot of the currently calculated COPQ so the Dashboard can plot a
@@ -1828,18 +2106,20 @@ export default function LossAnalysis() {
           )}
           <button
             onClick={handleExportExcel}
-            className="flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
+            disabled={isExportingExcel || isExportingPdf}
+            className="flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 disabled:opacity-60 disabled:cursor-wait"
           >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>Excel (XLS)</span>
+            {isExportingExcel ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+            <span>{isExportingExcel ? "Grafikler Yakalanıyor..." : "Excel (XLS)"}</span>
           </button>
 
           <button
             onClick={handleExportPdf}
-            className="flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100"
+            disabled={isExportingExcel || isExportingPdf}
+            className="flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100 disabled:opacity-60 disabled:cursor-wait"
           >
-            <FileText className="w-4 h-4" />
-            <span>PDF Raporu</span>
+            {isExportingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+            <span>{isExportingPdf ? "Rapor Hazırlanıyor..." : "PDF Raporu"}</span>
           </button>
 
           <button
@@ -2153,7 +2433,7 @@ export default function LossAnalysis() {
               </div>
 
               {copqTrendData.length >= 2 ? (
-                <div className="h-64 w-full">
+                <div id="lc-chart-copq-trend" className="h-64 w-full bg-white">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={copqTrendData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
@@ -2264,7 +2544,7 @@ export default function LossAnalysis() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
                 {/* 1. Toplam Finansal Geri Kazanım (Waterfall) */}
-                <div className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
+                <div id="lc-chart-waterfall" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
                   <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">1. Toplam Finansal Geri Kazanım (Waterfall)</span>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
@@ -2284,7 +2564,7 @@ export default function LossAnalysis() {
                 </div>
 
                 {/* 2. Fırsat Alanlarına Göre Kazanç (Horizontal Bar) */}
-                <div className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
+                <div id="lc-chart-area-earnings" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
                   <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">2. Fırsat Alanlarına Göre Kazanç (Horizontal Bar)</span>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
@@ -2303,7 +2583,7 @@ export default function LossAnalysis() {
                 </div>
 
                 {/* 3. Doğrudan Maliyet Azaltma Dağılımı (Donut) */}
-                <div className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
+                <div id="lc-chart-direct-donut" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
                   <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">3. Doğrudan Maliyet Azaltma Dağılımı (Donut)</span>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
@@ -2321,7 +2601,7 @@ export default function LossAnalysis() {
                 </div>
 
                 {/* 4. Kapasite Kazanım Dağılımı (Donut) */}
-                <div className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
+                <div id="lc-chart-capacity-donut" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
                   <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">4. Kapasite Kazanım Dağılımı (Donut)</span>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
@@ -2339,7 +2619,7 @@ export default function LossAnalysis() {
                 </div>
 
                 {/* 5. Stratejik Kazanç Dağılımı (Treemap) */}
-                <div className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
+                <div id="lc-chart-treemap" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
                   <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">5. Stratejik Kazanç Dağılımı (Treemap)</span>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
@@ -2356,7 +2636,7 @@ export default function LossAnalysis() {
                 </div>
 
                 {/* 6. Minimum / Maksimum Kazanç Karşılaştırması (Grouped Column) */}
-                <div className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
+                <div id="lc-chart-minmax" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
                   <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">6. Min / Max Kazanç Karşılaştırması (Grouped Column)</span>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
@@ -2373,7 +2653,7 @@ export default function LossAnalysis() {
                 </div>
 
                 {/* 7. Faaliyet Karı Öncesi / Sonrası (Waterfall veya Column) */}
-                <div className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
+                <div id="lc-chart-profit-before-after" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
                   <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">7. Faaliyet Karı Öncesi / Sonrası (Waterfall/Column)</span>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
@@ -2392,7 +2672,7 @@ export default function LossAnalysis() {
                 </div>
 
                 {/* 8. En Büyük İlk 5 Fırsat (Pareto) */}
-                <div className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
+                <div id="lc-chart-pareto" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
                   <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">8. En Büyük İlk 5 Fırsat (Pareto)</span>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
@@ -2409,7 +2689,7 @@ export default function LossAnalysis() {
                 </div>
 
                 {/* 9. Önce Sonra Kazanım Karşılaştırması */}
-                <div className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
+                <div id="lc-chart-once-sonra" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
                   <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">9. Önce / Sonra Kazanım Karşılaştırması</span>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
@@ -2426,7 +2706,7 @@ export default function LossAnalysis() {
                 </div>
 
                 {/* 10. İyileştirmelerin Faaliyet Karına Etki Grafiği Hedef */}
-                <div className="border border-slate-150 rounded-xl p-4 bg-slate-50/40 col-span-1 md:col-span-2 lg:col-span-3">
+                <div id="lc-chart-profit-curve" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40 col-span-1 md:col-span-2 lg:col-span-3">
                   <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">10. İyileştirmelerin Faaliyet Kâr Marjına Etki Eğrisi (Yalın Olgunluk Fazları Hedefi)</span>
                   <div className="h-48">
                     <ResponsiveContainer width="100%" height="100%">
