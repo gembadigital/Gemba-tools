@@ -9,9 +9,11 @@ import {
   Trash2,
   RotateCcw,
   Globe,
-  Check
+  Check,
+  Ticket as TicketIcon
 } from "lucide-react";
 import AdminUsers from "./AdminUsers";
+import TicketBoard from "./TicketBoard";
 
 interface UserProfileModalProps {
   isOpen: boolean;
@@ -45,7 +47,11 @@ export default function UserProfileModal({
   };
   const roleLabel = (role?: string) => roleLabels[currentLang || "tr"][role || "Customer User"] || role;
 
-  const [activeSubTab, setActiveSubTab] = useState<"profile" | "language" | "password" | "users" | "settings">("profile");
+  const [activeSubTab, setActiveSubTab] = useState<"profile" | "language" | "password" | "users" | "settings" | "ticket">("profile");
+  // "Customer User" (the customer-side portal account) is restricted to only Profil Bilgileri +
+  // Şifre Değiştir — no language settings, no admin tabs, no Ticket backlog.
+  const isRestrictedCustomerUser = currentUser?.role === "Customer User";
+  const canSeeTicketTab = currentUser?.role === "Admin" || currentUser?.role === "Consultant";
 
   const [fullName, setFullName] = useState(currentUser?.full_name || "");
   const [email, setEmail] = useState(currentUser?.email || "");
@@ -285,17 +291,19 @@ export default function UserProfileModal({
             <span>Profil Bilgileri</span>
           </button>
 
-          <button
-            onClick={() => setActiveSubTab("language")}
-            className={`pb-2 px-0.5 font-black text-[11px] transition-all border-b-2 uppercase tracking-wider flex items-center space-x-1.5 cursor-pointer ${
-              activeSubTab === "language" 
-                ? "border-slate-900 text-slate-900" 
-                : "border-transparent text-slate-400 hover:text-slate-600"
-            }`}
-          >
-            <Globe className="w-3.5 h-3.5" />
-            <span>Dil & Bölge</span>
-          </button>
+          {!isRestrictedCustomerUser && (
+            <button
+              onClick={() => setActiveSubTab("language")}
+              className={`pb-2 px-0.5 font-black text-[11px] transition-all border-b-2 uppercase tracking-wider flex items-center space-x-1.5 cursor-pointer ${
+                activeSubTab === "language"
+                  ? "border-slate-900 text-slate-900"
+                  : "border-transparent text-slate-400 hover:text-slate-600"
+              }`}
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span>Dil & Bölge</span>
+            </button>
+          )}
 
           <button
             onClick={() => setActiveSubTab("password")}
@@ -334,6 +342,20 @@ export default function UserProfileModal({
                 <span>Sistem Ayarları</span>
               </button>
             </>
+          )}
+
+          {canSeeTicketTab && (
+            <button
+              onClick={() => setActiveSubTab("ticket")}
+              className={`pb-2 px-0.5 font-black text-[11px] transition-all border-b-2 uppercase tracking-wider flex items-center space-x-1.5 cursor-pointer ${
+                activeSubTab === "ticket"
+                  ? "border-slate-950 text-slate-950 font-black"
+                  : "border-transparent text-slate-400 hover:text-slate-650"
+              }`}
+            >
+              <TicketIcon className="w-3.5 h-3.5" />
+              <span>Ticket</span>
+            </button>
           )}
         </div>
 
@@ -447,7 +469,7 @@ export default function UserProfileModal({
           )}
 
           {/* TAB CONTENT: LANGUAGE PREFERENCES */}
-          {activeSubTab === "language" && (
+          {activeSubTab === "language" && !isRestrictedCustomerUser && (
             <div className="space-y-4">
               {langSuccess && (
                 <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl font-medium flex items-center space-x-2">
@@ -618,6 +640,11 @@ export default function UserProfileModal({
                 </div>
               </div>
             </div>
+          )}
+
+          {/* TAB CONTENT: TICKET / İYİLEŞTİRME TAKİP */}
+          {activeSubTab === "ticket" && canSeeTicketTab && (
+            <TicketBoard token={token} currentUser={currentUser} />
           )}
 
           {/* BOTTOM SIGN OUT FOOTER */}

@@ -1561,6 +1561,38 @@ app.delete("/api/business/weekly-consultant-notes/:id", authenticateToken, async
   res.json({ success: true });
 });
 
+// Ticket / İyileştirme Takip — internal feedback about gemba-tools itself, org-wide (not per
+// customer/factory). Admin + Consultant only; a Customer User hitting these directly (not just
+// via a hidden UI tab) is rejected here too.
+app.get("/api/business/tickets", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  if (user.role !== "Admin" && user.role !== "Consultant") {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  res.json({ success: true, data: await db.getTickets(user.organization_id) });
+});
+
+app.post("/api/business/tickets", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  if (user.role !== "Admin" && user.role !== "Consultant") {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  const saved = await db.saveTicket(user.organization_id, req.body, user.id, user.full_name);
+  res.json({ success: true, data: saved });
+});
+
+app.delete("/api/business/tickets/:id", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  if (user.role !== "Admin" && user.role !== "Consultant") {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  await db.deleteTicket(user.organization_id, req.params.id);
+  res.json({ success: true });
+});
+
 // 6e. Proje Takip Raporu — real Excel export cloned from the firm's actual reporting template
 // (native PivotTables + charts intact, live PTR data injected). Optional ?week=NN filters to a
 // single visit week (used by the "Mail Gönder" attachment).

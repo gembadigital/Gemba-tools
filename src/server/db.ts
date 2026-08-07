@@ -685,6 +685,34 @@ export class GeminiDb {
     await this.removeOne("weekly_consultant_notes", orgId, id);
   }
 
+  // Ticket / İyileştirme Takip — internal feedback & improvement backlog about gemba-tools itself
+  // (not tied to any customer/factory, unlike almost everything else in this file). Admin +
+  // Consultant only; enforced both in the API handlers (app.ts) and hidden in the UI for
+  // Customer User. orderNo is assigned server-side as the next sequential number per organization.
+  public async getTickets(orgId: string): Promise<any[]> {
+    const all = await this.listCollection("tickets", orgId);
+    return all.sort((a, b) => (a.orderNo || 0) - (b.orderNo || 0));
+  }
+
+  public async saveTicket(orgId: string, ticket: any, userId: string, userName: string): Promise<any> {
+    const isNew = !ticket.id || !(await this.getRecordById("tickets", ticket.id, orgId));
+    if (isNew) {
+      ticket.id = ticket.id || randomId("ticket");
+      ticket.created_by = userId;
+      ticket.reportedBy = userName;
+      ticket.created_at = new Date().toISOString();
+      const existing = await this.listCollection("tickets", orgId);
+      ticket.orderNo = existing.length > 0 ? Math.max(...existing.map((t: any) => t.orderNo || 0)) + 1 : 1;
+    }
+    ticket.organization_id = orgId;
+    ticket.updated_at = new Date().toISOString();
+    return this.upsertMerged("tickets", orgId, ticket);
+  }
+
+  public async deleteTicket(orgId: string, id: string): Promise<void> {
+    await this.removeOne("tickets", orgId, id);
+  }
+
   // 5S Audit module — every entity (departments, areas, personnel, questions, audits, team
   // assignments, answers, results, problem categories, Gemba Walk findings) is a flat array with
   // the same factory-scoped CRUD lifecycle, so one generic implementation backs all of them

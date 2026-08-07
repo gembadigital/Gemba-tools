@@ -1,6 +1,13 @@
 import React, { useState } from "react";
 import { CompanyWorkspaceExtended, DocumentItem } from "../../types/workspace";
-import { Folder, FolderOpen, File, Plus, Trash2, Search, Upload } from "lucide-react";
+import { Folder, FolderOpen, File, Plus, Trash2, Search, Upload, Download, AlertTriangle } from "lucide-react";
+
+// Vercel's Node serverless functions cap request body size well below the app's own 20mb Express
+// limit (historically ~4.5MB) — this app has no separate blob/object storage, so document content
+// is stored as a base64 data URI inside the same JSONB blob as the rest of the customer workspace
+// (see saveWorkspaceData in CustomerRecords.tsx). Base64 adds ~33% overhead on top of the raw file
+// size, so the real ceiling for the original file is well under 4.5MB — capped conservatively here.
+const MAX_FILE_SIZE_BYTES = 3 * 1024 * 1024; // 3 MB
 
 interface DocumentVaultTabProps {
   workspace: CompanyWorkspaceExtended;
@@ -25,17 +32,33 @@ export default function DocumentVaultTab({ workspace, onUpdateDocuments }: Docum
   const [selectedFolder, setSelectedFolder] = useState<string>("Genel");
   const [searchQuery, setSearchQuery] = useState("");
   const [dragActive, setDragActive] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const handleUploadFile = (name: string, sizeStr: string) => {
-    const newDoc: DocumentItem = {
-      id: "doc_" + Math.random().toString(36).substring(2, 9),
-      name,
-      folder: selectedFolder,
-      size: sizeStr,
-      uploadDate: new Date().toISOString().split("T")[0]
+  // Reads the actual file bytes (as a base64 data URI) and appends a real, retrievable document —
+  // previously this only ever recorded the filename/size as metadata and never touched the file's
+  // content, so nothing was actually stored anywhere.
+  const handleUploadFile = (file: File) => {
+    setUploadError(null);
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      setUploadError(`"${file.name}" çok büyük (${(file.size / (1024 * 1024)).toFixed(1)} MB). Maksimum dosya boyutu ${(MAX_FILE_SIZE_BYTES / (1024 * 1024)).toFixed(0)} MB.`);
+      return;
+    }
+    const sizeMB = (file.size / (1024 * 1024)).toFixed(1) + " MB";
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const dataUrl = evt.target?.result as string;
+      const newDoc: DocumentItem = {
+        id: "doc_" + Math.random().toString(36).substring(2, 9),
+        name: file.name,
+        folder: selectedFolder,
+        size: sizeMB,
+        uploadDate: new Date().toISOString().split("T")[0],
+        url: dataUrl
+      };
+      onUpdateDocuments([...workspace.documents, newDoc]);
     };
-
-    onUpdateDocuments([...workspace.documents, newDoc]);
+    reader.onerror = () => setUploadError(`"${file.name}" okunamadı.`);
+    reader.readAsDataURL(file);
   };
 
   const handleFileDelete = (id: string) => {
@@ -59,18 +82,15 @@ export default function DocumentVaultTab({ workspace, onUpdateDocuments }: Docum
     setDragActive(false);
 
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const file = e.dataTransfer.files[0];
-      const sizeMB = (file.size / (1024 * 1024)).toFixed(1) + " MB";
-      handleUploadFile(file.name, sizeMB);
+      handleUploadFile(e.dataTransfer.files[0]);
     }
   };
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const sizeMB = (file.size / (1024 * 1024)).toFixed(1) + " MB";
-      handleUploadFile(file.name, sizeMB);
+      handleUploadFile(e.target.files[0]);
     }
+    e.target.value = "";
   };
 
   // Filtered files count and files list
@@ -142,6 +162,13 @@ export default function DocumentVaultTab({ workspace, onUpdateDocuments }: Docum
           </div>
         </div>
 
+        {uploadError && (
+          <div className="p-3 bg-red-50 text-red-800 border border-red-200 rounded-xl font-medium text-xs flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>{uploadError}</span>
+          </div>
+        )}
+
         {/* Drag and Drop Container Zone */}
         <div
           id="document-drag-zone"
@@ -180,7 +207,21 @@ export default function DocumentVaultTab({ workspace, onUpdateDocuments }: Docum
                   </td>
                   <td className="py-3 text-gray-500">{doc.uploadDate}</td>
                   <td className="py-3 text-gray-500">{doc.size}</td>
-                  <td className="py-3 text-right">
+                  <td className="py-3 text-right whitespace-nowrap">
+                    {doc.url ? (
+                      <a
+                        href={doc.url}
+                        download={doc.name}
+                        className="text-gray-400 hover:text-zinc-900 p-1.5 hover:bg-gray-100 rounded-lg transition-colors inline-flex"
+                        title="İndir"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </a>
+                    ) : (
+                      <span className="text-[10px] text-gray-300 italic mr-1" title="Bu belge eski sürümde sadece bilgi olarak kaydedilmiş, dosya içeriği yok.">
+                        içerik yok
+                      </span>
+                    )}
                     <button
                       id={`btn-delete-doc-${doc.id}`}
                       onClick={() => handleFileDelete(doc.id)}
