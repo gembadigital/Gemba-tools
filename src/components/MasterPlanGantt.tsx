@@ -1506,7 +1506,7 @@ export default function MasterPlanGantt({
             }`}
           >
             <Clock className={`w-3.5 h-3.5 ${activeView === "timeline" ? "text-white" : "text-gray-500"}`} />
-            <span>Timeline Pro Planı</span>
+            <span>Proje Zaman Çizelgesi</span>
           </button>
 
           <button
