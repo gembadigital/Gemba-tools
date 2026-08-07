@@ -70,10 +70,10 @@ export default function App() {
       selectModule: "MODÜL SEÇİNİZ",
       customers: "Müşteri Kartı",
       dashboard: "Executive Dashboard",
-      opexAssessment: "OpEx Assessment",
-      plan: "Proje Master Plan",
+      opexAssessment: "Operasyonel Giderler Değerlendirmesi",
+      plan: "Proje Ana Planı",
       vsm: "VSM Kapasite Analizi",
-      lossAnalysis: "Loss Capacity Analizi",
+      lossAnalysis: "Kayıp Kapasitesi Analizi",
       timestudy: "Çevrim Süresi Etüdü",
       balancing: "Hat Dengeleme & Yamazumi",
       smed: "SMED Model Değişim",
@@ -848,10 +848,10 @@ export default function App() {
                   activeTab === "loss-analysis" 
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
-                title="Loss Capacity Analizi"
+                title="Kayıp Kapasitesi Analizi"
               >
                 <Percent className={`w-4 h-4 shrink-0 ${activeTab === "loss-analysis" ? "text-white" : "text-slate-400"}`} />
-                {!effectivelyCollapsed && <span>Loss Capacity Analizi</span>}
+                {!effectivelyCollapsed && <span>Kayıp Kapasitesi Analizi</span>}
               </button>
 
               {/* 11. CI Proje Yönetimi */}
@@ -874,10 +874,10 @@ export default function App() {
                   activeTab === "flow" 
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
-                title="Spaghetti Akış Sketcher"
+                title="Spaghetti Akış Çizimcisi"
               >
                 <Map className={`w-4 h-4 shrink-0 ${activeTab === "flow" ? "text-white" : "text-slate-400"}`} />
-                {!effectivelyCollapsed && <span>Spaghetti Akış Sketcher</span>}
+                {!effectivelyCollapsed && <span>Spaghetti Akış Çizimcisi</span>}
               </button>
 
               {/* 7. Time Study */}
@@ -887,10 +887,10 @@ export default function App() {
                   activeTab === "timestudy" 
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
-                title="Time Study"
+                title="Zaman Çalışması"
               >
                 <Clock className={`w-4 h-4 shrink-0 ${activeTab === "timestudy" ? "text-white" : "text-slate-400"}`} />
-                {!effectivelyCollapsed && <span>Time Study</span>}
+                {!effectivelyCollapsed && <span>Zaman Çalışması</span>}
               </button>
 
               {/* 8. Yamazumi Aı Analizer */}
@@ -939,10 +939,10 @@ export default function App() {
                   activeTab === "fives" 
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
-                title="5S Olgunluk Auditler"
+                title="5S Olgunluk Denetçisi"
               >
                 <ShieldCheck className={`w-4 h-4 shrink-0 ${activeTab === "fives" ? "text-white" : "text-slate-400"}`} />
-                {!effectivelyCollapsed && <span>5S Olgunluk Auditler</span>}
+                {!effectivelyCollapsed && <span>5S Olgunluk Denetçisi</span>}
               </button>
 
             </nav>
