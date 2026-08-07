@@ -902,15 +902,38 @@ export default function MasterPlanGantt({
         const workbook = XLSX.read(data, { type: "array" });
         const sheetName = workbook.SheetNames[0];
         const ws = workbook.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json<any>(ws);
+
+        // The Gantt export (and any hand-made template with a title/notes block above the table)
+        // doesn't have its real column headers on row 1 — sheet_to_json defaults to treating row 1
+        // as the header, so every row silently failed to match any known column and "0 faaliyet
+        // aktarıldı" was shown even for a well-formed file. Scan the first 20 rows for the one that
+        // actually contains a recognizable "activity name" header, and parse from there.
+        const rawRows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        const nameHeaderCandidates = ["Yalın Faaliyet / Proje Adı", "Aktivite Adı", "Faaliyet Adı", "Aktivite", "Faaliyet", "Name", "Activity"];
+        let headerRowIndex = rawRows.findIndex((r, i) => i < 20 && Array.isArray(r) && r.some(cell => nameHeaderCandidates.includes(String(cell ?? "").trim())));
+        if (headerRowIndex === -1) headerRowIndex = 0;
+
+        const rows = XLSX.utils.sheet_to_json<any>(ws, { range: headerRowIndex });
 
         if (rows.length === 0) {
           alert("Excel dosyasında faaliyet bulunamadı.");
           return;
         }
 
+        // Helper: pulls a week number out of either a plain number or the exported "W24" text format.
+        const parseWeek = (v: any): number | undefined => {
+          if (v === undefined || v === null || v === "") return undefined;
+          const m = /(\d+)/.exec(String(v));
+          return m ? parseInt(m[1], 10) : undefined;
+        };
+
         let importedCount = 0;
         rows.forEach((row) => {
+          // The Gantt export writes two rows per activity (Plan + Actual, marked by "Tür") — only
+          // the Plan row carries the full activity data, so the Actual row must be skipped, not
+          // imported as a second (empty) activity.
+          if (row["Tür"] === "GERÇEKLEŞEN") return;
+
           // Check Turkish/English column aliases
           const name = row["Yalın Faaliyet / Proje Adı"] || row["Aktivite Adı"] || row["Faaliyet Adı"] || row["Aktivite"] || row["Faaliyet"] || row["Name"] || row["Activity"];
           if (!name) return; // Skip invalid rows
@@ -919,7 +942,7 @@ export default function MasterPlanGantt({
           const phase = row["Faz No"] || row["Faz"] || row["Phase"] || "";
           const consultant = row["Sorumlu Danışman"] || row["Danışman"] || row["Sorumlu"] || row["Consultant"] || "Ahmet Yılmaz";
           const priority = row["Öncelik"] || row["Priority"] || "Medium";
-          
+
           let progressPercent = 0;
           const progVal = row["İlerleme"] || row["Progress"] || row["Tamamlanma Oranı"] || row["Tamamlanma"];
           if (progVal !== undefined) {
@@ -930,13 +953,15 @@ export default function MasterPlanGantt({
             }
           }
 
-          const plannedManDays = Number(row["Planlanan Adam-Gün"] || row["Planlanan Gün"] || row["Adam-Gün"] || row["Man Days"] || row["Planned Man Days"]) || 5;
-          const plannedStartWeek = Number(row["Plan Başlangıç (Hafta)"] || row["Planlanan Başlangıç"] || row["Başlangıç Haftası"] || row["Start Week"] || row["Planned Start Week"]) || 24;
-          const plannedFinishWeek = Number(row["Plan Bitiş (Hafta)"] || row["Planlanan Bitiş"] || row["Bitiş Haftası"] || row["Finish Week"] || row["Planned Finish Week"]) || 28;
-          
-          const actualStartWeek = Number(row["Gerçekleşen Başlangıç (Hafta)"] || row["Gerçekleşen Başlangıç"] || row["Actual Start Week"] || row["Actual Start"]) || plannedStartWeek;
-          const actualFinishWeek = Number(row["Gerçekleşen Bitiş (Hafta)"] || row["Gerçekleşen Bitiş"] || row["Actual Finish Week"] || row["Actual Finish"]) || plannedFinishWeek;
-          
+          // `??` (not `||`) so an intentionally-entered 0 (e.g. Adam-Gün) survives the import.
+          const rawManDays = row["Planlanan Adam-Gün"] ?? row["Planlanan Gün"] ?? row["Adam-Gün"] ?? row["Man Days"] ?? row["Planned Man Days"];
+          const plannedManDays = rawManDays === undefined || rawManDays === "" ? 5 : Number(rawManDays);
+          const plannedStartWeek = parseWeek(row["Plan Başlangıç (Hafta)"] ?? row["Planlanan Başlangıç"] ?? row["Başlangıç Haftası"] ?? row["Start Week"] ?? row["Planned Start Week"] ?? row["Plan Başlangıç"]) ?? 24;
+          const plannedFinishWeek = parseWeek(row["Plan Bitiş (Hafta)"] ?? row["Planlanan Bitiş"] ?? row["Bitiş Haftası"] ?? row["Finish Week"] ?? row["Planned Finish Week"] ?? row["Plan Bitiş"]) ?? 28;
+
+          const actualStartWeek = parseWeek(row["Gerçekleşen Başlangıç (Hafta)"] ?? row["Gerçekleşen Başlangıç"] ?? row["Actual Start Week"] ?? row["Actual Start"]) ?? plannedStartWeek;
+          const actualFinishWeek = parseWeek(row["Gerçekleşen Bitiş (Hafta)"] ?? row["Gerçekleşen Bitiş"] ?? row["Actual Finish Week"] ?? row["Actual Finish"]) ?? plannedFinishWeek;
+
           const statusVal = row["Durum"] || row["Status"];
           let status = "Planned";
           if (statusVal) {
