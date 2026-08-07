@@ -278,6 +278,14 @@ export default function App() {
     }
   }, [isAuthorized, token]);
 
+  // Customer User accounts only have the "ptr" module in their sidebar (see nav below) — land
+  // them there directly instead of the default "dashboard" tab, which is hidden for that role.
+  useEffect(() => {
+    if (currentUser?.role === "Customer User") {
+      setActiveTab("ptr");
+    }
+  }, [currentUser?.id]);
+
   // Reloads all factory-scoped data for the currently selected customer. Used both on factory
   // switch and as a manual refresh (see "gemba:refresh-factory-data" listener below) — modules
   // like VsmPage/PtrTimeStudy/LossAnalysis write to these same backend rows directly and need a
@@ -776,11 +784,13 @@ export default function App() {
             
             <nav className="space-y-0.8 text-xs" onClick={() => setIsMobileNavOpen(false)}>
               
-              {/* 1. Müşteri Kartoteksi */}
+              {/* 1. Müşteri Kartoteksi — Customer User accounts don't manage the customer roster;
+                  their factory context is switched via the header dropdown instead. */}
+              {currentUser?.role !== "Customer User" && (
               <button
                 onClick={() => setActiveTab("customers")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
-                  activeTab === "customers" 
+                  activeTab === "customers"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title={t.customers}
@@ -788,12 +798,19 @@ export default function App() {
                 <Users className={`w-4 h-4 shrink-0 ${activeTab === "customers" ? "text-white" : "text-slate-400"}`} />
                 {!effectivelyCollapsed && <span>{t.customers}</span>}
               </button>
+              )}
 
+              {/* Ticket: Customer User should only see actions/dashboard tied to Proje Takip
+                  Raporu — every operational module below (Executive Dashboard through 5S,
+                  everything except PTR itself) is hidden for that role. PTR's own "Yönetici
+                  KPI Dashboard" tab (inside the module) serves as their dashboard. */}
+              {currentUser?.role !== "Customer User" && (
+              <>
               {/* 2. Executive Dashboard */}
               <button
                 onClick={() => setActiveTab("dashboard")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
-                  activeTab === "dashboard" 
+                  activeTab === "dashboard"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title={t.dashboard}
@@ -806,7 +823,7 @@ export default function App() {
               <button
                 onClick={() => setActiveTab("opex-assessment")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
-                  activeTab === "opex-assessment" 
+                  activeTab === "opex-assessment"
                     ? "bg-emerald-950 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title={t.opexAssessment}
@@ -819,7 +836,7 @@ export default function App() {
               <button
                 onClick={() => setActiveTab("plan")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
-                  activeTab === "plan" 
+                  activeTab === "plan"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title={t.plan}
@@ -832,7 +849,7 @@ export default function App() {
               <button
                 onClick={() => setActiveTab("vsm")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
-                  activeTab === "vsm" 
+                  activeTab === "vsm"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="VSM Kapasite Analizi"
@@ -845,7 +862,7 @@ export default function App() {
               <button
                 onClick={() => setActiveTab("loss-analysis")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
-                  activeTab === "loss-analysis" 
+                  activeTab === "loss-analysis"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="Kayıp Kapasitesi Analizi"
@@ -858,7 +875,7 @@ export default function App() {
               <button
                 onClick={() => setActiveTab("kaizen")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
-                  activeTab === "kaizen" 
+                  activeTab === "kaizen"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="CI Proje Yönetimi"
@@ -871,7 +888,7 @@ export default function App() {
               <button
                 onClick={() => setActiveTab("flow")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
-                  activeTab === "flow" 
+                  activeTab === "flow"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="Spaghetti Akış Çizimcisi"
@@ -884,7 +901,7 @@ export default function App() {
               <button
                 onClick={() => setActiveTab("timestudy")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
-                  activeTab === "timestudy" 
+                  activeTab === "timestudy"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="Zaman Çalışması"
@@ -897,7 +914,7 @@ export default function App() {
               <button
                 onClick={() => setActiveTab("balancing")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
-                  activeTab === "balancing" 
+                  activeTab === "balancing"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="Yamazumi Aı Analizer"
@@ -910,7 +927,7 @@ export default function App() {
               <button
                 onClick={() => setActiveTab("smed")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
-                  activeTab === "smed" 
+                  activeTab === "smed"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="SMED Analizi"
@@ -918,6 +935,8 @@ export default function App() {
                 <RefreshCw className={`w-4 h-4 shrink-0 ${activeTab === "smed" ? "text-white animate-spin-slow" : "text-slate-400"}`} />
                 {!effectivelyCollapsed && <span>SMED Analizi</span>}
               </button>
+              </>
+              )}
 
               {/* 10. Proje Takip Raporu */}
               <button
@@ -933,10 +952,11 @@ export default function App() {
               </button>
 
               {/* 12. 5S Olgunluk Auditler */}
+              {currentUser?.role !== "Customer User" && (
               <button
                 onClick={() => setActiveTab("fives")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
-                  activeTab === "fives" 
+                  activeTab === "fives"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
                 title="5S Olgunluk Denetçisi"
@@ -944,6 +964,7 @@ export default function App() {
                 <ShieldCheck className={`w-4 h-4 shrink-0 ${activeTab === "fives" ? "text-white" : "text-slate-400"}`} />
                 {!effectivelyCollapsed && <span>5S Olgunluk Denetçisi</span>}
               </button>
+              )}
 
             </nav>
           </div>
