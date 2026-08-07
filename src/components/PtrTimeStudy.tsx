@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
+import * as XLSX from "xlsx";
 import {
   FileSpreadsheet, Search, PlusCircle, Trash2, Edit, Download, Upload,
   Check, X, RefreshCw, Layers, TrendingUp, AlertCircle, HelpCircle,
@@ -644,6 +645,43 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
     }
   };
 
+  // Multi-select + bulk delete
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<number>>(new Set());
+
+  const handleToggleRowSelect = (id: number) => {
+    setSelectedRowIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleToggleSelectAllVisible = () => {
+    const visibleIds = filteredRecords.map(r => r.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedRowIds.has(id));
+    setSelectedRowIds(allSelected ? new Set() : new Set(visibleIds));
+  };
+
+  const handleBulkDeleteSelected = () => {
+    const ids = Array.from(selectedRowIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Seçili ${ids.length} adet proje satırını silmek istediğinizden emin misiniz?`)) return;
+
+    setRecords(prev => prev.filter(r => !selectedRowIds.has(r.id)));
+    const customerId = selectedCustomer?.id || "default";
+    ids.forEach((id) => {
+      fetch(`/api/business/ptr-records/${id}`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${ptrToken}`,
+          "x-factory-id": customerId
+        }
+      }).catch((err) => console.error("Failed to delete PTR record", err));
+    });
+    showToast(`${ids.length} adet proje satırı başarıyla silindi.`);
+    setSelectedRowIds(new Set());
+  };
+
   // Open Edit Form
   const handleEditClick = (row: ProjectRecord) => {
     setEditingRowId(row.id);
@@ -869,27 +907,125 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
         return;
       }
 
-      // Check unrecognized activity subjects
-      const unrecognizedSubjects = Array.from(new Set(
-        importedList
-          .map(r => r.activitySubject?.trim())
-          .filter(subject => subject && !ganttActivityNames.includes(subject))
-      ));
-
-      if (unrecognizedSubjects.length > 0) {
-        setUnrecognizedImportSubjects(unrecognizedSubjects);
-        setPendingImportList(importedList);
-        setShowImportValidationModal(true);
-      } else {
-        setRecords(prev => [...importedList, ...prev]);
-        setImportText("");
-        setImportError("");
-        setIsImportOpen(false);
-        showToast(`${importedList.length} adet yeni proje kaydı başarıyla içeri aktarıldı.`);
-      }
+      finalizeImportedRecords(importedList);
     } catch (e: any) {
       setImportError(`Hata saptandı: ${e.message}`);
     }
+  };
+
+  // Shared by both the semicolon-paste import and the .xlsx file upload below: once a raw list of
+  // parsed records exists, check for activity subjects not yet in the Master Plan, then either ask
+  // the user whether to add them or commit the import directly.
+  const finalizeImportedRecords = (importedList: ProjectRecord[]) => {
+    const unrecognizedSubjects = Array.from(new Set(
+      importedList
+        .map(r => r.activitySubject?.trim())
+        .filter(subject => subject && !ganttActivityNames.includes(subject))
+    ));
+
+    if (unrecognizedSubjects.length > 0) {
+      setUnrecognizedImportSubjects(unrecognizedSubjects);
+      setPendingImportList(importedList);
+      setShowImportValidationModal(true);
+    } else {
+      setRecords(prev => [...importedList, ...prev]);
+      setImportText("");
+      setImportError("");
+      setIsImportOpen(false);
+      showToast(`${importedList.length} adet yeni proje kaydı başarıyla içeri aktarıldı.`);
+    }
+  };
+
+  // Real .xlsx file upload — parses either the firm's own "Proje Takip Raporu" template (exported
+  // via "Excel İndir" above, headers on row 8) or a plain spreadsheet using the same Turkish column
+  // names, sparing the user from having to copy/paste cells into the CSV textarea below.
+  const PTR_HEADER_CANDIDATES = ["Faaliyet Konusu", "Ziyaret Haftası", "Sıra No"];
+
+  const excelCellToDateString = (val: any): string => {
+    if (val === undefined || val === null || val === "") return "";
+    if (val instanceof Date) {
+      const dd = String(val.getDate()).padStart(2, "0");
+      const mm = String(val.getMonth() + 1).padStart(2, "0");
+      return `${dd}.${mm}.${val.getFullYear()}`;
+    }
+    return String(val).trim();
+  };
+
+  const handleImportXlsxFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = evt.target?.result;
+        const workbook = XLSX.read(data, { type: "array", cellDates: true });
+        const sheetName = workbook.SheetNames.includes("Proje Raporu") ? "Proje Raporu" : workbook.SheetNames[0];
+        const ws = workbook.Sheets[sheetName];
+
+        // The real template's data table starts on row 8 (title/summary block above it), so scan
+        // the first 20 rows for the real header instead of assuming row 1 — same fix as the Master
+        // Plan Excel import.
+        const rawRows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        let headerRowIndex = rawRows.findIndex((r, i) => i < 20 && Array.isArray(r) && r.some(cell => PTR_HEADER_CANDIDATES.includes(String(cell ?? "").trim())));
+        if (headerRowIndex === -1) headerRowIndex = 0;
+
+        const rows = XLSX.utils.sheet_to_json<any>(ws, { range: headerRowIndex });
+        const importedList: ProjectRecord[] = [];
+
+        rows.forEach((row) => {
+          const activitySubject = String(row["Faaliyet Konusu"] ?? "").trim();
+          if (!activitySubject) return; // skip blank/summary rows
+
+          const rawDate = excelCellToDateString(row["Çalışma Tarihi"]);
+          let calculatedWeek = String(row["Ziyaret Haftası"] ?? "").trim();
+          let calculatedYear = row["Sene"] ? parseInt(String(row["Sene"]), 10) : new Date().getFullYear();
+          if (rawDate) {
+            const res = getWeekAndYearFromDateString(rawDate);
+            if (res) {
+              calculatedWeek = res.week;
+              calculatedYear = res.year;
+            }
+          }
+
+          const orderNo = records.length + importedList.length + 1;
+          importedList.push({
+            id: orderNo,
+            orderNo,
+            visitedWeek: calculatedWeek,
+            workDate: rawDate,
+            activitySubject,
+            improvementSubject: String(row["İyileştirme Konusu"] ?? "").trim(),
+            workDone: String(row["Yapılan Çalışmalar / Alınan Kararlar"] ?? "").trim(),
+            output: String(row["Çıktı"] ?? "").trim(),
+            responsible: String(row["Sorumlu"] ?? "").trim(),
+            status: String(row["Takip"] ?? "").trim() || "Açık",
+            dueDate: excelCellToDateString(row["Termin"]),
+            actualDate: excelCellToDateString(row["Gerçekleşme Tarihi"]),
+            compliance: String(row["Termine Uyum"] ?? "").trim() || "ZAMANINDA",
+            notes: String(row["Notlar"] ?? "").trim(),
+            savingsAmount: row["Kazanç Miktarı"] !== undefined && row["Kazanç Miktarı"] !== null ? String(row["Kazanç Miktarı"]) : "",
+            savingsCurrency: String(row["Kazanç Birimi"] ?? "").trim(),
+            kaizenSavings: row["Kaizen Kazancı"] !== undefined && row["Kaizen Kazancı"] !== null ? String(row["Kaizen Kazancı"]) : "",
+            equivalentProduct: String(row["Eş Değer Ürün"] ?? "").trim(),
+            year: calculatedYear
+          });
+        });
+
+        if (importedList.length === 0) {
+          setImportError("Excel dosyasında geçerli faaliyet satırı bulunamadı. Şablonun sütun başlıklarının değişmediğinden emin olun.");
+          return;
+        }
+
+        finalizeImportedRecords(importedList);
+      } catch (err: any) {
+        setImportError(`Excel dosyası ayrıştırılırken hata oluştu: ${err?.message || err}`);
+      } finally {
+        e.target.value = "";
+      }
+    };
+    reader.onerror = () => setImportError("Excel dosyası okunamadı (dosya bozuk olabilir).");
+    reader.readAsArrayBuffer(file);
   };
 
   const handleConfirmImportWithSync = (addSubjectsToGantt: boolean) => {
@@ -1265,10 +1401,32 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
           <div className="flex justify-between items-center border-b pb-2">
             <span className="font-extrabold text-slate-800 uppercase flex items-center">
               <FileSpreadsheet className="w-4 h-4 mr-1.5 text-emerald-600" />
-              Saha Excel Dosyasından Toplu Veri Yapıştır (Semicolon ; Separated)
+              Toplu Veri İçe Aktar
             </span>
             <button onClick={() => setIsImportOpen(false)} className="text-gray-400 hover:text-gray-650">Kapat X</button>
           </div>
+
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 space-y-2">
+            <p className="text-[11px] text-emerald-800 font-bold uppercase tracking-wider flex items-center">
+              <Upload className="w-3.5 h-3.5 mr-1.5" />
+              Excel Dosyası Yükle (.xlsx / .xls)
+            </p>
+            <p className="text-[11px] text-emerald-700 leading-relaxed">
+              "Excel İndir" ile alınan Proje Takip Raporu şablonunu (veya aynı sütun başlıklarını taşıyan bir dosyayı) doğrudan yükleyin — kopyala/yapıştıra gerek yok.
+            </p>
+            <label className="inline-flex items-center space-x-2 bg-white hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold px-3 py-1.5 rounded-lg cursor-pointer transition-colors">
+              <Upload className="w-3.5 h-3.5" />
+              <span>Excel Dosyası Seç</span>
+              <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportXlsxFile} />
+            </label>
+          </div>
+
+          <div className="flex items-center space-x-2 text-slate-400">
+            <div className="flex-1 h-px bg-slate-200" />
+            <span className="text-[10px] font-bold uppercase">veya metin olarak yapıştır</span>
+            <div className="flex-1 h-px bg-slate-200" />
+          </div>
+
           <p className="text-[11px] text-gray-500 leading-relaxed">
             Excel ya da CSV dosyanızdaki sütunları kopyalayıp buraya yapıştırın. Formatın <b>Söz dizimi ; (Noktalı virgül) ayracı</b> ile ayrılmış olması gereklidir. Satır başlıkları otomatik olarak es geçilir.
           </p>
@@ -1871,9 +2029,19 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
             </span>
           </div>
           <div className="flex items-center space-x-3">
+            {selectedRowIds.size > 0 && (
+              <button
+                onClick={handleBulkDeleteSelected}
+                className="flex items-center space-x-1.5 bg-red-50 hover:bg-red-100 border border-red-300 text-red-700 font-bold px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors text-[11px]"
+                title="Seçili satırları sil"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{selectedRowIds.size} Satırı Sil</span>
+              </button>
+            )}
             {/* Minimal Control Icons Bar */}
             <div className="flex items-center bg-white border border-slate-300 rounded-lg p-1 shadow-2xs space-x-1 shrink-0">
-              
+
               {/* Filtreleme İkonu */}
               <button
                 onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
@@ -2196,6 +2364,15 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
             {/* Excel Row Sütun Harfleri Başlığı (A, B, C, D...) */}
             <thead className="bg-gray-100 text-slate-400 font-mono text-[11px] text-center border-b sticky top-0 z-20">
               <tr>
+                <th rowSpan={2} className="p-1.5 border-r border-b bg-gray-200 align-middle">
+                  <input
+                    type="checkbox"
+                    className="cursor-pointer"
+                    checked={filteredRecords.length > 0 && filteredRecords.every(r => selectedRowIds.has(r.id))}
+                    onChange={handleToggleSelectAllVisible}
+                    title="Tümünü Seç / Kaldır"
+                  />
+                </th>
                 <th className="p-1.5 border-r border-b bg-gray-200">#</th>
                 <th className="p-1 px-2 border-r border-b">A</th>
                 <th className="p-1 px-2 border-r border-b">B</th>
@@ -2239,8 +2416,18 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                 const isEditing = editingRowId === item.id;
                 
                 return (
-                  <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                    
+                  <tr key={item.id} className={`hover:bg-slate-50 transition-colors ${selectedRowIds.has(item.id) ? "bg-sky-50/70" : ""}`}>
+
+                    {/* Row select checkbox (multi-select for bulk delete) */}
+                    <td className="p-2 border-r border-gray-200 text-center bg-gray-50/70">
+                      <input
+                        type="checkbox"
+                        className="cursor-pointer"
+                        checked={selectedRowIds.has(item.id)}
+                        onChange={() => handleToggleRowSelect(item.id)}
+                      />
+                    </td>
+
                     {/* Row Index Indicator (Excel Row Number) */}
                     <td className="p-2 border-r border-gray-200 text-center bg-gray-100/70 font-mono text-slate-500 text-[10px] font-bold">
                       {idx + 1}
@@ -2540,7 +2727,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
 
               {filteredRecords.length === 0 && (
                 <tr>
-                  <td colSpan={14} className="p-10 text-center text-gray-500 font-sans">
+                  <td colSpan={15} className="p-10 text-center text-gray-500 font-sans">
                     Arama kriterlerinize uyan kayıt bulunamadı. Lütfen süzgeçlerinizi gevşetip tekrar deneyin.
                   </td>
                 </tr>
