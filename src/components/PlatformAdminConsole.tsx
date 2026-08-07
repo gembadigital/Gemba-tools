@@ -3,8 +3,9 @@ import {
   Building2, Users, ShieldCheck, Mail,
   Sparkles, Search, X, CheckCircle2,
   Plus, Lock, ShieldAlert,
-  ChevronRight, Trash2, Loader2, AlertTriangle
+  ChevronRight, Trash2, Loader2, AlertTriangle, Save
 } from "lucide-react";
+import { SIDEBAR_MODULES, DEFAULT_ROLE_MODULE_VISIBILITY, RoleModuleVisibility } from "../constants/sidebarModules";
 
 interface PlatformAdminConsoleProps {
   isOpen: boolean;
@@ -81,10 +82,7 @@ const TRANSLATIONS = {
     statusChangeError: "Durum değiştirilemedi.",
     rbacHeading: "3. Rol ve Yetki Yönetimi (RBAC)",
     rbacSubtitle: "Rol bazlı modül erişim matrisi.",
-    rbacDisclaimer: "Bu matris referans/dokümantasyon amaçlıdır — gerçek erişim denetimi backend'de sabit 3 rol (Yönetici / Danışman / Müşteri Kullanıcısı) üzerinden yapılır, bu ekrandaki değişiklikler backend'e kaydedilmez.",
     adminFullAccessNote: "Yönetici rolü tüm modüllerde tam yetkiye sahiptir.",
-    colModule: "Modül / Uygulama Alanı",
-    permRead: "Okuma", permCreate: "Oluşturma", permUpdate: "Güncelleme", permDelete: "Silme", permExport: "Dışa Aktar", permAI: "AI Asistan",
     mailHeading: "4. E-posta Servisi",
     mailSubtitle: "Bu workspace'in gerçek e-posta gönderim altyapısının durumu.",
     mailProviderLabel: "Aktif Sağlayıcı",
@@ -103,7 +101,6 @@ const TRANSLATIONS = {
     aiConfigNote: "GEMINI_API_KEY Vercel proje ayarlarından (ortam değişkeni) yönetilir; anahtar bu ekranda görüntülenmez veya girilmez.",
     aiUsedByLabel: "Kullanıldığı Modüller",
     aiUsedByValue: "VSM, Loss Analysis, Executive Insights, OpEx Coach, SMED Coach ve diğer AI destekli modüller.",
-    moduleNames: { "VSM Kapasite": "VSM Kapasite", "SMED Değişim": "SMED Değişim", "Time Study": "Time Study", "Loss Analysis": "Loss Analysis", "Hat Dengeleme": "Hat Dengeleme", "CI / Kaizen": "CI / Kaizen", "5S Audit": "5S Audit", "OpEx Assessment": "OpEx Assessment", "Raporlar": "Raporlar" } as Record<string, string>,
     sec6Title: "Sistem Bakımı", sec6Desc: "Sahipsiz Test Verisi Temizliği",
     maintHeading: "Sistem Bakımı",
     maintSubtitle: "Artık kullanılmayan sistem verilerini kalıcı olarak temizleyin",
@@ -181,10 +178,7 @@ const TRANSLATIONS = {
     statusChangeError: "Failed to change status.",
     rbacHeading: "3. Role & Permission Management (RBAC)",
     rbacSubtitle: "Role-based module access matrix.",
-    rbacDisclaimer: "This matrix is for reference/documentation only — real access control is enforced server-side via the 3 fixed roles (Admin / Consultant / Customer User); changes here are not saved to the backend.",
     adminFullAccessNote: "The Admin role has full access to every module.",
-    colModule: "Module / Application Area",
-    permRead: "Read", permCreate: "Create", permUpdate: "Update", permDelete: "Delete", permExport: "Export", permAI: "AI Assistant",
     mailHeading: "4. Mail Services",
     mailSubtitle: "Status of this workspace's real email delivery infrastructure.",
     mailProviderLabel: "Active Provider",
@@ -203,7 +197,6 @@ const TRANSLATIONS = {
     aiConfigNote: "GEMINI_API_KEY is managed in Vercel project settings (environment variable); the key is never shown or entered on this screen.",
     aiUsedByLabel: "Used By Modules",
     aiUsedByValue: "VSM, Loss Analysis, Executive Insights, OpEx Coach, SMED Coach and other AI-assisted modules.",
-    moduleNames: { "VSM Kapasite": "VSM Capacity", "SMED Değişim": "SMED Changeover", "Time Study": "Time Study", "Loss Analysis": "Loss Analysis", "Hat Dengeleme": "Line Balancing", "CI / Kaizen": "CI / Kaizen", "5S Audit": "5S Audit", "OpEx Assessment": "OpEx Assessment", "Raporlar": "Reports" } as Record<string, string>,
     sec6Title: "System Maintenance", sec6Desc: "Orphaned Test Data Cleanup",
     maintHeading: "System Maintenance",
     maintSubtitle: "Permanently clean up system data that's no longer in use",
@@ -281,10 +274,7 @@ const TRANSLATIONS = {
     statusChangeError: "Status konnte nicht geändert werden.",
     rbacHeading: "3. Rollen- und Rechteverwaltung (RBAC)",
     rbacSubtitle: "Rollenbasierte Modulzugriffsmatrix.",
-    rbacDisclaimer: "Diese Matrix dient nur zu Referenz-/Dokumentationszwecken — die tatsächliche Zugriffskontrolle erfolgt serverseitig über die 3 festen Rollen (Administrator / Berater / Kundenbenutzer); Änderungen hier werden nicht im Backend gespeichert.",
     adminFullAccessNote: "Die Rolle Administrator hat vollen Zugriff auf alle Module.",
-    colModule: "Modul / Anwendungsbereich",
-    permRead: "Lesen", permCreate: "Erstellen", permUpdate: "Aktualisieren", permDelete: "Löschen", permExport: "Exportieren", permAI: "KI-Assistent",
     mailHeading: "4. E-Mail-Dienst",
     mailSubtitle: "Status der echten E-Mail-Zustellinfrastruktur dieses Workspace.",
     mailProviderLabel: "Aktiver Anbieter",
@@ -303,7 +293,6 @@ const TRANSLATIONS = {
     aiConfigNote: "GEMINI_API_KEY wird in den Vercel-Projekteinstellungen (Umgebungsvariable) verwaltet; der Schlüssel wird auf diesem Bildschirm nie angezeigt oder eingegeben.",
     aiUsedByLabel: "Verwendet in Modulen",
     aiUsedByValue: "VSM, Loss Analysis, Executive Insights, OpEx Coach, SMED Coach und weitere KI-gestützte Module.",
-    moduleNames: { "VSM Kapasite": "VSM-Kapazität", "SMED Değişim": "SMED-Rüstzeit", "Time Study": "Zeitstudie", "Loss Analysis": "Verlustanalyse", "Hat Dengeleme": "Linienabstimmung", "CI / Kaizen": "CI / Kaizen", "5S Audit": "5S-Audit", "OpEx Assessment": "OpEx-Bewertung", "Raporlar": "Berichte" } as Record<string, string>,
     sec6Title: "Systemwartung", sec6Desc: "Bereinigung verwaister Testdaten",
     maintHeading: "Systemwartung",
     maintSubtitle: "Nicht mehr verwendete Systemdaten dauerhaft bereinigen",
@@ -357,20 +346,56 @@ export default function PlatformAdminConsole({
   const [roleChangeBusyId, setRoleChangeBusyId] = useState<string | null>(null);
   const [statusChangeBusyId, setStatusChangeBusyId] = useState<string | null>(null);
 
-  // Section 3: Role & Permissions State — per-role default matrices. Admin always has full
-  // access (enforced in the backend regardless of this UI); Consultant/Customer User defaults
-  // reflect what those roles can actually do today (Consultant: unrestricted across all of the
-  // org's customers; Customer User: view/export their own assigned customer's data only).
-  // NOTE: this matrix is display-only — see rbacDisclaimer below — the backend has no per-module
-  // permission system, only the 3 fixed roles.
+  // Section 3: Role & Module Visibility — real, backend-persisted (GET/POST
+  // /api/admin/role-module-visibility), enforced live in App.tsx's sidebar. Admin always has full
+  // access and is never stored/editable here.
   const [selectedRole, setSelectedRole] = useState<string>("Admin");
-  const ALL_TRUE = { Read: true, Create: true, Update: true, Delete: true, Export: true, AIAssistant: true };
-  const MODULE_NAMES = ["VSM Kapasite", "SMED Değişim", "Time Study", "Loss Analysis", "Hat Dengeleme", "CI / Kaizen", "5S Audit", "OpEx Assessment", "Raporlar"];
-  const [permissionsMatrix, setPermissionsMatrix] = useState<Record<string, Record<string, Record<string, boolean>>>>({
-    Admin: Object.fromEntries(MODULE_NAMES.map(m => [m, { ...ALL_TRUE }])),
-    Consultant: Object.fromEntries(MODULE_NAMES.map(m => [m, { ...ALL_TRUE }])),
-    "Customer User": Object.fromEntries(MODULE_NAMES.map(m => [m, { Read: true, Create: false, Update: false, Delete: false, Export: true, AIAssistant: false }]))
-  });
+  const [roleModuleVisibility, setRoleModuleVisibility] = useState<RoleModuleVisibility>(DEFAULT_ROLE_MODULE_VISIBILITY);
+  const [visibilitySaving, setVisibilitySaving] = useState(false);
+  const [visibilitySaved, setVisibilitySaved] = useState(false);
+  const [visibilityDirty, setVisibilityDirty] = useState(false);
+
+  const fetchRoleModuleVisibility = () => {
+    if (!token) return;
+    fetch("/api/admin/role-module-visibility", { headers: { "Authorization": `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) {
+          setRoleModuleVisibility(res.data);
+          setVisibilityDirty(false);
+        }
+      })
+      .catch(() => {});
+  };
+
+  const handleToggleModuleVisibility = (role: "Consultant" | "Customer User", moduleKey: string) => {
+    setRoleModuleVisibility((prev) => ({
+      ...prev,
+      [role]: { ...prev[role], [moduleKey]: !prev[role][moduleKey] }
+    }));
+    setVisibilityDirty(true);
+    setVisibilitySaved(false);
+  };
+
+  const handleSaveModuleVisibility = async () => {
+    setVisibilitySaving(true);
+    try {
+      const res = await fetch("/api/admin/role-module-visibility", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ settings: roleModuleVisibility })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setRoleModuleVisibility(data.data);
+        setVisibilityDirty(false);
+        setVisibilitySaved(true);
+        setTimeout(() => setVisibilitySaved(false), 3000);
+      }
+    } finally {
+      setVisibilitySaving(false);
+    }
+  };
 
   // Global Notification Feedback Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -419,6 +444,7 @@ export default function PlatformAdminConsole({
     if (isOpen && token) {
       fetchUsers();
       fetchCustomers();
+      fetchRoleModuleVisibility();
     }
   }, [isOpen, token]);
 
@@ -1044,7 +1070,7 @@ export default function PlatformAdminConsole({
               </div>
             )}
 
-            {/* 3. ROLE & PERMISSIONS */}
+            {/* 3. ROLE & MODULE VISIBILITY */}
             {activeSection === 3 && (
               <div className="space-y-6 max-w-5xl mx-auto">
                 <div className="border-b border-slate-200 pb-4 flex justify-between items-center">
@@ -1057,10 +1083,20 @@ export default function PlatformAdminConsole({
                       {t.rbacSubtitle}
                     </p>
                   </div>
+                  {selectedRole !== "Admin" && (
+                    <button
+                      onClick={handleSaveModuleVisibility}
+                      disabled={!visibilityDirty || visibilitySaving}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors shrink-0"
+                    >
+                      {visibilitySaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>{visibilitySaved ? "Kaydedildi" : "Kaydet"}</span>
+                    </button>
+                  )}
                 </div>
 
-                <div className="bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-semibold leading-relaxed rounded-xl px-4 py-2.5">
-                  ℹ️ {t.rbacDisclaimer}
+                <div className="bg-indigo-50 border border-indigo-200 text-indigo-900 text-[11px] font-semibold leading-relaxed rounded-xl px-4 py-2.5">
+                  ℹ️ Bu ayarlar gerçektir ve kaydedildiği anda uygulanır — burada bir modülü kapattığınızda, ilgili roldeki kullanıcılar bir sonraki sayfa yenilemesinde o modülü sol menüde göremez. Yönetici (Admin) rolü her zaman tam erişime sahiptir ve buradan kısıtlanamaz.
                 </div>
 
                 {/* Role Selector Tabs */}
@@ -1080,64 +1116,40 @@ export default function PlatformAdminConsole({
                   ))}
                 </div>
 
-                {selectedRole === "Admin" && (
+                {selectedRole === "Admin" ? (
                   <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-xl px-4 py-2.5 flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 shrink-0" />
                     <span>{t.adminFullAccessNote}</span>
                   </div>
+                ) : (
+                  <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs divide-y divide-slate-100">
+                    {SIDEBAR_MODULES.map((mod) => {
+                      const role = selectedRole as "Consultant" | "Customer User";
+                      const isVisible = roleModuleVisibility[role][mod.key];
+                      return (
+                        <label
+                          key={mod.key}
+                          htmlFor={`module-visibility-${role}-${mod.key}`}
+                          className="flex items-center justify-between px-4 py-3 hover:bg-slate-50/50 cursor-pointer"
+                        >
+                          <span className="font-bold text-slate-900 text-xs">{mod.label}</span>
+                          <span className="flex items-center gap-2">
+                            <span className={`text-[10px] font-extrabold uppercase ${isVisible ? "text-emerald-600" : "text-slate-400"}`}>
+                              {isVisible ? "Görünür" : "Gizli"}
+                            </span>
+                            <input
+                              id={`module-visibility-${role}-${mod.key}`}
+                              type="checkbox"
+                              checked={isVisible}
+                              onChange={() => handleToggleModuleVisibility(role, mod.key)}
+                              className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                            />
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 )}
-
-                {/* Permissions Matrix Table */}
-                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
-                  <table className="min-w-full divide-y divide-slate-100 text-xs text-left">
-                    <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px]">
-                      <tr>
-                        <th className="px-4 py-3">{t.colModule}</th>
-                        <th className="px-4 py-3 text-center">{t.permRead}</th>
-                        <th className="px-4 py-3 text-center">{t.permCreate}</th>
-                        <th className="px-4 py-3 text-center">{t.permUpdate}</th>
-                        <th className="px-4 py-3 text-center">{t.permDelete}</th>
-                        <th className="px-4 py-3 text-center">{t.permExport}</th>
-                        <th className="px-4 py-3 text-center">{t.permAI}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
-                      {MODULE_NAMES.map((mod) => (
-                        <tr key={mod} className="hover:bg-slate-50/50">
-                          <td className="px-4 py-3 font-bold text-slate-900">{t.moduleNames[mod] || mod}</td>
-                          {["Read", "Create", "Update", "Delete", "Export", "AIAssistant"].map((act) => {
-                            const isChecked = permissionsMatrix[selectedRole][mod][act];
-                            if (selectedRole === "Admin") {
-                              return (
-                                <td key={act} className="px-4 py-3 text-center">
-                                  <CheckCircle2 className="w-4 h-4 text-emerald-600 inline-block" />
-                                </td>
-                              );
-                            }
-                            return (
-                              <td key={act} className="px-4 py-3 text-center">
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={() => {
-                                    setPermissionsMatrix(prev => ({
-                                      ...prev,
-                                      [selectedRole]: {
-                                        ...prev[selectedRole],
-                                        [mod]: { ...prev[selectedRole][mod], [act]: !prev[selectedRole][mod][act] }
-                                      }
-                                    }));
-                                  }}
-                                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                />
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
               </div>
             )}
 

@@ -650,6 +650,23 @@ app.post("/api/auth/accept-invitation", async (req, res) => {
 
 
 // USER ADMINISTRATION (Only Admin role)
+// Role Module Visibility — GET is available to any authenticated user (the sidebar itself needs
+// this to decide what to render for the logged-in user's role); only Admin can change it.
+app.get("/api/admin/role-module-visibility", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  res.json({ success: true, data: await db.getRoleModuleVisibility(user.organization_id) });
+});
+
+app.post("/api/admin/role-module-visibility", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  if (user.role !== "Admin") {
+    res.status(403).json({ success: false, error: "Access Denied. Administrator role required." });
+    return;
+  }
+  const saved = await db.saveRoleModuleVisibility(user.organization_id, req.body.settings, user.id);
+  res.json({ success: true, data: saved });
+});
+
 app.get("/api/admin/users", authenticateToken, async (req, res) => {
   try {
     const user = (req as any).user;

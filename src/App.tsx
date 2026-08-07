@@ -5,6 +5,7 @@ import {
   Customer, ProcessRecord, GanttActivity, FlowSegment, KaizenCard
 } from "./types";
 import { FactoryProvider } from "./context/FactoryContext";
+import { SIDEBAR_MODULE_KEYS, DEFAULT_ROLE_MODULE_VISIBILITY, RoleModuleVisibility } from "./constants/sidebarModules";
 
 // Import modules
 import CustomerRecords from "./components/CustomerRecords";
@@ -134,6 +135,17 @@ export default function App() {
 
   // PRIMARY ACTION PANEL ACTIVE TAB
   const [activeTab, setActiveTab] = useState<MenuTab>("dashboard");
+
+  // Real, backend-persisted per-role module visibility (Platform Admin Console → "Rol ve
+  // Yetkiler") — replaces the old hardcoded "Customer User only sees PTR" rule with whatever the
+  // Admin has actually configured. Admin role itself is never restricted.
+  const [moduleVisibility, setModuleVisibility] = useState<RoleModuleVisibility>(DEFAULT_ROLE_MODULE_VISIBILITY);
+  const isModuleVisible = (moduleKey: string): boolean => {
+    if (currentUser?.role === "Admin") return true;
+    if (currentUser?.role === "Consultant") return moduleVisibility.Consultant[moduleKey] !== false;
+    if (currentUser?.role === "Customer User") return moduleVisibility["Customer User"][moduleKey] === true;
+    return true;
+  };
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("gemba_sidebar_collapsed") === "true";
   });
@@ -278,13 +290,28 @@ export default function App() {
     }
   }, [isAuthorized, token]);
 
-  // Customer User accounts only have the "ptr" module in their sidebar (see nav below) — land
-  // them there directly instead of the default "dashboard" tab, which is hidden for that role.
+  // Fetch the Admin-configured per-role module visibility (Platform Admin Console → "Rol ve
+  // Yetkiler"). Admin's own session never needs this (always full access) but still fetches it so
+  // the settings are ready if the Admin opens the console.
   useEffect(() => {
-    if (currentUser?.role === "Customer User") {
-      setActiveTab("ptr");
-    }
-  }, [currentUser?.id]);
+    if (!isAuthorized || !token) return;
+    fetch("/api/admin/role-module-visibility", { headers: { "Authorization": `Bearer ${token}` } })
+      .then(res => res.json())
+      .then(res => {
+        if (res.success) setModuleVisibility(res.data);
+      })
+      .catch(() => {});
+  }, [isAuthorized, token]);
+
+  // Non-Admin accounts land on the first module their role is actually allowed to see, instead of
+  // the default "dashboard" tab — which may be hidden for their role per the Admin's settings.
+  useEffect(() => {
+    if (!currentUser || currentUser.role === "Admin") return;
+    if (isModuleVisible(activeTab)) return;
+    const firstVisible = SIDEBAR_MODULE_KEYS.find(k => isModuleVisible(k));
+    if (firstVisible) setActiveTab(firstVisible as MenuTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id, moduleVisibility]);
 
   // Reloads all factory-scoped data for the currently selected customer. Used both on factory
   // switch and as a manual refresh (see "gemba:refresh-factory-data" listener below) — modules
@@ -784,9 +811,10 @@ export default function App() {
             
             <nav className="space-y-0.8 text-xs" onClick={() => setIsMobileNavOpen(false)}>
               
-              {/* 1. Müşteri Kartoteksi — Customer User accounts don't manage the customer roster;
-                  their factory context is switched via the header dropdown instead. */}
-              {currentUser?.role !== "Customer User" && (
+              {/* 1. Müşteri Kartoteksi — visibility now driven by the Admin's Platform Console
+                  settings (see moduleVisibility/isModuleVisible above), not a hardcoded role
+                  check. Default matches the old behavior: hidden for Customer User. */}
+              {isModuleVisible("customers") && (
               <button
                 onClick={() => setActiveTab("customers")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
@@ -800,13 +828,8 @@ export default function App() {
               </button>
               )}
 
-              {/* Ticket: Customer User should only see actions/dashboard tied to Proje Takip
-                  Raporu — every operational module below (Executive Dashboard through 5S,
-                  everything except PTR itself) is hidden for that role. PTR's own "Yönetici
-                  KPI Dashboard" tab (inside the module) serves as their dashboard. */}
-              {currentUser?.role !== "Customer User" && (
-              <>
               {/* 2. Executive Dashboard */}
+              {isModuleVisible("dashboard") && (
               <button
                 onClick={() => setActiveTab("dashboard")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
@@ -818,8 +841,10 @@ export default function App() {
                 <LayoutDashboard className={`w-4 h-4 shrink-0 ${activeTab === "dashboard" ? "text-white" : "text-slate-400"}`} />
                 {!effectivelyCollapsed && <span>{t.dashboard}</span>}
               </button>
+              )}
 
               {/* 2.5. OpEx Assessment */}
+              {isModuleVisible("opex-assessment") && (
               <button
                 onClick={() => setActiveTab("opex-assessment")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
@@ -831,8 +856,10 @@ export default function App() {
                 <Award className={`w-4 h-4 shrink-0 ${activeTab === "opex-assessment" ? "text-white" : "text-slate-400"}`} />
                 {!effectivelyCollapsed && <span>{t.opexAssessment}</span>}
               </button>
+              )}
 
               {/* 3. Proje Master Plan */}
+              {isModuleVisible("plan") && (
               <button
                 onClick={() => setActiveTab("plan")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
@@ -844,8 +871,10 @@ export default function App() {
                 <FolderKanban className={`w-4 h-4 shrink-0 ${activeTab === "plan" ? "text-white" : "text-slate-400"}`} />
                 {!effectivelyCollapsed && <span>{t.plan}</span>}
               </button>
+              )}
 
               {/* 4. VSM Kapasite Analizi */}
+              {isModuleVisible("vsm") && (
               <button
                 onClick={() => setActiveTab("vsm")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
@@ -857,8 +886,10 @@ export default function App() {
                 <GitCommit className={`w-4 h-4 shrink-0 ${activeTab === "vsm" ? "text-white" : "text-slate-400"}`} />
                 {!effectivelyCollapsed && <span>VSM Kapasite Analizi</span>}
               </button>
+              )}
 
               {/* 5. Loss Capacity Analizi */}
+              {isModuleVisible("loss-analysis") && (
               <button
                 onClick={() => setActiveTab("loss-analysis")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
@@ -870,8 +901,10 @@ export default function App() {
                 <Percent className={`w-4 h-4 shrink-0 ${activeTab === "loss-analysis" ? "text-white" : "text-slate-400"}`} />
                 {!effectivelyCollapsed && <span>Loss Capacity Analizi</span>}
               </button>
+              )}
 
               {/* 11. CI Proje Yönetimi */}
+              {isModuleVisible("kaizen") && (
               <button
                 onClick={() => setActiveTab("kaizen")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
@@ -883,8 +916,10 @@ export default function App() {
                 <Sparkles className={`w-4 h-4 shrink-0 ${activeTab === "kaizen" ? "text-white" : "text-slate-400"}`} />
                 {!effectivelyCollapsed && <span>CI Proje Yönetimi</span>}
               </button>
+              )}
 
               {/* 6. Spaghetti Akış Sketcher */}
+              {isModuleVisible("flow") && (
               <button
                 onClick={() => setActiveTab("flow")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
@@ -896,8 +931,10 @@ export default function App() {
                 <Map className={`w-4 h-4 shrink-0 ${activeTab === "flow" ? "text-white" : "text-slate-400"}`} />
                 {!effectivelyCollapsed && <span>Spaghetti Akış Analizi</span>}
               </button>
+              )}
 
               {/* 7. Time Study */}
+              {isModuleVisible("timestudy") && (
               <button
                 onClick={() => setActiveTab("timestudy")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
@@ -909,8 +946,10 @@ export default function App() {
                 <Clock className={`w-4 h-4 shrink-0 ${activeTab === "timestudy" ? "text-white" : "text-slate-400"}`} />
                 {!effectivelyCollapsed && <span>Time Study</span>}
               </button>
+              )}
 
-              {/* 8. Yamazumi Aı Analizer */}
+              {/* 8. Yamazumi Analizi */}
+              {isModuleVisible("balancing") && (
               <button
                 onClick={() => setActiveTab("balancing")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
@@ -922,8 +961,10 @@ export default function App() {
                 <AlignLeft className={`w-4 h-4 shrink-0 ${activeTab === "balancing" ? "text-white" : "text-slate-400"}`} />
                 {!effectivelyCollapsed && <span>Yamazumi Analizi</span>}
               </button>
+              )}
 
               {/* 9. SMED Analizi */}
+              {isModuleVisible("smed") && (
               <button
                 onClick={() => setActiveTab("smed")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
@@ -935,10 +976,10 @@ export default function App() {
                 <RefreshCw className={`w-4 h-4 shrink-0 ${activeTab === "smed" ? "text-white animate-spin-slow" : "text-slate-400"}`} />
                 {!effectivelyCollapsed && <span>SMED Analizi</span>}
               </button>
-              </>
               )}
 
               {/* 10. Proje Takip Raporu */}
+              {isModuleVisible("ptr") && (
               <button
                 onClick={() => setActiveTab("ptr")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
@@ -950,9 +991,10 @@ export default function App() {
                 <Clock className={`w-4 h-4 shrink-0 ${activeTab === "ptr" ? "text-white" : "text-slate-400"}`} />
                 {!effectivelyCollapsed && <span>Proje Takip Raporu</span>}
               </button>
+              )}
 
               {/* 12. 5S Olgunluk Auditler */}
-              {currentUser?.role !== "Customer User" && (
+              {isModuleVisible("fives") && (
               <button
                 onClick={() => setActiveTab("fives")}
                 className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${

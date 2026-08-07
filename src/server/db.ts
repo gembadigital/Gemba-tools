@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { Pool } from "pg";
 import { OPEX_SEED_CATEGORIES, OPEX_SEED_QUESTIONS } from "./opexSeedData.js";
+import { DEFAULT_ROLE_MODULE_VISIBILITY, RoleModuleVisibility } from "../constants/sidebarModules.js";
 
 // Schema Definitions
 export interface Organization {
@@ -1196,6 +1197,34 @@ export class GeminiDb {
 
   public async deleteOpexQuestion(orgId: string, id: string): Promise<void> {
     await this.removeOne("opex_questions", orgId, id);
+  }
+
+  // Role Module Visibility — real, backend-enforced replacement for the Platform Admin Console's
+  // old "Role & Permissions" matrix, which was pure unpersisted UI state (a toggle would revert
+  // the moment the console was reopened, since nothing was ever saved). One settings row per
+  // organization; Admin is intentionally not stored here — always full access, non-configurable.
+  public async getRoleModuleVisibility(orgId: string): Promise<RoleModuleVisibility> {
+    const all = await this.listCollection("role_module_visibility", orgId);
+    const existing = all[0];
+    if (!existing) return DEFAULT_ROLE_MODULE_VISIBILITY;
+    return {
+      Consultant: { ...DEFAULT_ROLE_MODULE_VISIBILITY.Consultant, ...(existing.settings?.Consultant || {}) },
+      "Customer User": { ...DEFAULT_ROLE_MODULE_VISIBILITY["Customer User"], ...(existing.settings?.["Customer User"] || {}) }
+    };
+  }
+
+  public async saveRoleModuleVisibility(orgId: string, settings: RoleModuleVisibility, userId: string): Promise<RoleModuleVisibility> {
+    const all = await this.listCollection("role_module_visibility", orgId);
+    const existing = all[0];
+    const record = {
+      id: existing?.id || randomId("rolevis"),
+      organization_id: orgId,
+      settings,
+      updated_by: userId,
+      updated_at: new Date().toISOString()
+    };
+    await this.upsertMerged("role_module_visibility", orgId, record);
+    return this.getRoleModuleVisibility(orgId);
   }
 }
 
