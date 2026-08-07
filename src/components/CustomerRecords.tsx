@@ -135,7 +135,11 @@ export default function CustomerRecords({
       .then(res => {
         if (cancelled) return;
         if (res.success && res.data) {
-          setWorkspace(res.data);
+          // Backfill for workspaces saved before "Yıllık Ciro" existed on this tab — otherwise
+          // an existing customer's real Customer.annualRevenue would show as blank here until
+          // the profile is saved once.
+          const loaded = res.data as CompanyWorkspaceExtended;
+          setWorkspace(loaded.annualRevenue !== undefined ? loaded : { ...loaded, annualRevenue: selectedCustomer.annualRevenue || 0 });
           return;
         }
         // One-time migration: nothing in the backend yet — if this browser has real,
@@ -189,9 +193,9 @@ export default function CustomerRecords({
       website: "",
       country: "Türkiye",
       city: "",
+      annualRevenue: cust.annualRevenue || 0,
       operational: {
         ...template.operational,
-        annualProductionQuantity: cust.annualRevenue || 0,
         productFamilies: cust.productionType ? [cust.productionType] : []
       },
       workforce: {
@@ -231,6 +235,9 @@ export default function CustomerRecords({
       productionType: updated.productionType || selectedCustomer.productionType,
       copexScore: updated.opex.opexScore || selectedCustomer.copexScore,
       employeeCount: updated.workforce.totalEmployees || selectedCustomer.employeeCount,
+      // Explicit undefined/null check (not `||`) so an intentionally-entered 0 isn't silently
+      // overwritten back to the previous value — same `??`-vs-`||` bug class fixed elsewhere.
+      annualRevenue: updated.annualRevenue ?? selectedCustomer.annualRevenue,
       notes: updated.opex.currentImprovementProgram || selectedCustomer.notes
     });
   };

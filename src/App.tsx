@@ -891,10 +891,10 @@ export default function App() {
                   activeTab === "flow"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
-                title="Spaghetti Akış Çizimcisi"
+                title="Spaghetti Akış Analizi"
               >
                 <Map className={`w-4 h-4 shrink-0 ${activeTab === "flow" ? "text-white" : "text-slate-400"}`} />
-                {!effectivelyCollapsed && <span>Spaghetti Akış Çizimcisi</span>}
+                {!effectivelyCollapsed && <span>Spaghetti Akış Analizi</span>}
               </button>
 
               {/* 7. Time Study */}
@@ -917,10 +917,10 @@ export default function App() {
                   activeTab === "balancing"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
-                title="Yamazumi AI Analyzer"
+                title="Yamazumi Analizi"
               >
                 <AlignLeft className={`w-4 h-4 shrink-0 ${activeTab === "balancing" ? "text-white" : "text-slate-400"}`} />
-                {!effectivelyCollapsed && <span>Yamazumi AI Analyzer</span>}
+                {!effectivelyCollapsed && <span>Yamazumi Analizi</span>}
               </button>
 
               {/* 9. SMED Analizi */}

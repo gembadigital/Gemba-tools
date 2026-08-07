@@ -152,6 +152,11 @@ export interface CompanyWorkspaceExtended {
   companyName?: string;
   industry?: string;
   productionType?: string;
+  // Yıllık Ciro — kept in sync with the top-level Customer.annualRevenue (the only other place
+  // this value lives), which already drives Loss Capacity Analizi and CI Proje Yönetimi
+  // calculations. Added here so it's actually visible/editable somewhere after a customer's
+  // initial creation — previously only set once in the "Yeni Müşteri Ekle" modal, never again.
+  annualRevenue?: number;
   taxNumber?: string;
   taxOffice?: string;
   website?: string;

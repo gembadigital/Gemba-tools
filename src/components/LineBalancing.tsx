@@ -99,7 +99,7 @@ const TRANSLATIONS: Record<string, any> = {
     minimize: "Exit Full Screen"
   },
   tr: {
-    title: "Yamazumi AI Analizörü",
+    title: "Yamazumi Analizi",
     subtitle: "Endüstriyel Hareket Etüdü ve Yalın Hat Dengeleme",
     videoPanel: "Video Hareket Yakalama & Kronometre",
     videoUploadHint: "MP4, MOV veya AVI video sürükleyin ya da tıklayarak iş videosu yükleyin",

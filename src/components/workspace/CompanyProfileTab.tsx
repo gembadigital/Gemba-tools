@@ -227,6 +227,19 @@ export default function CompanyProfileTab({ workspace, onSave }: CompanyProfileT
                 className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden focus:border-zinc-400 disabled:bg-gray-50 disabled:text-gray-600 transition-all"
               />
             </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-gray-500">Yıllık Ciro (₺)</label>
+              <input
+                id="input-annualRevenue"
+                type="text"
+                inputMode="numeric"
+                disabled={!isEditing}
+                value={editedWorkspace.annualRevenue ? editedWorkspace.annualRevenue.toLocaleString("tr-TR") : ""}
+                onChange={(e) => handleFieldChange(null, "annualRevenue", parseInt(e.target.value.replace(/\D/g, ""), 10) || 0)}
+                placeholder="Örn: 25.000.000"
+                className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden focus:border-zinc-400 disabled:bg-gray-50 disabled:text-gray-600 transition-all"
+              />
+            </div>
           </div>
         )}
 
