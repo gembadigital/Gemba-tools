@@ -70,10 +70,10 @@ export default function App() {
       selectModule: "MODÜL SEÇİNİZ",
       customers: "Müşteri Kartı",
       dashboard: "Executive Dashboard",
-      opexAssessment: "Operasyonel Giderler Değerlendirmesi",
-      plan: "Proje Ana Planı",
+      opexAssessment: "OpEx Assessment",
+      plan: "Proje Master Plan",
       vsm: "VSM Kapasite Analizi",
-      lossAnalysis: "Kayıp Kapasitesi Analizi",
+      lossAnalysis: "Loss Capacity Analizi",
       timestudy: "Çevrim Süresi Etüdü",
       balancing: "Hat Dengeleme & Yamazumi",
       smed: "SMED Model Değişim",
@@ -865,10 +865,10 @@ export default function App() {
                   activeTab === "loss-analysis"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
-                title="Kayıp Kapasitesi Analizi"
+                title="Loss Capacity Analizi"
               >
                 <Percent className={`w-4 h-4 shrink-0 ${activeTab === "loss-analysis" ? "text-white" : "text-slate-400"}`} />
-                {!effectivelyCollapsed && <span>Kayıp Kapasitesi Analizi</span>}
+                {!effectivelyCollapsed && <span>Loss Capacity Analizi</span>}
               </button>
 
               {/* 11. CI Proje Yönetimi */}
@@ -904,10 +904,10 @@ export default function App() {
                   activeTab === "timestudy"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
-                title="Zaman Çalışması"
+                title="Time Study"
               >
                 <Clock className={`w-4 h-4 shrink-0 ${activeTab === "timestudy" ? "text-white" : "text-slate-400"}`} />
-                {!effectivelyCollapsed && <span>Zaman Çalışması</span>}
+                {!effectivelyCollapsed && <span>Time Study</span>}
               </button>
 
               {/* 8. Yamazumi Aı Analizer */}
@@ -917,10 +917,10 @@ export default function App() {
                   activeTab === "balancing"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
-                title="Yamazumi Aı Analizer"
+                title="Yamazumi AI Analyzer"
               >
                 <AlignLeft className={`w-4 h-4 shrink-0 ${activeTab === "balancing" ? "text-white" : "text-slate-400"}`} />
-                {!effectivelyCollapsed && <span>Yamazumi Aı Analizer</span>}
+                {!effectivelyCollapsed && <span>Yamazumi AI Analyzer</span>}
               </button>
 
               {/* 9. SMED Analizi */}
@@ -959,10 +959,10 @@ export default function App() {
                   activeTab === "fives"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
-                title="5S Olgunluk Denetçisi"
+                title="5S Olgunluk Auditler"
               >
                 <ShieldCheck className={`w-4 h-4 shrink-0 ${activeTab === "fives" ? "text-white" : "text-slate-400"}`} />
-                {!effectivelyCollapsed && <span>5S Olgunluk Denetçisi</span>}
+                {!effectivelyCollapsed && <span>5S Olgunluk Auditler</span>}
               </button>
               )}
 
