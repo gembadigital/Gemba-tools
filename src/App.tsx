@@ -1009,17 +1009,17 @@ export default function App() {
             </div>
 
             {/* GEMBA DIGITAL Corporate Brand Signature Logo */}
-            <div className="pt-3.5 mt-1 border-t border-slate-100/80 flex flex-col items-center justify-center">
+            <div className="pt-3.5 mt-1 border-t border-slate-100/80 flex flex-col items-center justify-center w-full">
               {!effectivelyCollapsed ? (
-                <div className="flex flex-col items-center space-y-1.5 px-2 py-1 select-none pointer-events-none w-full">
+                <div className="flex flex-col items-center justify-center text-center space-y-1.5 px-2 py-1 select-none pointer-events-none w-full">
                   <div className="h-16 w-full flex items-center justify-center overflow-hidden">
                     <img
                       src={gembaDigitalWordmark}
                       alt="Gemba Digital Logo"
-                      className="h-16 w-auto object-contain max-w-[220px] opacity-90 hover:opacity-100 transition-opacity duration-300"
+                      className="h-16 w-auto object-contain max-w-[220px] mx-auto opacity-90 hover:opacity-100 transition-opacity duration-300"
                     />
                   </div>
-                  <span className="text-[11px] font-black tracking-widest text-slate-400 uppercase leading-none mt-0.5">
+                  <span className="w-full text-center text-[11px] font-black tracking-widest text-slate-400 uppercase leading-none mt-0.5">
                     Digital Tools for Excellence
                   </span>
                 </div>

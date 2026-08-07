@@ -394,13 +394,13 @@ export default function AuthScreen({ onAuthSuccess, inviteToken, resetToken }: A
       </div>
 
       {/* GEMBA DIGITAL Corporate Brand Signature — bottom of the login screen */}
-      <div className="mt-10 flex flex-col items-center justify-center select-none">
+      <div className="mt-10 w-full flex flex-col items-center justify-center text-center select-none">
         <img
           src={gembaDigitalWordmark}
           alt="Gemba Digital Logo"
-          className="h-16 w-auto object-contain max-w-[288px] opacity-80"
+          className="h-16 w-auto object-contain max-w-[288px] mx-auto opacity-80"
         />
-        <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase mt-1.5">
+        <span className="w-full text-center text-[10px] font-black tracking-widest text-slate-400 uppercase mt-1.5">
           Digital Tools for Excellence
         </span>
       </div>

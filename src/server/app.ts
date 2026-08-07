@@ -1682,7 +1682,7 @@ app.post("/api/business/ptr-records/send-weekly-report", authenticateToken, asyn
 
   try {
     const buffer = await generatePtrTemplateExcel(records, customerName);
-    const subject = `[PTR] ${shortName} W#${week} Proje Raporu`;
+    const subject = `[PTR] ${shortName} W${week} Proje Raporu`;
 
     // Danışman Faaliyet Özeti: fold each consultant's free-text weekly note directly into the
     // email body (not just the Excel attachment) so the customer sees this week's work without
