@@ -407,8 +407,15 @@ export default function MasterPlanGantt({
     // match only — the previous bidirectional substring test on activitySubject/workDone/category
     // (e.g. "5S", "TPM", "SMED") could attach an unrelated activity's PTR weeks to this one just
     // because one name/category contained the other's short fragment.
+    //
+    // `manualActualOverride`: once the user manually sets the actual dates (via the timeline's
+    // kaydırma/shift arrows or the edit form's "Gerçekleşen Dönem" fields), that choice must win
+    // going forward. Without this flag, PTR sync re-merged in every render and any manual edit was
+    // silently discarded the moment PTR records existed for that activity's exact name — the range
+    // could only ever grow (via set-union), never actually move, so "kaydırma" had no lasting
+    // effect for any activity with logged visits.
     let rawActualWeeks: number[] = (act as any).actualWeeks || [];
-    if (ptrRecords && ptrRecords.length > 0) {
+    if (!(act as any).manualActualOverride && ptrRecords && ptrRecords.length > 0) {
       const actNameUpper = act.name.toUpperCase().trim();
       const matchedPtr = ptrRecords.filter(r => (r.activitySubject || "").toUpperCase().trim() === actNameUpper);
       if (matchedPtr.length > 0) {
@@ -447,7 +454,8 @@ export default function MasterPlanGantt({
       linkedItemId: (act as any).linkedItemId || "",
       parallelWith: (act as any).parallelWith || "",
       parentActivityId: (act as any).parentActivityId || "",
-      phase: (act as any).phase || ""
+      phase: (act as any).phase || "",
+      manualActualOverride: (act as any).manualActualOverride || false
     };
   }).sort((a, b) => (parseInt(a.activityNo, 10) || 0) - (parseInt(b.activityNo, 10) || 0));
 
@@ -631,6 +639,14 @@ export default function MasterPlanGantt({
     e.preventDefault();
     if (!editingActivity || !formName) return;
 
+    const actualStartWeekNum = Number(formActualStartWeek);
+    const actualFinishWeekNum = Number(formActualFinishWeek);
+    // Only treat this as a manual override if the user actually changed the "Gerçekleşen Dönem"
+    // fields from what was showing (the PTR-resolved values) — otherwise every unrelated edit
+    // (priority, notes, etc.) would silently lock in whatever actual dates happened to be
+    // displayed at open-time and permanently disable PTR auto-sync for that activity.
+    const actualDatesChanged = actualStartWeekNum !== editingActivity.actualStartWeek || actualFinishWeekNum !== editingActivity.actualFinishWeek;
+
     const updatedAct = {
       ...editingActivity,
       name: formName,
@@ -643,15 +659,19 @@ export default function MasterPlanGantt({
       phase: formPhase,
       plannedStartWeek: Number(formPlannedStartWeek),
       plannedFinishWeek: Number(formPlannedFinishWeek),
-      actualStartWeek: Number(formActualStartWeek),
-      actualFinishWeek: Number(formActualFinishWeek),
+      actualStartWeek: actualStartWeekNum,
+      actualFinishWeek: actualFinishWeekNum,
       plannedManDays: Number(formPlannedManDays),
       responsibleConsultant: formConsultant,
       milestone: formMilestone,
       dependencies: formDependencies ? formDependencies.split(",").map(d => d.trim()) : [],
       relatedModule: formRelatedModule,
       linkedItemId: formLinkedItemId,
-      parallelWith: formParallelWith.trim()
+      parallelWith: formParallelWith.trim(),
+      ...(actualDatesChanged ? {
+        manualActualOverride: true,
+        actualWeeks: Array.from({ length: Math.max(0, actualFinishWeekNum - actualStartWeekNum + 1) }, (_, i) => actualStartWeekNum + i)
+      } : {})
     };
 
     onUpdateActivityLocal(updatedAct);
@@ -744,6 +764,15 @@ export default function MasterPlanGantt({
         const val = Math.max(updated.actualStartWeek + 1, Math.min(52, updated.actualFinishWeek + amount));
         updated.actualFinishWeek = val;
       }
+      // Manual shift wins from now on for this activity — rebuild actualWeeks as a plain
+      // contiguous range and stop auto-merging PTR-derived weeks (see manualActualOverride in the
+      // upgrade step above), otherwise the very next render silently pulls the range back to
+      // whatever PTR visit weeks were previously matched, undoing the shift.
+      updated.manualActualOverride = true;
+      updated.actualWeeks = Array.from(
+        { length: Math.max(0, updated.actualFinishWeek - updated.actualStartWeek + 1) },
+        (_, i) => updated.actualStartWeek + i
+      );
     }
     onUpdateActivityLocal(updated);
   };
