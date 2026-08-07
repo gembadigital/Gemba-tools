@@ -645,29 +645,15 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
     }
   };
 
-  // Multi-select + bulk delete
-  const [selectedRowIds, setSelectedRowIds] = useState<Set<number>>(new Set());
+  // Bulk delete — a single "delete all visible" action; individual rows already have their own
+  // Trash icon (handleDeleteRow) so no per-row checkboxes are needed.
+  const handleDeleteAllVisible = () => {
+    if (filteredRecords.length === 0) return;
+    if (!window.confirm(`Görüntülenen ${filteredRecords.length} adet proje satırının tamamını silmek istediğinizden emin misiniz?`)) return;
 
-  const handleToggleRowSelect = (id: number) => {
-    setSelectedRowIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
-  const handleToggleSelectAllVisible = () => {
-    const visibleIds = filteredRecords.map(r => r.id);
-    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedRowIds.has(id));
-    setSelectedRowIds(allSelected ? new Set() : new Set(visibleIds));
-  };
-
-  const handleBulkDeleteSelected = () => {
-    const ids = Array.from(selectedRowIds);
-    if (ids.length === 0) return;
-    if (!window.confirm(`Seçili ${ids.length} adet proje satırını silmek istediğinizden emin misiniz?`)) return;
-
-    setRecords(prev => prev.filter(r => !selectedRowIds.has(r.id)));
+    const ids = filteredRecords.map(r => r.id);
+    const idSet = new Set(ids);
+    setRecords(prev => prev.filter(r => !idSet.has(r.id)));
     const customerId = selectedCustomer?.id || "default";
     ids.forEach((id) => {
       fetch(`/api/business/ptr-records/${id}`, {
@@ -679,7 +665,6 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
       }).catch((err) => console.error("Failed to delete PTR record", err));
     });
     showToast(`${ids.length} adet proje satırı başarıyla silindi.`);
-    setSelectedRowIds(new Set());
   };
 
   // Open Edit Form
@@ -2029,14 +2014,14 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
             </span>
           </div>
           <div className="flex items-center space-x-3">
-            {selectedRowIds.size > 0 && (
+            {filteredRecords.length > 0 && (
               <button
-                onClick={handleBulkDeleteSelected}
+                onClick={handleDeleteAllVisible}
                 className="flex items-center space-x-1.5 bg-red-50 hover:bg-red-100 border border-red-300 text-red-700 font-bold px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors text-[11px]"
-                title="Seçili satırları sil"
+                title="Görüntülenen tüm satırları sil"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>{selectedRowIds.size} Satırı Sil</span>
+                <span>Tümünü Sil</span>
               </button>
             )}
             {/* Minimal Control Icons Bar */}
@@ -2364,15 +2349,6 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
             {/* Excel Row Sütun Harfleri Başlığı (A, B, C, D...) */}
             <thead className="bg-gray-100 text-slate-400 font-mono text-[11px] text-center border-b sticky top-0 z-20">
               <tr>
-                <th rowSpan={2} className="p-1.5 border-r border-b bg-gray-200 align-middle">
-                  <input
-                    type="checkbox"
-                    className="cursor-pointer"
-                    checked={filteredRecords.length > 0 && filteredRecords.every(r => selectedRowIds.has(r.id))}
-                    onChange={handleToggleSelectAllVisible}
-                    title="Tümünü Seç / Kaldır"
-                  />
-                </th>
                 <th className="p-1.5 border-r border-b bg-gray-200">#</th>
                 <th className="p-1 px-2 border-r border-b">A</th>
                 <th className="p-1 px-2 border-r border-b">B</th>
@@ -2416,17 +2392,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                 const isEditing = editingRowId === item.id;
                 
                 return (
-                  <tr key={item.id} className={`hover:bg-slate-50 transition-colors ${selectedRowIds.has(item.id) ? "bg-sky-50/70" : ""}`}>
-
-                    {/* Row select checkbox (multi-select for bulk delete) */}
-                    <td className="p-2 border-r border-gray-200 text-center bg-gray-50/70">
-                      <input
-                        type="checkbox"
-                        className="cursor-pointer"
-                        checked={selectedRowIds.has(item.id)}
-                        onChange={() => handleToggleRowSelect(item.id)}
-                      />
-                    </td>
+                  <tr key={item.id} className="hover:bg-slate-50 transition-colors">
 
                     {/* Row Index Indicator (Excel Row Number) */}
                     <td className="p-2 border-r border-gray-200 text-center bg-gray-100/70 font-mono text-slate-500 text-[10px] font-bold">
@@ -2727,7 +2693,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
 
               {filteredRecords.length === 0 && (
                 <tr>
-                  <td colSpan={15} className="p-10 text-center text-gray-500 font-sans">
+                  <td colSpan={14} className="p-10 text-center text-gray-500 font-sans">
                     Arama kriterlerinize uyan kayıt bulunamadı. Lütfen süzgeçlerinizi gevşetip tekrar deneyin.
                   </td>
                 </tr>
