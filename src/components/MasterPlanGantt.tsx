@@ -352,6 +352,7 @@ export default function MasterPlanGantt({
   // 4. Form States for Add/Edit Activity
   const [formName, setFormName] = useState("");
   const [formCategory, setFormCategory] = useState("5S Audit");
+  const [formPhase, setFormPhase] = useState("F1");
   const [formPriority, setFormPriority] = useState<"High" | "Medium" | "Low">("Medium");
   const [formStatus, setFormStatus] = useState<any>("Planned");
   const [formProgress, setFormProgress] = useState(0);
@@ -445,9 +446,20 @@ export default function MasterPlanGantt({
       relatedModule: (act as any).relatedModule || "",
       linkedItemId: (act as any).linkedItemId || "",
       parallelWith: (act as any).parallelWith || "",
-      parentActivityId: (act as any).parentActivityId || ""
+      parentActivityId: (act as any).parentActivityId || "",
+      phase: (act as any).phase || ""
     };
   });
+
+  // Faz No (phase) options: F1, F2, F3... year 1 starts with 3 phases available; once an activity
+  // uses the last available phase (e.g. F4), F5 automatically becomes selectable too — the list is
+  // always "highest phase used so far, plus one", never capped, never requiring a manual add step.
+  const maxPhaseUsed = upgradedActivities.reduce((max, a) => {
+    const m = /^F(\d+)$/.exec((a as any).phase || "");
+    return m ? Math.max(max, parseInt(m[1], 10)) : max;
+  }, 0);
+  const availablePhases = Array.from({ length: Math.max(3, maxPhaseUsed + 1) }, (_, i) => `F${i + 1}`);
+  const defaultPhase = maxPhaseUsed > 0 ? `F${maxPhaseUsed}` : "F1";
 
   // Schedule Deviation calculation
   const devStats = useMemo(() => {
@@ -586,6 +598,7 @@ export default function MasterPlanGantt({
       // Extended fields
       activityNo: newActNo,
       category: formCategory,
+      phase: formPhase,
       plannedStartWeek: Number(formPlannedStartWeek),
       plannedFinishWeek: Number(formPlannedFinishWeek),
       actualStartWeek: Number(formActualStartWeek),
@@ -627,6 +640,7 @@ export default function MasterPlanGantt({
       status: formStatus,
       notes: formNotes,
       category: formCategory,
+      phase: formPhase,
       plannedStartWeek: Number(formPlannedStartWeek),
       plannedFinishWeek: Number(formPlannedFinishWeek),
       actualStartWeek: Number(formActualStartWeek),
@@ -649,6 +663,7 @@ export default function MasterPlanGantt({
     setEditingActivity(act);
     setFormName(act.name);
     setFormCategory(act.category || "Kaizen");
+    setFormPhase(act.phase || "F1");
     setFormPriority(act.priority);
     setFormStatus(act.status);
     setFormProgress(act.progressPercent);
@@ -681,6 +696,9 @@ export default function MasterPlanGantt({
     setFormLinkedItemId("");
     setFormParallelWith("");
     setPendingParentActivityId("");
+    // New activities default to the phase already in progress (the highest phase used so far),
+    // not always back to F1 — keeps consecutive adds in the same phase unless bumped manually.
+    setFormPhase(defaultPhase);
   };
 
   // Reorder activities
@@ -898,6 +916,7 @@ export default function MasterPlanGantt({
           if (!name) return; // Skip invalid rows
 
           const category = row["Kategori"] || row["Yalın Sınıfı"] || row["Yalın Modül"] || row["Category"] || "Kaizen";
+          const phase = row["Faz No"] || row["Faz"] || row["Phase"] || "";
           const consultant = row["Sorumlu Danışman"] || row["Danışman"] || row["Sorumlu"] || row["Consultant"] || "Ahmet Yılmaz";
           const priority = row["Öncelik"] || row["Priority"] || "Medium";
           
@@ -952,7 +971,8 @@ export default function MasterPlanGantt({
             relatedModule: "",
             linkedItemId: "",
             parallelWith: "",
-            parentActivityId: ""
+            parentActivityId: "",
+            phase
           };
 
           onAddActivityLocal(newAct);
@@ -1614,6 +1634,9 @@ export default function MasterPlanGantt({
                           </div>
 
                           <div className="flex items-center space-x-2 text-[10px] text-gray-500 flex-wrap gap-y-1">
+                            {act.phase && (
+                              <span className="bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold px-1 rounded text-[11px]">{act.phase}</span>
+                            )}
                             <span className="bg-gray-100 text-gray-700 font-bold px-1 rounded text-[11px]">{act.category}</span>
                             {act.parallelWith && (
                               <span className="bg-purple-50 text-purple-700 border border-purple-200 font-bold px-1 rounded text-[11px]" title="Bu faaliyet paralel yürütülüyor, adam-gün toplamına dahil edilmiyor">
@@ -1863,6 +1886,9 @@ export default function MasterPlanGantt({
                       </div>
                     </td>
                     <td className="py-3 px-3">
+                      {act.phase && (
+                        <span className="mr-1 bg-indigo-50 text-indigo-700 border border-indigo-200 px-1 py-0.5 rounded text-[10px] font-semibold">{act.phase}</span>
+                      )}
                       <span className="bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded text-[10px] font-semibold">{act.category}</span>
                       {act.parallelWith && (
                         <span className="ml-1 bg-purple-50 text-purple-700 border border-purple-200 px-1 py-0.5 rounded text-[10px] font-semibold" title="Bu faaliyet paralel yürütülüyor, adam-gün toplamına dahil edilmiyor">
@@ -2113,7 +2139,20 @@ export default function MasterPlanGantt({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-gray-500 font-bold mb-1">Faz No</label>
+                  <select
+                    className="w-full bg-white border border-gray-300 rounded p-2 font-bold text-gray-700"
+                    value={formPhase}
+                    onChange={(e) => setFormPhase(e.target.value)}
+                  >
+                    {availablePhases.map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+
                 <div>
                   <label className="block text-gray-500 font-bold mb-1">Öncelik Seviyesi</label>
                   <select

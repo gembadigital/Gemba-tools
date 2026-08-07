@@ -185,7 +185,13 @@ export default function FlowImprovement({
     setAuditLogs(prev => [newLog, ...prev].slice(0, 50));
   };
 
-  // Default initial high fidelity scenarios
+  // Blank starting scenarios for a brand-new customer. Both "sc_current" and "sc_future" are
+  // required fixed ids (referenced by literal id throughout this file for the Current-vs-Future
+  // comparison/ROI logic), so both must exist — but they used to ship pre-loaded with a fully
+  // fabricated factory (named machines/departments, operator counts, cycle times, flow
+  // frequencies) that the debounced auto-save below would then persist into the real database as
+  // if it were the customer's actual layout. Each now starts with one truly empty "Zemin Kat"
+  // layout (no nodes, no flows) — same blank-layout shape `handleAddNewLayout` already uses.
   const defaultScenarios: Scenario[] = [
     {
       id: "sc_current",
@@ -195,208 +201,39 @@ export default function FlowImprovement({
       layouts: [
         {
           id: "ly_ground",
-          name: "Zemin Kat (Main Production Floor)",
+          name: "Zemin Kat",
           backgroundUrl: null,
-          scaleFactor: 0.15, // 1 px = 0.15 m
-          widthMeters: 114,
-          lengthMeters: 63,
-          imageWidthPx: 760,
-          imageHeightPx: 420,
-          nodes: [
-            { id: "nd_1", name: "Malzeme Kabul & Depo", x: 80, y: 340, department: "Lojistik", icon: "warehouse", operatorCount: 3, cycleTime: 120, area: 180, remarks: "Koridorlar dar ve sevkiyat bekleme alanı kısıtlı" },
-            { id: "nd_2", name: "Pres İstasyonu", x: 180, y: 120, department: "Presler", icon: "press", operatorCount: 2, cycleTime: 40, area: 120, remarks: "Yerleşim planı düzensiz" },
-            { id: "nd_3", name: "CNC Bükme Alanı", x: 360, y: 120, department: "Sac Şekillendirme", icon: "cnc", operatorCount: 1, cycleTime: 55, area: 80, remarks: "Tampon depo alanı yetersiz" },
-            { id: "nd_4", name: "Robotik Kaynak", x: 540, y: 120, department: "Kaynakhane", icon: "assembly", operatorCount: 1, cycleTime: 75, area: 100, remarks: "Duman emiş performansı zayıf" },
-            { id: "nd_5", name: "Boyahane Giriş", x: 680, y: 220, department: "Yüzey İşlem", icon: "quality", operatorCount: 4, cycleTime: 200, area: 240, remarks: "Sabit hızlı konveyör askısı darboğaz" },
-            { id: "nd_6", name: "Mamul Paketleme & Sevk", x: 260, y: 340, department: "Lojistik", icon: "shipping", operatorCount: 4, cycleTime: 150, area: 140, remarks: "Sevkiyat çıkış kapısı önü tıkalı" }
-          ],
-          flows: [
-            {
-              id: "fl_1",
-              name: "Sac Hammadde Akışı",
-              flowType: "Raw Material",
-              frequency: 12,
-              isVisible: true,
-              waypoints: [
-                { x: 80, y: 340, nodeId: "nd_1" },
-                { x: 180, y: 120, nodeId: "nd_2" },
-                { x: 360, y: 120, nodeId: "nd_3" }
-              ]
-            },
-            {
-              id: "fl_2",
-              name: "Yarı Mamul Transferi",
-              flowType: "Semi Finished",
-              frequency: 24,
-              isVisible: true,
-              waypoints: [
-                { x: 360, y: 120, nodeId: "nd_3" },
-                { x: 540, y: 120, nodeId: "nd_4" },
-                { x: 680, y: 220, nodeId: "nd_5" }
-              ]
-            },
-            {
-              id: "fl_3",
-              name: "Forklift Taşıma Rotası",
-              flowType: "Forklift",
-              frequency: 18,
-              isVisible: true,
-              waypoints: [
-                { x: 180, y: 120, nodeId: "nd_2" },
-                { x: 420, y: 240 },
-                { x: 680, y: 220, nodeId: "nd_5" }
-              ]
-            },
-            {
-              id: "fl_4",
-              name: "Operatör Yürüyüş Yolu",
-              flowType: "Operator Movement",
-              frequency: 35,
-              isVisible: true,
-              waypoints: [
-                { x: 360, y: 120, nodeId: "nd_3" },
-                { x: 260, y: 240 },
-                { x: 80, y: 340, nodeId: "nd_1" }
-              ]
-            }
-          ]
-        },
-        {
-          id: "ly_first",
-          name: "1. Kat (Üst Montaj & Paketleme)",
-          backgroundUrl: null,
-          scaleFactor: 0.12,
-          widthMeters: 91,
-          lengthMeters: 50,
-          imageWidthPx: 760,
-          imageHeightPx: 420,
-          nodes: [
-            { id: "nd_7", name: "Montaj Hattı", x: 380, y: 210, department: "Montaj", icon: "assembly", operatorCount: 14, cycleTime: 42, area: 160, remarks: "Klasik hat düzeni, yüksek hareket kayıpları" }
-          ],
-          flows: [
-            {
-              id: "fl_5",
-              name: "Montaj İçi Besleme",
-              flowType: "Manual Transport",
-              frequency: 15,
-              isVisible: true,
-              waypoints: [
-                { x: 380, y: 210, nodeId: "nd_7" },
-                { x: 200, y: 210 }
-              ]
-            }
-          ]
+          scaleFactor: 0.15,
+          widthMeters: 100,
+          lengthMeters: 55,
+          imageWidthPx: 800,
+          imageHeightPx: 450,
+          nodes: [],
+          flows: []
         }
       ],
-      verticalTransfers: [
-        { id: "vt_1", name: "Yük Asansörü 1", type: "elevator", fromLayoutId: "ly_ground", toLayoutId: "ly_first", frequency: 15, distanceMeters: 5.5 },
-        { id: "vt_2", name: "Hammadde Dik Konveyör", type: "conveyor", fromLayoutId: "ly_ground", toLayoutId: "ly_first", frequency: 10, distanceMeters: 5.5 }
-      ]
+      verticalTransfers: []
     },
     {
       id: "sc_future",
-      name: "Yalın U-Hücre ve Süpermarket Tasarımı (Gelecek v1)",
+      name: "Gelecek Durum Tasarımı (Future v1)",
       version: "Future v1",
       activeLayoutId: "ly_ground",
       layouts: [
         {
           id: "ly_ground",
-          name: "Zemin Kat (Main Production Floor)",
+          name: "Zemin Kat",
           backgroundUrl: null,
           scaleFactor: 0.15,
-          widthMeters: 114,
-          lengthMeters: 63,
-          imageWidthPx: 760,
-          imageHeightPx: 420,
-          nodes: [
-            { id: "nd_1", name: "Malzeme Kabul & Depo", x: 80, y: 340, department: "Lojistik", icon: "warehouse", operatorCount: 3, cycleTime: 120, area: 150, remarks: "Yeniden yapılandırılmış yalın malzeme alanı" },
-            { id: "nd_2", name: "Pres İstasyonu", x: 160, y: 220, department: "Presler", icon: "press", operatorCount: 2, cycleTime: 40, area: 120, remarks: "Malzeme kabulüne yaklaştırıldı" },
-            { id: "nd_3", name: "CNC Bükme Alanı", x: 250, y: 220, department: "Sac Şekillendirme", icon: "cnc", operatorCount: 1, cycleTime: 55, area: 80, remarks: "Kesintisiz hücre akışı için konumlandırıldı" },
-            { id: "nd_4", name: "Robotik Kaynak", x: 350, y: 220, department: "Kaynakhane", icon: "assembly", operatorCount: 1, cycleTime: 75, area: 100, remarks: "Hücre akışına entegre" },
-            { id: "nd_5", name: "Boyahane Giriş", x: 480, y: 220, department: "Yüzey İşlem", icon: "quality", operatorCount: 4, cycleTime: 200, area: 240, remarks: "Akış hattı optimize edildi" },
-            { id: "nd_6", name: "Mamul Paketleme & Sevk", x: 260, y: 340, department: "Lojistik", icon: "shipping", operatorCount: 4, cycleTime: 150, area: 140, remarks: "U-tipi çıkış noktası" }
-          ],
-          flows: [
-            {
-              id: "fl_1",
-              name: "Yalın Sac Akışı",
-              flowType: "Raw Material",
-              frequency: 12,
-              isVisible: true,
-              waypoints: [
-                { x: 80, y: 340, nodeId: "nd_1" },
-                { x: 160, y: 220, nodeId: "nd_2" },
-                { x: 250, y: 220, nodeId: "nd_3" }
-              ]
-            },
-            {
-              id: "fl_2",
-              name: "Hücre İçi Akış",
-              flowType: "Semi Finished",
-              frequency: 24,
-              isVisible: true,
-              waypoints: [
-                { x: 250, y: 220, nodeId: "nd_3" },
-                { x: 350, y: 220, nodeId: "nd_4" },
-                { x: 480, y: 220, nodeId: "nd_5" }
-              ]
-            },
-            {
-              id: "fl_3",
-              name: "AGV Otomatik Besleme",
-              flowType: "AGV",
-              frequency: 18,
-              isVisible: true,
-              waypoints: [
-                { x: 160, y: 220, nodeId: "nd_2" },
-                { x: 320, y: 280 },
-                { x: 480, y: 220, nodeId: "nd_5" }
-              ]
-            },
-            {
-              id: "fl_4",
-              name: "Operatör Yolları",
-              flowType: "Operator Movement",
-              frequency: 14, // optimized
-              isVisible: true,
-              waypoints: [
-                { x: 250, y: 220, nodeId: "nd_3" },
-                { x: 80, y: 340, nodeId: "nd_1" }
-              ]
-            }
-          ]
-        },
-        {
-          id: "ly_first",
-          name: "1. Kat (Üst Montaj & Paketleme)",
-          backgroundUrl: null,
-          scaleFactor: 0.12,
-          widthMeters: 91,
-          lengthMeters: 50,
-          imageWidthPx: 760,
-          imageHeightPx: 420,
-          nodes: [
-            { id: "nd_7", name: "Montaj Hattı", x: 320, y: 280, department: "Montaj", icon: "assembly", operatorCount: 10, cycleTime: 42, area: 160, remarks: "U-Tipi hücre dönüşümü yapıldı" }
-          ],
-          flows: [
-            {
-              id: "fl_5",
-              name: "U-Tipi Akış",
-              flowType: "Manual Transport",
-              frequency: 8,
-              isVisible: true,
-              waypoints: [
-                { x: 320, y: 280, nodeId: "nd_7" },
-                { x: 220, y: 280 }
-              ]
-            }
-          ]
+          widthMeters: 100,
+          lengthMeters: 55,
+          imageWidthPx: 800,
+          imageHeightPx: 450,
+          nodes: [],
+          flows: []
         }
       ],
-      verticalTransfers: [
-        { id: "vt_1", name: "Yük Asansörü 1", type: "elevator", fromLayoutId: "ly_ground", toLayoutId: "ly_first", frequency: 8, distanceMeters: 5.5 },
-        { id: "vt_2", name: "Hammadde Dik Konveyör", type: "conveyor", fromLayoutId: "ly_ground", toLayoutId: "ly_first", frequency: 4, distanceMeters: 5.5 }
-      ]
+      verticalTransfers: []
     }
   ];
 
@@ -2736,9 +2573,11 @@ export default function FlowImprovement({
                     <input
                       type="number"
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 font-bold focus:outline-none"
-                      value={activeLayout?.widthMeters || 100}
+                      min="0"
+                      value={activeLayout?.widthMeters ?? 100}
                       onChange={(e) => {
-                        const val = parseFloat(e.target.value) || 10;
+                        const parsed = parseFloat(e.target.value);
+                        const val = isNaN(parsed) ? 0 : parsed;
                         const scale = val / (activeLayout?.imageWidthPx || 800);
                         const updatedLayouts = activeScenario.layouts.map(ly => {
                           if (ly.id === activeLayout.id) {
@@ -2756,9 +2595,11 @@ export default function FlowImprovement({
                     <input
                       type="number"
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2 font-bold focus:outline-none"
-                      value={activeLayout?.lengthMeters || 50}
+                      min="0"
+                      value={activeLayout?.lengthMeters ?? 50}
                       onChange={(e) => {
-                        const val = parseFloat(e.target.value) || 10;
+                        const parsed = parseFloat(e.target.value);
+                        const val = isNaN(parsed) ? 0 : parsed;
                         const updatedLayouts = activeScenario.layouts.map(ly => {
                           if (ly.id === activeLayout.id) {
                             return { ...ly, lengthMeters: val };
