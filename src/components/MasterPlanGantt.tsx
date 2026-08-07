@@ -449,7 +449,7 @@ export default function MasterPlanGantt({
       parentActivityId: (act as any).parentActivityId || "",
       phase: (act as any).phase || ""
     };
-  });
+  }).sort((a, b) => (parseInt(a.activityNo, 10) || 0) - (parseInt(b.activityNo, 10) || 0));
 
   // Faz No (phase) options: F1, F2, F3... year 1 starts with 3 phases available; once an activity
   // uses the last available phase (e.g. F4), F5 automatically becomes selectable too — the list is
@@ -701,17 +701,22 @@ export default function MasterPlanGantt({
     setFormPhase(defaultPhase);
   };
 
-  // Reorder activities
+  // Reorder activities. Operates on `filteredActivities` (the list actually rendered, and the
+  // source of the `idx` the Up/Down buttons pass in) rather than the unfiltered `upgradedActivities`
+  // — using the unfiltered list here would move/renumber the wrong activity whenever a filter is
+  // active, since the two lists' indices don't line up.
   const handleMoveActivity = (index: number, direction: "up" | "down") => {
     const nextIndex = direction === "up" ? index - 1 : index + 1;
-    if (nextIndex < 0 || nextIndex >= upgradedActivities.length) return;
+    if (nextIndex < 0 || nextIndex >= filteredActivities.length) return;
 
-    const listCopy = [...upgradedActivities];
+    const listCopy = [...filteredActivities];
     const item = listCopy[index];
     listCopy.splice(index, 1);
     listCopy.splice(nextIndex, 0, item);
 
-    // Re-index activity numbers and save all
+    // Re-index activity numbers and save all. Activities are always displayed sorted by
+    // activityNo (see upgradedActivities' .sort() above), so renumbering here is what actually
+    // moves the row on screen — the row follows its number, not the other way around.
     listCopy.forEach((act, idx) => {
       onUpdateActivityLocal({
         ...act,
@@ -743,14 +748,39 @@ export default function MasterPlanGantt({
     onUpdateActivityLocal(updated);
   };
 
-  // Filter logic
-  const filteredActivities = upgradedActivities.filter(act => {
-    if (filterConsultant && act.responsibleConsultant !== filterConsultant) return false;
-    if (filterCategory && act.category !== filterCategory) return false;
-    if (filterPriority && act.priority !== filterPriority) return false;
-    if (filterStatus && act.status !== filterStatus) return false;
-    return true;
-  });
+  // Filter logic. `upgradedActivities` is already sorted by activityNo, so `.filter()` (which
+  // preserves relative order) keeps that ordering. Sub-activities are then pulled to sit directly
+  // under their parent regardless of their own activityNo, so the "alt ›" collapse toggle always
+  // shows a contiguous block instead of children scattered wherever their own number landed.
+  const filteredActivities = (() => {
+    const base = upgradedActivities.filter(act => {
+      if (filterConsultant && act.responsibleConsultant !== filterConsultant) return false;
+      if (filterCategory && act.category !== filterCategory) return false;
+      if (filterPriority && act.priority !== filterPriority) return false;
+      if (filterStatus && act.status !== filterStatus) return false;
+      return true;
+    });
+    const childrenByParent: Record<string, any[]> = {};
+    const roots: any[] = [];
+    base.forEach(act => {
+      const pid = (act as any).parentActivityId;
+      if (pid) {
+        if (!childrenByParent[pid]) childrenByParent[pid] = [];
+        childrenByParent[pid].push(act);
+      } else {
+        roots.push(act);
+      }
+    });
+    const ordered: any[] = [];
+    roots.forEach(r => {
+      ordered.push(r);
+      (childrenByParent[r.id] || []).forEach(c => ordered.push(c));
+    });
+    // Orphans: a sub-activity whose parent got filtered out or deleted still needs to be shown.
+    const includedIds = new Set(ordered.map(a => a.id));
+    base.forEach(act => { if (!includedIds.has(act.id)) ordered.push(act); });
+    return ordered;
+  })();
 
   // Extract unique consultants & categories for filter options
   const uniqueConsultants = Array.from(new Set(upgradedActivities.map(a => a.responsibleConsultant)));
