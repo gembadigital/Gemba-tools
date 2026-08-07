@@ -192,7 +192,7 @@ export default function ConversionSimulatorTab({
   const handleExportToCI = async (act: ActivityItem) => {
     const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
     const suggestedAction = act.ecrsAction || getSmartSuggestion(act.name);
-    const suggestedResponsible = act.ecrsResponsible || (act.originalType === "external" ? "Mustafa Çelik (Üretim Şefi)" : "Zeynep Karahan (Metot Müh.)");
+    const suggestedResponsible = act.ecrsResponsible || project?.leader || "";
     const suggestedDate = act.ecrsDate || new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split("T")[0];
     const gainedDuration = getEcrsGain(act) + (act.originalType === "internal" && act.type === "external" ? act.dur : 0);
 
@@ -286,7 +286,7 @@ export default function ConversionSimulatorTab({
             ecrsSteps: a.ecrsSteps,
             ecrsGains: a.ecrsGains,
             ecrsAction: a.ecrsAction || getSmartSuggestion(a.name),
-            ecrsResponsible: a.ecrsResponsible || (a.originalType === "external" ? "Mustafa Çelik (Üretim Şefi)" : "Zeynep Karahan (Metot Müh.)"),
+            ecrsResponsible: a.ecrsResponsible || project?.leader || "",
             ecrsDate: a.ecrsDate,
             ecrsStatus: a.ecrsStatus || "Açık"
           }))
@@ -500,20 +500,17 @@ export default function ConversionSimulatorTab({
                         />
                       </td>
 
-                      {/* Sorumlu (Interactive Dropdown Combo) */}
+                      {/* Sorumlu (real free-text entry — this factory's actual team roster isn't
+                          available as structured data here, so it's typed rather than picked from
+                          a fixed fake employee list) */}
                       <td className="py-2 px-2">
-                        <select
-                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-1.5 focus:ring-blue-500 bg-white text-slate-850"
+                        <input
+                          type="text"
+                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-1.5 focus:ring-blue-500 bg-white text-slate-850 placeholder-slate-350"
+                          placeholder="Sorumlu adı girin..."
                           value={act.ecrsResponsible || ""}
                           onChange={(e) => handleRowChange(act.id, "ecrsResponsible", e.target.value)}
-                        >
-                          <option value="">Atanmadı (Seçin...)</option>
-                          <option value="Zeynep Karahan (Metot Müh.)">Zeynep Karahan (Metot Müh.)</option>
-                          <option value="Mustafa Çelik (Üretim Şefi)">Mustafa Çelik (Üretim Şefi)</option>
-                          <option value="Kemal Yılmaz (Bakım Lideri)">Kemal Yılmaz (Bakım Lideri)</option>
-                          <option value="Ahmet Öztürk (Setter)">Ahmet Öztürk (Setter)</option>
-                          <option value="Hasan Demir (Kalıphane)">Hasan Demir (Kalıphane)</option>
-                        </select>
+                        />
                       </td>
 
                       {/* Kazanılacak Süre */}

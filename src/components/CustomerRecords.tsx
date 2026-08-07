@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 
 // Workspace imports
-import { getWorkspaceData, defaultWorkspaces } from "../data/workspaceDefaults";
+import { getWorkspaceData } from "../data/workspaceDefaults";
 import { CompanyWorkspaceExtended, FactoryAsset, ProjectPortfolioItem, TimelineMilestone, DocumentItem, KpiHistoryPoint, ProjectTeamMember } from "../types/workspace";
 import CompanyProfileTab from "./workspace/CompanyProfileTab";
 import CompanyDashboardTab from "./workspace/CompanyDashboardTab";
@@ -102,9 +102,9 @@ export default function CustomerRecords({
     address: "",
     industry: "Otomotiv",
     productionType: "Seri İmalat (Mass)",
-    annualRevenue: 5000000,
+    annualRevenue: 0,
     currency: "₺",
-    employeeCount: 150,
+    employeeCount: 0,
     mainContactPerson: "",
     mainContactEmail: "",
     notes: ""
@@ -170,55 +170,47 @@ export default function CustomerRecords({
   };
 
   const initializeWorkspace = (cust: Customer) => {
-    // Check if we have hardcoded default templates (like arcelik_bolu or ford_otosan)
-    const defaults = defaultWorkspaces[cust.id];
-    if (defaults) {
-      setWorkspace(defaults);
-      persistWorkspace(cust.id, defaults);
-    } else {
-      // Create a new customized workspace based on customer parameters
-      const template = getWorkspaceData(cust.id);
-      const customized: CompanyWorkspaceExtended = {
-        ...template,
-        companyName: cust.companyName,
-        industry: cust.industry,
-        productionType: cust.productionType,
-        taxNumber: "0000000000",
-        taxOffice: cust.address || "Genel Merkez",
-        shortName: cust.companyName.substring(0, 10),
-        website: "https://www.example.com",
-        country: "Türkiye",
-        city: "İstanbul",
-        operational: {
-          annualProductionQuantity: cust.annualRevenue || 1000000,
-          productFamilies: [cust.productionType || "Endüstriyel Ürünler"],
-          mainCustomers: ["Yurt İçi Pazarı", "Yurt Dışı İhracat"],
-          productionStrategy: "MTO",
-          assemblyType: "Discrete"
-        },
-        workforce: {
-          ...template.workforce,
-          totalEmployees: cust.employeeCount || 100,
-          blueCollar: Math.round((cust.employeeCount || 100) * 0.8),
-          whiteCollar: Math.round((cust.employeeCount || 100) * 0.2),
-        },
-        opex: {
-          ...template.opex,
-          leanMaturity: cust.copexScore || 55,
-          oee: cust.copexScore || 60,
-          opexScore: cust.copexScore || 55
-        },
-        contacts: {
-          ...template.contacts,
-          generalManager: cust.generalManager || "Genel Müdür",
-          factoryManager: cust.factoryManager || "Fabrika Müdürü",
-          primaryContactName: cust.mainContactPerson || "Kilit Kontak",
-          primaryContactEmail: cust.mainContactEmail || "contact@example.com"
-        }
-      };
-      setWorkspace(customized);
-      persistWorkspace(cust.id, customized);
-    }
+    // Build a new workspace from real customer-card fields only — no fabricated fallback
+    // numbers/names for anything the consultant hasn't actually entered yet.
+    const template = getWorkspaceData(cust.id);
+    const customized: CompanyWorkspaceExtended = {
+      ...template,
+      companyName: cust.companyName,
+      industry: cust.industry,
+      productionType: cust.productionType,
+      taxNumber: "",
+      taxOffice: cust.address || "",
+      shortName: cust.companyName.substring(0, 10),
+      website: "",
+      country: "Türkiye",
+      city: "",
+      operational: {
+        ...template.operational,
+        annualProductionQuantity: cust.annualRevenue || 0,
+        productFamilies: cust.productionType ? [cust.productionType] : []
+      },
+      workforce: {
+        ...template.workforce,
+        totalEmployees: cust.employeeCount || 0,
+        blueCollar: cust.employeeCount ? Math.round(cust.employeeCount * 0.8) : 0,
+        whiteCollar: cust.employeeCount ? Math.round(cust.employeeCount * 0.2) : 0,
+      },
+      opex: {
+        ...template.opex,
+        leanMaturity: cust.copexScore || 0,
+        oee: cust.copexScore || 0,
+        opexScore: cust.copexScore || 0
+      },
+      contacts: {
+        ...template.contacts,
+        generalManager: cust.generalManager || "",
+        factoryManager: cust.factoryManager || "",
+        primaryContactName: cust.mainContactPerson || "",
+        primaryContactEmail: cust.mainContactEmail || ""
+      }
+    };
+    setWorkspace(customized);
+    persistWorkspace(cust.id, customized);
   };
 
   const saveWorkspaceData = (updated: CompanyWorkspaceExtended) => {
@@ -257,16 +249,16 @@ export default function CustomerRecords({
       address: newCustState.address,
       industry: newCustState.industry,
       productionType: newCustState.productionType,
-      annualRevenue: Number(newCustState.annualRevenue) || 1000000,
+      annualRevenue: Number(newCustState.annualRevenue) || 0,
       currency: newCustState.currency || "₺",
-      employeeCount: Number(newCustState.employeeCount) || 50,
+      employeeCount: Number(newCustState.employeeCount) || 0,
       mainContactPerson: newCustState.mainContactPerson,
       mainContactEmail: newCustState.mainContactEmail,
-      factoryManager: "Fabrika Müdürü",
+      factoryManager: "",
       factoryManagerEmail: "",
-      generalManager: "Genel Müdür",
+      generalManager: "",
       generalManagerEmail: "",
-      copexScore: 50,
+      copexScore: 0,
       assessmentDate: new Date().toISOString().split('T')[0],
       preliminaryAssessmentReport: "",
       notes: newCustState.notes,

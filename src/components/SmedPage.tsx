@@ -12,7 +12,7 @@ import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 
 import { ActivityItem, SmedProject, ActionCard } from "./smed/smedTypes";
-import { initialSmedProjects, calculateDurationFromTimes } from "./smed/smedDefaults";
+import { calculateDurationFromTimes } from "./smed/smedDefaults";
 import ActivityListTab from "./smed/ActivityListTab";
 import GanttTimelineTab from "./smed/GanttTimelineTab";
 import ConversionSimulatorTab from "./smed/ConversionSimulatorTab";
@@ -45,8 +45,9 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
     return localStorage.getItem(selectedProjectStorageKey) || "proj-1";
   });
 
-  // Load saved SMED projects for this customer from the backend. If none exist yet, show the
-  // illustrative demo projects locally (not persisted) so the module isn't empty on first use.
+  // Load saved SMED projects for this customer from the backend. A factory with zero real SMED
+  // projects starts genuinely empty — the "+SMED Analizi" button is always available to create
+  // the first real one.
   useEffect(() => {
     isInitialLoad.current = true;
     fetch("/api/business/smed-projects", {
@@ -58,7 +59,7 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
       .then((res) => res.json())
       .then((res) => {
         if (res.success) {
-          setProjects(res.data && res.data.length > 0 ? res.data : initialSmedProjects);
+          setProjects(res.data || []);
         }
       })
       .catch((err) => console.error("Failed to load SMED projects", err))
@@ -161,7 +162,7 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
       team: "",
       startDate: new Date().toISOString().split("T")[0],
       targetEndDate: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split("T")[0],
-      factory: "İstanbul Fabrika",
+      factory: "",
       productionLine: "",
       machineNo: "",
       moldNo: "",

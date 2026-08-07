@@ -5,9 +5,6 @@ import {
   FiveSDepartment, FiveSArea, FiveSPersonnel, FiveSQuestion, FiveSAuditHeader,
   FiveSTeamAssignment, FiveSAuditAnswer, FiveSAuditResult, FiveSProblemCategory, GembaWalkFinding
 } from "./fiveSTypes";
-import {
-  SEED_DEPARTMENTS, SEED_AREAS, SEED_PERSONNEL, SEED_PROBLEM_CATEGORIES, SEED_QUESTIONS
-} from "./fiveSSeed";
 import FiveSHome from "./FiveSHome";
 import FiveSDashboard from "./FiveSDashboard";
 import FiveSSetup from "./FiveSSetup";
@@ -111,41 +108,8 @@ export default function FiveSAuditSystem() {
     return { dep, ar, per, que, cat };
   }, [factoryId, token]);
 
-  // First-ever visit for this customer: populate realistic starter content (editable/deletable
-  // like any other record) so the workflow isn't a blank shell. Guarded so deleting everything
-  // later doesn't silently resurrect the seed.
-  const seedIfEmpty = useCallback(async (current: { dep: FiveSDepartment[]; ar: FiveSArea[]; per: FiveSPersonnel[]; que: FiveSQuestion[]; cat: FiveSProblemCategory[] }) => {
-    const seededKey = `five_s_seeded_${factoryId}`;
-    if (localStorage.getItem(seededKey)) return;
-    localStorage.setItem(seededKey, "1");
-    if (current.dep.length > 0 || current.ar.length > 0 || current.per.length > 0 || current.que.length > 0) return;
-
-    const depByName: Record<string, FiveSDepartment> = {};
-    for (const name of SEED_DEPARTMENTS) {
-      const res = await api.post("departments", { name });
-      if (res.success) depByName[name] = res.data;
-    }
-    for (const a of SEED_AREAS) {
-      const dept = depByName[a.department];
-      if (!dept) continue;
-      await api.post("areas", { departmentId: dept.id, name: a.name, responsible: a.responsible, difficultyLevel: a.difficultyLevel });
-    }
-    for (const p of SEED_PERSONNEL) {
-      await api.post("personnel", p);
-    }
-    for (const c of SEED_PROBLEM_CATEGORIES) {
-      await api.post("problem-categories", { name: c });
-    }
-    for (const q of SEED_QUESTIONS) {
-      const dept = depByName[q.department];
-      if (!dept) continue;
-      await api.post("questions", { questionNo: q.questionNo, level: q.level, departmentId: dept.id, difficultyLevel: q.difficultyLevel, text: q.text });
-    }
-    await loadAll();
-  }, [factoryId]);
-
   useEffect(() => {
-    loadAll().then(current => seedIfEmpty(current));
+    loadAll();
   }, [factoryId]);
 
   const departmentsCrud = makeCrud<FiveSDepartment>(api, "departments", setDepartments, showToast);

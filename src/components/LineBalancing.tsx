@@ -431,7 +431,7 @@ export default function LineBalancing({ selectedCustomer }: LineBalancingProps) 
     if (saved) {
       try { return JSON.parse(saved); } catch (e) { console.error(e); }
     }
-    return INITIAL_DEMO_DATA;
+    return [];
   });
 
   const [taktTime, setTaktTime] = useState<number>(15.0);

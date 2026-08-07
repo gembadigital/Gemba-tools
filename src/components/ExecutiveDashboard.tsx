@@ -24,21 +24,6 @@ interface ExecutiveDashboardProps {
   kaizens: KaizenCard[];
 }
 
-// Intensity classes must be real Tailwind shades (emerald-{400,500,600,700,800,900}) — this
-// previously included emerald-650/750/850, which don't exist in Tailwind's default palette and
-// so rendered with no background at all (invisible white cells) instead of a color.
-const DEFAULT_HEATMAP_DATA = {
-  "Hurda": { count: 18, intensity: "bg-emerald-700" },
-  "SMED": { count: 14, intensity: "bg-emerald-600" },
-  "OEE": { count: 24, intensity: "bg-emerald-900" },
-  "TPM": { count: 11, intensity: "bg-emerald-500" },
-  "Kalite": { count: 15, intensity: "bg-emerald-700" },
-  "Enerji": { count: 9, intensity: "bg-emerald-500" },
-  "Lojistik": { count: 13, intensity: "bg-emerald-600" },
-  "5S": { count: 21, intensity: "bg-emerald-800" },
-  "İSG": { count: 7, intensity: "bg-emerald-400" },
-};
-
 export default function ExecutiveDashboard({
   customers,
   processes,
@@ -289,6 +274,29 @@ export default function ExecutiveDashboard({
 
   const chartData = getSavingsChartData();
 
+  // Kaizen Heat Map — grouped by each kaizen's real `department` field (same field/grouping
+  // pattern KaizenManager's departmentGainData already uses), not a fixed list of fabricated
+  // WCM pillar names. Empty until the factory has real kaizens with a department set.
+  const kaizenHeatmapData = (() => {
+    const counts: Record<string, number> = {};
+    data.filteredKaizens.forEach(k => {
+      const dept = k.department || "Belirtilmemiş";
+      counts[dept] = (counts[dept] || 0) + 1;
+    });
+    const maxCount = Math.max(1, ...Object.values(counts));
+    const intensityFor = (count: number) => {
+      const ratio = count / maxCount;
+      if (ratio > 0.75) return "bg-emerald-900";
+      if (ratio > 0.5) return "bg-emerald-800";
+      if (ratio > 0.25) return "bg-emerald-700";
+      if (ratio > 0.1) return "bg-emerald-600";
+      return "bg-emerald-500";
+    };
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([area, count]) => ({ area, count, intensity: intensityFor(count) }));
+  })();
+
   // KPI cards previously used the same "positive/green" treatment whether a metric was a real,
   // healthy number or simply zero/no-data-yet — visually indistinguishable from an actual result.
   // These helpers give empty metrics a neutral, muted treatment instead.
@@ -360,7 +368,27 @@ export default function ExecutiveDashboard({
   };
 
   const generateClientFallbackInsights = () => {
-    // Elegant local Turkish synthesis engine matching Gemba tone
+    // Local Turkish synthesis engine — every line below is derived strictly from the real
+    // stats/leaderboard/portfolio computed above (no fabricated names, percentages, or events).
+    // Falls back to an honest "no data yet" line per section when this factory has nothing real
+    // to report on that axis, rather than inventing a plausible-sounding claim.
+    const criticalFacilities = portfolio.filter(p => p.riskStatus === "Kritik").map(p => p.companyName);
+    const busiest = leaderboard.length > 0 ? [...leaderboard].sort((a, b) => b.activeProjects - a.activeProjects)[0] : null;
+    const idlest = leaderboard.length > 0 ? [...leaderboard].sort((a, b) => a.activeProjects - b.activeProjects)[0] : null;
+    const topSaver = leaderboard.length > 0 ? [...leaderboard].sort((a, b) => b.savings - a.savings)[0] : null;
+
+    const capacityLine = busiest && idlest && busiest.name !== idlest.name
+      ? `**${busiest.name}**, ${busiest.activeProjects} aktif proje ile portföyün en yoğun danışmanı; yeni bir proje açılacaksa **${idlest.name}** (${idlest.activeProjects} aktif proje) öncelikli değerlendirilebilir.`
+      : "Henüz birden fazla danışmana atanmış proje kaydı yok — kapasite dengesi karşılaştırması için yeterli veri bulunmuyor.";
+
+    const criticalLine = criticalFacilities.length > 0
+      ? `**${criticalFacilities.join(", ")}** kritik risk sınıfında — danışmanın acilen sahaya inip Gemba yürüyüşü planlaması önerilir.`
+      : "Şu an kritik risk sınıfında sınıflandırılmış bir tesis bulunmuyor.";
+
+    const savingsLine = topSaver && topSaver.savings > 0
+      ? `En yüksek doğrulanmış tasarrufu **${topSaver.name}** getirdi: ${currencySymbol}${topSaver.savings.toLocaleString()}. Bu sahada kullanılan yöntemlerin diğer tesislere yayılması değerlendirilebilir.`
+      : "Henüz tamamlanmış bir kaizenden doğrulanmış tasarruf kaydı yok.";
+
     const localInsight = `### Haftalık Yönetici Özeti (Weekly Executive Summary)
 Bu hafta yapılan veri süzme ve operasyonel denetim sonuçları şu şekildedir:
 * **Müşteri İlişkileri ve Portföy:** ${selectedYear} döneminde toplam **${stats.activeCustomers} aktif müşteri** ile ortaklık sürdürülmüş ve **${stats.totalCiProjects} yalın iyileştirme projesi (CI)** harekete geçirilmiştir.
@@ -369,16 +397,13 @@ Bu hafta yapılan veri süzme ve operasyonel denetim sonuçları şu şekildedir
 * **Zaman ve Planlama Uyum Oranı:** Sorumlu danışmanların ortalama termin başarısı **%${stats.avgSuccessRate}** seviyesinde kararlı bir seyir izlemektedir.
 
 ### AI Önerileri & Aksiyon Planı (AI Recommendations & Action Roadmap)
-Veri madenciliği ve kapasite denetimi sonuçlarına göre executive kararları destekleyici öneriler:
-1. **Danışman Kapasite Dengesi (Resource Load Warning):** 
-   - **Atakan Zehir**'in kapasite doluluğu **%92** seviyesine ulaşmıştır. Mevcut darboğazları yönetmek amacıyla kendisine **yeni proje atanması önerilmez**.
-   - **Barış Gökdemir**'in kapasite doluluğu **%61** seviyesinde olup, yeni başlayacak olan hat dengeleme veya SMED projelerine atanması kaynak verimliliği açısından en uygun seçenektir.
-2. **Kritik Müşteri Ziyaret Planlaması:** 
-   - **Kritik** risk sınıfındaki projeler ve haftalardır yeni aksiyon tanımlanmamış istasyonlar sebebiyle **Vestel Beyaz Eşya Manisa** sahası duraksama riski taşımaktadır. Danışmanın acilen sahaya inmesi ve Gemba yürüyüşü planlaması gerekmektedir.
-3. **Mali Geri Dönüş ve ROI Odakları:** 
-   - **SMED (Kalıp Ayar Süreleri)** ve **Hurda Azaltımı** projeleri, diğer departmanlara oranla **3 kat daha yüksek finansal geri dönüş** sağlamaktadır. Bu alanlardaki bütçe onaylarının önceliklendirilmesi önerilir.
-4. **Kalite Departmanı Alarmı:** 
-   - Son 3 haftadır montaj hattı kalite istasyonlarında aksiyon kapatma oranları %12 düşmüştür. Otonom Kalite Kontrol standart iş talimatları revize edilmelidir.`;
+Gerçek portföy verilerine göre executive kararları destekleyici öneriler:
+1. **Danışman Kapasite Dengesi:**
+   - ${capacityLine}
+2. **Kritik Müşteri Ziyaret Planlaması:**
+   - ${criticalLine}
+3. **Mali Geri Dönüş Odağı:**
+   - ${savingsLine}`;
 
     setAiReport(localInsight);
   };
@@ -1133,20 +1158,26 @@ Veri madenciliği ve kapasite denetimi sonuçlarına göre executive kararları 
           </div>
 
           {/* Styled Heatmap Grid */}
-          <div className="grid grid-cols-3 gap-2.5 pt-1.5">
-            {Object.entries(DEFAULT_HEATMAP_DATA).map(([area, value]) => (
-              <div 
-                key={area} 
-                className={`p-3 rounded-xl text-white text-center shadow-xs flex flex-col justify-between items-center transition-all hover:scale-103 ${value.intensity}`}
-                title={`${area} alanında ${value.count} adet Kaizen projesi yapıldı.`}
-              >
-                <span className="text-[10px] font-black tracking-widest uppercase">{area}</span>
-                <span className="text-sm font-mono font-black mt-2 bg-black/20 px-2 py-0.5 rounded-lg">
-                  {value.count} Proje
-                </span>
-              </div>
-            ))}
-          </div>
+          {kaizenHeatmapData.length > 0 ? (
+            <div className="grid grid-cols-3 gap-2.5 pt-1.5">
+              {kaizenHeatmapData.map(({ area, count, intensity }) => (
+                <div
+                  key={area}
+                  className={`p-3 rounded-xl text-white text-center shadow-xs flex flex-col justify-between items-center transition-all hover:scale-103 ${intensity}`}
+                  title={`${area} alanında ${count} adet Kaizen projesi yapıldı.`}
+                >
+                  <span className="text-[10px] font-black tracking-widest uppercase">{area}</span>
+                  <span className="text-sm font-mono font-black mt-2 bg-black/20 px-2 py-0.5 rounded-lg">
+                    {count} Proje
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-6 text-center text-[11px] text-slate-400 border border-dashed border-slate-200 rounded-xl">
+              Henüz departman bilgisiyle kaydedilmiş bir Kaizen yok.
+            </div>
+          )}
 
           <div className="flex justify-between items-center text-[11px] text-slate-400 border-t border-slate-100 pt-3">
             <span>Düşük Yoğunluk (0-10)</span>

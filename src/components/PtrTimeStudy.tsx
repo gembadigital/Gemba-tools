@@ -9,115 +9,6 @@ import {
 import { useFactory } from "../context/FactoryContext";
 import OpexProjectDashboard from "./OpexProjectDashboard";
 
-// CSV Data represented compactly as a single string to avoid token bloat
-const RAW_EXCEL_CSV = `25;16.06.2026;A3;VERİMLİLİK ;A3 EĞİTİMİNE KATILAN ARKADAŞLAR KENDİ ALANLARINDAN KİŞİ BAŞI EN AZ BİR ADET PROJE KONUSU BELİRLEYECEK;VERİMLİLİK;Gözde Tohumci;Açık;22.06.2026;;ZAMANINDA;A3; ;;;;2026;1
-25;16.06.2026;TPM ;VERİMLİLİK ;OPERATÖR MÜDAHALESİNE UYGUN DURUŞLAR İÇİN ARIZA AKIŞ DİAGAMI HAZIRLANACAK;VERİMLİLİK;Barış Avcı;Açık;22.06.2026;;ZAMANINDA;AKIŞ DİAGRAMI; ;;;;2026;2
-25;16.06.2026;TPM ;VERİMLİLİK ;ARIZA MÜDAHELE İÇİN TEK NOKTA DERSİ ŞEKLİNDE EĞİTİM DÖKÜMANLARI HAZIRLANACAK;VERİMLİLİK;Barış Avcı;Açık;22.06.2026;;ZAMANINDA;AKIŞ DİAGRAMI; ;;;;2026;3
-25;16.06.2026;5S;5S;26. HAFTAYA KAYAR HATTINDA 5s FAALİYETİ PLANLANACAK;ÜRETKENLİK;Gözde Tohumci;Açık;23.06.2026;;ZAMANINDA;5S; ;;;;2026;4
-25;16.06.2026;SAHA YÖNETİMİ;GÜVENLİK ;SAFETY PATROL DEVRİYESİ YAPILDI;ÜRETKENLİK;Gözde Tohumci;Kapalı;16.06.2026;;GECİKME;; ;;;;2026;5
-25;15.06.2026;EĞİTİM;VERİMLİLİK ;A3 EĞİTİMİ YAPILDI;VERİMLİLİK;Kemal Doğan;Kapalı;15.06.2026;15.06.2026;ZAMANINDA;A3; ;;;;2026;6
-24;9.06.2026;SMED;VERİMLİLİK ;2. İŞ ADIMI İşlem sırasında takım çantası yanında taşınacak;ZAMAN;Ersan Sezgin;Açık;19.06.2026;;ZAMANINDA;PNSZ 07 SMED; ;;;;2026;7
-24;9.06.2026;SMED;VERİMLİLİK ;6. İŞ ADIMI Tekrar kullanılmayacak takım vb ürünlerin temizliği setup bittikten sonra yapılacak;ZAMAN;Ersan Sezgin;Açık;19.06.2026;;ZAMANINDA;PNSZ 07 SMED; ;;;;2026;8
-24;9.06.2026;SMED;VERİMLİLİK ;7. İŞ ADIMI Kirlilik sebebi basınçlı hava temizlenecek.;ZAMAN;Ersan Sezgin;Açık;24.06.2026;;ZAMANINDA;PNSZ 07 SMED; ;;;;2026;9
-24;9.06.2026;SMED;VERİMLİLİK ;12. İŞ ADIMI İş standartı oluşturulurken bu işlem eklenmeyecek.;ZAMAN;Ersan Sezgin;Açık;25.06.2026;;ZAMANINDA;PNSZ 07 SMED; ;;;;2026;10
-24;9.06.2026;SMED;VERİMLİLİK ;13. İŞ ADIMI İş standartı oluşturulurken bu işlem eklenmeyecek.;ZAMAN;Emre Soylu;Açık;26.06.2026;;ZAMANINDA;PNSZ 07 SMED; ;;;;2026;11
-24;9.06.2026;SMED;VERİMLİLİK ;14. İŞ ADIMI Arkadan yükleme yapılan tezgahlarda hava kanalı T ile ikiye ayrılacak ve tezgahın ön ve arka kısmına hava tabancası eklenecek.;ZAMAN;Emre Soylu;Açık;20.07.2026;;ZAMANINDA;PNSZ 07 SMED; ;;;;2026;12
-24;9.06.2026;SMED;VERİMLİLİK ;16. İŞ ADIMI Dayama civataları sökülüp dayama yatakdan çıkartıldıktan sonra hemen yeni dayama takılması için yatak temizligi yapılacak.;ZAMAN;Emre Soylu;Açık;19.06.2026;;ZAMANINDA;PNSZ 07 SMED; ;;;;2026;13
-24;9.06.2026;SMED;VERİMLİLİK ;18. İŞ ADIMI 16. Adımdaki işlem yapılacak.;ZAMAN;Emre Soylu;Açık;24.06.2026;;ZAMANINDA;PNSZ 07 SMED; ;;;;2026;14
-24;9.06.2026;SMED;VERİMLİLİK ;27. İŞ ADIMI Setup başlamadan önce kullanılacak ara kagıtlar tezgahın yanına getirilecek.;ZAMAN;Emre Soylu;Açık;25.06.2026;;ZAMANINDA;PNSZ 07 SMED; ;;;;2026;15
-24;9.06.2026;SMED;VERİMLİLİK ;34, 35, 36, 37. İŞ ADIMI Referans bazlı ara flans tasarımı ve üretimi yapılacak yapılan üretimden sonra ürünlerin temas yüzeyi olmayan kısımlarına referans numarası delık çapı ve boy bilgileri lazer ile işlenecek.;ZAMAN;Emre Soylu;Açık;17.06.2026;;GECİKME;PNSZ 07 SMED; ;;;;2026;16
-24;9.06.2026;SMED;VERİMLİLİK ;39, 40. İŞ ADIMI Taş sökme ve takma eğitimi verilecek.;ZAMAN;Ersan Sezgin;Açık;18.06.2026;;ZAMANINDA;PNSZ 07 SMED; ;;;;2026;17
-24;9.06.2026;SMED;VERİMLİLİK ;63. İŞ ADIMI Su tavasının menteşeli sisteme geçirilmesi.;ZAMAN;Barış Avcı;Açık;30.06.2026;;ZAMANINDA;PNSZ 07 SMED; ;;;;2026;18
-24;9.06.2026;SMED;VERİMLİLİK ;70. İŞ ADIMI Mevcut sistemin yerine servo sisteme geçilmesi.;ZAMAN;Barış Avcı;Açık;30.06.2026;;ZAMANINDA;PNSZ 07 SMED; ;;;;2026;19
-24;9.06.2026;SMED;VERİMLİLİK ;71. İŞ ADIMI Balans alma eğitimi verilecek.;ZAMAN;Ersan Sezgin;Açık;29.06.2026;;ZAMANINDA;PNSZ 07 SMED; ;;;;2026;20
-24;9.06.2026;SMED;VERİMLİLİK ;77. İŞ ADIMI Bakım ekibi kontrol saglayacak.;ZAMAN;Barış Avcı;Açık;30.06.2026;;ZAMANINDA;PNSZ 07 SMED; ;;;;2026;21
-24;9.06.2026;SMED;VERİMLİLİK ;82. İŞ ADIMI Paperwork sisteminin telefon,tablet vb elde taşınabilir ekipmanlardan erişim sağlanması.;ZAMAN;Ersan Sezgin;Açık;29.06.2026;;ZAMANINDA;PNSZ 07 SMED; ;;;;2026;22
-24;9.06.2026;KAİZEN ;VERİMLİLİK ;KAİZEN EĞİTİMLERİ YAPILDI;YETENEK;Kemal Doğan;Kapalı;9.06.2026;;GECİKME;KAİZEN EĞİTİM; ;;;;2026;23
-23;2.06.2026;SAHA YÖNETİMİ;GÜVENLİK ;SAFETY LİDER UYGULAMASI START VERİLECEK.;KAZA RİSKİ;Gamze Öyekcin;Açık;9.06.2026;;GECİKME;SAFETY; ;;;;2026;24
-23;2.06.2026;EĞİTİM;VERİMLİLİK ;OPERATÖR VE SAHA LİDERLERİNE KAİZEN EĞİTİMİ PLANLANACAK;ÜRETKENLİK;Gamze Öyekcin;Açık;9.06.2026;;GECİKME;EĞİTİM; ;;;;2026;25
-23;2.06.2026;EĞİTİM;VERİMLİLİK ;BEYAZ YAKA A3 EĞİTİMİ PLANLANACAK;VERİMLİLİK;Gamze Öyekcin;Açık;9.06.2026;;GECİKME;EĞİTİM; ;;;;2026;26
-23;2.06.2026;SMED;VERİMLİLİK ;PNSZ 7 SMED ANALİZİ YAPILDI, KARŞI ÖNLEMLER DANDORİ FORMATINA İŞLENECEK;ZAMAN;Emre Soylu;Açık;8.06.2026;;GECİKME;SMED; ;;;;2026;27
-23;2.06.2026;GÖRSEL YÖNETİM ;MOTİVASYON ;ASAKAİ PANOSU BAŞLIK SAÇI PANOYA MONTE EDİLECEK;MOTIVASYON ;Barış Avcı;Açık;8.06.2026;;GECİKME;ASAKAİ PANO; ;;;;2026;28
-21;18.05.2026;SAHA YÖNETİMİ;VERİMLİLİK ;AKSİYONLAR İZLENDİ;ÜRETKENLİK;Kemal Doğan;Kapalı;18.05.2026;18.05.2026;ZAMANINDA;AKSİYON TAKİP; ;;;;2026;29
-20;12.05.2026;SAHA YÖNETİMİ;ÇEVRE;MAZSAN LAYOUT ÜZERİNDEN BAL PETEĞİ HÜCRE HARİTASI ÇIKARILACAK;ÜRETKENLİK;Gamze Öyekcin;Açık;18.05.2026;;GECİKME;BAL PETEĞİ; ;;;;2026;30
-20;12.05.2026;SAHA YÖNETİMİ;ÇEVRE;BAL PETEĞİ HÜCRE HARİTASINA SORUMLU PERSONEL ATAMASI YAPILACAK;ÜRETKENLİK;Ersan Sezgin;Açık;18.05.2026;;GECİKME;BAL PETEĞİ; ;;;;2026;31
-20;12.05.2026;KALİTE;KALİTE;BSH TM 6970 FREZE İZ FRZ 12 FİKSTÜR TABLASI KAMA 13.90 KANAL GENİŞLİĞİ 14 0,1 BOŞLUK DÜZELTİLECEK.;KALİTE;Emre Soylu;Açık;18.05.2026;;GECİKME;FRZ 12; ;;;;2026;32
-20;12.05.2026;KALİTE;KALİTE;BSH TM 6970 FREZE İZ OPERATÖR KONTROL TALİMAT REVİZE EDİLECEK;KALİTE;Pınar Yılmaz;Açık;18.05.2026;;GECİKME;KONTROL TALİMATI; ;;;;2026;33
-20;12.05.2026;KALİTE;KALİTE;BSH TM 6970 FREZE İZ KKP REVİZE EDİLECEK;KALİTE;Pınar Yılmaz;Açık;18.05.2026;;GECİKME;KKP; ;;;;2026;34
-20;12.05.2026;KALİTE;KALİTE;BSH TM 6970 FREZE İZ SON KONTROL STANDARTI REVİZE EDİLECEK;KALİTE;Pınar Yılmaz;Açık;18.05.2026;;GECİKME;SON KONTROL; ;;;;2026;35
-20;12.05.2026;KALİTE;KALİTE;BSH TM 6970 FREZE İZ TND;KALİTE;Ersan Sezgin;Açık;18.05.2026;;GECİKME;TND; ;;;;2026;36
-20;12.05.2026;KALİTE;KALİTE;BSH TM 6970 FREZE İZ DİĞER FREZELERİN KAMA KANAL ÖLÇÜLERİNİN KONTROLÜ VE GEREKİYORSA REVİZYON YAPILMASI;KALİTE;Emre Soylu;Açık;29.06.2026;;ZAMANINDA;FREZE FİKSTÜR KAMA KANAL ARALIĞI; ;;;;2026;37
-18;28.04.2026;OEE;VERİMLİLİK ;ÜRETİM GÜNLÜK ÜRETİM RAKAMLARINI PLANLAMAYLA PAYLAŞACAK;VERİMLİLİK;Emre Soylu;Kapalı;5.05.2026;;GECİKME;PLANLAMA ÜRETİM VERİ FARKI; ;;;;2026;38
-18;28.04.2026;OEE;VERİMLİLİK ;GÜN/VARDİYA BAZLI ÜRETİM PLANI AÇILACAK;VERİMLİLİK;Sanem Dokumacı;Kapalı;5.05.2026;;GECİKME;PLANLAMA ÜRETİM VERİ FARKI; ;;;;2026;39
-18;28.04.2026;OEE;VERİMLİLİK ;ÖNCE ÇOK KOŞAN ÜRÜNLERDEN BAŞLAYARAK CT SÜRELERİ PLANLAMAYLA PAYLAŞILACAK;VERİMLİLİK;Emre Soylu;Devam Ediyor;12.05.2026;;GECİKME;PLANLAMA ÜRETİM VERİ FARKI; ;;;;2026;40
-18;28.04.2026;GÖRSEL YÖNETİM ;VERİMLİLİK ;PFUS PERFORMANS TAKİBİ BAŞLATILACAK (ASAKAİ);VERİMLİLİK;Gözde Tohumci;Kapalı;5.05.2026;;GECİKME;; ;;;;2026;41
-18;27.04.2026;KALİTE;KALİTE;TCNC DURUŞ SONRASI ISITMA PROGRAMI TASARIMI;KALİTE;Emre Soylu;Açık;12.05.2026;;GECİKME;ÇAP BÜYÜK HATASI; ;;;;2026;42
-18;27.04.2026;KALİTE;KALİTE;OTOMATİK OFSET TCNC;KALİTE;Emre Soylu;Açık;12.05.2026;;GECİKME;ÇAP BÜYÜK HATASI; ;;;;2026;43
-18;27.04.2026;KALİTE;KALİTE;TEZGAH BAŞINDAN AYRILMALARDA NOMİNALE ALINMA;KALİTE;Emre Soylu;Açık;12.05.2026;;GECİKME;ÇAP BÜYÜK HATASI; ;;;;2026;44
-18;27.04.2026;STANDART İŞ;KALİTE;TCNC İŞ STD. OLUŞTURMA;KALİTE;Emre Soylu;Açık;5.05.2026;;GECİKME;ÇAP BÜYÜK HATASI; ;;;;2026;45
-18;27.04.2026;STANDART İŞ;KALİTE;TCNC ZAMAN ETÜDÜ;KALİTE;Emre Soylu;Açık;5.05.2026;;GECİKME;ÇAP BÜYÜK HATASI; ;;;;2026;46
-18;27.04.2026;KALİTE;KALİTE;FARKLI MODEL TCNC LERDE MİN. MAX. OVALLİK ÇALIŞMASI;KALİTE;Pınar Yılmaz;Açık;5.05.2026;;GECİKME;ÇAP BÜYÜK HATASI; ;;;;2026;47
-18;27.04.2026;KALİTE;KALİTE;HAVALI GUAGE TASARIMI;KALİTE;Sezayi Parlakkılıç;Açık;5.05.2026;;GECİKME;ÇAP BÜYÜK HATASI; ;;;;2026;48
-17;21.04.2026;KALİTE;KALİTE;A00154403 NUMARALI REFERANS DA PAS PROBLEMİ İÇİN KALICI KARŞI ÖNLEM ALINANA KADAR SON KONTROL GİRİŞİNDEKİ FKK ALANINDA FİFO TAKİBİ YAPILACAK.;KALİTE;Sanem Dokumacı;Kapalı;22.04.2026;;GECİKME;FİFO KONTROL; ;;;;2026;49
-17;21.04.2026;KALİTE;KALİTE;A00154403 NUMARALI REFERANS DA PAS PROBLEMİ İÇİNOVALAMA YAGI SONRASI ÜRÜN TAKP;KALİTE;Doğukan Topçu;Devam Ediyor;11.05.2026;;GECİKME;OVALAMA YAĞI; ;;;;2026;50
-17;21.04.2026;KALİTE;KALİTE;BLİSTER PNSZ ÜRETİM HATTI DENEMESİ;KALİTE;Doğukan Topçu;Devam Ediyor;27.04.2026;;GECİKME;BLİSTER DENEME; ;;;;2026;51
-17;21.04.2026;KALİTE;KALİTE;FREZE BOR YAĞ STD. KONTROLÜ;KALİTE;Doğukan Topçu;Devam Ediyor;27.04.2026;;GECİKME;FREZE BOR YAĞ; ;;;;2026;52
-17;21.04.2026;KALİTE;KALİTE;FRZ, TCNCBOR YAĞ ORANLARI KONTROLÜ;KALİTE;Doğukan Topçu;Devam Ediyor;27.04.2026;;GECİKME;YAĞ ORANI KONTROL; ;;;;2026;53
-17;20.04.2026;KALİTE;KALİTE;A00154403 NUMARALI REFERANS DA PAS PROBLEMİ İÇİN SON KONTROL PAS PROBLEMİ OLAN KASALARIN KART BİLGİSİ VE HATA ORANI PROBLEM TAKİP EKİBİYLE PAYLAŞACAK.21,22,,24 NİSAN VERİLERİ PAYLAŞILACAK.;KALİTE;Sanem Dokumacı;Kapalı;24.04.2026;;GECİKME;VERİ PAYLAŞIMI; ;;;;2026;54
-17;20.04.2026;KALİTE;KALİTE;A00154403 NUMARALI REFERANS DA PAS PROBLEMİ İÇİN TEDARİKÇİDEN GELEN ÜRETİM KASALARININ TEMİZLİK KONTROLU YAPILARAK ÜRETİME VERİLECEK. ( İÇİNDE SU, DÖKÜM TOXU, YABANCI MALZEME VS.) KONTROL STANDARTLARI OLUŞTURULUP İLGİLİ PERSONELE GÖREVLENDİRME YAPILACAK;KALİTE;Sanem Dokumacı;Kapalı;24.04.2026;;GECİKME;KASA KONTROL; ;;;;2026;55
-17;20.04.2026;KALİTE;KALİTE;ÜRETİM PERSONELİ KULLANIM ÖNCESİ KASA İÇİNİ KONTROL EDECEK VE KİRLİLİK ORANLARI HAKKINDA VARDİYA AMİRİNE BİLGİ VERECEK.;KALİTE;Doğukan Topçu;Açık;24.04.2026;;GECİKME;PAS PROBLEMİ KASA KONTROL; ;;;;2026;56
-17;20.04.2026;5S;5S;MAZSAN BAL PETEĞİ HÜCRE HARITASI ÇIKARILACAK...KİŞİ BAZLI ALAN ATAMALARI YAPILACAK. ;VERİMLİLİK;Gamze Öyekcin;Açık;30.04.2026;;GECİKME;SAFETY 5S; ;;;;2026;57
-16;14.04.2026;5S;GÜVENLİK ;SAFETY PATROL & 5S DEVRİYE UYGULAMASINDA TESPİT EDİLEN TOPLAMDA 320 İYİLEŞTİRME MADDESİ İÇİN A0 FORMATINDA KESHİKOMİ LİSTESİ OLUŞTURULACAK.( İYİLEŞTİRME TAKİP SAYFASI) PROBLEM KİMİN, KARŞI ÖNLEM NEDİR KİM NEYİ NEZAMANA KADAR ÇÖZECEK BU TAKİP LİSTESİNDEN İLERLEME TAKİP EDİLECEK.;VERİMLİLİK;Gamze Öyekcin;Açık;21.04.2026;;GECİKME;SAFETY PATROL; ;;;;2026;58
-16;14.04.2026;KALİTE;KALİTE;ÇİZİK HATASI İÇİN PPS FORMATINDA PROBLEM ÇÖZÜM METODU ÇALIŞILACAK VE ÖNÜMÜZDEKİ HAFTA ASAKAİ DE SUNUM YAPILACAK 20.04.2026;KALİTE;Emre Soylu;Açık;20.04.2026;;GECİKME;PPS ÇİZİK HATASI; ;;;;2026;59
-16;14.04.2026;SMED;VERİMLİLİK ;BUGÜN VİDEOSU ÇEKİLEN SETUP İŞLEMİN PRIVATELY VİDEO ANALİZİ YAPILACAK 14.O4.2026;VERİMLİLİK;Emre Soylu;Devam Ediyor;23.04.2026;;GECİKME;SMED; ;;;;2026;60
-16;14.04.2026;KALİTE;KALİTE;DARBE KAYNAKLI HURDA HATASI OLUŞUNUMUNU ENGELLEMEK ADINA FABRİKA İÇİ OLMASI GEREKEN KUTU MİN MAX SAYI STANDARTLARI OLUŞTURULACAK. VE TAKİP İÇİN METHOT BELİRLENECEK;KALİTE;Sanem Dokumacı;Kapalı;13.04.2026;;GECİKME;BOŞ KUTU STANDARTI; ;;;;2026;61
-15;7.04.2026;TPM ;KALİTE;KUMLAMA TEZGAHI BASINÇ MANOMETRESİ TAKILACAK;KALİTE;Barış Avcı;Kapalı;13.04.2026;;GECİKME;KUMLAMA KALİTE; ;;;;2026;62
-15;7.04.2026;GÖRSEL YÖNETİM ;VERİMLİLİK ;ASAKAİ PFUS TAKİP LİSTESİNE KPI A OLUMSUZ ETKİ EDEN TÜM PROBLEMLER EKLENECEK;ÜRETKENLİK;Emre Soylu;Devam Ediyor;13.04.2026;;GECİKME;PFUS; ;;;;2026;63
-15;7.04.2026;KALİTE;KALİTE;PEROSES VE KALİTE GRUBU SORUMLULUĞUNDAKİ TÜM KALİTE KONTROLLERİNİN TEYİT EDİLMESİ;KALİTE;Gülçin Başçiftci;Açık;13.04.2026;;GECİKME;KALİTE; ;;;;2026;64
-15;7.04.2026;GÖRSEL YÖNETİM ;VERİMLİLİK ;ASAKAİ ALANINDA PANOYA PPS PRATICE PROBLEM SOLVING FORMATI TASARLANMASI;VERİMLİLİK;Gözde Tohumci;Kapalı;13.04.2026;;GECİKME;PPS; ;;;;2026;65
-15;7.04.2026;SMED;VERİMLİLİK ;PAKETLEME PROSESİ VİDEO ÇEKİMİ VE ANALİZİ;ÜRETKENLİK;Derya Gümüşoğlu;Kapalı;13.04.2026;;GECİKME;SMED; ;;;;2026;66
-15;7.04.2026;SAHA YÖNETİMİ;VERİMLİLİK ;RETMES SİSTEMİNDE ÇALIŞMA SÜRESİNİN HATALI OLMASI SEBEBİYLE PLANLANAN GERÇEKLEŞEN ORANLARININ HATALI HESAPLANMASI;ÜRETKENLİK;Ersan Sezgin;Devam Ediyor;13.04.2026;;GECİKME;RETMES HATALI VERİ; ;;;;2026;67
-15;6.04.2026;SMED;VERİMLİLİK ;SETUP ÖNCELİKLİ 5466 REFERANSI OLMAK ÜZERE BEYAZ EŞYA HATTINDA SETUP ÇALIŞMALARINDA VİDEO ÇEKİMLERİ YAPILACAK;VERİMLİLİK;Derya Gümüşoğlu;Devam Ediyor;13.04.2026;;GECİKME;SMED; ;;;;2026;68
-14;1.04.2026;GÖRSEL YÖNETİM ;VERİMLİLİK ;SAATLİK ÜRETM PANOLARI VE ASAKAİ GRAFİKLERİ TÜM BİRİMLERDE DOLDURULMAYA BAŞLANACAK VE TAKİBİ YAPILACAK;VERİMLİLİK;Gözde Tohumci;Kapalı;6.04.2026;;GECİKME;ASAKAİ; ;;;;2026;69
-14;1.04.2026;GÖRSEL YÖNETİM ;VERİMLİLİK ;ASAKAİ UYGULAMA START VERİLMESİ;VERİMLİLİK;Gözde Tohumci;Kapalı;6.04.2026;6.04.2026;ZAMANINDA;ASAKAİ; ;;;;2026;70
-14;1.04.2026;KALİTE;KALİTE;SON KONTROL KALİTE GRAFİKLERİ PAKETLENEN MİKTAR VE BULUNAN HATA SAYSI ORANI ALINARAK GRAFİK İŞARETLEMESİ YAPILACAK;KALİTE;Sezayi Parlakkılıç;Kapalı;6.04.2026;6.04.2026;ZAMANINDA;ASAKAİ; ;;;;2026;71
-14;1.04.2026;TPM ;VERİMLİLİK ;MTTR-MTBF TAKİP KONUSUNDA BAKIM GRUBU İLE ÖRNEK DOKÜMAN PAYLAŞILDI. ASAKAİ DE BU FORMLAR YARDIMIYLE MTTR MTBF GRAFİKLERİ HAZIRLANACAK;ÜRETKENLİK;Barış Avcı;Kapalı;6.04.2026;6.04.2026;ZAMANINDA;ASAKAİ; ;;;;2026;72
-14;1.04.2026;GÖRSEL YÖNETİM ;VERİMLİLİK ;ASAKAİ SUNUM İÇİN 2 MİKROFONLU HOPERLÖR ALINACAK;ÜRETKENLİK;Gözde Tohumci;Kapalı;6.04.2026;7.04.2026;GECİKME;; ;;;;2026;73
-14;1.04.2026;SMED;VERİMLİLİK ;HAFTA İÇİ 5466 REFERAN NUMARASI İÇİN SETUP YAPILAN TÜM ALANLARDAN VİDEO ÇEKİMİ YAPILACAK;ÜRETKENLİK;Derya Gümüşoğlu;Kapalı;6.04.2026;;GECİKME;SMED; ;;;;2026;74
-14;1.04.2026;GÖRSEL YÖNETİM ;VERİMLİLİK ;06.04.2026 P.TESİ GÜNÜ İLK ASAKAİ DEMO SUNUMUNU YAPACAK ŞEKİLDE TÜM BİRİMLER HAZIRLIKLARINI TAMAMLAYACAK;ÜRETKENLİK;Gözde Tohumci;Kapalı;6.04.2026;6.04.2026;ZAMANINDA;ASAKAİ DEMO SUNUMU; ;;;;2026;75
-14;30.03.2026;GÖRSEL YÖNETİM ;VERİMLİLİK ;ASAKAİ GRAFİK VE SAATLİK ÜRETİM TAKİP FORMLARI HAZIRLANDI. PROSES TEYİDİ ALINDI VE PROSESLERE DAĞITILDI;VERİMLİLİK;Gözde Tohumci;Kapalı;1.04.2026;1.04.2026;ZAMANINDA;ASAKAİ; ;;;;2026;76
-14;30.03.2026;GÖRSEL YÖNETİM ;VERİMLİLİK ;HAFTA BAZLI KÜMİLATİF TOPLAMDA PLANLANAN GERÇEKLEŞEN ÜRETİM ADETLERİ VE PLANLANAN GERÇEKLEŞEN SEVKİYAT ORANLARINI PLANLAMA GRUBU BİR FORMAT ÜZERİNDE ASSAKAİ ALANINDA SUNUMUMU YAPACAK;ÜRETKENLİK;Sanem Dokumacı;Kapalı;6.04.2026;;GECİKME;PALANLANA GERÇEKLEŞEN ÜRETİM VE SEVKİYAT TAKİP İ; ;;;;2026;77
-13;24.03.2026;SMED;VERİMLİLİK ;TCNC-22 SMED ÇALIŞMASINDA Kİ AKSİYONLARIN PLANLANARAK KARŞI ÖNLEM FAALİYETLERİNİN BAŞLATILMASI - HEDEF 3454 sn. SETUP SÜRESİNİN 2158 sn DÜŞÜLMESİ %45 İyileştirme;ZAMAN;Emre Soylu;Devam Ediyor;28.04.2026;;GECİKME;SMED ÇALIŞMASI TCNC-22; ;;;;2026;78
-13;23.03.2026;SMED;VERİMLİLİK ;takım sıfırlama (x+z) - X iptal, Z mevcut parça ile yeni parça arasında ki boy farkı hesaplanıp ofset değerine eklenecek;ZAMAN;Doğukan Topçu;Açık;28.04.2026;;GECİKME;TCNC-22 SMED; ;;;;2026;79
-13;22.03.2026;SMED;VERİMLİLİK ;çene ayarı yapmak kumpas almak çene ayarına devam - modüler sert ayak sistemi adaptasyonu gerçekleştirilecek;ZAMAN;Emre Soylu;Açık;28.04.2026;;GECİKME;TCNC-22 SMED ÇALIŞMASI; ;;;;2026;80
-13;22.03.2026;SMED;VERİMLİLİK ;takım sıfırlama (x+z) - X iptal, Z mevcut parça ile yeni parça arasında ki boy farkı hesaplanıp ofset değerine eklenecek;ZAMAN;Doğukan Topçu;Açık;23.03.2026;;GECİKME;TCNC-22 SMED ÇALIŞMASI; ;;;;2026;81
-12;17.03.2026;VSM ;VERİMLİLİK ;HAT1-HAT2 ARASI ARA STOK MİKTARI TAKİP;STOK;Sanem Dokumacı;Kapalı;16.04.2026;;GECİKME;VSM Çalışması 5466; ;;;;2026;82
-12;17.03.2026;VSM ;VERİMLİLİK ;Günlük saha fiziki stok kontrolü (kaç kere ve nerelere yapılacağı kararı alınacak);STOK;Sanem Dokumacı;Kapalı;15.04.2026;;GECİKME;VSM 5466; ;;;;2026;83
-12;17.03.2026;VSM ;VERİMLİLİK ;Hat c/t22 hat216 Tact time Veri girişinin önemi anlatılacak standart çalışma talimatı OEE takibi;VERİMLİLİK;Emre Soylu;Açık;15.04.2026;;GECİKME;VSM Çalışması 5466; ;;;;2026;84
-12;17.03.2026;VSM ;VERİMLİLİK ;Bitmiş ürün stoğu 6 günlük Bağ miktarlarının lot ağırlığı yarıya indirilebilir mi?;STOK;Uğur Yılmaz;Açık;15.04.2026;;GECİKME;VSM Çalışması 5466; ;;;;2026;85
-12;17.03.2026;SMED;VERİMLİLİK ;SMED çalışmalarının başlatılması;VERİMLİLİK;Kemal Doğan;Devam Ediyor;23.03.2026;23.03.2026;ZAMANINDA;VSM ÇALIŞMASI 5466; ;;;;2026;86
-11;17.03.2026;GÖRSEL YÖNETİM ;VERİMLİLİK ;ASAKAİ GRAFİK EĞİTİMİ YAPILDI;VERİMLİLİK;Kemal Doğan;Kapalı;17.03.2026;17.03.2026;ZAMANINDA;ASAKAİ; ;;;;2026;87
-12;16.03.2026;VSM ;VERİMLİLİK ;GÜNLÜK MÜŞTERİ SİPARİŞİ PARÇA BRÜT AĞIRLIĞI Tampon stok ham malzeme Güvenlik stoğu;STOK;Sanem Dokumacı;Kapalı;7.04.2026;;GECİKME;VSM İdeal durum 5466; ;;;;2026;88
-12;16.03.2026;VSM ;VERİMLİLİK ;Caniastan 36lık ham malzeme geliş tarih ve adetlerine bakılacak;STOK;Gözde Tohumci;Kapalı;7.04.2026;;GECİKME;VSM çalışması 5466; ;;;;2026;89
-12;16.03.2026;VSM ;VERİMLİLİK ;36lık Ham malzemenin geç gelmesi duruma istinaden 2 günlük 10 ton ham malzeme stoklarda stabil tutulacak;STOK;Uğur Yılmaz;Açık;7.04.2026;;GECİKME;VSM çalışması 5466; ;;;;2026;90
-12;16.03.2026;VSM ;VERİMLİLİK ;DT-HAT1 ARASI ARA STOK MİKTARI Stok takip;STOK;Emine Doğru;Açık;7.04.2026;;GECİKME;VSM 5466; ;;;;2026;91
-12;16.03.2026;VSM ;VERİMLİLİK ;İŞ EMİRLERİNİN GÜNLÜK AÇILMASI kararı;VERİMLİLİK;Sanem Dokumacı;Kapalı;7.04.2026;;GECİKME;VSM Çalışması 5466; ;;;;2026;92
-12;16.03.2026;VSM ;VERİMLİLİK ;Son kontrol tampon stoğu oluşturulacak (min 30000- max 38000) Güvenlik stoğu %50;STOK;Sanem Dokumacı;Kapalı;16.04.2026;;GECİKME;VSM Çalışması 5466; ;;;;2026;93
-12;16.03.2026;SMED;VERİMLİLİK ;Kardeş takım çağırma dış smed Capto heimer kombinasyonu Transferde;VERİMLİLİK;Emre Soylu;Açık;16.04.2026;;GECİKME;VSM Çalışması 5466; ;;;;2026;94
-13;16.03.2026;GÖRSEL YÖNETİM ;VERİMLİLİK ;ASAKAI GRAFİKLERİ HAZIRLANACAK;VERİMLİLİK;Gözde Tohumci;Kapalı;6.04.2026;6.04.2026;ZAMANINDA;ASAKAİ; ;;;;2026;95
-11;10.03.2026;VSM ;VERİMLİLİK ;VSM çalışması;ÜRETKENLİK;Kemal Doğan;Kapalı;10.03.2026;10.03.2026;ZAMANINDA;Beyaz eşya hattı VSM çalışması yapılacak; ;;;;2026;96
-10;3.03.2026;AKIŞ İYİLEŞTİRME;VERİMLİLİK ;VSM veri analizi yapıldı;ÜRETKENLİK;Kemal Doğan;Kapalı;3.03.2026;3.03.2026;ZAMANINDA;VSM için saha çalışması yapıldı; ;;;;2026;97
-10;3.03.2026;AKIŞ İYİLEŞTİRME;VERİMLİLİK ;VSM beyaz eşya hattı veri takibi;ÜRETKENLİK;Gözde Tohumci;Kapalı;9.03.2026;;GECİKME;VSM için Beyaz eşya verileri temize geçilecek; ;;;;2026;98
-10;3.03.2026;AKIŞ İYİLEŞTİRME;VERİMLİLİK ;Beyaz eşya taşıma süreleri analiz;ÜRETKENLİK;Derya Gümüşoğlu;Kapalı;9.03.2026;;GECİKME;Beyaz eşya hattı malzeme taşıma süreleri analiz edilecek; ;;;;2026;99
-10;3.03.2026;OEE;VERİMLİLİK ;Beyaz eşya son kontrol kalite dataları;KALİTE;Emre Soylu;Kapalı;9.03.2026;;GECİKME;Beyaz eşya hattı son kontrol kalite verileri çıkartılacak; ;;;;2026;100
-10;3.03.2026;EĞİTİM;VERİMLİLİK ;VSM çalışması için malzeme temin edilmesi;ÜRETKENLİK;Doğukan Topçu;Kapalı;3.03.2026;3.03.2026;ZAMANINDA;A0 kağıt, renkli postit kağıtlar, kalem temini; ;;;;2026;101
-10;2.03.2026;EĞİTİM;MOTİVASYON ;TPS Teknikleri eğitimi yapıldı;YETENEK;Kemal Doğan;Kapalı;2.03.2026;2.03.2026;ZAMANINDA;TPS Teknikleri eğitimi yapıldı; ;;;;2026;102
-10;2.03.2026;SAHA YÖNETİMİ;VERİMLİLİK ;TPS Ekip oluşturuldu;YETENEK;Kemal Doğan;Kapalı;2.03.2026;2.03.2026;ZAMANINDA;TPS takımı kuruldu; ;;;;2026;103
-9;26.02.2026;EĞİTİM;MOTİVASYON ;TPS Eğitim;YETENEK;Kemal Doğan;Kapalı;26.02.2026;26.02.2026;ZAMANINDA;TPS Giriş eğitimi yapıldı; ;;;;2026;104
-9;24.02.2026;EĞİTİM;MOTİVASYON ;TPS Master plan hazırlama ve sunum;MOTIVASYON ;Kemal Doğan;Kapalı;24.02.2026;24.03.2026;GECİKME;TPS Master plan sunumu yapıldı; ;;;;2026;105
-8;17.02.2026;EĞİTİM;MOTİVASYON ;TPS Assessment çalışması;MOTIVASYON ;Kemal Doğan;Kapalı;17.02.2026;17.02.2026;ZAMANINDA;TPS Asseessment yapıldı rapor sunumu yapıldı; ;;;;2026;106
-8;16.02.2026;EĞİTİM;MOTİVASYON ;TPS Assessment çalışması yapıldı.;MOTIVASYON ;Kemal Doğan;Kapalı;16.02.2026;16.02.2026;ZAMANINDA;Assessment çalışması yapıldı; ;;;;2026;107`;
-
 export interface ProjectRecord {
   id: number;
   visitedWeek: string;
@@ -147,39 +38,6 @@ export interface ProjectRecord {
 // Statuses that must NOT count toward project progress (cancelled).
 export const EXCLUDED_STATUSES = ["İptal"];
 export const STATUS_OPTIONS = ["Açık", "Devam Ediyor", "Kapalı", "İptal"];
-
-// Initial data decoding function
-const parseSeedData = (): ProjectRecord[] => {
-  return RAW_EXCEL_CSV.trim().split("\n").map((line, idx) => {
-    const parts = line.split(";");
-    const status = parts[7]?.trim() || "Açık";
-    const orderNo = parts[17] ? parseInt(parts[17].trim()) : (idx + 1);
-    const savingsAmount = parts[12]?.trim() || "";
-    const kaizenSavings = parts[14]?.trim() || "";
-
-    return {
-      visitedWeek: parts[0]?.trim() || "",
-      workDate: parts[1]?.trim() || "",
-      activitySubject: parts[2]?.trim() || "",
-      improvementSubject: parts[3]?.trim() || "",
-      workDone: parts[4]?.trim() || "",
-      output: parts[5]?.trim() || "",
-      responsible: parts[6]?.trim() || "",
-      status: status,
-      dueDate: parts[8]?.trim() || "",
-      actualDate: parts[9]?.trim() || parts[1]?.trim() || "", // Use workDate as default actualDate if closed
-      compliance: parts[10]?.trim() || "ZAMANINDA",
-      notes: parts[11]?.trim() || "",
-      savingsAmount: savingsAmount,
-      savingsCurrency: parts[13]?.trim() || "₺",
-      kaizenSavings: kaizenSavings,
-      equivalentProduct: parts[15]?.trim() || "",
-      year: parts[16] ? parseInt(parts[16].trim()) : 2026,
-      orderNo: orderNo,
-      id: orderNo
-    };
-  });
-};
 
 // Helper function to parse Turkish dates in formats like DD.MM.YYYY
 const parseTurkishDate = (dateStr: string): Date | null => {
@@ -360,8 +218,8 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
       });
   }, [selectedCustomer, ptrToken]);
 
-  // Load records for active customer from the backend. If none exist yet, show the illustrative
-  // seed data locally (not persisted) so the module isn't empty on first use for a new customer.
+  // Load records for active customer from the backend. A factory with zero real PTR records
+  // starts genuinely empty rather than showing another factory's project history.
   useEffect(() => {
     const customerId = selectedCustomer?.id || "default";
     isInitialPtrLoad.current = true;
@@ -374,7 +232,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
       .then((res) => res.json())
       .then((res) => {
         if (res.success) {
-          setRecords(res.data && res.data.length > 0 ? res.data : parseSeedData());
+          setRecords(res.data || []);
         }
       })
       .catch((err) => console.error("Failed to load PTR records", err))
@@ -589,10 +447,9 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
 
   // Real team/assignee directory — was a hardcoded list of 14 fictional names disconnected from
   // the app's real consultant/customer-user system. Fetched from /api/business/customers/{id}/team
-  // (same endpoint KaizenManager.tsx and ProjectTeamTab.tsx use). Falls back to a short
-  // illustrative list only when the customer genuinely has no one assigned yet.
-  const TEAM_FALLBACK_OPTIONS = ["Kemal Doğan (Danışman)"];
-  const [workspaceTeamMembers, setWorkspaceTeamMembers] = useState<string[]>(TEAM_FALLBACK_OPTIONS);
+  // (same endpoint KaizenManager.tsx and ProjectTeamTab.tsx use). Empty until the customer has
+  // someone real assigned — no illustrative fake name.
+  const [workspaceTeamMembers, setWorkspaceTeamMembers] = useState<string[]>([]);
 
   useEffect(() => {
     if (!selectedCustomer?.id) return;
@@ -607,7 +464,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
         if (primaryConsultant) names.push(`${primaryConsultant.full_name} (Baş Danışman)`);
         (consultants || []).forEach((c: any) => names.push(`${c.full_name} (Danışman)`));
         (customerUsers || []).forEach((u: any) => names.push(`${u.full_name} (Müşteri Kullanıcısı)`));
-        setWorkspaceTeamMembers(names.length > 0 ? names : TEAM_FALLBACK_OPTIONS);
+        setWorkspaceTeamMembers(names);
       })
       .catch(err => console.error("Failed to load real team directory in PtrTimeStudy", err));
   }, [selectedCustomer?.id, ptrToken]);

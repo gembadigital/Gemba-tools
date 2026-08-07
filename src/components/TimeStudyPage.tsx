@@ -79,36 +79,21 @@ const TYPE_CONFIG = {
 export default function TimeStudyPage({ selectedCustomer, vsmProcesses = [] }: TimeStudyPageProps) {
   const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
   const [activeTab, setActiveTab] = useState<"study" | "combination">("study");
-  const [lineName, setLineName] = useState<string>("Montaj Hattı A");
-  const [productName, setProductName] = useState<string>("Ütü Masası");
-  const [shiftHours, setShiftHours] = useState<number>(12);
+  // Honest empty-study defaults on first load (same shape handleNewTimeStudy resets to) —
+  // a brand-new customer with zero real time studies should see a blank slate, not someone
+  // else's factory data.
+  const [lineName, setLineName] = useState<string>("Yeni Hat");
+  const [productName, setProductName] = useState<string>("Yeni Ürün");
+  const [shiftHours, setShiftHours] = useState<number>(8);
   const [taktTime, setTaktTime] = useState<number>(60);
 
   // Available Time and Demand for Tab 2
-  const [ccAvail, setCcAvail] = useState<number>(27000);
-  const [ccDemand, setCcDemand] = useState<number>(450);
+  const [ccAvail, setCcAvail] = useState<number>(28800);
+  const [ccDemand, setCcDemand] = useState<number>(480);
 
-  // List of processes (mirrors HTML default data 100%)
+  // List of processes
   const [processes, setProcesses] = useState<ProcessStep[]>(() => [
-    { id: 1, name: "SÜNGER + KOMPONENT HAZ", mct: 0, co: 0, cy: [8, 12, 10, 9, 11] },
-    { id: 2, name: "ÖRTÜ GEÇİRME", mct: 0, co: 0, cy: [8, 9, 8, 8, 9] },
-    { id: 3, name: "YAY", mct: 0, co: 0, cy: [10, 11, 10, 12] },
-    { id: 4, name: "KISA AYAK + ETİKET", mct: 0, co: 2, cy: [5, 6, 5, 5] },
-    { id: 5, name: "SUB AYAK PLASTİK", mct: 0, co: 0, cy: [4, 5, 4] },
-    { id: 6, name: "AYAK PLASTİK + GENİŞ", mct: 4, co: 0, cy: [12, 11, 13] },
-    { id: 7, name: "SUB GENİŞ AYAK PLASTİK", mct: 0, co: 0, cy: [2, 3, 2, 4] },
-    { id: 8, name: "PUL TAKMA", mct: 0, co: 0, cy: [7, 8, 7, 7, 8] },
-    { id: 9, name: "MİL GEÇİRME", mct: 0, co: 0, cy: [8, 9, 8] },
-    { id: 10, name: "MİL PLASTİK PARÇA", mct: 0, co: 0, cy: [7, 8, 7] },
-    { id: 11, name: "BURÇ ÇAKMA", mct: 0, co: 0, cy: [5, 7, 6, 6] },
-    { id: 12, name: "KALİTE KONTROL", mct: 0, co: 0, cy: [6, 7, 6, 6] },
-    { id: 13, name: "ETİKET", mct: 0, co: 0, cy: [7, 8, 7, 7] },
-    { id: 14, name: "SHRİNK KONVEYOR", mct: 0, co: 0, cy: [5, 6, 5] },
-    { id: 15, name: "SHRİNK", mct: 2, co: 0, cy: [8, 10, 9] },
-    { id: 16, name: "VAKUM", mct: 0, co: 0, cy: [12, 11, 12, 13] },
-    { id: 17, name: "ETİKET + KUTUYA HAZ.", mct: 0, co: 0, cy: [5, 6, 5] },
-    { id: 18, name: "KUTULAMA", mct: 0, co: 0, cy: [8, 9, 8, 8] },
-    { id: 19, name: "PAKET", mct: 0, co: 0, cy: [5, 6, 5] }
+    { id: 1, name: "1. OPERASYON", mct: 0, co: 0, cy: [] }
   ]);
 
   // Selected process for measurement
@@ -118,14 +103,7 @@ export default function TimeStudyPage({ selectedCustomer, vsmProcesses = [] }: T
   const [cycleInput, setCycleInput] = useState<string>("");
 
   // Tab 2 Elements
-  const [ccEls, setCcEls] = useState<WorkElement[]>(() => [
-    { id: 1, seq: 1, desc: "SÜNGER + KOMPONENT HAZ", time: 10, type: "manual", operationMode: "sequential", operator: "Operatör 1", station: "İstasyon A" },
-    { id: 2, seq: 2, desc: "ÖRTÜ GEÇİRME", time: 8, type: "manual", operationMode: "sequential", operator: "Operatör 1", station: "İstasyon A" },
-    { id: 3, seq: 3, desc: "YAY TAKMA", time: 10, type: "manual", operationMode: "sequential", operator: "Operatör 1", station: "İstasyon A" },
-    { id: 4, seq: 4, desc: "OTOMATİK SHRINKE TAŞIMA", time: 5, type: "walking", operationMode: "sequential", operator: "Operatör 1", station: "İstasyon A" },
-    { id: 5, seq: 5, desc: "SHRİNK BASKI SÜRESİ", time: 12, type: "machine", hasMachineWaiting: true, operationMode: "parallel", customStartTime: 10, machineName: "Shrink Makinesi", operator: "Operatör 1", station: "İstasyon A" },
-    { id: 6, seq: 6, desc: "SHRİNK SOĞUMA BEKLEME", time: 4, type: "waiting", operationMode: "sequential", operator: "Operatör 1", station: "İstasyon A" }
-  ]);
+  const [ccEls, setCcEls] = useState<WorkElement[]>(() => []);
 
   // Tab 2 Form State
   const [elSeq, setElSeq] = useState<string>("");

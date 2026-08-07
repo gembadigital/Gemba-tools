@@ -204,31 +204,48 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
 
   const [creationTargetScore, setCreationTargetScore] = useState<number>(45);
   const [creationPreAnswers, setCreationPreAnswers] = useState<number[]>([1, 1, 1, 1, 1, 1]);
-  const [creationAssignments, setCreationAssignments] = useState<Record<string, string>>({
-    "A": "lead", "B": "lead", "C": "lead", "D": "kemal", "E": "lead", "F": "lead",
-    "G": "kemal", "H": "lead", "I": "kemal", "J": "kemal", "K": "kemal", "L": "kemal", "M": "kemal",
-    "N": "consultant_2", "O": "consultant_2", "P": "consultant_2", "Q": "consultant_2", "R": "consultant_2", "S": "consultant_2"
-  });
+  const [creationAssignments, setCreationAssignments] = useState<Record<string, string>>({});
 
   // UI Interactive States
   const [showTargetPanel, setShowTargetPanel] = useState(false);
   const [showAssessorPanel, setShowAssessorPanel] = useState(false);
-  
-  // Simulated assessor list for co-auditor assignment feature
-  const assessorsList = [
-    { id: "lead", name: "Atakan Zehir" },
-    { id: "kemal", name: "Kemal Doğan" },
-    { id: "consultant_1", name: "Caner Yılmaz" },
-    { id: "consultant_2", name: "Zeynep Kaya" }
-  ];
-  const [currentAssessorId, setCurrentAssessorId] = useState<string>("lead");
+
+  // Real co-auditor roster for this customer — was a hardcoded list of 4 fictional people
+  // ("Atakan Zehir", "Kemal Doğan", "Caner Yılmaz", "Zeynep Kaya") that got written directly into
+  // persisted Assessment.assessorAssignments. Now sourced from /api/business/customers/{id}/team
+  // (same real-team endpoint KaizenManager/PtrTimeStudy use), scoped to whoever is actually
+  // assigned to this factory. The logged-in user is always included so they can self-assign.
+  const [assessorsList, setAssessorsList] = useState<{ id: string; name: string }[]>(
+    currentUser ? [{ id: currentUser.id, name: currentUser.full_name || "Ben" }] : []
+  );
+
+  useEffect(() => {
+    if (!selectedCustomer?.id || !token) return;
+    fetch(`/api/business/customers/${selectedCustomer.id}/team`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (!data.success || !data.data) return;
+        const { primaryConsultant, consultants } = data.data;
+        const roster: { id: string; name: string }[] = [];
+        if (currentUser) roster.push({ id: currentUser.id, name: currentUser.full_name || "Ben" });
+        [primaryConsultant, ...(consultants || [])].forEach((c: any) => {
+          if (c && c.id && !roster.some(r => r.id === c.id)) roster.push({ id: c.id, name: c.full_name });
+        });
+        setAssessorsList(roster);
+      })
+      .catch(err => console.error("Failed to load real assessor roster in OpexAssessment", err));
+  }, [selectedCustomer?.id, token]);
+
+  const [currentAssessorId, setCurrentAssessorId] = useState<string>(currentUser?.id || "");
   const [filterAssignedOnly, setFilterAssignedOnly] = useState<boolean>(true);
 
   const displayedCategories = useMemo(() => {
     if (!activeAssessment) return categories;
     if (!filterAssignedOnly) return categories;
     const filtered = categories.filter(cat => {
-      const assigned = activeAssessment.assessorAssignments?.[cat.id] || "lead";
+      const assigned = activeAssessment.assessorAssignments?.[cat.id] || currentUser?.id || "";
       return assigned === currentAssessorId;
     });
     // If no categories are assigned to this assessor, fallback to showing all
@@ -411,7 +428,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
       defaultTargetNotes[c.id] = `Hedef: ${creationTargetScore}`;
 
       // Load selected assignments configured during creation
-      defaultAssessorAssignments[c.id] = creationAssignments[c.id] || "lead";
+      defaultAssessorAssignments[c.id] = creationAssignments[c.id] || currentUser?.id || "";
     });
 
     const calculatedAuditNo = assessments.filter(a => a.customerId === selectedCustomer.id).length + 1;
@@ -879,7 +896,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     }
   };
 
-  const assignedAssessorId = activeAssessment?.assessorAssignments?.[selectedCategoryId] || "lead";
+  const assignedAssessorId = activeAssessment?.assessorAssignments?.[selectedCategoryId] || currentUser?.id || "";
   const hasPermission = activeAssessment ? (currentAssessorId === assignedAssessorId || activeAssessment.status === "completed") : true;
 
   return (
@@ -1123,7 +1140,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
                   {categories.map((cat) => {
-                    const assignedAssessorId = creationAssignments[cat.id] || "lead";
+                    const assignedAssessorId = creationAssignments[cat.id] || currentUser?.id || "";
                     const assignedName = assessorsList.find(a => a.id === assignedAssessorId)?.name || "Atanmadı";
                     return (
                       <tr key={cat.id} className="hover:bg-slate-50/50">
@@ -2132,7 +2149,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
               <tbody className="divide-y divide-slate-200 font-semibold text-slate-700">
                 {categories.map((cat) => {
                   const stats = categoryProgress[cat.id] || { answered: 0, total: 0, average: 0 };
-                  const assignedAssessorId = activeAssessment.assessorAssignments?.[cat.id] || "lead";
+                  const assignedAssessorId = activeAssessment.assessorAssignments?.[cat.id] || currentUser?.id || "";
                   const assignedName = assessorsList.find(a => a.id === assignedAssessorId)?.name || "Atanmadı";
                   const isMyAssignment = assignedAssessorId === currentAssessorId;
 
