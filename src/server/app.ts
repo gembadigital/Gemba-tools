@@ -1504,6 +1504,63 @@ app.delete("/api/business/ptr-records/:id", authenticateToken, async (req, res) 
   res.json({ success: true });
 });
 
+// Danışman Faaliyet Özeti — per-consultant free-text note for a given ISO week, shown in PTR's
+// Haftalık OPEX Faaliyet Raporu tab and folded into the weekly report email body.
+app.get("/api/business/weekly-consultant-notes", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed || !scope.factoryId) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  const week = req.query.week as string;
+  const year = parseInt(req.query.year as string, 10);
+  if (!week || !year) {
+    res.status(400).json({ success: false, error: "week and year query params are required." });
+    return;
+  }
+  res.json({ success: true, data: await db.getWeeklyConsultantNotes(user.organization_id, scope.factoryId, week, year) });
+});
+
+app.post("/api/business/weekly-consultant-notes", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed || !scope.factoryId) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  const { week, year, note } = req.body;
+  if (!week || !year) {
+    res.status(400).json({ success: false, error: "week and year are required." });
+    return;
+  }
+  const saved = await db.saveWeeklyConsultantNote(
+    user.organization_id,
+    { factory_id: scope.factoryId, week, year, note: note || "" },
+    user.id,
+    user.full_name
+  );
+  res.json({ success: true, data: saved });
+});
+
+app.delete("/api/business/weekly-consultant-notes/:id", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const allowedCustomerIds = (req as any).allowedCustomerIds as string[] | null;
+  const existing = await db.getWeeklyConsultantNoteById(user.organization_id, req.params.id);
+  if (existing) {
+    if (allowedCustomerIds !== null && !allowedCustomerIds.includes(existing.factory_id)) {
+      res.status(403).json({ success: false, error: "Access Denied." });
+      return;
+    }
+    if (existing.consultant_id !== user.id && user.role !== "Admin") {
+      res.status(403).json({ success: false, error: "Sadece kendi notunuzu silebilirsiniz." });
+      return;
+    }
+  }
+  await db.deleteWeeklyConsultantNote(user.organization_id, req.params.id);
+  res.json({ success: true });
+});
+
 // 6e. Proje Takip Raporu — real Excel export cloned from the firm's actual reporting template
 // (native PivotTables + charts intact, live PTR data injected). Optional ?week=NN filters to a
 // single visit week (used by the "Mail Gönder" attachment).
@@ -1550,7 +1607,7 @@ app.post("/api/business/ptr-records/send-weekly-report", authenticateToken, asyn
     res.status(403).json({ success: false, error: "Access Denied." });
     return;
   }
-  const { week, to, cc } = req.body;
+  const { week, year, to, cc } = req.body;
   const toList: string[] = Array.isArray(to) ? to.filter(Boolean) : (to ? [to] : []);
   if (!week || toList.length === 0) {
     res.status(400).json({ success: false, error: "Hafta ve en az bir alıcı (proje ekibi) gereklidir." });
@@ -1594,7 +1651,25 @@ app.post("/api/business/ptr-records/send-weekly-report", authenticateToken, asyn
   try {
     const buffer = await generatePtrTemplateExcel(records, customerName);
     const subject = `[PTR] ${shortName} W#${week} Proje Raporu`;
-    const body = `Sayın İlgililer,\n\n${week}. hafta ziyareti sırasında yapılan çalışma ve aksiyon raporu ektedir. Lütfen termin tarihlerine uyum sağlamaya özen gösteriniz.\n\nSaygılarımızla,\nGemba Partner`;
+
+    // Danışman Faaliyet Özeti: fold each consultant's free-text weekly note directly into the
+    // email body (not just the Excel attachment) so the customer sees this week's work without
+    // opening the file. Only ever populated when `week`/`year` match a week consultants actually
+    // wrote notes for (Weekly tab always writes under "geçen hafta") — otherwise this is empty and
+    // the email reads exactly as it did before this feature existed.
+    let notesSection = "";
+    if (year) {
+      const weeklyNotes = (await db.getWeeklyConsultantNotes(user.organization_id, scope.factoryId!, String(week), Number(year)))
+        .filter((n: any) => (n.note || "").trim());
+      if (weeklyNotes.length > 0) {
+        const notesList = weeklyNotes
+          .map((n: any) => `- ${n.consultant_name || "Danışman"}: ${n.note.trim()}`)
+          .join("\n");
+        notesSection = `\n\nBu Haftaki Danışman Faaliyet Özeti:\n${notesList}\n`;
+      }
+    }
+
+    const body = `Sayın İlgililer,\n\n${week}. hafta ziyareti sırasında yapılan çalışma ve aksiyon raporu ektedir. Lütfen termin tarihlerine uyum sağlamaya özen gösteriniz.${notesSection}\nSaygılarımızla,\nGemba Partner`;
     const result = await sendMail({
       to: toList,
       cc: ccList,

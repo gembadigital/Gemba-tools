@@ -645,6 +645,46 @@ export class GeminiDb {
     await this.removeOne("ptr_records", orgId, String(Number(id)));
   }
 
+  // Danışman Faaliyet Özeti — one free-text note per consultant per ISO week, surfaced (with the
+  // author's name) in PTR's Haftalık OPEX Faaliyet Raporu tab and folded into the weekly report
+  // email body. Multiple consultants can each have their own note for the same week; a consultant
+  // re-saving updates their own note in place instead of creating a duplicate.
+  public async getWeeklyConsultantNotes(orgId: string, factoryId: string, week: string, year: number): Promise<any[]> {
+    const all = await this.listCollection("weekly_consultant_notes", orgId);
+    return all.filter(n => n.factory_id === factoryId && String(n.week) === String(week) && Number(n.year) === Number(year));
+  }
+
+  public async saveWeeklyConsultantNote(orgId: string, payload: { factory_id: string; week: string; year: number; note: string }, userId: string, userName: string): Promise<any> {
+    const all = await this.listCollection("weekly_consultant_notes", orgId);
+    const existing = all.find(n =>
+      n.factory_id === payload.factory_id &&
+      String(n.week) === String(payload.week) &&
+      Number(n.year) === Number(payload.year) &&
+      n.consultant_id === userId
+    );
+    const record: any = {
+      id: existing ? existing.id : randomId("wcn"),
+      factory_id: payload.factory_id,
+      week: payload.week,
+      year: payload.year,
+      note: payload.note,
+      consultant_id: userId,
+      consultant_name: userName,
+      organization_id: orgId,
+      created_at: existing ? existing.created_at : new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    return this.upsertMerged("weekly_consultant_notes", orgId, record);
+  }
+
+  public async getWeeklyConsultantNoteById(orgId: string, id: string): Promise<any | null> {
+    return this.getRecordById("weekly_consultant_notes", id, orgId);
+  }
+
+  public async deleteWeeklyConsultantNote(orgId: string, id: string): Promise<void> {
+    await this.removeOne("weekly_consultant_notes", orgId, id);
+  }
+
   // 5S Audit module — every entity (departments, areas, personnel, questions, audits, team
   // assignments, answers, results, problem categories, Gemba Walk findings) is a flat array with
   // the same factory-scoped CRUD lifecycle, so one generic implementation backs all of them

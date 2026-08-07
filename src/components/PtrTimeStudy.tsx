@@ -119,6 +119,21 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
     return { week: week.toString(), year };
   };
 
+  // Inverse of the above: Monday-Sunday date range for a given ISO week/year, so the Danışman
+  // Faaliyet Özeti card can show "04 Ağu - 10 Ağu 2026" instead of just a bare week number.
+  const getIsoWeekDateRangeLabel = (week: number, year: number): string => {
+    const jan4 = new Date(year, 0, 4);
+    const jan4Day = (jan4.getDay() + 6) % 7; // Monday = 0
+    const week1Monday = new Date(jan4);
+    week1Monday.setDate(jan4.getDate() - jan4Day);
+    const monday = new Date(week1Monday);
+    monday.setDate(week1Monday.getDate() + (week - 1) * 7);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const fmt = (d: Date) => d.toLocaleDateString("tr-TR", { day: "2-digit", month: "short" });
+    return `${fmt(monday)} - ${fmt(sunday)} ${sunday.getFullYear()}`;
+  };
+
   // Sync actuals (start/end weeks & discrete active weeks) to Master Plan Gantt Activities
   const syncActualsToMasterPlan = (updatedRecords: ProjectRecord[]) => {
     if (!activities || !onUpdateActivity) return;
@@ -197,6 +212,74 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
 
   const ptrToken = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
   const isInitialPtrLoad = useRef(true);
+
+  // "Geçen hafta" (the week the Haftalık OPEX Faaliyet Raporu tab and the weekly report email are
+  // about) is always today's ISO week minus 1 — hoisted here (not just computed inline in the tab's
+  // render) so the Danışman Faaliyet Özeti notes can be fetched for the right week regardless of
+  // which tab is currently active.
+  const { prevWeekNum, prevYear } = useMemo(() => {
+    const todayWeekInfo = getWeekAndYearFromDateString(new Date().toLocaleDateString("tr-TR"));
+    if (!todayWeekInfo) return { prevWeekNum: null as number | null, prevYear: null as number | null };
+    let w = parseInt(todayWeekInfo.week, 10) - 1;
+    let y = todayWeekInfo.year;
+    if (w < 1) { w = 52; y -= 1; }
+    return { prevWeekNum: w, prevYear: y };
+  }, []);
+
+  // Danışman Faaliyet Özeti: one free-text note per consultant per week (see weekly_consultant_notes
+  // on the backend). `weeklyNotes` holds everyone's notes for the reported week; `myWeeklyNoteText`
+  // is this browser's editable draft, seeded from the current user's own existing note if any.
+  const [weeklyNotes, setWeeklyNotes] = useState<any[]>([]);
+  const [myWeeklyNoteText, setMyWeeklyNoteText] = useState("");
+  const [weeklyNoteStatus, setWeeklyNoteStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+
+  useEffect(() => {
+    if (!prevWeekNum || !prevYear) return;
+    const customerId = selectedCustomer?.id || "default";
+    fetch(`/api/business/weekly-consultant-notes?week=${prevWeekNum}&year=${prevYear}`, {
+      headers: { "Authorization": `Bearer ${ptrToken}`, "x-factory-id": customerId }
+    })
+      .then(res => res.json())
+      .then(res => {
+        const data: any[] = (res.success && Array.isArray(res.data)) ? res.data : [];
+        setWeeklyNotes(data);
+        const mine = data.find(n => n.consultant_id === currentUser?.id);
+        setMyWeeklyNoteText(mine?.note || "");
+      })
+      .catch(err => {
+        console.error("Failed to load weekly consultant notes", err);
+        setWeeklyNotes([]);
+      });
+  }, [selectedCustomer, prevWeekNum, prevYear, currentUser?.id]);
+
+  const saveMyWeeklyNote = () => {
+    if (!prevWeekNum || !prevYear || !currentUser) return;
+    const customerId = selectedCustomer?.id || "default";
+    setWeeklyNoteStatus("saving");
+    fetch("/api/business/weekly-consultant-notes", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${ptrToken}`,
+        "x-factory-id": customerId,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ week: prevWeekNum, year: prevYear, note: myWeeklyNoteText })
+    })
+      .then(res => res.json())
+      .then(res => {
+        if (!res.success) { setWeeklyNoteStatus("error"); return; }
+        setWeeklyNotes(prev => {
+          const others = prev.filter(n => n.consultant_id !== currentUser.id);
+          return [...others, res.data];
+        });
+        setWeeklyNoteStatus("saved");
+        setTimeout(() => setWeeklyNoteStatus("idle"), 2000);
+      })
+      .catch(err => {
+        console.error("Failed to save weekly consultant note", err);
+        setWeeklyNoteStatus("error");
+      });
+  };
 
   // Proje Ekibi member names (backend-persisted company_workspace) — passed down to
   // OpexProjectDashboard so its team performance chart pre-populates registered members even
@@ -976,6 +1059,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
         },
         body: JSON.stringify({
           week: activeReportWeek,
+          year: prevYear,
           to: workspaceTeamContacts.to.map(c => c.email),
           cc: workspaceTeamContacts.cc.map(c => c.email)
         })
@@ -1169,7 +1253,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
               </span>
             </div>
             <h1 className="text-base font-extrabold text-slate-900 tracking-tight mt-0.5">
-              Proje Takip Raporu & Aksiyon Kütüğü
+              Proje Takip Raporu
             </h1>
           </div>
         </div>
@@ -2480,20 +2564,8 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
       )}
 
       {activeTab === "weekly" && (() => {
-        // Fully automatic — no manual week picker. "Geçen hafta" is always today's ISO week
-        // number minus 1 (wrapping to ~week 52 of the prior year at a year boundary).
-        const todayWeekInfo = getWeekAndYearFromDateString(new Date().toLocaleDateString("tr-TR"));
-        let prevWeekNum: number | null = null;
-        let prevYear: number | null = null;
-        if (todayWeekInfo) {
-          prevWeekNum = parseInt(todayWeekInfo.week, 10) - 1;
-          prevYear = todayWeekInfo.year;
-          if (prevWeekNum < 1) {
-            prevWeekNum = 52;
-            prevYear = prevYear - 1;
-          }
-        }
-
+        // "Geçen hafta" (prevWeekNum/prevYear) is computed once at component level — shared with
+        // the Danışman Faaliyet Özeti notes fetch above, and with the weekly report email.
         const lastWeekActivities = prevWeekNum !== null
           ? records.filter(r => parseInt(r.visitedWeek, 10) === prevWeekNum && r.year === prevYear)
           : [];
@@ -2512,6 +2584,63 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
 
         return (
           <div className="space-y-6 animate-fadeIn">
+            {/* Danışman Faaliyet Özeti — free-text, one note per consultant per week */}
+            <div className="bg-white border border-indigo-200 rounded-2xl p-5 shadow-xs">
+              <div className="flex items-center space-x-2 border-b border-indigo-100 pb-3 mb-4">
+                <div className="p-1.5 bg-indigo-50 rounded-xl text-indigo-800">
+                  <FileSpreadsheet className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
+                    Danışman Faaliyet Özeti
+                  </h3>
+                  <p className="text-[10px] text-slate-500">
+                    {prevWeekNum !== null && prevYear !== null
+                      ? `${prevWeekNum}. Hafta (${getIsoWeekDateRangeLabel(prevWeekNum, prevYear)})`
+                      : "Geçen hafta"} — haftalık rapor e-postasına otomatik eklenir.
+                  </p>
+                </div>
+              </div>
+
+              {/* This browser's own note */}
+              <div className="space-y-1.5 mb-4">
+                <label className="text-[10.5px] font-bold text-slate-500 flex items-center justify-between">
+                  <span>{currentUser?.full_name || "Danışman"} — Bu Haftaki Özetiniz</span>
+                  {weeklyNoteStatus === "saving" && <span className="text-slate-400 font-semibold normal-case">Kaydediliyor…</span>}
+                  {weeklyNoteStatus === "saved" && <span className="text-emerald-600 font-semibold normal-case">Kaydedildi</span>}
+                  {weeklyNoteStatus === "error" && <span className="text-rose-600 font-semibold normal-case">Kaydedilemedi</span>}
+                </label>
+                <textarea
+                  rows={3}
+                  value={myWeeklyNoteText}
+                  onChange={(e) => setMyWeeklyNoteText(e.target.value)}
+                  onBlur={saveMyWeeklyNote}
+                  placeholder="Bu hafta yaptığınız çalışmaların kısa özetini yazın."
+                  className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
+                <button
+                  type="button"
+                  onClick={saveMyWeeklyNote}
+                  disabled={weeklyNoteStatus === "saving"}
+                  className="text-[10.5px] font-bold text-indigo-700 hover:text-indigo-900 disabled:opacity-50"
+                >
+                  Özeti Kaydet
+                </button>
+              </div>
+
+              {/* Everyone else's notes for the same week, each labeled with the consultant's name */}
+              {weeklyNotes.filter(n => n.consultant_id !== currentUser?.id && n.note?.trim()).length > 0 && (
+                <div className="space-y-2.5 pt-3 border-t border-slate-100">
+                  {weeklyNotes.filter(n => n.consultant_id !== currentUser?.id && n.note?.trim()).map(n => (
+                    <div key={n.id} className="border border-slate-150 rounded-xl p-3 bg-slate-50/50">
+                      <p className="text-[10.5px] font-black text-slate-700 mb-1">{n.consultant_name || "Danışman"}</p>
+                      <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">{n.note}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* Geçen Hafta Yapılan Çalışmalar — auto-generated, no manual entry */}
             <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-xs">
               <div className="flex items-center space-x-2 border-b pb-3 mb-4">
