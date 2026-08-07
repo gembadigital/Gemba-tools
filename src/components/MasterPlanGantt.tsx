@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { GanttActivity } from "../types";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
@@ -775,6 +775,85 @@ export default function MasterPlanGantt({
       );
     }
     onUpdateActivityLocal(updated);
+  };
+
+  // Drag-to-move / drag-to-resize for the Plan and Actual bars. Mutable drag session state lives
+  // in a ref (not React state) so every mousemove reads/writes it synchronously without waiting on
+  // a render; `dragPreview` (state) exists purely to repaint the bar at its live position while
+  // dragging. The commit (persisting to the server) only happens once, on mouseup.
+  const dragRef = useRef<{
+    actId: string;
+    type: 'planned' | 'actual';
+    mode: 'move' | 'resize-start' | 'resize-end';
+    startClientX: number;
+    pxPerWeek: number;
+    origStart: number;
+    origFinish: number;
+    liveStart: number;
+    liveFinish: number;
+  } | null>(null);
+  const [dragPreview, setDragPreview] = useState<{ actId: string; type: 'planned' | 'actual'; start: number; finish: number } | null>(null);
+
+  const onBarDragMove = (e: MouseEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const deltaWeeks = Math.round((e.clientX - d.startClientX) / d.pxPerWeek);
+    let newStart = d.origStart;
+    let newFinish = d.origFinish;
+    if (d.mode === 'move') {
+      const duration = d.origFinish - d.origStart;
+      newStart = Math.max(1, Math.min(52 - duration, d.origStart + deltaWeeks));
+      newFinish = newStart + duration;
+    } else if (d.mode === 'resize-start') {
+      newStart = Math.max(1, Math.min(d.origFinish - 1, d.origStart + deltaWeeks));
+    } else {
+      newFinish = Math.min(52, Math.max(d.origStart + 1, d.origFinish + deltaWeeks));
+    }
+    if (newStart === d.liveStart && newFinish === d.liveFinish) return;
+    d.liveStart = newStart;
+    d.liveFinish = newFinish;
+    setDragPreview({ actId: d.actId, type: d.type, start: newStart, finish: newFinish });
+  };
+
+  const onBarDragEnd = () => {
+    const d = dragRef.current;
+    window.removeEventListener('mousemove', onBarDragMove);
+    window.removeEventListener('mouseup', onBarDragEnd);
+    if (d) {
+      const currentAct = filteredActivities.find(a => a.id === d.actId);
+      if (currentAct && (d.liveStart !== d.origStart || d.liveFinish !== d.origFinish)) {
+        const updated = { ...currentAct };
+        if (d.type === 'planned') {
+          updated.plannedStartWeek = d.liveStart;
+          updated.plannedFinishWeek = d.liveFinish;
+        } else {
+          updated.actualStartWeek = d.liveStart;
+          updated.actualFinishWeek = d.liveFinish;
+          // Same manual-override rule as handleShiftWeek — a drag is an explicit manual edit and
+          // must win over PTR auto-sync from now on, or the next render silently snaps it back.
+          updated.manualActualOverride = true;
+          updated.actualWeeks = Array.from({ length: d.liveFinish - d.liveStart + 1 }, (_, i) => d.liveStart + i);
+        }
+        onUpdateActivityLocal(updated);
+      }
+    }
+    dragRef.current = null;
+    setDragPreview(null);
+  };
+
+  const beginBarDrag = (e: React.MouseEvent, act: any, type: 'planned' | 'actual', mode: 'move' | 'resize-start' | 'resize-end') => {
+    if (e.button !== 0) return; // left click only
+    e.preventDefault();
+    e.stopPropagation();
+    const track = (e.currentTarget as HTMLElement).closest('[data-week-track]') as HTMLElement | null;
+    if (!track) return;
+    const rect = track.getBoundingClientRect();
+    const pxPerWeek = rect.width / totalWeeks || 1;
+    const origStart = type === 'planned' ? act.plannedStartWeek : act.actualStartWeek;
+    const origFinish = type === 'planned' ? act.plannedFinishWeek : act.actualFinishWeek;
+    dragRef.current = { actId: act.id, type, mode, startClientX: e.clientX, pxPerWeek, origStart, origFinish, liveStart: origStart, liveFinish: origFinish };
+    window.addEventListener('mousemove', onBarDragMove);
+    window.addEventListener('mouseup', onBarDragEnd);
   };
 
   // Filter logic. `upgradedActivities` is already sorted by activityNo, so `.filter()` (which
@@ -1637,11 +1716,16 @@ export default function MasterPlanGantt({
                   const isCollapsed = collapsedParents.has(act.id);
                   const isSubActivity = !!(act as any).parentActivityId;
 
+                  // While this bar is being dragged, show the live drag position instead of the
+                  // last-saved values — commit only happens on mouseup (see onBarDragEnd above).
+                  const isDraggingPlanned = dragPreview && dragPreview.actId === act.id && dragPreview.type === 'planned';
+                  const isDraggingActual = dragPreview && dragPreview.actId === act.id && dragPreview.type === 'actual';
+
                   // Compute planned relative positions in percentage
-                  const pStartRel = act.plannedStartWeek;
-                  const pFinishRel = act.plannedFinishWeek;
-                  const aStartRel = act.actualStartWeek;
-                  const aFinishRel = act.actualFinishWeek;
+                  const pStartRel = isDraggingPlanned ? dragPreview!.start : act.plannedStartWeek;
+                  const pFinishRel = isDraggingPlanned ? dragPreview!.finish : act.plannedFinishWeek;
+                  const aStartRel = isDraggingActual ? dragPreview!.start : act.actualStartWeek;
+                  const aFinishRel = isDraggingActual ? dragPreview!.finish : act.actualFinishWeek;
 
                   const pLeftPercent = Math.max(0, ((pStartRel - startWeek) / totalWeeks) * 100);
                   const pWidthPercent = Math.max(5, (((pFinishRel - pStartRel + 1)) / totalWeeks) * 100);
@@ -1817,26 +1901,37 @@ export default function MasterPlanGantt({
                           <div className="space-y-2.5 relative z-10">
                             
                             {/* Track 1: Planned (Blue) */}
-                            <div className="relative h-4 w-full group/bar">
-                              
-                              <div 
-                                className="absolute bg-blue-500 rounded h-2.5 flex items-center justify-between text-[11px] text-white font-mono px-1 select-none transition-all"
+                            <div className="relative h-4 w-full group/bar" data-week-track>
+
+                              <div
+                                className="absolute bg-blue-500 rounded h-2.5 flex items-center justify-between text-[11px] text-white font-mono px-1 select-none transition-all cursor-grab active:cursor-grabbing"
                                 style={{ left: `${pLeftPercent}%`, width: `${pWidthPercent}%` }}
-                                title={`Planlanan: Hafta ${act.plannedStartWeek} - Hafta ${act.plannedFinishWeek}`}
+                                title={`Planlanan: Hafta ${act.plannedStartWeek} - Hafta ${act.plannedFinishWeek} (sürükleyerek taşıyın)`}
+                                onMouseDown={(e) => beginBarDrag(e, act, 'planned', 'move')}
                               >
-                                {/* Left Shifter Arrow */}
+                                {/* Left resize handle (drag) + shift-by-1 arrow */}
+                                <div
+                                  onMouseDown={(e) => beginBarDrag(e, act, 'planned', 'resize-start')}
+                                  className="absolute -left-1 top-0 h-full w-2 cursor-ew-resize z-10"
+                                />
                                 <button
                                   onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'planned', 'start', -1); }}
+                                  onMouseDown={(e) => e.stopPropagation()}
                                   className="absolute -left-3.5 bg-blue-100 hover:bg-blue-200 text-blue-700 w-3 h-3.5 rounded flex items-center justify-center text-[11px] font-bold opacity-0 group-hover/bar:opacity-100 transition-opacity"
                                 >
                                   ‹
                                 </button>
-                                
-                                <span className="truncate block leading-none font-bold scale-90">Plan W{act.plannedStartWeek}</span>
 
-                                {/* Right Shifter Arrow */}
+                                <span className="truncate block leading-none font-bold scale-90 pointer-events-none">Plan W{act.plannedStartWeek}</span>
+
+                                {/* Right resize handle (drag) + shift-by-1 arrow */}
+                                <div
+                                  onMouseDown={(e) => beginBarDrag(e, act, 'planned', 'resize-end')}
+                                  className="absolute -right-1 top-0 h-full w-2 cursor-ew-resize z-10"
+                                />
                                 <button
                                   onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'planned', 'finish', 1); }}
+                                  onMouseDown={(e) => e.stopPropagation()}
                                   className="absolute -right-3.5 bg-blue-100 hover:bg-blue-200 text-blue-700 w-3 h-3.5 rounded flex items-center justify-center text-[11px] font-bold opacity-0 group-hover/bar:opacity-100 transition-opacity"
                                 >
                                   ›
@@ -1846,25 +1941,36 @@ export default function MasterPlanGantt({
                             </div>
 
                             {/* Track 2: Actual (Status-Based Color & Discrete Week Blocks) */}
-                            <div className="relative h-4 w-full group/actual">
+                            <div className="relative h-4 w-full group/actual" data-week-track>
                               {(() => {
                                 const blocks = getWeekBlocks(act.actualWeeks || []);
                                 if (blocks.length === 0) {
                                   return (
-                                    <div 
-                                      className={`absolute rounded h-2.5 flex items-center justify-between text-[11px] text-white font-mono px-1 transition-all ${actualColor}`}
+                                    <div
+                                      className={`absolute rounded h-2.5 flex items-center justify-between text-[11px] text-white font-mono px-1 transition-all cursor-grab active:cursor-grabbing ${actualColor}`}
                                       style={{ left: `${aLeftPercent}%`, width: `${aWidthPercent}%` }}
-                                      title={`Gerçekleşen: Hafta ${act.actualStartWeek} - Hafta ${act.actualFinishWeek} (${act.status})`}
+                                      title={`Gerçekleşen: Hafta ${act.actualStartWeek} - Hafta ${act.actualFinishWeek} (${act.status}) — sürükleyerek taşıyın`}
+                                      onMouseDown={(e) => beginBarDrag(e, act, 'actual', 'move')}
                                     >
+                                      <div
+                                        onMouseDown={(e) => beginBarDrag(e, act, 'actual', 'resize-start')}
+                                        className="absolute -left-1 top-0 h-full w-2 cursor-ew-resize z-10"
+                                      />
                                       <button
                                         onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'actual', 'start', -1); }}
+                                        onMouseDown={(e) => e.stopPropagation()}
                                         className="absolute -left-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 w-3 h-3.5 rounded flex items-center justify-center text-[11px] font-bold opacity-0 group-hover/actual:opacity-100 transition-opacity"
                                       >
                                         ‹
                                       </button>
-                                      <span className="truncate block leading-none font-bold scale-90">Fiili W{act.actualStartWeek} (%{act.progressPercent})</span>
+                                      <span className="truncate block leading-none font-bold scale-90 pointer-events-none">Fiili W{act.actualStartWeek} (%{act.progressPercent})</span>
+                                      <div
+                                        onMouseDown={(e) => beginBarDrag(e, act, 'actual', 'resize-end')}
+                                        className="absolute -right-1 top-0 h-full w-2 cursor-ew-resize z-10"
+                                      />
                                       <button
                                         onClick={(e) => { e.stopPropagation(); handleShiftWeek(act, 'actual', 'finish', 1); }}
+                                        onMouseDown={(e) => e.stopPropagation()}
                                         className="absolute -right-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 w-3 h-3.5 rounded flex items-center justify-center text-[11px] font-bold opacity-0 group-hover/actual:opacity-100 transition-opacity"
                                       >
                                         ›
