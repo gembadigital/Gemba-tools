@@ -1656,6 +1656,14 @@ export default function MasterPlanGantt({
                                 + Alt Faaliyet
                               </button>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => onDeleteActivityLocal(act.id)}
+                              className="text-gray-300 hover:text-red-500 shrink-0 ml-auto"
+                              title="Faaliyeti Sil"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
                           </div>
 
                           <div className="flex items-center space-x-2 text-[10px] text-gray-500 flex-wrap gap-y-1">
@@ -1995,7 +2003,17 @@ export default function MasterPlanGantt({
                 <div key={act.id} className="bg-white border border-gray-200 rounded-lg p-3 shadow-xs space-y-2 hover:border-gray-300 cursor-pointer" onClick={() => openEditModal(act)}>
                   <div className="flex items-center justify-between">
                     <span className="bg-gray-100 text-gray-750 px-1 rounded text-[11px] font-bold font-mono">{act.category}</span>
-                    <span className="text-gray-400 text-[11px] font-bold font-mono">#{act.activityNo}</span>
+                    <span className="flex items-center space-x-1.5">
+                      <span className="text-gray-400 text-[11px] font-bold font-mono">#{act.activityNo}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onDeleteActivityLocal(act.id); }}
+                        className="text-gray-300 hover:text-red-500 shrink-0"
+                        title="Faaliyeti Sil"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
                   </div>
                   <span className="font-bold text-[12px] text-gray-900 block leading-tight">{(act as any).parentActivityId ? "↳ " : ""}{act.name}</span>
                   <div className="flex justify-between items-center text-[10px] pt-1 text-gray-500 border-t border-gray-100">
@@ -2020,7 +2038,17 @@ export default function MasterPlanGantt({
                 <div key={act.id} className="bg-white border border-blue-100 rounded-lg p-3 shadow-xs space-y-2 hover:border-blue-300 cursor-pointer" onClick={() => openEditModal(act)}>
                   <div className="flex items-center justify-between">
                     <span className="bg-blue-50 text-blue-750 px-1 rounded text-[11px] font-bold font-mono">{act.category}</span>
-                    <span className="text-gray-400 text-[11px] font-bold font-mono">#{act.activityNo}</span>
+                    <span className="flex items-center space-x-1.5">
+                      <span className="text-gray-400 text-[11px] font-bold font-mono">#{act.activityNo}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onDeleteActivityLocal(act.id); }}
+                        className="text-gray-300 hover:text-red-500 shrink-0"
+                        title="Faaliyeti Sil"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
                   </div>
                   <span className="font-bold text-[12px] text-gray-900 block leading-tight">{(act as any).parentActivityId ? "↳ " : ""}{act.name}</span>
                   
@@ -2051,7 +2079,17 @@ export default function MasterPlanGantt({
                 <div key={act.id} className="bg-white border border-emerald-100 rounded-lg p-3 shadow-xs space-y-2 opacity-85 hover:opacity-100 cursor-pointer" onClick={() => openEditModal(act)}>
                   <div className="flex items-center justify-between">
                     <span className="bg-emerald-50 text-emerald-750 px-1 rounded text-[11px] font-bold font-mono">{act.category}</span>
-                    <span className="text-gray-400 text-[11px] font-bold font-mono">#{act.activityNo}</span>
+                    <span className="flex items-center space-x-1.5">
+                      <span className="text-gray-400 text-[11px] font-bold font-mono">#{act.activityNo}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onDeleteActivityLocal(act.id); }}
+                        className="text-gray-300 hover:text-red-500 shrink-0"
+                        title="Faaliyeti Sil"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
                   </div>
                   <span className="font-bold text-[12px] text-gray-800 line-through block leading-tight">{act.name}</span>
                   <div className="flex justify-between items-center text-[10px] pt-1 text-gray-400 border-t border-gray-150">
@@ -2078,7 +2116,17 @@ export default function MasterPlanGantt({
                 <div key={act.id} className="bg-white border border-red-100 rounded-lg p-3 shadow-xs space-y-2 hover:border-red-300 cursor-pointer" onClick={() => openEditModal(act)}>
                   <div className="flex items-center justify-between">
                     <span className="bg-red-50 text-red-750 px-1 rounded text-[11px] font-bold font-mono">{act.category}</span>
-                    <span className="text-gray-400 text-[11px] font-bold font-mono">#{act.activityNo}</span>
+                    <span className="flex items-center space-x-1.5">
+                      <span className="text-gray-400 text-[11px] font-bold font-mono">#{act.activityNo}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onDeleteActivityLocal(act.id); }}
+                        className="text-gray-300 hover:text-red-500 shrink-0"
+                        title="Faaliyeti Sil"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
                   </div>
                   <span className="font-bold text-[12px] text-red-900 block leading-tight">{act.name}</span>
                   <div className="flex justify-between items-center text-[10px] pt-1 text-red-700 border-t border-red-100">
@@ -2096,9 +2144,9 @@ export default function MasterPlanGantt({
       {/* 7. QUICK ADD & EDIT DIALOG MODALS */}
       {(isAdding || editingActivity) && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-200">
-            
-            <div className="bg-gray-55 px-5 py-3 border-b border-gray-200 flex justify-between items-center">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg border border-gray-200 max-h-[90vh] flex flex-col overflow-hidden">
+
+            <div className="bg-gray-55 px-5 py-3 border-b border-gray-200 flex justify-between items-center shrink-0">
               <h3 className="text-xs font-bold text-gray-900 uppercase">
                 {editingActivity ? `Yalın Faaliyeti Revize Et [No: ${editingActivity.activityNo}]` : pendingParentActivityId ? "Alt Faaliyet Ekle" : "Yeni Yalın Faaliyet Planla"}
               </h3>
@@ -2114,8 +2162,8 @@ export default function MasterPlanGantt({
               </button>
             </div>
 
-            <form onSubmit={editingActivity ? handleEditSave : handleSave} className="p-5 space-y-3.5 text-xs">
-              
+            <form onSubmit={editingActivity ? handleEditSave : handleSave} className="p-5 space-y-3.5 text-xs overflow-y-auto">
+
               <div>
                 <label className="block text-gray-500 font-bold mb-1">Aktivite / Kaizen / Proje Adı *</label>
                 <input
