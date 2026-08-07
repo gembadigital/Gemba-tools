@@ -55,6 +55,11 @@ export default function CustomerRecords({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
 
+  // Thousand-separator display only (e.g. 1000000 -> "1.000.000") — the underlying state always
+  // holds the real numeric value, this never gets written to the record as a formatted string.
+  const formatThousands = (n: number): string => n > 0 ? n.toLocaleString("tr-TR") : "";
+  const parseThousands = (s: string): number => parseInt(s.replace(/\D/g, ""), 10) || 0;
+
   const renderMarkdownText = (rawText: string) => {
     const lines = rawText.split("\n");
     return lines.map((line, index) => {
@@ -275,9 +280,9 @@ export default function CustomerRecords({
       address: "",
       industry: "Otomotiv",
       productionType: "Seri İmalat (Mass)",
-      annualRevenue: 5000000,
+      annualRevenue: 0,
       currency: "₺",
-      employeeCount: 150,
+      employeeCount: 0,
       mainContactPerson: "",
       mainContactEmail: "",
       notes: ""
@@ -504,6 +509,7 @@ export default function CustomerRecords({
               {activeTab === "projects" && (
                 <ProjectPortfolioTab
                   workspace={workspace}
+                  defaultCurrency={selectedCustomer?.currency}
                   onUpdateProjects={(updatedProjects) => {
                     saveWorkspaceData({ ...workspace, projects: updatedProjects });
                   }}
@@ -634,13 +640,15 @@ export default function CustomerRecords({
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase">Yıllık Ciro (Milyon)</label>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase">Yıllık Ciro</label>
                   <div className="flex gap-1.5">
                     <input
                       id="input-modal-annualRevenue"
-                      type="number"
-                      value={newCustState.annualRevenue}
-                      onChange={(e) => setNewCustState({ ...newCustState, annualRevenue: parseInt(e.target.value) || 0 })}
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="Örn: 1.000.000"
+                      value={formatThousands(newCustState.annualRevenue)}
+                      onChange={(e) => setNewCustState({ ...newCustState, annualRevenue: parseThousands(e.target.value) })}
                       className="flex-1 min-w-0 px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden"
                     />
                     <select

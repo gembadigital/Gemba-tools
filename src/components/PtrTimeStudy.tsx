@@ -1690,7 +1690,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
             <div className="md:col-span-1 space-y-1">
               <label className="font-extrabold text-emerald-800 uppercase text-[11px] flex items-center">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-pulse" />
-                Kaizen Finansal Kazancı (₺):
+                Kaizen Finansal Kazancı ({currency}):
               </label>
               <input
                 type="text"
@@ -2144,7 +2144,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                 <th className="p-2.5 border-r border-gray-200 min-w-[95px]">Termin</th>
                 <th className="p-2.5 border-r border-gray-200 min-w-[125px] text-center">Termine Uyum</th>
                 <th className="p-2.5 border-r border-gray-200 min-w-[140px]">Notlar</th>
-                <th className="p-2.5 border-r border-gray-200 min-w-[120px] text-center bg-emerald-50 text-emerald-950">Kaizen Kazancı (₺)</th>
+                <th className="p-2.5 border-r border-gray-200 min-w-[120px] text-center bg-emerald-50 text-emerald-950">Kaizen Kazancı ({currency})</th>
                 <th className="p-2.5 text-center bg-gray-50 uppercase tracking-widest text-[10px]">Kontrol</th>
               </tr>
             </thead>
@@ -2386,7 +2386,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                         />
                       ) : (
                         <span className="text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md font-black text-[10px] inline-block">
-                          {item.kaizenSavings || item.savingsAmount ? `₺${parseFloat((item.kaizenSavings || item.savingsAmount || "0").toString().replace(/[^0-9.-]+/g, "")).toLocaleString("tr-TR")}` : "-"}
+                          {item.kaizenSavings || item.savingsAmount ? `${currency}${parseFloat((item.kaizenSavings || item.savingsAmount || "0").toString().replace(/[^0-9.-]+/g, "")).toLocaleString("tr-TR")}` : "-"}
                         </span>
                       )}
                     </td>

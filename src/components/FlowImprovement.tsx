@@ -104,6 +104,10 @@ export default function FlowImprovement({
   selectedCustomer
 }: FlowImprovementProps) {
   const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
+  // This module previously hardcoded ₺ everywhere regardless of the customer's actual selected
+  // currency (see CustomerRecords.tsx) — every financial figure on screen and in the CSV export
+  // now reads through this instead, matching LossAnalysis/ExecutiveDashboard/OpexProjectDashboard.
+  const currencySymbol = selectedCustomer?.currency || "₺";
 
   const [activeTab, setActiveTab] = useState<"current" | "future" | "comparison" | "mali-veri">("current");
   const [flowTypesConfig, setFlowTypesConfig] = useState(FLOW_TYPES_CONFIG);
@@ -1166,18 +1170,18 @@ export default function FlowImprovement({
     const futureMetrics = getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]);
 
     csvContent += "=== KPI ANALİZ VE KIYASLAMA TABLOSU ===\r\n";
-    csvContent += "Metrik;Mevcut Durum;Gelecek Yalın Durum;Fark (%);Tasarruf Tutarı (TL)\r\n";
+    csvContent += `Metrik;Mevcut Durum;Gelecek Yalın Durum;Fark (%);Tasarruf Tutarı (${currencySymbol})\r\n`;
     
     const distDiff = baseMetrics.totalDistance - futureMetrics.totalDistance;
     csvContent += `Toplam Akış Mesafesi (m);${baseMetrics.totalDistance};${futureMetrics.totalDistance};-%${((distDiff / (baseMetrics.totalDistance || 1)) * 100).toFixed(1)};-\r\n`;
     
     const costDiff = baseMetrics.materialHandlingCost - futureMetrics.materialHandlingCost;
-    csvContent += `Yıllık Taşıma Maliyeti (TL);${baseMetrics.materialHandlingCost};${futureMetrics.materialHandlingCost};-%${((costDiff / (baseMetrics.materialHandlingCost || 1)) * 100).toFixed(1)};TL ${costDiff.toLocaleString()}\r\n`;
+    csvContent += `Yıllık Taşıma Maliyeti (${currencySymbol});${baseMetrics.materialHandlingCost};${futureMetrics.materialHandlingCost};-%${((costDiff / (baseMetrics.materialHandlingCost || 1)) * 100).toFixed(1)};${currencySymbol} ${costDiff.toLocaleString()}\r\n`;
 
     const baseLaborCost = baseMetrics.walkingTime * simLaborCost;
     const futureLaborCost = futureMetrics.walkingTime * simLaborCost;
     const laborDiff = baseLaborCost - futureLaborCost;
-    csvContent += `Yıllık Operatör Yürüyüş İş Gücü Maliyeti (TL);${baseLaborCost};${futureLaborCost};-%${((laborDiff / (baseLaborCost || 1)) * 100).toFixed(1)};TL ${laborDiff.toLocaleString()}\r\n`;
+    csvContent += `Yıllık Operatör Yürüyüş İş Gücü Maliyeti (${currencySymbol});${baseLaborCost};${futureLaborCost};-%${((laborDiff / (baseLaborCost || 1)) * 100).toFixed(1)};${currencySymbol} ${laborDiff.toLocaleString()}\r\n`;
 
     const walkingDiff = baseMetrics.walkingTime - futureMetrics.walkingTime;
     csvContent += `Gereksiz Operatör Yürüyüşü (Saat/Yıl);${baseMetrics.walkingTime};${futureMetrics.walkingTime};-%${((walkingDiff / (baseMetrics.walkingTime || 1)) * 100).toFixed(1)};-\r\n`;
@@ -1185,7 +1189,7 @@ export default function FlowImprovement({
     const baseTotalCost = baseMetrics.materialHandlingCost + baseLaborCost;
     const futureTotalCost = futureMetrics.materialHandlingCost + futureLaborCost;
     const totalDiff = baseTotalCost - futureTotalCost;
-    csvContent += `TOPLAM LOJİSTİK VE İŞ GÜCÜ MALİYETI (TL);${baseTotalCost};${futureTotalCost};-%${((totalDiff / (baseTotalCost || 1)) * 100).toFixed(1)};TL ${totalDiff.toLocaleString()}\r\n`;
+    csvContent += `TOPLAM LOJİSTİK VE İŞ GÜCÜ MALİYETI (${currencySymbol});${baseTotalCost};${futureTotalCost};-%${((totalDiff / (baseTotalCost || 1)) * 100).toFixed(1)};${currencySymbol} ${totalDiff.toLocaleString()}\r\n`;
 
     const crashDiff = baseMetrics.crossingCount - futureMetrics.crossingCount;
     csvContent += `Kritik Çakışma Noktaları (Adet);${baseMetrics.crossingCount};${futureMetrics.crossingCount};-%${((crashDiff / (baseMetrics.crossingCount || 1)) * 100).toFixed(1)};-\r\n`;
@@ -1203,7 +1207,7 @@ export default function FlowImprovement({
     const aAreaSavings = sArea * factoryAreaUnitPrice * 12;
 
     csvContent += `Fabrika İstasyon Alanı (m²);${cArea};${fArea};-%${sAreaPercent.toFixed(1)};-\r\n`;
-    csvContent += `Yıllık Alan Kazanım Tasarrufu (TL);${cArea * factoryAreaUnitPrice * 12};${fArea * factoryAreaUnitPrice * 12};-%${sAreaPercent.toFixed(1)};TL ${aAreaSavings.toLocaleString()}\r\n\r\n`;
+    csvContent += `Yıllık Alan Kazanım Tasarrufu (${currencySymbol});${cArea * factoryAreaUnitPrice * 12};${fArea * factoryAreaUnitPrice * 12};-%${sAreaPercent.toFixed(1)};${currencySymbol} ${aAreaSavings.toLocaleString()}\r\n\r\n`;
 
     // Segment raw details
     csvContent += "=== AKTİF KAT YERLEŞİM ELEMANLARI ===\r\n";
@@ -1421,7 +1425,7 @@ export default function FlowImprovement({
       parts.push(`${Math.abs(crossingReduction)} yeni akış kesişmesi oluşarak`);
     }
     const changeDesc = parts.length > 0 ? parts.join(" ve ") : "istasyon ve akış yerleşimi yeniden düzenlenerek";
-    return `Yapılan lojistik ve spagetti akış simülasyonu sonucunda, ${changeDesc} yıllık taşıma maliyetinde ₺${Math.round(annualSavings).toLocaleString()} tasarruf potansiyeli hesaplanmıştır.`;
+    return `Yapılan lojistik ve spagetti akış simülasyonu sonucunda, ${changeDesc} yıllık taşıma maliyetinde ${currencySymbol}${Math.round(annualSavings).toLocaleString()} tasarruf potansiyeli hesaplanmıştır.`;
   })();
   const improvementProcessSummary = (() => {
     const bits: string[] = [];
@@ -1589,7 +1593,7 @@ export default function FlowImprovement({
               <div>
                 <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">Yıllık Taşıma Tasarrufu</span>
                 <span className="text-xl font-black text-emerald-600 mt-1 block">
-                  ₺{annualSavings.toLocaleString()}
+                  {currencySymbol}{annualSavings.toLocaleString()}
                 </span>
                 <span className="text-[10px] text-emerald-600 font-bold block mt-1">
                   📈 %{(((currentMetrics.materialHandlingCost - futureMetrics.materialHandlingCost) / currentMetrics.materialHandlingCost) * 100).toFixed(0)} Maliyet Azaltımı
@@ -1655,7 +1659,7 @@ export default function FlowImprovement({
                   📐 %{savedAreaPercent.toFixed(1)} Alan Tasarrufu
                 </span>
                 <span className="text-[11px] text-slate-500 font-bold block mt-0.5">
-                  💰 Yıllık: ₺{annualAreaSavings.toLocaleString()}
+                  💰 Yıllık: {currencySymbol}{annualAreaSavings.toLocaleString()}
                 </span>
               </div>
               <div className="p-3 bg-teal-50 text-teal-600 rounded-2xl">
@@ -1675,7 +1679,7 @@ export default function FlowImprovement({
                   <BarChart
                     data={[
                       { name: "Toplam Mesafe (M)", Mevcut: currentMetrics.totalDistance, Gelecek: futureMetrics.totalDistance },
-                      { name: "Yıllık Taşıma (k₺)", Mevcut: Math.round(currentMetrics.materialHandlingCost / 1000), Gelecek: Math.round(futureMetrics.materialHandlingCost / 1000) }
+                      { name: `Yıllık Taşıma (k${currencySymbol})`, Mevcut: Math.round(currentMetrics.materialHandlingCost / 1000), Gelecek: Math.round(futureMetrics.materialHandlingCost / 1000) }
                     ]}
                   >
                     <CartesianGrid strokeDasharray="3 3" />
@@ -1764,7 +1768,7 @@ export default function FlowImprovement({
                   </div>
                   <div className="bg-white p-2.5 rounded-lg border border-slate-200">
                     <span className="text-[10px] text-slate-400 block font-sans">Yıllık Maliyet:</span>
-                    <strong className="text-rose-600 text-sm font-black">₺{currentMetrics.materialHandlingCost.toLocaleString()}</strong>
+                    <strong className="text-rose-600 text-sm font-black">{currencySymbol}{currentMetrics.materialHandlingCost.toLocaleString()}</strong>
                   </div>
                   <div className="bg-white p-2.5 rounded-lg border border-slate-200">
                     <span className="text-[10px] text-slate-400 block font-sans">Akış Çakışması:</span>
@@ -1793,7 +1797,7 @@ export default function FlowImprovement({
                   </div>
                   <div className="bg-white p-2.5 rounded-lg border border-slate-200">
                     <span className="text-[10px] text-slate-400 block font-sans">Gelecek Maliyet:</span>
-                    <strong className="text-indigo-600 text-sm font-black">₺{futureMetrics.materialHandlingCost.toLocaleString()}</strong>
+                    <strong className="text-indigo-600 text-sm font-black">{currencySymbol}{futureMetrics.materialHandlingCost.toLocaleString()}</strong>
                   </div>
                   <div className="bg-white p-2.5 rounded-lg border border-slate-200">
                     <span className="text-[10px] text-slate-400 block font-sans">Lojistik Kesişme:</span>
@@ -1836,13 +1840,13 @@ export default function FlowImprovement({
                     </tr>
                     <tr className="bg-slate-50/30">
                       <td className="p-3 font-bold bg-slate-50/50">Yıllık Malzeme Taşıma Maliyeti</td>
-                      <td className="p-3 text-right font-mono">₺{currentMetrics.materialHandlingCost.toLocaleString()}</td>
-                      <td className="p-3 text-right font-mono">₺{futureMetrics.materialHandlingCost.toLocaleString()}</td>
+                      <td className="p-3 text-right font-mono">{currencySymbol}{currentMetrics.materialHandlingCost.toLocaleString()}</td>
+                      <td className="p-3 text-right font-mono">{currencySymbol}{futureMetrics.materialHandlingCost.toLocaleString()}</td>
                       <td className="p-3 text-right font-mono text-emerald-600 font-bold">
                         -{(((currentMetrics.materialHandlingCost - futureMetrics.materialHandlingCost) / (currentMetrics.materialHandlingCost || 1)) * 100).toFixed(1)}%
                       </td>
                       <td className="p-3 text-right font-mono text-emerald-600 font-extrabold">
-                        ₺{(currentMetrics.materialHandlingCost - futureMetrics.materialHandlingCost).toLocaleString()}
+                        {currencySymbol}{(currentMetrics.materialHandlingCost - futureMetrics.materialHandlingCost).toLocaleString()}
                       </td>
                     </tr>
                     <tr>
@@ -1855,25 +1859,25 @@ export default function FlowImprovement({
                       <td className="p-3 text-right font-mono text-slate-500">-</td>
                     </tr>
                     <tr className="bg-slate-50/10">
-                      <td className="p-3 font-bold bg-slate-50/50">Yıllık Operatör Yürüyüş İş Gücü Maliyeti (₺)</td>
-                      <td className="p-3 text-right font-mono">₺{currentLaborSavingsCost.toLocaleString()}</td>
-                      <td className="p-3 text-right font-mono">₺{futureLaborSavingsCost.toLocaleString()}</td>
+                      <td className="p-3 font-bold bg-slate-50/50">Yıllık Operatör Yürüyüş İş Gücü Maliyeti ({currencySymbol})</td>
+                      <td className="p-3 text-right font-mono">{currencySymbol}{currentLaborSavingsCost.toLocaleString()}</td>
+                      <td className="p-3 text-right font-mono">{currencySymbol}{futureLaborSavingsCost.toLocaleString()}</td>
                       <td className="p-3 text-right font-mono text-emerald-600 font-bold">
                         -{(((currentLaborSavingsCost - futureLaborSavingsCost) / (currentLaborSavingsCost || 1)) * 100).toFixed(1)}%
                       </td>
                       <td className="p-3 text-right font-mono text-emerald-600 font-bold">
-                        ₺{(currentLaborSavingsCost - futureLaborSavingsCost).toLocaleString()}
+                        {currencySymbol}{(currentLaborSavingsCost - futureLaborSavingsCost).toLocaleString()}
                       </td>
                     </tr>
                     <tr className="bg-indigo-50/40 text-indigo-950 font-black">
                       <td className="p-3 font-bold bg-indigo-50/20">TOPLAM YILLIK SİMÜLE EDİLEN LOJİSTİK MALİYET</td>
-                      <td className="p-3 text-right font-mono text-rose-600">₺{totalCurrentCost.toLocaleString()}</td>
-                      <td className="p-3 text-right font-mono text-indigo-600">₺{totalFutureCost.toLocaleString()}</td>
+                      <td className="p-3 text-right font-mono text-rose-600">{currencySymbol}{totalCurrentCost.toLocaleString()}</td>
+                      <td className="p-3 text-right font-mono text-indigo-600">{currencySymbol}{totalFutureCost.toLocaleString()}</td>
                       <td className="p-3 text-right font-mono text-emerald-600 font-extrabold">
                         -{(((totalCurrentCost - totalFutureCost) / (totalCurrentCost || 1)) * 100).toFixed(1)}%
                       </td>
                       <td className="p-3 text-right font-mono text-emerald-600 font-extrabold text-[13px] bg-emerald-500/10 rounded-lg">
-                        ₺{annualSavings.toLocaleString()}
+                        {currencySymbol}{annualSavings.toLocaleString()}
                       </td>
                     </tr>
                     <tr className="bg-slate-50/30">
@@ -1896,13 +1900,13 @@ export default function FlowImprovement({
                     </tr>
                     <tr className="bg-slate-50/40 text-slate-900 font-bold">
                       <td className="p-3 font-bold bg-slate-50/50">Yıllık Alan Kazanım Tasarrufu (TL)</td>
-                      <td className="p-3 text-right font-mono text-rose-600">₺{(currentArea * factoryAreaUnitPrice * 12).toLocaleString()}</td>
-                      <td className="p-3 text-right font-mono text-indigo-600">₺{(futureArea * factoryAreaUnitPrice * 12).toLocaleString()}</td>
+                      <td className="p-3 text-right font-mono text-rose-600">{currencySymbol}{(currentArea * factoryAreaUnitPrice * 12).toLocaleString()}</td>
+                      <td className="p-3 text-right font-mono text-indigo-600">{currencySymbol}{(futureArea * factoryAreaUnitPrice * 12).toLocaleString()}</td>
                       <td className="p-3 text-right font-mono text-emerald-600 font-extrabold">
                         -{savedAreaPercent.toFixed(1)}%
                       </td>
                       <td className="p-3 text-right font-mono text-emerald-600 font-extrabold text-[13px] bg-emerald-500/10 rounded-lg">
-                        ₺{annualAreaSavings.toLocaleString()}
+                        {currencySymbol}{annualAreaSavings.toLocaleString()}
                       </td>
                     </tr>
                   </tbody>
@@ -1923,7 +1927,7 @@ export default function FlowImprovement({
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
               <div className="space-y-1">
-                <label className="text-slate-500 font-bold">Operatör İş Gücü Saatlik Ücreti (₺)</label>
+                <label className="text-slate-500 font-bold">Operatör İş Gücü Saatlik Ücreti ({currencySymbol})</label>
                 <input
                   type="number"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-bold focus:outline-none"
@@ -1951,7 +1955,7 @@ export default function FlowImprovement({
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-slate-500 font-bold">Öngörülen Yatırım Amortisman Maliyeti (₺)</label>
+                <label className="text-slate-500 font-bold">Öngörülen Yatırım Amortisman Maliyeti ({currencySymbol})</label>
                 <input
                   type="number"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-bold focus:outline-none"
@@ -1976,7 +1980,7 @@ export default function FlowImprovement({
                 <p className="text-xs text-slate-500">Maaşlar, işveren maliyetleri, fabrika m² birim fiyatı ve operatör hızı parametrelerini güncelleyin.</p>
               </div>
               <span className="px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-full">
-                Saatlik İşçilik: ₺{simLaborCost}/Saat
+                Saatlik İşçilik: {currencySymbol}{simLaborCost}/Saat
               </span>
             </div>
 
@@ -1992,7 +1996,7 @@ export default function FlowImprovement({
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                   <div className="space-y-1">
-                    <label className="text-slate-500 font-bold block">Aylık Net Operatör Maaşı (₺/Ay)</label>
+                    <label className="text-slate-500 font-bold block">Aylık Net Operatör Maaşı ({currencySymbol}/Ay)</label>
                     <input
                       type="number"
                       className="w-full bg-white border border-slate-200 rounded-xl p-2.5 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -2028,7 +2032,7 @@ export default function FlowImprovement({
                   <div className="space-y-1">
                     <label className="text-slate-500 font-bold block">Hesaplanan İşveren Saatlik Maliyeti</label>
                     <div className="bg-indigo-50 border border-indigo-200 text-indigo-950 font-black rounded-xl p-2.5 text-center text-[13px]">
-                      ₺{simLaborCost} / Saat
+                      {currencySymbol}{simLaborCost} / Saat
                     </div>
                   </div>
                 </div>
@@ -2050,7 +2054,7 @@ export default function FlowImprovement({
                   
                   <div className="grid grid-cols-1 gap-4 text-xs">
                     <div className="space-y-1">
-                      <label className="text-slate-500 font-bold block">Aylık m² Birim Değeri / Kira Bedeli (₺ / m²)</label>
+                      <label className="text-slate-500 font-bold block">Aylık m² Birim Değeri / Kira Bedeli ({currencySymbol} / m²)</label>
                       <input
                         type="number"
                         className="w-full bg-white border border-slate-200 rounded-xl p-2.5 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -2078,7 +2082,7 @@ export default function FlowImprovement({
                       </div>
                       <div>
                         <span className="text-slate-500 block">Yıllık Alan Finansal Değeri:</span>
-                        <strong className="text-emerald-600 font-black">₺{annualAreaSavings.toLocaleString()} / Yıl</strong>
+                        <strong className="text-emerald-600 font-black">{currencySymbol}{annualAreaSavings.toLocaleString()} / Yıl</strong>
                       </div>
                     </div>
                   </div>
@@ -2134,9 +2138,9 @@ export default function FlowImprovement({
                   </div>
 
                   <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-2">
-                    <span className="font-extrabold text-indigo-950 block">4. Yıllık Operatör Yürüyüş İş Gücü Maliyeti (₺/Yıl):</span>
+                    <span className="font-extrabold text-indigo-950 block">4. Yıllık Operatör Yürüyüş İş Gücü Maliyeti ({currencySymbol}/Yıl):</span>
                     <div className="bg-indigo-50/50 p-2 rounded border border-indigo-100 font-mono text-[11px] text-center my-1">
-                      Yürüyüş Maliyeti = Yıllık Süre (Saat) × Saatlik İşveren Maliyeti (₺/Saat)
+                      Yürüyüş Maliyeti = Yıllık Süre (Saat) × Saatlik İşveren Maliyeti ({currencySymbol}/Saat)
                     </div>
                     <p className="text-slate-600">
                       Operatörün her yürüyüşü katma değersiz zaman (muda) olarak kabul edilir ve saatlik işveren maliyeti ile çarpılarak israfın finansal boyutu ortaya konur.
@@ -2199,7 +2203,7 @@ export default function FlowImprovement({
 
                 <div className="bg-indigo-900 text-white p-4 rounded-xl space-y-3">
                   <span className="font-black text-xs block uppercase tracking-wide">Kat Arası Taşıma (Dikey Transfer) Maliyet Katsayıları</span>
-                  <p className="text-[11px] text-indigo-200">Asansör, konveyör ve merdiven kullanımının sefer başına maliyet katsayısını özelleştirebilirsiniz (birim: ₺/sefer/metre baz çarpanı):</p>
+                  <p className="text-[11px] text-indigo-200">Asansör, konveyör ve merdiven kullanımının sefer başına maliyet katsayısını özelleştirebilirsiniz (birim: {currencySymbol}/sefer/metre baz çarpanı):</p>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     {([
@@ -2698,7 +2702,7 @@ export default function FlowImprovement({
               </div>
               <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-3xs text-center">
                 <span className="text-[11px] text-slate-400 font-extrabold uppercase block">Simüle Taşıma Maliyeti</span>
-                <span className="text-base font-black text-indigo-700 mt-1 block">₺{activeMetrics.materialHandlingCost.toLocaleString()}</span>
+                <span className="text-base font-black text-indigo-700 mt-1 block">{currencySymbol}{activeMetrics.materialHandlingCost.toLocaleString()}</span>
               </div>
               <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-3xs text-center">
                 <span className="text-[11px] text-slate-400 font-extrabold uppercase block">İSG Kritik Kesişmeler</span>
@@ -3138,7 +3142,7 @@ export default function FlowImprovement({
                         </div>
                         <div className="flex justify-between">
                           <span>Yıllık Maliyet Katkısı:</span>
-                          <strong className="font-bold text-indigo-700">₺{annualCost.toFixed(0)}</strong>
+                          <strong className="font-bold text-indigo-700">{currencySymbol}{annualCost.toFixed(0)}</strong>
                         </div>
                         <div className="flex justify-between">
                           <span>Seyahat Süresi (Tek Sefer):</span>
@@ -3357,7 +3361,7 @@ export default function FlowImprovement({
             <h3 className="font-extrabold text-slate-800 border-b border-slate-200 pb-1 mb-2 uppercase text-[10px] tracking-wider text-indigo-600">Simülasyon Varsayımları</h3>
             <div className="space-y-1">
               <div><span className="text-slate-500">Yıllık Çalışma Günü:</span> <strong className="text-slate-800">{simWorkingDays} Gün/Yıl</strong></div>
-              <div><span className="text-slate-500">Operatör İş Gücü Maliyeti:</span> <strong className="text-slate-800">₺{simLaborCost}/Saat</strong></div>
+              <div><span className="text-slate-500">Operatör İş Gücü Maliyeti:</span> <strong className="text-slate-800">{currencySymbol}{simLaborCost}/Saat</strong></div>
               <div><span className="text-slate-500">Forklift Çarpanı:</span> <strong className="text-slate-800">{simFuelCostCoeff}x</strong></div>
             </div>
           </div>
@@ -3386,7 +3390,7 @@ export default function FlowImprovement({
                 <th className="p-2 text-right border border-slate-200">Mevcut Durum (A)</th>
                 <th className="p-2 text-right border border-slate-200">Yalın Durum (B)</th>
                 <th className="p-2 text-right border border-slate-200">İyileşme (%)</th>
-                <th className="p-2 text-right border border-slate-200">Yıllık Kazanç (₺)</th>
+                <th className="p-2 text-right border border-slate-200">Yıllık Kazanç ({currencySymbol})</th>
               </tr>
             </thead>
             <tbody>
@@ -3401,13 +3405,13 @@ export default function FlowImprovement({
               </tr>
               <tr className="border-b border-slate-200">
                 <td className="p-2 font-medium border border-slate-200">Yıllık Malzeme Taşıma Maliyeti</td>
-                <td className="p-2 text-right font-mono border border-slate-200">₺{getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).materialHandlingCost.toLocaleString()}</td>
-                <td className="p-2 text-right font-mono border border-slate-200">₺{getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).materialHandlingCost.toLocaleString()}</td>
+                <td className="p-2 text-right font-mono border border-slate-200">{currencySymbol}{getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).materialHandlingCost.toLocaleString()}</td>
+                <td className="p-2 text-right font-mono border border-slate-200">{currencySymbol}{getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).materialHandlingCost.toLocaleString()}</td>
                 <td className="p-2 text-right font-mono text-emerald-600 font-bold border border-slate-200">
                   -{(((getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).materialHandlingCost - getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).materialHandlingCost) / (getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).materialHandlingCost || 1)) * 100).toFixed(1)}%
                 </td>
                 <td className="p-2 text-right font-mono text-emerald-600 font-bold border border-slate-200">
-                  ₺{(getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).materialHandlingCost - getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).materialHandlingCost).toLocaleString()}
+                  {currencySymbol}{(getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).materialHandlingCost - getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).materialHandlingCost).toLocaleString()}
                 </td>
               </tr>
               <tr className="border-b border-slate-200">
@@ -3421,28 +3425,28 @@ export default function FlowImprovement({
               </tr>
               <tr className="border-b border-slate-200 bg-emerald-50/10">
                 <td className="p-2 font-bold border border-slate-200">Yıllık Operatör Yürüyüş İş Gücü Maliyeti</td>
-                <td className="p-2 text-right font-mono border border-slate-200">₺{(getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).walkingTime * simLaborCost).toLocaleString()}</td>
-                <td className="p-2 text-right font-mono border border-slate-200">₺{(getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).walkingTime * simLaborCost).toLocaleString()}</td>
+                <td className="p-2 text-right font-mono border border-slate-200">{currencySymbol}{(getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).walkingTime * simLaborCost).toLocaleString()}</td>
+                <td className="p-2 text-right font-mono border border-slate-200">{currencySymbol}{(getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).walkingTime * simLaborCost).toLocaleString()}</td>
                 <td className="p-2 text-right font-mono text-emerald-600 font-bold border border-slate-200">
                   -{((((getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).walkingTime * simLaborCost) - (getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).walkingTime * simLaborCost)) / ((getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).walkingTime * simLaborCost) || 1)) * 100).toFixed(1)}%
                 </td>
                 <td className="p-2 text-right font-mono text-emerald-600 font-extrabold border border-slate-200">
-                  ₺{((getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).walkingTime * simLaborCost) - (getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).walkingTime * simLaborCost)).toLocaleString()}
+                  {currencySymbol}{((getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).walkingTime * simLaborCost) - (getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).walkingTime * simLaborCost)).toLocaleString()}
                 </td>
               </tr>
               <tr className="bg-indigo-50 font-black text-indigo-950">
                 <td className="p-2 border border-slate-200 uppercase">Toplam Simüle Edilen Lojistik Maliyeti</td>
                 <td className="p-2 text-right font-mono border border-slate-200">
-                  ₺{(getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).materialHandlingCost + (getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).walkingTime * simLaborCost)).toLocaleString()}
+                  {currencySymbol}{(getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).materialHandlingCost + (getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).walkingTime * simLaborCost)).toLocaleString()}
                 </td>
                 <td className="p-2 text-right font-mono border border-slate-200">
-                  ₺{(getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).materialHandlingCost + (getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).walkingTime * simLaborCost)).toLocaleString()}
+                  {currencySymbol}{(getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).materialHandlingCost + (getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).walkingTime * simLaborCost)).toLocaleString()}
                 </td>
                 <td className="p-2 text-right font-mono text-emerald-700 border border-slate-200">
                   -{((((getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).materialHandlingCost + (getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).walkingTime * simLaborCost)) - (getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).materialHandlingCost + (getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).walkingTime * simLaborCost))) / ((getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).materialHandlingCost + (getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).walkingTime * simLaborCost)) || 1)) * 100).toFixed(1)}%
                 </td>
                 <td className="p-2 text-right font-mono text-emerald-700 text-sm bg-emerald-500/10 border border-slate-200">
-                  ₺{(
+                  {currencySymbol}{(
                     (getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).materialHandlingCost + (getScenarioMetrics(scenarios.find(s => s.id === "sc_current") || scenarios[0]).walkingTime * simLaborCost)) -
                     (getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).materialHandlingCost + (getScenarioMetrics(scenarios.find(s => s.id === "sc_future") || scenarios[1] || scenarios[0]).walkingTime * simLaborCost))
                   ).toLocaleString()}
@@ -3470,13 +3474,13 @@ export default function FlowImprovement({
               </tr>
               <tr className="border-b border-slate-200">
                 <td className="p-2 font-medium border border-slate-200">Yıllık Alan Kazanım Tasarrufu</td>
-                <td className="p-2 text-right font-mono border border-slate-200">₺{(currentArea * factoryAreaUnitPrice * 12).toLocaleString()}</td>
-                <td className="p-2 text-right font-mono border border-slate-200">₺{(futureArea * factoryAreaUnitPrice * 12).toLocaleString()}</td>
+                <td className="p-2 text-right font-mono border border-slate-200">{currencySymbol}{(currentArea * factoryAreaUnitPrice * 12).toLocaleString()}</td>
+                <td className="p-2 text-right font-mono border border-slate-200">{currencySymbol}{(futureArea * factoryAreaUnitPrice * 12).toLocaleString()}</td>
                 <td className="p-2 text-right font-mono text-emerald-600 font-bold border border-slate-200">
                   -{savedAreaPercent.toFixed(1)}%
                 </td>
                 <td className="p-2 text-right font-mono text-emerald-600 font-bold border border-slate-200">
-                  ₺{annualAreaSavings.toLocaleString()}
+                  {currencySymbol}{annualAreaSavings.toLocaleString()}
                 </td>
               </tr>
             </tbody>
@@ -3488,8 +3492,8 @@ export default function FlowImprovement({
           <div className="p-4 border border-slate-200 rounded-2xl bg-slate-50/50">
             <h4 className="text-[11px] font-black uppercase text-indigo-950 mb-2 tracking-wider">Yatırım ve Geri Ödeme (ROI) Özeti</h4>
             <div className="space-y-1.5 text-xs">
-              <div className="flex justify-between"><span className="text-slate-500">Öngörülen Uygulama Maliyeti:</span> <strong className="text-slate-800">₺{simImplementationCost.toLocaleString()}</strong></div>
-              <div className="flex justify-between"><span className="text-slate-500">Yıllık Simüle Edilen Tasarruf:</span> <strong className="text-emerald-700">₺{annualSavings.toLocaleString()}</strong></div>
+              <div className="flex justify-between"><span className="text-slate-500">Öngörülen Uygulama Maliyeti:</span> <strong className="text-slate-800">{currencySymbol}{simImplementationCost.toLocaleString()}</strong></div>
+              <div className="flex justify-between"><span className="text-slate-500">Yıllık Simüle Edilen Tasarruf:</span> <strong className="text-emerald-700">{currencySymbol}{annualSavings.toLocaleString()}</strong></div>
               <div className="flex justify-between"><span className="text-slate-500">Lojistik Yatırım ROI Değeri:</span> <strong className="text-indigo-600">%{roiPercent.toFixed(1)}</strong></div>
               <div className="flex justify-between"><span className="text-slate-500">Yatırım Geri Ödeme Süresi:</span> <strong className="text-indigo-600">{paybackMonths.toFixed(1)} Ay</strong></div>
             </div>
@@ -3497,7 +3501,7 @@ export default function FlowImprovement({
           <div className="p-4 border border-slate-200 rounded-2xl bg-indigo-950 text-white flex flex-col justify-center">
             <div className="text-center">
               <div className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider mb-1">Yıllık Lojistik Kazanç Hedefi</div>
-              <div className="text-2xl font-black text-emerald-400">₺{annualSavings.toLocaleString()}</div>
+              <div className="text-2xl font-black text-emerald-400">{currencySymbol}{annualSavings.toLocaleString()}</div>
               <div className="text-[10px] text-indigo-200 mt-1">U-Tipi hücresel yerleşim ve hat dengeleme tasarrufları dahil edilmiştir.</div>
             </div>
           </div>

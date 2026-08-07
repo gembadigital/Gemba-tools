@@ -5,9 +5,13 @@ import { Plus, Briefcase, Calendar, CheckCircle2, AlertCircle, Trash2, Edit, Ref
 interface ProjectPortfolioTabProps {
   workspace: CompanyWorkspaceExtended;
   onUpdateProjects: (projects: ProjectPortfolioItem[]) => void;
+  // The customer card's selected currency (see CustomerRecords.tsx) — every project's money
+  // fields here default to it instead of always being ₺, so portfolio reports stay in one
+  // consistent currency per customer.
+  defaultCurrency?: string;
 }
 
-export default function ProjectPortfolioTab({ workspace, onUpdateProjects }: ProjectPortfolioTabProps) {
+export default function ProjectPortfolioTab({ workspace, onUpdateProjects, defaultCurrency }: ProjectPortfolioTabProps) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -19,7 +23,7 @@ export default function ProjectPortfolioTab({ workspace, onUpdateProjects }: Pro
   const [endDate, setEndDate] = useState("");
   const [status, setStatus] = useState<ProjectPortfolioItem["status"]>("Planned");
   const [budget, setBudget] = useState("");
-  const [currency, setCurrency] = useState("₺");
+  const [currency, setCurrency] = useState(defaultCurrency || "₺");
   const [roiPercent, setRoiPercent] = useState("");
   const [projectManager, setProjectManager] = useState("");
 
@@ -63,7 +67,7 @@ export default function ProjectPortfolioTab({ workspace, onUpdateProjects }: Pro
         endDate: k.plannedFinishDate || k.realizedFinishDate || "",
         status: k.status === "Completed" ? "Completed" : (k.status === "In Progress" ? "Active" : "Planned"),
         budget: k.estimatedCost || 0,
-        currency: "₺",
+        currency: defaultCurrency || "₺",
         roiPercent: k.estimatedCost > 0 ? Math.round(((k.actualSavings || k.expectedGain || 0) / k.estimatedCost) * 100) : 0,
         projectManager: k.projectLeader || k.originator || "Kaizen Ekibi",
         sourceModule: "CI" as const
@@ -81,7 +85,7 @@ export default function ProjectPortfolioTab({ workspace, onUpdateProjects }: Pro
         endDate: v.targetDate || "",
         status: v.status === "Tamamlandı" ? "Completed" : "Active",
         budget: 0,
-        currency: "₺",
+        currency: defaultCurrency || "₺",
         roiPercent: 0,
         projectManager: v.leader || "VSM Ekip Lideri",
         sourceModule: "VSM" as const
@@ -94,7 +98,7 @@ export default function ProjectPortfolioTab({ workspace, onUpdateProjects }: Pro
     vsmProjects.forEach(p => combinedMap.set(p.id, p));
 
     return Array.from(combinedMap.values());
-  }, [workspace.projects, liveKaizens, liveVsmProjects]);
+  }, [workspace.projects, liveKaizens, liveVsmProjects, defaultCurrency]);
 
   const handleOpenAddForm = () => {
     setEditingId(null);
@@ -105,6 +109,7 @@ export default function ProjectPortfolioTab({ workspace, onUpdateProjects }: Pro
     setEndDate("");
     setStatus("Planned");
     setBudget("");
+    setCurrency(defaultCurrency || "₺");
     setRoiPercent("");
     setProjectManager("");
     setShowForm(true);

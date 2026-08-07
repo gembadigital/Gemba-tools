@@ -314,11 +314,11 @@ export default function OpexProjectDashboard({
       cumulativeSum += weekMap[wk];
       return {
         week: wk,
-        "Birikimli Değer (₺)": cumulativeSum,
+        [`Birikimli Değer (${currencySymbol})`]: cumulativeSum,
         "Haftalık Kazanç": weekMap[wk]
       };
     });
-  }, [filteredData.records]);
+  }, [filteredData.records, currencySymbol]);
 
   // 3. Team Action Performance (Open / In Progress / Completed by responsible person)
   const teamPerformanceData = useMemo(() => {
@@ -433,7 +433,7 @@ export default function OpexProjectDashboard({
       ["Tamamlanan Aksiyon Oranı", "Kapalı Aksiyonlar / Toplam", `${metrics.completedActions} Adet`, `%${metrics.actionPerformance}`],
       ["Termin Sadakat Başarısı", "Süresinde Kapatılan / Kapatılanlar", `${metrics.completedOnTime} Adet`, metrics.dueDateCompliance !== null ? `%${metrics.dueDateCompliance}` : "Veri yok"],
       ["Sürekli İyileştirme Kaizen Sayısı", "Kanban Panosu Kart Havuzu", `${metrics.totalKaizens} Proje`, "-"],
-      ["Doğrulanmış Kaizen Finansal Tasarrufu", "Doğrulanmış Yıllık Kazanç", `₺${metrics.verifiedKaizenSavings.toLocaleString("tr-TR")}`, "-"],
+      ["Doğrulanmış Kaizen Finansal Tasarrufu", "Doğrulanmış Yıllık Kazanç", `${currencySymbol}${metrics.verifiedKaizenSavings.toLocaleString("tr-TR")}`, "-"],
       ["Toplam Eğitim Seansı", "Saha Eğitim Faaliyeti Kaydı", `${metrics.trainingSessions} Seans`, "-"]
     ];
     const ws1 = XLSX.utils.aoa_to_sheet(dashboardRows);
@@ -441,7 +441,7 @@ export default function OpexProjectDashboard({
     XLSX.utils.book_append_sheet(wb, ws1, "Executive Dashboard");
 
     // 2. Project Activity Log Tab
-    const logHeader = ["Hafta", "Çalışma Tarihi", "Faaliyet Konusu", "İyileştirme Konusu", "Yapılan Çalışmalar / Alınan Kararlar", "Çıktı / Standart", "Sorumlu Mühendis", "Durum", "Termin Tarihi", "Uyum Sınıfı", "Notlar", "Finansal Tasarruf (₺)"];
+    const logHeader = ["Hafta", "Çalışma Tarihi", "Faaliyet Konusu", "İyileştirme Konusu", "Yapılan Çalışmalar / Alınan Kararlar", "Çıktı / Standart", "Sorumlu Mühendis", "Durum", "Termin Tarihi", "Uyum Sınıfı", "Notlar", `Finansal Tasarruf (${currencySymbol})`];
     const logRows = [
       ["PROJE SAHA TAKİP KÜTÜĞÜ - FAALİYET LOGU"],
       [`Müşteri: ${customerName} | Rapor Dönemi: ${filterYear} - ${filterMonth}`],
@@ -471,7 +471,7 @@ export default function OpexProjectDashboard({
     XLSX.utils.book_append_sheet(wb, ws3, "Action List");
 
     // 4. CI Project Summary Tab
-    const ciHeader = ["Proje Adı", "Sorumlu Lider", "Mevcut Aşama / Durum", "Tamamlanma Oranı", "Planlanan Bitiş", "Doğrulanmış Tasarruf (₺)"];
+    const ciHeader = ["Proje Adı", "Sorumlu Lider", "Mevcut Aşama / Durum", "Tamamlanma Oranı", "Planlanan Bitiş", `Doğrulanmış Tasarruf (${currencySymbol})`];
     const ciRows = [
       ["SÜREKLİ İYİLEŞTİRME KAIZEN VE CI PROJELERİ RAPORU"],
       [],
@@ -491,16 +491,16 @@ export default function OpexProjectDashboard({
       ["Finansal Gösterge", "Yıllık Öngörülen Kazanç", "Doğrulanmış Kazanç", "Tahmini Yatırım", "ROI Oranı", "Yatırım Geri Dönüşü"],
       [
         "Kaizen Finansal Havuzu",
-        `₺${metrics.expectedSavings.toLocaleString()}`,
-        `₺${metrics.verifiedKaizenSavings.toLocaleString()}`,
-        investmentAmount > 0 ? `₺${investmentAmount.toLocaleString()}` : "Girilmedi",
+        `${currencySymbol}${metrics.expectedSavings.toLocaleString()}`,
+        `${currencySymbol}${metrics.verifiedKaizenSavings.toLocaleString()}`,
+        investmentAmount > 0 ? `${currencySymbol}${investmentAmount.toLocaleString()}` : "Girilmedi",
         investmentAmount > 0 ? `%${Math.round(((metrics.verifiedKaizenSavings - investmentAmount) / investmentAmount) * 100)}` : "Veri yok",
         investmentAmount > 0 && metrics.verifiedKaizenSavings > 0 ? `${((investmentAmount / metrics.verifiedKaizenSavings) * 12).toFixed(1)} Ay` : "Veri yok"
       ],
       [],
       ["HAFTALIK DEĞER ÜRETİMİ VE BİRİKİMLİ KAZANÇ GRAFİĞİ"],
-      ["Hafta No", "Haftalık Kazanç (₺)", "Birikimli Toplam Değer (₺)"],
-      ...valueCreationData.map(v => [v.week, v["Haftalık Kazanç"], v["Birikimli Değer (₺)"]])
+      ["Hafta No", `Haftalık Kazanç (${currencySymbol})`, `Birikimli Toplam Değer (${currencySymbol})`],
+      ...valueCreationData.map(v => [v.week, v["Haftalık Kazanç"], v[`Birikimli Değer (${currencySymbol})`]])
     ];
     const ws5 = XLSX.utils.aoa_to_sheet(finRows);
     ws5["!cols"] = [{ wch: 30 }, { wch: 25 }, { wch: 25 }, { wch: 25 }, { wch: 15 }, { wch: 15 }];
@@ -978,9 +978,9 @@ export default function OpexProjectDashboard({
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="week" stroke="#94a3b8" fontSize={9} fontStyle="bold" />
-                  <YAxis stroke="#94a3b8" fontSize={9} fontStyle="bold" tickFormatter={(v) => `₺${v.toLocaleString("tr-TR")}`} />
-                  <Tooltip formatter={(value: any) => [`₺${value.toLocaleString("tr-TR")}`, "Birikimli Kazanç"]} />
-                  <Area type="monotone" dataKey="Birikimli Değer (₺)" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" />
+                  <YAxis stroke="#94a3b8" fontSize={9} fontStyle="bold" tickFormatter={(v) => `${currencySymbol}${v.toLocaleString("tr-TR")}`} />
+                  <Tooltip formatter={(value: any) => [`${currencySymbol}${value.toLocaleString("tr-TR")}`, "Birikimli Kazanç"]} />
+                  <Area type="monotone" dataKey={`Birikimli Değer (${currencySymbol})`} stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" />
                 </AreaChart>
               </ResponsiveContainer>
             ) : (

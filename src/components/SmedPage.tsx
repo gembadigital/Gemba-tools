@@ -28,6 +28,9 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
   const customerId = selectedCustomer?.id || "default";
   const selectedProjectStorageKey = `smed_selected_project_id_${customerId}`;
   const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
+  // Was hardcoded to ₺ throughout the Financial Feasibility tab/exports regardless of the
+  // customer's actual selected currency — matches the currencySymbol pattern used elsewhere.
+  const currency = selectedCustomer?.currency || "₺";
 
   // Navigation for SMED sub-modules
   const [smedTab, setSmedTab] = useState<
@@ -560,8 +563,8 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
     autoTable(doc, {
       body: [
         [pdfSafe("Yıllık Kazanılan Süre"), `${savedHrs} saat`, pdfSafe("Ek Kapasite Kazancı"), `%${capPct}`],
-        [pdfSafe("Yıllık Finansal Fayda"), `₺${benefit.toLocaleString("tr-TR")}`, pdfSafe("ROI Oranı"), `%${roi}`],
-        [pdfSafe("Geri Ödeme Süresi"), `${payback} ay`, pdfSafe("3 Yıllık Net NPV"), `₺${npv.toLocaleString("tr-TR")}`]
+        [pdfSafe("Yıllık Finansal Fayda"), `${currency}${benefit.toLocaleString("tr-TR")}`, pdfSafe("ROI Oranı"), `%${roi}`],
+        [pdfSafe("Geri Ödeme Süresi"), `${payback} ay`, pdfSafe("3 Yıllık Net NPV"), `${currency}${npv.toLocaleString("tr-TR")}`]
       ],
       startY: nextY + 4,
       theme: "grid",
@@ -621,10 +624,10 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
       ["Dış Hazırlık (dk)", externalDuration],
       ["Yıllık Kazanılan Süre (saat)", savedHrs],
       ["Kapasite Kazancı (%)", capPct],
-      ["Yıllık Finansal Fayda (₺)", benefit],
+      [`Yıllık Finansal Fayda (${currency})`, benefit],
       ["ROI (%)", roi],
       ["Geri Ödeme Süresi (ay)", payback],
-      ["3 Yıllık Net NPV (₺)", npv]
+      [`3 Yıllık Net NPV (${currency})`, npv]
     ];
     if (oeeProjection && !oeeProjection.isSnapshotOnly) {
       summarySheet.push(
@@ -1366,7 +1369,7 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
               <div className="space-y-3">
                 <div>
                   <label className="text-[11px] font-black uppercase text-slate-400 block mb-1">
-                    Makine Saatlik Kayıp Maliyeti (₺/saat)
+                    Makine Saatlik Kayıp Maliyeti ({currency}/saat)
                   </label>
                   <input
                     type="number"
@@ -1377,7 +1380,7 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
                 </div>
                 <div>
                   <label className="text-[11px] font-black uppercase text-slate-400 block mb-1">
-                    Ortalama İşçilik Maliyeti (₺/saat)
+                    Ortalama İşçilik Maliyeti ({currency}/saat)
                   </label>
                   <input
                     type="number"
@@ -1399,7 +1402,7 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
                 </div>
                 <div>
                   <label className="text-[11px] font-black uppercase text-slate-400 block mb-1">
-                    Ürün Katkı Marjı Kazancı (₺/saat)
+                    Ürün Katkı Marjı Kazancı ({currency}/saat)
                   </label>
                   <input
                     type="number"
@@ -1410,7 +1413,7 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
                 </div>
                 <div>
                   <label className="text-[11px] font-black uppercase text-slate-400 block mb-1">
-                    Gerekli Yatırım Bütçesi (₺)
+                    Gerekli Yatırım Bütçesi ({currency})
                   </label>
                   <input
                     type="number"
@@ -1444,7 +1447,7 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
                   <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
                     <span className="text-[11px] text-green-800 font-black uppercase block">Yıllık Finansal Fayda</span>
                     <div className="text-lg font-black text-green-700 mt-1 font-mono">
-                      ₺{(benefit / 1000000).toFixed(2)}M
+                      {currency}{(benefit / 1000000).toFixed(2)}M
                     </div>
                   </div>
 
@@ -1461,7 +1464,7 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
                   <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-center">
                     <span className="text-[11px] text-slate-400 font-black uppercase block">3 Yıllık Net NPV</span>
                     <div className="text-lg font-black text-slate-700 mt-1 font-mono">
-                      ₺{(npv / 1000000).toFixed(2)}M
+                      {currency}{(npv / 1000000).toFixed(2)}M
                     </div>
                   </div>
                 </div>
@@ -1484,7 +1487,7 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
                       <circle cx="18" cy="18" r="15.915" fill="none" stroke="#10b981" strokeWidth="3.5" strokeDasharray="55 45" strokeDashoffset="-45" />
                     </svg>
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-base font-black text-slate-800">₺{(benefit / 1000000).toFixed(2)}M</span>
+                      <span className="text-base font-black text-slate-800">{currency}{(benefit / 1000000).toFixed(2)}M</span>
                       <span className="text-[11px] font-black text-slate-400 uppercase">Toplam</span>
                     </div>
                   </div>

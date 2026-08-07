@@ -489,7 +489,7 @@ Gerçek portföy verilerine göre executive kararları destekleyici öneriler:
       [pdfSafe("Aktif Müşteri"), stats.activeCustomers.toString(), pdfSafe("Devam Eden Proje"), stats.ongoingProjects.toString()],
       [pdfSafe("Tamamlanan Proje"), stats.completedProjects.toString(), pdfSafe("Toplam CI Projesi"), stats.totalCiProjects.toString()],
       [pdfSafe("Toplam Kaizen"), stats.totalKaizens.toString(), pdfSafe("Termin Başarısı"), `%${stats.avgSuccessRate}`],
-      [pdfSafe("Beklenen Kazanç"), `TL ${stats.expectedSavings.toLocaleString()}`, pdfSafe("Gerçekleşen Tasarruf"), `TL ${stats.realizedSavings.toLocaleString()}`]
+      [pdfSafe("Beklenen Kazanç"), `${currencySymbol} ${stats.expectedSavings.toLocaleString()}`, pdfSafe("Gerçekleşen Tasarruf"), `${currencySymbol} ${stats.realizedSavings.toLocaleString()}`]
     ];
 
     autoTable(doc, {
@@ -506,9 +506,9 @@ Gerçek portföy verilerine göre executive kararları destekleyici öneriler:
     // Consultant Table
     doc.text(pdfSafe("2. DANIŞMAN LİDERLİK TABLOSU (LEADERBOARD)"), 14, (doc as any).lastAutoTable.finalY + 12);
 
-    const consultantHead = [[pdfSafe("Danışman"), pdfSafe("Aktif"), pdfSafe("Kapalı"), pdfSafe("Kaizen"), pdfSafe("Kazanç (TL)"), pdfSafe("Termin %")]];
+    const consultantHead = [[pdfSafe("Danışman"), pdfSafe("Aktif"), pdfSafe("Kapalı"), pdfSafe("Kaizen"), pdfSafe(`Kazanç (${currencySymbol})`), pdfSafe("Termin %")]];
     const consultantBody = leaderboard.map(l => [
-      pdfSafe(l.name), l.activeProjects, l.closedProjects, l.kaizensCount, `TL ${l.savings.toLocaleString()}`, `%${l.deadlineSuccess}`
+      pdfSafe(l.name), l.activeProjects, l.closedProjects, l.kaizensCount, `${currencySymbol} ${l.savings.toLocaleString()}`, `%${l.deadlineSuccess}`
     ]);
 
     autoTable(doc, {
@@ -521,9 +521,9 @@ Gerçek portföy verilerine göre executive kararları destekleyici öneriler:
 
     // Customer Portfolio Table
     doc.text(pdfSafe("3. MÜŞTERİ PORTFÖYÜ VE SAĞLIK DURUMU"), 14, (doc as any).lastAutoTable.finalY + 12);
-    const customerHead = [[pdfSafe("Şirket"), pdfSafe("Sorumlu Danışman"), pdfSafe("Projeler"), pdfSafe("Kaizenler"), pdfSafe("Kazanç (TL)"), pdfSafe("Risk Sınıfı"), pdfSafe("İlerleme %")]];
+    const customerHead = [[pdfSafe("Şirket"), pdfSafe("Sorumlu Danışman"), pdfSafe("Projeler"), pdfSafe("Kaizenler"), pdfSafe(`Kazanç (${currencySymbol})`), pdfSafe("Risk Sınıfı"), pdfSafe("İlerleme %")]];
     const customerBody = portfolio.map(p => [
-      pdfSafe(p.companyName), pdfSafe(p.consultantName), p.projectCount, p.kaizenCount, `TL ${p.savings.toLocaleString()}`, pdfSafe(p.riskStatus), `%${p.completion}`
+      pdfSafe(p.companyName), pdfSafe(p.consultantName), p.projectCount, p.kaizenCount, `${currencySymbol} ${p.savings.toLocaleString()}`, pdfSafe(p.riskStatus), `%${p.completion}`
     ]);
 
     autoTable(doc, {
