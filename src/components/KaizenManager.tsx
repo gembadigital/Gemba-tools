@@ -97,7 +97,6 @@ export default function KaizenManager({
   const token = localStorage.getItem("gemba_token") || "";
   const [activeTab, setActiveTab] = useState<TabType>("kanban");
   const [isWizardOpen, setIsWizardOpen] = useState(false);
-  const [wizardStep, setWizardStep] = useState<1 | 2>(1);
   const [selectedDeptFilter, setSelectedDeptFilter] = useState("all");
   const [selectedPhaseFilter, setSelectedPhaseFilter] = useState("all");
   
@@ -111,10 +110,6 @@ export default function KaizenManager({
     { id: "Pişirici Grubu", name: "Pişirici Ürün Ailesi (%25 Hacim Payı)", ratio: 0.25, sharePct: 25 },
   ], []);
 
-  // Selected opportunity for Step 1
-  const [selectedOpportunity, setSelectedOpportunity] = useState<any | null>(null);
-  const [wizardTab, setWizardTab] = useState<"firsat" | "yeni">("firsat");
-
   // Team-assignment step, shown before a project is actually created — previously
   // handleSelectOpportunity/handleSelectNewProjectTheme created the project immediately with
   // projectTeam permanently [] and no way to assign anyone. This intercepts both entry points.
@@ -125,30 +120,8 @@ export default function KaizenManager({
   const [assignDepartment, setAssignDepartment] = useState<string>("");
   const [assignDeadline, setAssignDeadline] = useState<string>("");
   const [assignTitle, setAssignTitle] = useState<string>("");
-  const [projectCurrentLoss, setProjectCurrentLoss] = useState<number>(0);
   const [editCurrentLoss, setEditCurrentLoss] = useState<number>(0);
   const [isProjectFullScreen, setIsProjectFullScreen] = useState(false);
-  
-  // Wizard Step 2 States
-  const [projectName, setProjectName] = useState("");
-  const [projectDesc, setProjectDesc] = useState("");
-  const [projectLeader, setProjectLeader] = useState("Barış Gökdemir (OpEx Lead)");
-  const [projectTeam, setProjectTeam] = useState<string[]>([]);
-  const [projectSponsor, setProjectSponsor] = useState("Mehmet Soyer (Fabrika Müdürü)");
-  const [projectDept, setProjectDept] = useState("Üretim / Montaj");
-  const [projectCost, setProjectCost] = useState<number>(15000);
-  const [projectImpact, setProjectImpact] = useState<"High" | "Medium" | "Low">("Medium");
-  const [projectPhase, setProjectPhase] = useState<any>("Faz 1 (1 Ay)");
-  const [plannedFinish, setPlannedFinish] = useState("");
-
-  // Wizard Step 2 Extra Fields (CI Problem, Root Cause, Actions)
-  const [problemDefinition, setProblemDefinition] = useState("");
-  const [problemDetail, setProblemDetail] = useState("");
-  const [targetObjective, setTargetObjective] = useState("");
-  const [rootCause, setRootCause] = useState("");
-  const [improvementActions, setImprovementActions] = useState("");
-  const [responsibles, setResponsibles] = useState("");
-  const [actionsTaken, setActionsTaken] = useState("");
 
   // Edit Project Detail States
   const [editingProject, setEditingProject] = useState<KaizenCard | null>(null);
@@ -247,15 +220,12 @@ export default function KaizenManager({
   const [draggedProjId, setDraggedProjId] = useState<string | null>(null);
   const [activeDropCol, setActiveDropCol] = useState<string | null>(null);
 
-  // Team/assignee directory — was a hardcoded list of 8 fictional names disconnected from the app's
-  // real consultant/customer-user system. Now fetched from /api/business/customers/{id}/team (the
-  // same endpoint ProjectTeamTab.tsx uses), which resolves the customer's real assigned primary
-  // consultant, secondary consultants, and customer users. Falls back to a short illustrative list
-  // only when the customer genuinely has no one assigned yet, so the pickers are never empty.
-  const FALLBACK_TEAM_OPTIONS = [
-    "Barış Gökdemir (OpEx Lead)",
-    "Mehmet Soyer (Fabrika Müdürü)"
-  ];
+  // Team/assignee directory — fetched from /api/business/customers/{id}/team (the same endpoint
+  // ProjectTeamTab.tsx uses), which resolves the customer's real assigned primary consultant,
+  // secondary consultants, and customer users. No fictional fallback names: when the customer
+  // genuinely has no one assigned yet, this stays empty and the leader/team fields are plain free
+  // text (via the "ci-team-directory" datalist) so nothing gets silently pre-filled with a fake person.
+  const FALLBACK_TEAM_OPTIONS: string[] = [];
   const [teamOptions, setTeamOptions] = useState<string[]>(FALLBACK_TEAM_OPTIONS);
 
   useEffect(() => {
@@ -285,7 +255,7 @@ export default function KaizenManager({
   // Task management state
   const [activeTasksProjId, setActiveTasksProjId] = useState<string | null>(null);
   const [newTaskName, setNewTaskName] = useState("");
-  const [newTaskResponsible, setNewTaskResponsible] = useState("Barış Gökdemir (OpEx Lead)");
+  const [newTaskResponsible, setNewTaskResponsible] = useState("");
   const [newTaskDeadline, setNewTaskDeadline] = useState("");
   const [newTaskPriority, setNewTaskPriority] = useState<"High" | "Medium" | "Low">("Medium");
 
@@ -496,55 +466,28 @@ export default function KaizenManager({
       }
     }
 
-    // Last resort: no Loss Analysis cache AND no processes/cost-table data exists yet for this
-    // customer. These numbers are illustrative placeholders, not a real analysis — labeled as such
-    // (previously this fell back silently and claimed to be "Loss Capacity Analizi" output).
-    const baseLossTopics = [
-      { subject: "Setup Süreleri (SMED)", loss: 220000, gain: 154000, priority: "High", tool: "SMED (Hızlı Kalıp Değişimi)", dept: "Pres Atölyesi" },
-      { subject: "Hurda Maliyeti", loss: 180000, gain: 117000, priority: "High", tool: "Poka-Yoke & Kalite Otonomasyonu", dept: "Kalite Güvence" },
-      { subject: "Plansız Duruşların Önlenmesi", loss: 290000, gain: 188500, priority: "High", tool: "Otonom & Planlı Bakım (TPM)", dept: "Bakım Onarım" },
-      { subject: "Yeniden İşleme (Rework)", loss: 120000, gain: 72000, priority: "Medium", tool: "Matriks Analizi & FTT", dept: "Montaj Hattı" },
-      { subject: "WIP (Yarı Mamul) Azaltımı", loss: 160000, gain: 96000, priority: "Medium", tool: "Kanban & Sürekli Akış (One-Piece)", dept: "Lojistik / Depo" },
-      { subject: "Operatör Verimliliği", loss: 140000, gain: 105000, priority: "High", tool: "Hat Dengeleme & Yamazumi", dept: "Endüstri Mühendisliği" },
-      { subject: "Fire & Malzeme Kayıpları", loss: 110000, gain: 66000, priority: "Medium", tool: "Standardize İş & Malzeme Fire Kaizeni", dept: "Pres Atölyesi" },
-      { subject: "Fazla Mesai Azaltımı", loss: 95000, gain: 66500, priority: "Medium", tool: "Yük Dengeleme (Heijunka) & OLE", dept: "Üretim Planlama" }
-    ];
-
-    return baseLossTopics.map(item => {
-      const scaledLoss = Math.round(item.loss * familyRatio);
-      const scaledGain = Math.round(item.gain * familyRatio);
-      return {
-        id: `opp_lc_${item.subject.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase()}`,
-        type: item.subject,
-        problem: `${item.subject}: ${getLossProblemDetail(item.subject)}`,
-        currentCost: scaledLoss,
-        potential: Math.round((scaledGain / scaledLoss) * 100),
-        expectedGain: scaledGain,
-        priority: item.priority,
-        dept: item.dept,
-        leanTool: item.tool,
-        source: "Örnek Varsayılan Veri (henüz gerçek maliyet/analiz verisi girilmedi)",
-        productFamily: familyLabel,
-        area: "Doğrudan Maliyet Azaltma",
-        assumed: true
-      };
-    });
+    // No Loss Capacity Analysis has been run AND no cost-table (`processes`) records exist yet for
+    // this customer — there is no real data to build an opportunity list from. This used to fall
+    // back to fabricated illustrative loss figures (fixed fake amounts); that data was never real
+    // and has been removed. The wizard shows an explicit empty state instead (see isEmptyOpportunityData).
+    return [];
   };
 
   const opportunitiesList = generateOpportunities();
   // All items from a single generateOpportunities() call come from the same tier (the function
   // returns early per tier), so the first item's `source` reflects what's actually active —
   // previously the wizard banner hardcoded "Loss Capacity Analizi" regardless of which tier
-  // (real Loss Capacity data / real cost-table data / illustrative placeholder) was really serving.
+  // (real Loss Capacity data or real cost-table data) was really serving.
   const activeOpportunitySource = opportunitiesList[0]?.source || "Veri Kaynağı Yok";
   const isRealLossCapacityData = activeOpportunitySource === "Loss Capacity Analizi (COPQ & Cost Deployment)";
   const isAssumedOpportunityData = opportunitiesList.some(o => o.assumed);
+  const isEmptyOpportunityData = opportunitiesList.length === 0;
 
   // Helper to calculate project number (CIPYYAA-No)
   const getProjectNo = (proj: KaizenCard) => {
-    const dateStr = proj.dateProposed || "2026-07-11";
-    const year = dateStr.substring(2, 4) || "26";
-    const month = dateStr.substring(5, 7) || "07";
+    const dateStr = proj.dateProposed || new Date().toISOString().split('T')[0];
+    const year = dateStr.substring(2, 4);
+    const month = dateStr.substring(5, 7);
     
     // Sort all kaizens to get a stable sequence number for the index
     const sortedAll = [...kaizens].sort((a, b) => {
@@ -623,8 +566,8 @@ export default function KaizenManager({
     setEditImprovementActions(proj.improvementActions || "Belirlenen iyileştirme faaliyetleri planlanacaktır.");
     setEditResponsibles(proj.responsibles || proj.projectLeader || "");
     setEditActionsTaken(proj.actionsTaken || "Planlanan faaliyetler yürütülmektedir.");
-    setEditProjectLeader(proj.projectLeader || "Barış Gökdemir (OpEx Lead)");
-    setEditProjectSponsor(proj.projectSponsor || "Mehmet Soyer (Fabrika Müdürü)");
+    setEditProjectLeader(proj.projectLeader || "");
+    setEditProjectSponsor(proj.projectSponsor || "");
     setEditProjectTeam(proj.projectTeam || []);
     setEditProjectTeamInput("");
     setEditPlannedFinishDate(proj.plannedFinishDate || "");
@@ -1472,74 +1415,6 @@ export default function KaizenManager({
     setPendingCreation(null);
     setIsWizardOpen(false);
     handleOpenProjectDetails(newK);
-  };
-
-  const handleLaunchProject = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!projectName) return;
-
-    const leaderName = projectLeader;
-    const finalProblem = problemDefinition || (selectedOpportunity?.id !== "opp_other" ? selectedOpportunity?.problem : "") || projectName;
-
-    const newK: KaizenCard = {
-      id: `kai_${Math.random().toString(36).substring(2, 9)}`,
-      title: projectName,
-      originator: leaderName,
-      department: projectDept,
-      dateProposed: new Date().toISOString().split('T')[0],
-      impactLevel: projectImpact,
-      estimatedCost: Number(projectCost),
-      currentLoss: Number(projectCurrentLoss || (selectedOpportunity ? selectedOpportunity.currentCost : 0)),
-      actualSavings: 0, // start with 0 realized savings
-      status: "In Progress", // auto start
-      descriptionBefore: finalProblem,
-      descriptionAfter: "Aksiyon planı uygulanıyor, standartlaşma hedefleniyor.",
-      
-      // CI portfolio fields
-      description: projectDesc,
-      projectLeader: leaderName,
-      projectTeam: projectTeam,
-      projectSponsor: projectSponsor,
-      plannedFinishDate: plannedFinish,
-      phase: projectPhase,
-      opportunityId: selectedOpportunity?.id,
-      opportunityType: selectedOpportunity?.type,
-      kanbanStatus: "PLAN", // start in PLAN
-      tasks: [
-        { id: `tsk_1_${Math.random().toString(36).substring(2, 5)}`, name: "Mevcut Durum Standardizasyon Analizi", responsible: leaderName, deadline: plannedFinish, priority: "High", progressPercent: 0 },
-        { id: `tsk_2_${Math.random().toString(36).substring(2, 5)}`, name: "Kök Neden Analizi & Aksiyon Tasarımı", responsible: leaderName, deadline: plannedFinish, priority: "High", progressPercent: 0 }
-      ],
-      financialsInput: defaultFinancialsInput(),
-
-      // Prepopulate requested detail fields
-      problemDefinition: finalProblem,
-      problemDetail: problemDetail,
-      targetObjective: targetObjective,
-      rootCause: rootCause || "Kök neden 5 Neden analizi yapılması bekleniyor.",
-      improvementActions: improvementActions || "Belirlenen iyileştirme faaliyetleri planlanacaktır.",
-      responsibles: responsibles || leaderName,
-      actionsTaken: actionsTaken || "Proje başlangıç aşamasında."
-    };
-
-    onAddKaizen(newK);
-    syncWithGantt(newK, 'add');
-
-    // Reset wizard
-    setIsWizardOpen(false);
-    setWizardStep(1);
-    setWizardTab("firsat");
-    setSelectedOpportunity(null);
-    setProjectName("");
-    setProjectDesc("");
-    setProjectTeam([]);
-    setProjectCurrentLoss(0);
-    setProblemDefinition("");
-    setProblemDetail("");
-    setTargetObjective("");
-    setRootCause("");
-    setImprovementActions("");
-    setResponsibles("");
-    setActionsTaken("");
   };
 
   // Status Change (PLAN -> DO -> CHECK -> ACT)
@@ -3798,9 +3673,11 @@ export default function KaizenManager({
                       <span className={`font-bold px-2.5 py-1 rounded-md text-[10px] font-mono border flex items-center gap-1.5 shadow-3xs ${
                         isRealLossCapacityData
                           ? "text-emerald-700 bg-emerald-100 border-emerald-300"
-                          : isAssumedOpportunityData
-                            ? "text-amber-700 bg-amber-100 border-amber-300"
-                            : "text-slate-700 bg-slate-100 border-slate-300"
+                          : isEmptyOpportunityData
+                            ? "text-slate-500 bg-slate-100 border-slate-300"
+                            : isAssumedOpportunityData
+                              ? "text-amber-700 bg-amber-100 border-amber-300"
+                              : "text-slate-700 bg-slate-100 border-slate-300"
                       }`}>
                         {isRealLossCapacityData ? <CheckCircle className="w-3.5 h-3.5 text-emerald-600" /> : <AlertTriangle className="w-3.5 h-3.5" />}
                         <span>Veri Kaynağı: {activeOpportunitySource}</span>
@@ -3832,10 +3709,10 @@ export default function KaizenManager({
                   <p className="text-[11px] text-slate-600 leading-relaxed">
                     {isRealLossCapacityData ? (
                       <>Sistem, <strong>Loss Capacity Analizi (COPQ & Cost Deployment)</strong> modülünden elde edilen finansal kayıp konularını ve yalın gelişim potansiyellerini listelemektedir. <strong>Seçili Ürün Ailesi</strong> değiştiğinde, ilgili ürün grubunun üretim ve hacim payı oranına göre mevcut maliyet kayıpları ve kazanç potansiyelleri <strong>otomatik olarak ölçeklenmektedir</strong>.</>
-                    ) : isAssumedOpportunityData ? (
-                      <>Bu müşteri için henüz <strong>Loss Capacity Analizi</strong> çalıştırılmadı, bu yüzden aşağıdaki liste <strong>örnek/varsayılan tutarlar</strong> göstermektedir — gerçek finansal büyüklükler değildir. Gerçek rakamları görmek için Loss Capacity Analizi sekmesini bu müşteri için çalıştırın.</>
+                    ) : isEmptyOpportunityData ? (
+                      <>Bu müşteri için henüz kayıtlı bir <strong>Loss Capacity Analizi</strong> ya da <strong>Maliyet Tablosu (İşlem Kayıtları)</strong> verisi bulunmuyor, bu yüzden gösterilecek bir fırsat listesi yok. Fırsat havuzunun oluşması için önce İşlem Kayıtları'na maliyet verisi girin veya bu müşteri için Loss Capacity Analizi çalıştırın — ya da sağdaki <strong>"Yeni Proje Teması (Boş Form)"</strong> sekmesinden boş bir proje başlatın.</>
                     ) : (
-                      <>Sistem, saha maliyet kayıtlarından (VSM işlem verileri) türetilen gerçek kayıp konularını listelemektedir. Daha detaylı ve doğru bir kırılım için <strong>Loss Capacity Analizi</strong> modülünün bu müşteri için çalıştırılması önerilir.</>
+                      <>Sistem, saha maliyet kayıtlarından (İşlem Kayıtları / Maliyet Tablosu) türetilen <strong>gerçek maliyet tutarlarını</strong> listelemektedir; bu müşteri için henüz Loss Capacity Analizi çalıştırılmadığından, geri kazanım potansiyeli %60'lık standart bir Kaizen varsayımıyla hesaplanmıştır (gerçek geri kazanım oranı değildir). Daha detaylı ve doğru bir kırılım için <strong>Loss Capacity Analizi</strong> modülünün bu müşteri için çalıştırılması önerilir.</>
                     )}
                   </p>
                 </div>
@@ -3854,6 +3731,13 @@ export default function KaizenManager({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-slate-700 font-sans">
+                      {isEmptyOpportunityData && (
+                        <tr>
+                          <td colSpan={7} className="py-8 px-3 text-center text-slate-400 italic">
+                            Gösterilecek fırsat kaydı yok — Loss Capacity Analizi veya Maliyet Tablosu verisi bekleniyor.
+                          </td>
+                        </tr>
+                      )}
                       {opportunitiesList.map(opp => (
                         <tr key={opp.id} className="hover:bg-indigo-50/40 transition-colors">
                           <td className="py-3 px-3">
@@ -5090,7 +4974,7 @@ export default function KaizenManager({
                               {
                                 id: newId,
                                 name: "",
-                                responsible: editProjectLeader || "Barış Gökdemir (OpEx Lead)",
+                                responsible: editProjectLeader || "",
                                 deadline: editPlannedFinishDate || "",
                                 status: "Açık",
                                 progressPercent: 0
