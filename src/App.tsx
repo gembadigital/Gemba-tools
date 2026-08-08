@@ -188,11 +188,6 @@ export default function App() {
   // only kept here so Master Plan can offer a "5S Audits" link target for its progress-sync logic.
   const [audits5S, setAudits5S] = useState<any[]>([]);
 
-  // AI STATUS STRIP HANDLERS
-  const [reportText, setReportText] = useState<string | null>(null);
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-
   // STARTUP ORCHESTRATION HANDLER
   useEffect(() => {
     // 1. Intercept invitation / password-reset parameter tokens automatically
@@ -550,112 +545,6 @@ export default function App() {
     if (res.success) {
       setKaizens(prev => prev.filter(k => k.id !== id));
     }
-  };
-
-  const handleTriggerAiAudit = async () => {
-    if (!token) return;
-
-    setIsAiLoading(true);
-    setAiError(null);
-    setReportText(null);
-
-    // Compute basic payload aggregates
-    const bottleneck = [...processes].sort((a,b) => b.cycleTime - a.cycleTime)[0];
-
-    try {
-      const resp = await fetch("/api/gemini/audit", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          factoryData: {
-            stations: processes.map(p => ({
-              id: p.id,
-              name: p.name,
-              cycleTime: p.cycleTime,
-              downtimeHours: p.downtimeCost / 15000, 
-              scrapRate: p.scrapCost / 120000,
-              overtimeHours: p.overtimeRatio * 10,
-              excessHeadcount: p.excessLabor
-            })),
-            taktTime: 65, 
-          },
-          financials: {
-            sector: selectedCustomer.industry || "General",
-            turnover: selectedCustomer.annualRevenue || 10000000,
-            headcount: selectedCustomer.employeeCount || 200,
-            targetProfitPercent: 10,
-            currency: selectedCustomer.currency || "$",
-            overtimeHourlyRate: 250,
-            excessOperatorAnnualCost: 450000,
-            scrapUnitCost: 180,
-            annualProductionVolume: 400000,
-            downtimeHourlyCost: 15000
-          },
-          ganttActivities: activities,
-          spaghettiData: {
-            rawMaterialDistance: segments.filter(s => s.flowType === "Raw Material").reduce((acc, c) => acc + c.distanceMeters, 0),
-            wipDistance: segments.filter(s => s.flowType === "WIP").reduce((acc, c) => acc + c.distanceMeters, 0),
-            operatorDistance: 1200
-          },
-          calculatedMetrics: {
-            taktTime: 65,
-            bottleneckStation: bottleneck ? bottleneck.name : "N/A",
-            bottleneckCycleTime: bottleneck ? bottleneck.cycleTime : 0,
-            totalLossCost: processes.reduce((acc, p) => acc + p.scrapCost + p.downtimeCost, 0) || 120000,
-            lossToTurnoverPercent: Math.round(((processes.reduce((acc, p) => acc + p.scrapCost + p.downtimeCost, 0) || 120000) / (selectedCustomer.annualRevenue || 10000000)) * 1000) / 10
-          }
-        })
-      });
-
-      const res = await resp.json();
-      if (res.success) {
-        setReportText(res.report);
-      } else {
-        setAiError(res.error || "Rapor oluşturulamadı. Lütfen sunucu bağlantısını doğrulayın.");
-      }
-    } catch (err: any) {
-      setAiError(err.message || "Bilinmeyen sunucu bağlantı hatası.");
-    } finally {
-      setIsAiLoading(false);
-    }
-  };
-
-  const renderMarkdownText = (rawText: string) => {
-    const lines = rawText.split("\n");
-    return lines.map((line, index) => {
-      if (line.startsWith("###")) {
-        return (
-          <h4 key={index} className="text-xs font-black text-gray-900 mt-4 mb-2 border-b border-slate-100 pb-1 uppercase tracking-wide">
-            {line.replaceAll("###", "").trim()}
-          </h4>
-        );
-      }
-      if (line.startsWith("##")) {
-        return (
-          <h3 key={index} className="text-sm font-black text-gray-950 mt-6 mb-3 font-sans border-b border-slate-200 pb-1.5 uppercase">
-            {line.replaceAll("##", "").trim()}
-          </h3>
-        );
-      }
-      if (line.startsWith("-") || line.startsWith("*")) {
-        return (
-          <li key={index} className="text-[11px] text-gray-700 ml-4 list-disc mb-1 leading-relaxed">
-            {line.substring(1).trim()}
-          </li>
-        );
-      }
-      if (line.trim() === "") {
-        return <div key={index} className="h-1"></div>;
-      }
-      return (
-        <p key={index} className="text-[11px] text-gray-750 leading-relaxed mb-2">
-          {line}
-        </p>
-      );
-    });
   };
 
   // GATED AUTHENTICATION CHECK RENDERS
@@ -1098,11 +987,6 @@ export default function App() {
                   onAddCustomer={handleAddCustomer}
                   onUpdateCustomer={handleUpdateCustomer}
                   onDeleteCustomer={handleDeleteCustomer}
-                  onTriggerAiAudit={handleTriggerAiAudit}
-                  isAiLoading={isAiLoading}
-                  reportText={reportText}
-                  setReportText={setReportText}
-                  aiError={aiError}
                 />
               </div>
             )}

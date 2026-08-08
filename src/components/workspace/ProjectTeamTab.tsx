@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { CompanyWorkspaceExtended, ProjectTeamMember } from "../../types/workspace";
 import { Customer } from "../../types";
-import { Plus, Trash2, Users, Shield, Mail, UserCheck, AlertCircle, CheckCircle2, UserPlus, ShieldCheck } from "lucide-react";
+import { Plus, Trash2, Pencil, Users, Shield, Mail, UserCheck, AlertCircle, CheckCircle2, UserPlus, ShieldCheck } from "lucide-react";
 
 interface TeamBrief {
   id: string;
@@ -35,6 +35,9 @@ export default function ProjectTeamTab({ workspace, customer, token, currentUser
   const [role, setRole] = useState("Bölüm Müdürü");
   const [email, setEmail] = useState("");
   const [isProjectCoordinator, setIsProjectCoordinator] = useState(false);
+  // Set to the member's id while editing an existing entry; null while adding a new one — same
+  // form/modal is reused for both so role/category selection works identically in edit mode.
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
 
   const teamList = workspace.projectTeam || [];
 
@@ -129,34 +132,57 @@ export default function ProjectTeamTab({ workspace, customer, token, currentUser
     }
   };
 
-  const handleAddMember = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim() || !department.trim() || !role || !email.trim()) return;
-
-    // If marked as coordinator, unmark previous coordinator
-    let updatedTeamList = teamList;
-    if (isProjectCoordinator) {
-      updatedTeamList = teamList.map(m => ({ ...m, isProjectCoordinator: false }));
-    }
-
-    const newMember: ProjectTeamMember = {
-      id: "tm_" + Math.random().toString(36).substring(2, 9),
-      name: name.trim(),
-      department: department.trim(),
-      role,
-      email: email.trim(),
-      category,
-      isProjectCoordinator
-    };
-
-    onUpdateTeam([...updatedTeamList, newMember]);
-
-    // Reset Form
+  const resetMemberForm = () => {
     setName("");
     setDepartment("");
     setEmail("");
     setIsProjectCoordinator(false);
+    setEditingMemberId(null);
     setShowAddForm(false);
+  };
+
+  const handleStartEditMember = (member: ProjectTeamMember) => {
+    setEditingMemberId(member.id);
+    setCategory(member.category);
+    setName(member.name);
+    setDepartment(member.department);
+    setRole(member.role);
+    setEmail(member.email);
+    setIsProjectCoordinator(!!member.isProjectCoordinator);
+    setShowAddForm(true);
+  };
+
+  const handleSaveMember = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !department.trim() || !role || !email.trim()) return;
+
+    // If marked as coordinator, unmark whichever other member previously held it
+    let updatedTeamList = teamList;
+    if (isProjectCoordinator) {
+      updatedTeamList = teamList.map(m => ({ ...m, isProjectCoordinator: m.id === editingMemberId }));
+    }
+
+    if (editingMemberId) {
+      updatedTeamList = updatedTeamList.map(m =>
+        m.id === editingMemberId
+          ? { ...m, name: name.trim(), department: department.trim(), role, email: email.trim(), category, isProjectCoordinator }
+          : m
+      );
+    } else {
+      const newMember: ProjectTeamMember = {
+        id: "tm_" + Math.random().toString(36).substring(2, 9),
+        name: name.trim(),
+        department: department.trim(),
+        role,
+        email: email.trim(),
+        category,
+        isProjectCoordinator
+      };
+      updatedTeamList = [...updatedTeamList, newMember];
+    }
+
+    onUpdateTeam(updatedTeamList);
+    resetMemberForm();
   };
 
   const handleDeleteMember = (id: string) => {
@@ -325,30 +351,28 @@ export default function ProjectTeamTab({ workspace, customer, token, currentUser
           </form>
         )}
 
-        {/* Danışman Kartları Listesi */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {/* Danışman Listesi */}
+        <div className="divide-y divide-gray-100">
           {teamData.primaryConsultant && (
-            <div key={teamData.primaryConsultant.id} className="p-3.5 bg-gray-50/70 border border-gray-100 rounded-xl flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-zinc-900 text-white">
-                  1.D
+            <div key={teamData.primaryConsultant.id} className="py-3 flex items-center gap-3">
+              <div className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-zinc-900 text-white">
+                1.D
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-gray-900">{teamData.primaryConsultant.full_name}</span>
+                  <span className="text-[11px] px-1.5 py-0.2 rounded font-bold border bg-zinc-100 text-zinc-800 border-zinc-200">
+                    1. Danışman (Birincil)
+                  </span>
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-gray-900">{teamData.primaryConsultant.full_name}</span>
-                    <span className="text-[11px] px-1.5 py-0.2 rounded font-bold border bg-zinc-100 text-zinc-800 border-zinc-200">
-                      1. Danışman (Birincil)
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-gray-500 font-mono mt-0.5">{teamData.primaryConsultant.email}</div>
-                </div>
+                <div className="text-[10px] text-gray-500 font-mono mt-0.5">{teamData.primaryConsultant.email}</div>
               </div>
             </div>
           )}
           {teamData.consultants.map((cons, idx) => (
-            <div key={cons.id} className="p-3.5 bg-gray-50/70 border border-gray-100 rounded-xl flex items-center justify-between">
+            <div key={cons.id} className="py-3 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-blue-600 text-white">
+                <div className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-blue-600 text-white">
                   {idx + 2}.D
                 </div>
                 <div>
@@ -365,7 +389,7 @@ export default function ProjectTeamTab({ workspace, customer, token, currentUser
                 <button
                   type="button"
                   onClick={() => handleDeleteConsultant(cons.id)}
-                  className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0"
                   title="Danışmanı Kaldır"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -374,8 +398,8 @@ export default function ProjectTeamTab({ workspace, customer, token, currentUser
             </div>
           ))}
           {teamData.pendingConsultantInvites.map((inv) => (
-            <div key={inv.email} className="p-3.5 bg-amber-50/60 border border-amber-200 border-dashed rounded-xl flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-amber-100 text-amber-700">
+            <div key={inv.email} className="py-3 flex items-center gap-3">
+              <div className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-amber-100 text-amber-700">
                 ...
               </div>
               <div>
@@ -465,10 +489,10 @@ export default function ProjectTeamTab({ workspace, customer, token, currentUser
             Henüz davet edilmiş müşteri kullanıcısı yok.
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="divide-y divide-gray-100">
             {teamData.customerUsers.map((cu) => (
-              <div key={cu.id} className="p-3.5 bg-gray-50/70 border border-gray-100 rounded-xl flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-emerald-600 text-white">
+              <div key={cu.id} className="py-3 flex items-center gap-3">
+                <div className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-emerald-600 text-white">
                   <UserCheck className="w-4 h-4" />
                 </div>
                 <div>
@@ -478,8 +502,8 @@ export default function ProjectTeamTab({ workspace, customer, token, currentUser
               </div>
             ))}
             {teamData.pendingCustomerUserInvites.map((inv) => (
-              <div key={inv.email} className="p-3.5 bg-amber-50/60 border border-amber-200 border-dashed rounded-xl flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-amber-100 text-amber-700">
+              <div key={inv.email} className="py-3 flex items-center gap-3">
+                <div className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-amber-100 text-amber-700">
                   ...
                 </div>
                 <div>
@@ -519,6 +543,7 @@ export default function ProjectTeamTab({ workspace, customer, token, currentUser
           <button
             id="btn-add-team-member-trigger"
             onClick={() => {
+              setEditingMemberId(null);
               setShowAddForm(true);
               setCategory("management");
               setRole("Bölüm Müdürü");
@@ -532,9 +557,9 @@ export default function ProjectTeamTab({ workspace, customer, token, currentUser
       </div>
 
       {showAddForm && (
-        <form onSubmit={handleAddMember} className="bg-white border border-gray-100 rounded-xl p-6 space-y-4 shadow-2xs" id="team-member-form">
+        <form onSubmit={handleSaveMember} className="bg-white border border-gray-100 rounded-xl p-6 space-y-4 shadow-2xs" id="team-member-form">
           <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-            <h4 className="font-semibold text-gray-900 text-xs">Yeni Ekip Üyesi Tanımlama</h4>
+            <h4 className="font-semibold text-gray-900 text-xs">{editingMemberId ? "Ekip Üyesini Düzenle" : "Yeni Ekip Üyesi Tanımlama"}</h4>
             <div className="flex gap-1.5 p-0.5 bg-gray-100 rounded-lg">
               <button
                 type="button"
@@ -638,7 +663,7 @@ export default function ProjectTeamTab({ workspace, customer, token, currentUser
           <div className="flex justify-end gap-2 pt-2">
             <button
               type="button"
-              onClick={() => setShowAddForm(false)}
+              onClick={resetMemberForm}
               className="px-4 py-2 border border-gray-200 text-gray-500 hover:text-gray-800 hover:bg-gray-50 rounded-lg text-xs font-medium transition-colors"
             >
               İptal
@@ -647,7 +672,7 @@ export default function ProjectTeamTab({ workspace, customer, token, currentUser
               type="submit"
               className="px-4 py-2 bg-zinc-950 text-white rounded-lg hover:bg-zinc-800 text-xs font-medium transition-colors"
             >
-              Kaydet ve Ekle
+              {editingMemberId ? "Değişiklikleri Kaydet" : "Kaydet ve Ekle"}
             </button>
           </div>
         </form>
@@ -702,13 +727,22 @@ export default function ProjectTeamTab({ workspace, customer, token, currentUser
                       </div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDeleteMember(m.id)}
-                    className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
-                    title="Sil"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                    <button
+                      onClick={() => handleStartEditMember(m)}
+                      className="p-1.5 text-gray-400 hover:text-zinc-900 rounded-lg hover:bg-gray-100"
+                      title="Düzenle"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteMember(m.id)}
+                      className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                      title="Sil"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -763,13 +797,22 @@ export default function ProjectTeamTab({ workspace, customer, token, currentUser
                       </div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDeleteMember(m.id)}
-                    className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
-                    title="Sil"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                    <button
+                      onClick={() => handleStartEditMember(m)}
+                      className="p-1.5 text-gray-400 hover:text-zinc-900 rounded-lg hover:bg-gray-100"
+                      title="Düzenle"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteMember(m.id)}
+                      className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                      title="Sil"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               ))
             )}

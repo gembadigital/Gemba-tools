@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Customer } from "../types";
 import { 
   Users, Search, Plus, Filter, Maximize2, Minimize2, 
-  Trash2, Edit, ChevronRight, PlusCircle, Building, Sparkles, CheckCircle2, Loader2
+  Trash2, Edit, ChevronRight, PlusCircle, Building, CheckCircle2
 } from "lucide-react";
 
 // Workspace imports
@@ -15,7 +15,6 @@ import ProjectPortfolioTab from "./workspace/ProjectPortfolioTab";
 import AssetRegistryTab from "./workspace/AssetRegistryTab";
 import TimelineTab from "./workspace/TimelineTab";
 import ProjectTeamTab from "./workspace/ProjectTeamTab";
-import AiSummaryTab from "./workspace/AiSummaryTab";
 
 interface CustomerRecordsProps {
   customers: Customer[];
@@ -24,11 +23,6 @@ interface CustomerRecordsProps {
   onDeleteCustomer: (id: string) => void;
   onSelectCustomer: (customer: Customer) => void;
   selectedCustomer: Customer | null;
-  onTriggerAiAudit?: () => void;
-  isAiLoading?: boolean;
-  reportText?: string | null;
-  setReportText?: (val: string | null) => void;
-  aiError?: string | null;
   token?: string;
   currentUser?: any;
   onRefreshCustomers?: () => void;
@@ -41,11 +35,6 @@ export default function CustomerRecords({
   onDeleteCustomer,
   onSelectCustomer,
   selectedCustomer,
-  onTriggerAiAudit,
-  isAiLoading = false,
-  reportText = null,
-  setReportText,
-  aiError = null,
   token = "",
   currentUser,
   onRefreshCustomers
@@ -60,43 +49,8 @@ export default function CustomerRecords({
   const formatThousands = (n: number): string => n > 0 ? n.toLocaleString("tr-TR") : "";
   const parseThousands = (s: string): number => parseInt(s.replace(/\D/g, ""), 10) || 0;
 
-  const renderMarkdownText = (rawText: string) => {
-    const lines = rawText.split("\n");
-    return lines.map((line, index) => {
-      if (line.startsWith("###")) {
-        return (
-          <h4 key={index} className="text-xs font-black text-gray-900 mt-4 mb-2 border-b border-slate-100 pb-1 uppercase tracking-wide">
-            {line.replaceAll("###", "").trim()}
-          </h4>
-        );
-      }
-      if (line.startsWith("##")) {
-        return (
-          <h3 key={index} className="text-sm font-black text-gray-950 mt-6 mb-3 font-sans border-b border-slate-200 pb-1.5 uppercase">
-            {line.replaceAll("##", "").trim()}
-          </h3>
-        );
-      }
-      if (line.startsWith("-") || line.startsWith("*")) {
-        return (
-          <li key={index} className="text-[11px] text-gray-700 ml-4 list-disc mb-1 leading-relaxed">
-            {line.substring(1).trim()}
-          </li>
-        );
-      }
-      if (line.trim() === "") {
-        return <div key={index} className="h-1"></div>;
-      }
-      return (
-        <p key={index} className="text-[11px] text-gray-750 leading-relaxed mb-2">
-          {line}
-        </p>
-      );
-    });
-  };
-
   // Active Workspace tab
-  const [activeTab, setActiveTab] = useState<"dashboard" | "profile" | "projects" | "team" | "assets" | "timeline" | "documents" | "aiSummary">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "profile" | "projects" | "team" | "assets" | "timeline" | "documents">("dashboard");
 
   // Extended Workspace state for active customer
   const [workspace, setWorkspace] = useState<CompanyWorkspaceExtended | null>(null);
@@ -303,8 +257,7 @@ export default function CustomerRecords({
     { id: "team", label: "Proje Ekibi", icon: Users },
     { id: "assets", label: "Fabrika Varlıkları", icon: Building },
     { id: "timeline", label: "Proje Geçmişi", icon: Building },
-    { id: "documents", label: "Belgeler", icon: Building },
-    { id: "aiSummary", label: "AI Özet", icon: Sparkles }
+    { id: "documents", label: "Belgeler", icon: Building }
   ] as const;
 
   return (
@@ -421,28 +374,8 @@ export default function CustomerRecords({
                 </div>
               </div>
 
-              {/* Action Buttons: Yalın AI Raporu Al & Window Fullscreen */}
+              {/* Action Buttons: Window Fullscreen */}
               <div className="flex items-center gap-2 self-end sm:self-auto">
-                {onTriggerAiAudit && (
-                  <button
-                    onClick={onTriggerAiAudit}
-                    disabled={isAiLoading}
-                    className="bg-gray-950 hover:bg-gray-850 text-white disabled:opacity-50 text-[10px] font-black py-2.5 px-4 rounded-xl flex items-center space-x-1.5 cursor-pointer leading-none shrink-0 uppercase tracking-wider h-10 shadow-xs"
-                  >
-                    {isAiLoading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin text-white" />
-                        <span>Gemba Süzülüyor...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-                        <span>Yalın AI Raporu Al</span>
-                      </>
-                    )}
-                  </button>
-                )}
-
                 <button
                   id="btn-toggle-fullscreen"
                   onClick={() => setIsFullscreen(!isFullscreen)}
@@ -556,44 +489,7 @@ export default function CustomerRecords({
                 />
               )}
 
-              {activeTab === "aiSummary" && (
-                <AiSummaryTab
-                  workspace={workspace}
-                  onUpdateCachedSummary={(summary) => {
-                    saveWorkspaceData({ ...workspace, aiSummaryCached: summary });
-                  }}
-                />
-              )}
             </div>
-
-            {/* Bottom Ai report display card when loaded inside customer view */}
-            {reportText && (
-              <div className="bg-white border border-gray-300 rounded-xl p-5 shadow-lg space-y-3 relative overflow-hidden mt-6">
-                <div className="absolute top-0 left-0 right-0 h-1 bg-amber-400" />
-                <div className="flex justify-between items-center border-b border-gray-100 pb-2">
-                  <span className="font-extrabold text-[10px] uppercase tracking-wider text-amber-800 flex items-center space-x-1.5 font-mono">
-                    <Sparkles className="w-4 h-4 text-amber-500 shrink-0 animate-pulse" />
-                    <span>GEMBA PARTNER INTELLIGENT EXECUTIVE REPORT (YALIN ANALİZ RAPORU)</span>
-                  </span>
-                  <button 
-                    onClick={() => setReportText && setReportText(null)} 
-                    className="text-gray-400 hover:text-gray-650 font-black text-xs cursor-pointer uppercase font-mono"
-                  >
-                    Kapat X
-                  </button>
-                </div>
-
-                <div className="prose prose-sm max-w-none text-xs text-slate-850 leading-relaxed font-sans mt-3">
-                  {renderMarkdownText(reportText)}
-                </div>
-              </div>
-            )}
-
-            {aiError && (
-              <div className="bg-red-50 border border-red-200 p-4 rounded-xl text-xs text-red-800 mt-6">
-                ⚠️ Rapor üretilirken bağlantı hatası: {aiError}
-              </div>
-            )}
           </div>
         ) : (
           <div className="bg-white border border-gray-100 rounded-xl p-12 text-center shadow-2xs h-[400px] flex flex-col justify-center items-center" id="workspace-welcome-pane">
