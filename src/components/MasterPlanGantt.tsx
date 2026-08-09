@@ -316,6 +316,17 @@ export default function MasterPlanGantt({
   // Math.max(0, ...) in the position calcs below) instead of being silently misdated.
   const toAbsWeek = (rawWeek: number) => startYear * 52 + rawWeek;
 
+  // Fixed pixel widths for the Timeline view's two-pane layout (info column + week columns), so
+  // week cells always have enough room for "W32" (+ a "'27" year tag) and never visually run into
+  // each other regardless of how many weeks are in view — previously both panes shared one
+  // grid-cols-12 row, so a wide Zaman Aralığı (many weeks) either squeezed every cell unreadably
+  // thin or, if widened, stretched the info column proportionally along with it. Now the info
+  // column stays a constant width (and stays pinned via sticky while scrolling horizontally) and
+  // only the week-columns pane grows with totalWeeks, with the outer overflow-x-auto (below)
+  // providing a horizontal scrollbar for whatever doesn't fit on screen.
+  const INFO_COL_PX = 300;
+  const WEEK_COL_PX = 34;
+
   // Read-only "Proje Süresi" info line shown above the chart — earliest Proje Portföyü project
   // start date to latest end date (customer card > Proje Portföyü), converted to ISO week/year.
   // Purely informational: doesn't drive the editable Zaman Aralığı chart window above.
@@ -1738,7 +1749,7 @@ export default function MasterPlanGantt({
       {activeView === "timeline" && (
         <div className={`bg-white border border-gray-200 rounded-xl shadow-sm transition-all duration-300 ${
           isExpanded 
-            ? "fixed inset-4 md:inset-8 z-50 flex flex-col bg-white border-2 border-slate-300 shadow-2xl rounded-2xl p-2 md:p-4 overflow-hidden animate-fadeIn" 
+            ? "fixed inset-0 z-50 flex flex-col bg-white overflow-hidden animate-fadeIn"
             : "overflow-hidden"
         }`}>
 
@@ -1831,14 +1842,17 @@ export default function MasterPlanGantt({
           </div>
 
           <div className={`overflow-x-auto overflow-y-auto ${isExpanded ? "flex-1 min-h-0" : ""}`}>
-            <div className="min-w-[1000px] divide-y divide-gray-100">
-              
+            <div className="divide-y divide-gray-100">
+
               {/* Grid Header row */}
-              <div className="grid grid-cols-12 bg-gray-50/50 text-[10px] font-bold text-gray-400 uppercase tracking-wider py-2.5 items-center">
-                <div className="col-span-4 px-4">Yalın Faaliyet Bilgileri</div>
+              <div className="flex bg-gray-50/50 text-[10px] font-bold text-gray-400 uppercase tracking-wider py-2.5 items-center">
+                <div className="shrink-0 sticky left-0 z-10 bg-gray-50 px-4" style={{ width: INFO_COL_PX }}>Yalın Faaliyet Bilgileri</div>
 
                 {/* Generated Weeks Header */}
-                <div className="col-span-8 grid grid-flow-col auto-cols-fr text-center border-l border-gray-200">
+                <div
+                  className="shrink-0 grid grid-flow-col auto-cols-fr text-center border-l border-gray-200"
+                  style={{ width: totalWeeks * WEEK_COL_PX }}
+                >
                   {Array.from({ length: totalWeeks }).map((_, i) => {
                     const absW = absStart + i;
                     // Unwrap the absolute index back to a real calendar week/year for display.
@@ -1895,7 +1909,7 @@ export default function MasterPlanGantt({
                   return (
                     <div
                       key={act.id}
-                      className={`grid grid-cols-12 py-3 items-center group hover:bg-slate-50/40 transition-colors ${
+                      className={`flex py-3 items-center group hover:bg-slate-50/40 transition-colors ${
                         draggingActivityId === act.id ? "opacity-40" : ""
                       } ${isDragOverRow ? "border-t-2 border-emerald-500" : ""}`}
                       onDragOver={(e) => {
@@ -1911,8 +1925,12 @@ export default function MasterPlanGantt({
                       }}
                     >
 
-                      {/* Left: Info Card */}
-                      <div className="col-span-4 px-4 flex items-start space-x-2.5">
+                      {/* Left: Info Card — fixed width, pinned via sticky while the week columns
+                          scroll horizontally underneath (see WEEK_COL_PX/INFO_COL_PX above). */}
+                      <div
+                        className="shrink-0 sticky left-0 z-10 bg-white group-hover:bg-slate-50 px-4 flex items-start space-x-2.5"
+                        style={{ width: INFO_COL_PX }}
+                      >
 
                         {/* Drag handles & Order Controls */}
                         <div className="flex flex-col items-center justify-center space-y-0.5 shrink-0">
@@ -2052,7 +2070,10 @@ export default function MasterPlanGantt({
                       </div>
 
                       {/* Right: Dual timeline grid container */}
-                      <div className="col-span-8 h-16 relative border-l border-gray-200 flex flex-col justify-center px-1">
+                      <div
+                        className="shrink-0 h-16 relative border-l border-gray-200 flex flex-col justify-center px-1"
+                        style={{ width: totalWeeks * WEEK_COL_PX }}
+                      >
                         
                         {/* Weekly vertical lines background layer */}
                         <div className="absolute inset-0 grid grid-flow-col auto-cols-fr pointer-events-none">
