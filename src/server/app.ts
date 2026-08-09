@@ -1,5 +1,5 @@
 import express from "express";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { db, hashPassword, verifyPassword, needsRehash, User } from "./db.js";
 import jwt from "jsonwebtoken";
 import { generatePtrTemplateExcel, isPtrTemplateAvailable, buildPtrExportFilename, PtrTemplateRecord } from "./ptrExcelTemplate.js";
@@ -2673,6 +2673,113 @@ Do NOT include any conversational greetings or introductory/concluding filler wo
   } catch (error: any) {
     console.error("Gemini Master Plan Analyze Error:", error);
     res.status(500).json({ success: false, error: error.message || "Yapay zeka analizi oluşturulurken bir hata oluştu." });
+  }
+});
+
+// AI OPEX Transformation Planner — unlike every other /api/gemini/* route above (all free-text
+// markdown), this one drives an editable activity list downstream, so it asks Gemini for
+// schema-constrained JSON (responseMimeType/responseSchema) instead of markdown+regex-extraction.
+// Week-by-week scheduling is deliberately NOT requested from the model — it returns relative
+// durationWeeks/dependencies only; the client computes actual plannedStartWeek/plannedFinishWeek
+// (see scheduleAiProposal in MasterPlanGantt.tsx), since LLM week arithmetic isn't reliable enough
+// to trust for real Gantt placement.
+const OPEX_TRANSFORMATION_PLAN_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    currentStateSummary: { type: Type.STRING, description: "2-4 sentence summary of the factory's current OPEX maturity, in Turkish." },
+    priorityProblems: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Ranked list of the most urgent problems to address, in Turkish." },
+    phases: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          phaseLabel: { type: Type.STRING, description: "Short relative phase label, e.g. F1, F2, F3." },
+          phaseName: { type: Type.STRING, description: "Human-readable phase name in Turkish, e.g. 'Temel Veri Toplama'." },
+          activities: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                tempId: { type: Type.STRING, description: "Unique id within this proposal only, e.g. P01, P02." },
+                name: { type: Type.STRING },
+                category: { type: Type.STRING, description: "One of: 5S Audit, SMED, Yamazumi, VSM, Spaghetti, Time Study, Kaizen, OEE, Capacity Analysis, Saha Gözlemi, Süreç Analizi, Kick Off, Eğitim." },
+                durationWeeks: { type: Type.INTEGER, description: "Suggested duration in weeks, relative — not an absolute calendar week." },
+                plannedManDays: { type: Type.INTEGER, description: "Suggested consultant man-days for this activity." },
+                responsibleRole: { type: Type.STRING, description: "A generic role label (e.g. 'Yalın Danışman', 'Proje Lideri'), never a specific person's name." },
+                dependencies: { type: Type.ARRAY, items: { type: Type.STRING }, description: "tempIds of other proposed activities this one depends on, or empty array." },
+                rationale: { type: Type.STRING, description: "1-2 sentence explanation in Turkish of why this activity is proposed." }
+              },
+              required: ["tempId", "name", "category", "durationWeeks", "plannedManDays", "responsibleRole", "dependencies", "rationale"]
+            }
+          }
+        },
+        required: ["phaseLabel", "phaseName", "activities"]
+      }
+    }
+  },
+  required: ["currentStateSummary", "priorityProblems", "phases"]
+};
+
+app.post("/api/gemini/opex-transformation-plan", authenticateToken, async (req, res) => {
+  try {
+    const { narrative, masterPlanSummary, moduleSnapshots, language } = req.body;
+    if (!narrative || !narrative.trim()) {
+      res.status(400).json({ success: false, error: "Fabrika mevcut durumu ve hedefleri açıklaması gerekli." });
+      return;
+    }
+    const client = getGeminiClient();
+    const isTurkish = language !== "en";
+    const snapshots = moduleSnapshots || {};
+
+    const prompt = `
+You are a Senior OpEx / Lean Transformation Consultant building a phased transformation roadmap for a factory, in ${isTurkish ? "Turkish" : "English"}.
+
+CONSULTANT'S DESCRIPTION OF CURRENT STATE AND GOALS (this is the primary source of truth — when the system data below is sparse or empty, rely on this narrative instead):
+"""
+${narrative}
+"""
+
+EXISTING MASTER PLAN CAPACITY (do not propose more total plannedManDays across all activities than the remaining budget below — treat this as a hard ceiling):
+- Weekly consulting capacity: ${masterPlanSummary?.weeklyCapacity ?? "unknown"} man-days/week
+- Total contracted capacity so far: ${masterPlanSummary?.totalConsultingCapacity ?? "unknown"} man-days
+- Already consumed: ${masterPlanSummary?.consumedManDays ?? 0} man-days
+- Remaining budget for new proposed work: ${masterPlanSummary?.unusedCapacity ?? "unknown"} man-days
+
+EXISTING SYSTEM DATA (trimmed, most recent records; use to ground the current-state summary and avoid proposing work that's already done — if a section is empty, that module has no data yet and is itself a priority gap):
+- OPEX Assessments: ${JSON.stringify(snapshots.opexAssessments || [])}
+- VSM Projects: ${JSON.stringify(snapshots.vsmProjects || [])}
+- Loss Capacity Settings: ${JSON.stringify(snapshots.lossCapacitySettings || {})}
+- PTR / Time Study records: ${JSON.stringify(snapshots.timeStudies || [])}
+- Yamazumi Studies: ${JSON.stringify(snapshots.yamazumiStudies || [])}
+- SMED Projects: ${JSON.stringify(snapshots.smedProjects || [])}
+- 5S Audits: ${JSON.stringify(snapshots.audits5S || [])}
+- Kaizen Projects: ${JSON.stringify(snapshots.kaizens || [])}
+
+Propose a phased transformation roadmap: a current-state summary, ranked priority problems, and 2-5 phases each with a small set of concrete activities (name, category, suggested duration in weeks, suggested man-days, a generic responsible role, dependencies on other proposed activities by tempId, and a short rationale for why each activity is proposed). Order phases and activities logically (e.g. measurement/data-collection before analysis, current-state analysis before future-state design, foundational work before advanced pull-system work). Keep total proposed man-days within the remaining budget stated above.
+`;
+
+    const response = await client.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: OPEX_TRANSFORMATION_PLAN_SCHEMA
+      }
+    });
+
+    let parsedPlan: any;
+    try {
+      parsedPlan = JSON.parse(response.text || "");
+    } catch (parseErr) {
+      console.error("Gemini OPEX Transformation Plan — failed to parse structured JSON response:", parseErr, response.text);
+      res.status(502).json({ success: false, error: "Yapay zeka yanıtı ayrıştırılamadı, lütfen tekrar deneyin." });
+      return;
+    }
+
+    res.json({ success: true, plan: parsedPlan });
+  } catch (error: any) {
+    console.error("Gemini OPEX Transformation Plan Error:", error);
+    res.status(500).json({ success: false, error: error.message || "Yapay zeka dönüşüm planı oluşturulurken bir hata oluştu." });
   }
 });
 

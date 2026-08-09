@@ -49,6 +49,91 @@ function getIsoWeekAndYearFromDateString(isoDateStr?: string): { week: number; y
   return { week, year };
 }
 
+// --- AI OPEX TRANSFORMATION PLANNER — DETERMINISTIC SCHEDULER ---
+// The AI proposes relative structure only (phase order, activities, durationWeeks, dependencies
+// between proposed activities) — it never outputs absolute week numbers, since LLM arithmetic on
+// calendar weeks isn't reliable enough to trust for a real Gantt. This pure function converts that
+// relative structure into concrete plannedStartWeek/plannedFinishWeek (same flat week-number
+// convention the rest of this file already uses for planned/actual weeks, no year field), anchored
+// right after the real master plan's current last-used week. It also assigns activityNo/id and
+// remaps each activity's `dependencies` from the proposal-local tempId to the real activityNo, so
+// the result renders through the existing table/timeline/kanban views identically to a
+// hand-entered activity.
+interface AiProposedActivity {
+  tempId: string;
+  name: string;
+  category: string;
+  durationWeeks: number;
+  plannedManDays: number;
+  responsibleRole: string;
+  dependencies: string[];
+  rationale: string;
+}
+interface AiProposedPhase {
+  phaseLabel: string;
+  phaseName: string;
+  activities: AiProposedActivity[];
+}
+
+function scheduleAiProposal(phases: AiProposedPhase[], anchorWeek: number): any[] {
+  const finishWeekByTempId = new Map<string, number>();
+  const activityNoByTempId = new Map<string, string>();
+  let runningIndex = 0;
+  phases.forEach(phase => phase.activities.forEach(act => {
+    runningIndex += 1;
+    activityNoByTempId.set(act.tempId, String(runningIndex).padStart(2, "0"));
+  }));
+
+  const scheduled: any[] = [];
+  let phaseCursorStart = Math.max(1, anchorWeek);
+
+  phases.forEach(phase => {
+    let phaseMaxFinish = phaseCursorStart - 1;
+    phase.activities.forEach(act => {
+      let start = phaseCursorStart;
+      (act.dependencies || []).forEach(depTempId => {
+        const depFinish = finishWeekByTempId.get(depTempId);
+        if (depFinish !== undefined) start = Math.max(start, depFinish + 1);
+      });
+      const durationWeeks = Math.max(1, Math.round(act.durationWeeks) || 1);
+      const finish = start + durationWeeks - 1;
+      finishWeekByTempId.set(act.tempId, finish);
+      phaseMaxFinish = Math.max(phaseMaxFinish, finish);
+
+      scheduled.push({
+        id: "act_" + Math.random().toString(36).substring(2, 9),
+        activityNo: activityNoByTempId.get(act.tempId),
+        name: act.name,
+        category: act.category || "Kaizen",
+        phase: phase.phaseLabel,
+        priority: "Medium",
+        status: "Planned",
+        progressPercent: 0,
+        notes: "",
+        plannedStartWeek: start,
+        plannedFinishWeek: finish,
+        actualStartWeek: start,
+        actualFinishWeek: finish,
+        plannedManDays: Math.max(0, Math.round(act.plannedManDays) || 0),
+        consumedManDays: 0,
+        responsibleConsultant: act.responsibleRole || "",
+        owner: act.responsibleRole || "",
+        milestone: false,
+        dependencies: (act.dependencies || []).map(depTempId => activityNoByTempId.get(depTempId)).filter((v): v is string => !!v),
+        relatedModule: "",
+        linkedItemId: "",
+        parallelWith: "",
+        parentActivityId: "",
+        aiStatus: "proposed",
+        aiRationale: act.rationale || ""
+      });
+    });
+    phaseCursorStart = phaseMaxFinish + 1;
+  });
+
+  return scheduled;
+}
+
 export default function MasterPlanGantt({
   activities,
   kaizens = [],
@@ -127,6 +212,9 @@ export default function MasterPlanGantt({
   const [timeStudies, setTimeStudies] = useState<any[]>([]);
   const [yamazumiStudies, setYamazumiStudies] = useState<any[]>([]);
   const [opexAssessments, setOpexAssessments] = useState<any[]>([]);
+  // Single settings object per customer (not a list) — the one module summary the AI OPEX
+  // Transformation Planner needs that wasn't already loaded here for the "İlişkili Kayıt" linker.
+  const [lossCapacitySettings, setLossCapacitySettings] = useState<any>(null);
 
   useEffect(() => {
     if (!activeCustomerId || !token) return;
@@ -142,6 +230,33 @@ export default function MasterPlanGantt({
     loadList("/api/business/time-studies", setTimeStudies);
     loadList("/api/business/yamazumi-studies", setYamazumiStudies);
     loadList("/api/business/opex-assessments", setOpexAssessments);
+    fetch("/api/business/loss-capacity-settings", { headers: authHeaders })
+      .then(res => res.json())
+      .then(res => setLossCapacitySettings(res.success ? res.data : null))
+      .catch(() => setLossCapacitySettings(null));
+  }, [activeCustomerId, token]);
+
+  // Consultants actually assigned to this customer (primary + additional) — "Yalın Danışman"
+  // must be picked from this list, not free-typed, so third parties who aren't on the customer's
+  // card (e.g. a leftover placeholder name) can never end up as an activity's responsible person.
+  const [assignedConsultants, setAssignedConsultants] = useState<{ id: string; full_name: string }[]>([]);
+
+  useEffect(() => {
+    if (!activeCustomerId || !token) { setAssignedConsultants([]); return; }
+    fetch(`/api/business/customers/${activeCustomerId}/team`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(res => {
+        if (!res.success || !res.data) { setAssignedConsultants([]); return; }
+        const people: { id: string; full_name: string }[] = [];
+        if (res.data.primaryConsultant) people.push(res.data.primaryConsultant);
+        (res.data.consultants || []).forEach((c: any) => {
+          if (c && !people.some(p => p.id === c.id)) people.push(c);
+        });
+        setAssignedConsultants(people);
+      })
+      .catch(() => setAssignedConsultants([]));
   }, [activeCustomerId, token]);
 
   // Generic label picker for cross-module record dropdowns — each tool names its own record field
@@ -158,7 +273,10 @@ export default function MasterPlanGantt({
   // so it only ever existed in whichever browser last edited it and was invisible to the rest of
   // the team. Deleted plans stay in `customPlans` with `deletedAt` set (soft delete) so the trash
   // bin in Sistem Ayarları can restore or permanently delete them.
-  const [customPlans, setCustomPlans] = useState<{ id: string; name: string; activities: any[]; deletedAt?: string }[]>([]);
+  const [customPlans, setCustomPlans] = useState<{
+    id: string; name: string; activities: any[]; deletedAt?: string;
+    isAiGenerated?: boolean; aiNarrative?: string; currentStateSummary?: string; priorityProblems?: string[];
+  }[]>([]);
   const [selectedPackageId, setSelectedPackageId] = useState<string>("pkg_2");
   const [customCapacity, setCustomCapacity] = useState<number>(4);
   const [masterPlanStateReady, setMasterPlanStateReady] = useState(false);
@@ -401,6 +519,13 @@ export default function MasterPlanGantt({
   const [aiError, setAiError] = useState<string | null>(null);
   const [showAiPanel, setShowAiPanel] = useState(false);
 
+  // AI OPEX Transformation Planner state — separate from the read-only AI report above, since this
+  // one produces an editable, approvable activity list rather than a markdown panel.
+  const [isAiPlannerOpen, setIsAiPlannerOpen] = useState(false);
+  const [aiNarrativeInput, setAiNarrativeInput] = useState("");
+  const [isAiPlanLoading, setIsAiPlanLoading] = useState(false);
+  const [aiPlanError, setAiPlanError] = useState<string | null>(null);
+
   const handleGenerateAiSummary = async () => {
     setIsAiLoading(true);
     setAiError(null);
@@ -455,6 +580,116 @@ export default function MasterPlanGantt({
     }
   };
 
+  // Compact, scalar-only summaries per module — deliberately NOT the raw records (which can carry
+  // large base64 evidence photos on Kaizen/5S entries) and deliberately NOT each module's own
+  // derived-KPI calculations (those live as page-local useMemo blocks, not shared pure functions —
+  // duplicating them here would drift). Trimmed raw facts + the consultant's narrative is what the
+  // prompt reasons over; see the plan's rationale for why this scope was chosen.
+  const trimForAiPrompt = (arr: any[], pick: (r: any) => any, limit = 15) =>
+    (arr || []).slice(-limit).map(pick);
+
+  const handleGenerateAiTransformationPlan = async () => {
+    if (!aiNarrativeInput.trim()) {
+      setAiPlanError("Fabrika mevcut durumu ve hedefleri açıklaması gerekli.");
+      return;
+    }
+    setIsAiPlanLoading(true);
+    setAiPlanError(null);
+    try {
+      const response = await fetch("/api/gemini/opex-transformation-plan", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          narrative: aiNarrativeInput.trim(),
+          language: "tr",
+          masterPlanSummary: {
+            weeklyCapacity,
+            totalConsultingCapacity,
+            consumedManDays: kpis.consumedManDays,
+            unusedCapacity
+          },
+          moduleSnapshots: {
+            opexAssessments: trimForAiPrompt(opexAssessments, (a: any) => ({ title: a.title || a.name || "OpEx Assessment", status: a.status, date: a.createdAt || a.assessmentDate })),
+            vsmProjects: trimForAiPrompt(vsmProjects, (p: any) => ({ name: p.name, productGroup: p.productGroup, processCount: (p.vsmProcesses || []).length })),
+            lossCapacitySettings: lossCapacitySettings ? { annualRevenue: lossCapacitySettings.annualRevenue, industry: lossCapacitySettings.industry } : {},
+            timeStudies: trimForAiPrompt(timeStudies, (t: any) => ({ name: t.name || t.studyName || t.lineName, elementCount: (t.elements || []).length })),
+            yamazumiStudies: trimForAiPrompt(yamazumiStudies, (y: any) => ({ name: y.name || y.lineName, status: y.status })),
+            smedProjects: trimForAiPrompt(smedProjects, (s: any) => ({ name: s.name, status: s.status, currentSetupTime: s.currentSetupTime, targetSetupTime: s.targetSetupTime })),
+            audits5S: trimForAiPrompt(audits5S, (a: any) => ({ auditNo: a.auditNo, overallScore: a.overallScore, status: a.status }), 20),
+            kaizens: trimForAiPrompt(kaizens, (k: any) => ({ title: k.title, status: k.status, expectedGain: k.expectedGain, actualSavings: k.actualSavings }), 20)
+          }
+        })
+      });
+
+      const data = await response.json();
+      if (!data.success || !data.plan) {
+        setAiPlanError(data.error || "Yapay zeka dönüşüm planı oluşturulamadı, lütfen tekrar deneyin.");
+        return;
+      }
+
+      // Anchor the proposal right after the REAL master plan's latest planned finish week —
+      // deliberately reads the raw `activities` prop, not whichever tab happens to be active, so
+      // the anchor is always correct regardless of where the user triggered this from.
+      const masterMaxFinishWeek = activities.reduce((max, a) => Math.max(max, (a as any).plannedFinishWeek || 0), 0);
+      const anchorWeek = masterMaxFinishWeek > 0 ? masterMaxFinishWeek + 1 : (nowIsoWeek?.week ?? 1);
+      const scheduledActivities = scheduleAiProposal(data.plan.phases || [], anchorWeek);
+
+      const newPlanId = "plan_ai_" + Math.random().toString(36).substring(2, 9);
+      const proposalLabel = aiNarrativeInput.trim().slice(0, 40) + (aiNarrativeInput.trim().length > 40 ? "…" : "");
+      setCustomPlans(prev => [...prev, {
+        id: newPlanId,
+        name: `AI Önerisi — ${proposalLabel}`,
+        activities: scheduledActivities,
+        isAiGenerated: true,
+        aiNarrative: aiNarrativeInput.trim(),
+        currentStateSummary: data.plan.currentStateSummary || "",
+        priorityProblems: data.plan.priorityProblems || []
+      }]);
+      setCurrentTopTab(newPlanId);
+      setActiveView("table");
+      setIsAiPlannerOpen(false);
+      setAiNarrativeInput("");
+    } catch (e: any) {
+      setAiPlanError(e.message || "Yapay zeka dönüşüm planı oluşturulurken bağlantı hatası oluştu.");
+    } finally {
+      setIsAiPlanLoading(false);
+    }
+  };
+
+  // Commit approved AI-proposed activities into the REAL Master Plan. Deliberately calls the
+  // `onAddActivity` prop directly, not `onAddActivityLocal` — the user is sitting inside the AI
+  // plan's own custom-plan tab while clicking this, so the local wrapper (which routes by
+  // `currentTopTab`) would otherwise write the "committed" activities right back into the same AI
+  // plan instead of the real Master Plan. Committed activities are marked `aiStatus: "committed"`
+  // (not deleted) so the AI plan stays as an audit trail of what was proposed/approved/rejected.
+  const [isCommittingAiProposal, setIsCommittingAiProposal] = useState(false);
+  const handleCommitAiProposal = async () => {
+    if (!activeCustomPlan?.isAiGenerated) return;
+    const approved = activeCustomPlan.activities.filter((a: any) => a.aiStatus === "approved");
+    if (approved.length === 0) return;
+
+    setIsCommittingAiProposal(true);
+    try {
+      let nextActivityNo = activities.length;
+      for (const act of approved) {
+        nextActivityNo += 1;
+        const { id, aiStatus, ...rest } = act;
+        await onAddActivity({
+          ...rest,
+          activityNo: String(nextActivityNo).padStart(2, "0"),
+          startDate: "2026-06",
+          endDate: "2026-08"
+        });
+        onUpdateActivityLocal({ ...act, aiStatus: "committed" });
+      }
+    } finally {
+      setIsCommittingAiProposal(false);
+    }
+  };
+
   // 4. Form States for Add/Edit Activity
   const [formName, setFormName] = useState("");
   const [formCategory, setFormCategory] = useState("5S Audit");
@@ -468,7 +703,7 @@ export default function MasterPlanGantt({
   const [formActualStartWeek, setFormActualStartWeek] = useState(24);
   const [formActualFinishWeek, setFormActualFinishWeek] = useState(28);
   const [formPlannedManDays, setFormPlannedManDays] = useState(5);
-  const [formConsultant, setFormConsultant] = useState("Ahmet Yılmaz");
+  const [formConsultant, setFormConsultant] = useState("");
   const [formMilestone, setFormMilestone] = useState(false);
   const [formDependencies, setFormDependencies] = useState<string>("");
   const [formRelatedModule, setFormRelatedModule] = useState("");
@@ -507,7 +742,7 @@ export default function MasterPlanGantt({
 
     const actNo = (act as any).activityNo || String(index + 1).padStart(2, "0");
     const category = (act as any).category || (act.name.toLowerCase().includes("5s") ? "5S Audit" : act.name.toLowerCase().includes("smed") ? "SMED" : "Kaizen");
-    const resolvedConsultant = (act as any).responsibleConsultant || "Ahmet Yılmaz";
+    const resolvedConsultant = (act as any).responsibleConsultant || "Atanmadı";
 
     // Collect actual active weeks from PTR records if available. Case-insensitive EXACT name
     // match only — the previous bidirectional substring test on activitySubject/workDone/category
@@ -608,6 +843,15 @@ export default function MasterPlanGantt({
   const totalConsultingCapacity = totalContractWeeks * weeklyCapacity;
   const unusedCapacity = Math.max(0, totalConsultingCapacity - consumedManDays);
   const capacityOverrun = consumedManDays > totalConsultingCapacity;
+
+  // Master-plan-only capacity (independent of whichever tab is active) — used by the AI proposal's
+  // budget banner, which must always compare against the REAL Master Plan's remaining budget, not
+  // against the AI plan's own (not-yet-committed) activities.
+  const masterOnlyConsumedManDays = activities.reduce((sum, a) => sum + ((a as any).consumedManDays || 0), 0);
+  const masterOnlyUnusedCapacity = Math.max(0, totalConsultingCapacity - masterOnlyConsumedManDays);
+  const aiProposedTotalManDays = (activeCustomPlan?.isAiGenerated ? activeCustomPlan.activities : [])
+    .filter((a: any) => a.aiStatus !== "rejected")
+    .reduce((sum: number, a: any) => sum + (a.parallelWith ? 0 : (a.plannedManDays || 0)), 0);
 
   // Status counts
   const totalActivities = upgradedActivities.length;
@@ -799,7 +1043,7 @@ export default function MasterPlanGantt({
     setFormActualStartWeek(act.actualStartWeek || act.plannedStartWeek || 24);
     setFormActualFinishWeek(act.actualFinishWeek || act.plannedFinishWeek || 28);
     setFormPlannedManDays(act.plannedManDays ?? 5);
-    setFormConsultant(act.responsibleConsultant || "Ahmet Yılmaz");
+    setFormConsultant(act.responsibleConsultant || assignedConsultants[0]?.full_name || "");
     setFormMilestone(act.milestone || false);
     setFormDependencies(act.dependencies ? act.dependencies.join(", ") : "");
     setFormRelatedModule(act.relatedModule || "");
@@ -822,6 +1066,9 @@ export default function MasterPlanGantt({
     setFormLinkedItemId("");
     setFormParallelWith("");
     setPendingParentActivityId("");
+    // Default to the first customer-assigned consultant, never a placeholder name — if none are
+    // assigned yet, this stays blank and the required dropdown forces an explicit choice.
+    setFormConsultant(assignedConsultants[0]?.full_name || "");
     // New activities default to the phase already in progress (the highest phase used so far),
     // not always back to F1 — keeps consecutive adds in the same phase unless bumped manually.
     setFormPhase(defaultPhase);
@@ -1221,7 +1468,7 @@ export default function MasterPlanGantt({
 
           const category = row["Kategori"] || row["Yalın Sınıfı"] || row["Yalın Modül"] || row["Category"] || "Kaizen";
           const phase = row["Faz No"] || row["Faz"] || row["Phase"] || "";
-          const consultant = row["Sorumlu Danışman"] || row["Danışman"] || row["Sorumlu"] || row["Consultant"] || "Ahmet Yılmaz";
+          const consultant = row["Sorumlu Danışman"] || row["Danışman"] || row["Sorumlu"] || row["Consultant"] || "Atanmadı";
           const priority = row["Öncelik"] || row["Priority"] || "Medium";
 
           let progressPercent = 0;
@@ -1352,7 +1599,7 @@ export default function MasterPlanGantt({
                     isActive ? "text-emerald-600 font-extrabold" : "text-gray-500 hover:text-gray-800"
                   }`}
                 >
-                  <Calendar className="w-3.5 h-3.5" />
+                  {plan.isAiGenerated ? <Zap className="w-3.5 h-3.5" /> : <Calendar className="w-3.5 h-3.5" />}
                   <span>{plan.name}</span>
                 </button>
                 
@@ -1382,6 +1629,58 @@ export default function MasterPlanGantt({
           <span>+ Proje Planı Oluştur</span>
         </button>
       </div>
+
+      {/* AI TRANSFORMATION PROPOSAL REVIEW HEADER — only on an AI-generated custom plan tab */}
+      {activeCustomPlan?.isAiGenerated && (
+        <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 space-y-3">
+          <div className="flex items-center space-x-2">
+            <Zap className="w-4 h-4 text-violet-600" />
+            <h4 className="text-xs font-bold text-violet-900 uppercase tracking-wider">AI Dönüşüm Önerisi — İnceleme</h4>
+          </div>
+
+          {activeCustomPlan.currentStateSummary && (
+            <div>
+              <span className="text-[10px] uppercase font-bold text-violet-500 tracking-wider block mb-1">Mevcut Durum Özeti</span>
+              <p className="text-xs text-gray-700 leading-relaxed">{activeCustomPlan.currentStateSummary}</p>
+            </div>
+          )}
+
+          {activeCustomPlan.priorityProblems && activeCustomPlan.priorityProblems.length > 0 && (
+            <div>
+              <span className="text-[10px] uppercase font-bold text-violet-500 tracking-wider block mb-1">Öncelikli Problemler</span>
+              <ul className="text-xs text-gray-700 space-y-0.5 list-disc list-inside">
+                {activeCustomPlan.priorityProblems.map((p, i) => <li key={i}>{p}</li>)}
+              </ul>
+            </div>
+          )}
+
+          <div className={`flex items-center justify-between rounded-lg px-3 py-2 text-xs font-bold ${
+            aiProposedTotalManDays > masterOnlyUnusedCapacity ? "bg-red-50 text-red-700 border border-red-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+          }`}>
+            <span>
+              {aiProposedTotalManDays > masterOnlyUnusedCapacity
+                ? `Toplam önerilen ${aiProposedTotalManDays} Adam-Gün, kalan bütçeyi (${masterOnlyUnusedCapacity} Adam-Gün) ${aiProposedTotalManDays - masterOnlyUnusedCapacity} Adam-Gün aşıyor.`
+                : `Toplam önerilen ${aiProposedTotalManDays} Adam-Gün, kalan ${masterOnlyUnusedCapacity} Adam-Gün bütçe dahilinde.`}
+            </span>
+            <span className="text-[10px] font-normal opacity-70">Bilgilendirme amaçlıdır, onayı engellemez</span>
+          </div>
+
+          <div className="flex items-center justify-between pt-1 border-t border-violet-100">
+            <p className="text-[10px] text-violet-500 italic">
+              Faaliyetleri onaylayın/reddedin, gerekirse tablo görünümünden düzenleyin, sonra Master Plan'a aktarın.
+            </p>
+            <button
+              type="button"
+              onClick={handleCommitAiProposal}
+              disabled={isCommittingAiProposal || !activeCustomPlan.activities.some((a: any) => a.aiStatus === "approved")}
+              className="shrink-0 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs py-2 px-4 rounded-lg flex items-center space-x-2 transition-all cursor-pointer border border-violet-700"
+            >
+              <ArrowRight className="w-3.5 h-3.5" />
+              <span>{isCommittingAiProposal ? "Aktarılıyor..." : "Onaylananları Master Plan'a Aktar"}</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 1. TOP SUMMARY DASHBOARD */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
@@ -1583,6 +1882,15 @@ export default function MasterPlanGantt({
             >
               <BrainCircuit className={`w-4 h-4 ${isAiLoading ? "animate-pulse" : ""}`} />
               <span>{isAiLoading ? "Analiz Ediliyor..." : "Yapay Zeka Analizi"}</span>
+            </button>
+
+            <button
+              onClick={() => { setAiPlanError(null); setIsAiPlannerOpen(true); }}
+              className="w-full bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center space-x-2 transition-all cursor-pointer border border-violet-700 mt-2"
+              id="ai_opex_transformation_planner_trigger"
+            >
+              <Zap className="w-4 h-4" />
+              <span>AI Dönüşüm Planlayıcı</span>
             </button>
           </div>
 
@@ -2305,9 +2613,11 @@ export default function MasterPlanGantt({
                   <th className="py-2.5 px-3">Danışman</th>
                   <th className="py-2.5 px-3 text-center">Plan Hafta</th>
                   <th className="py-2.5 px-3 text-center">Gerçekleşen Hafta</th>
+                  {activeCustomPlan?.isAiGenerated && <th className="py-2.5 px-3 text-center">Adam-Gün</th>}
                   <th className="py-2.5 px-3 text-center">İlerleme Oranı</th>
                   <th className="py-2.5 px-3">Öncelik</th>
                   <th className="py-2.5 px-3">Durum</th>
+                  {activeCustomPlan?.isAiGenerated && <th className="py-2.5 px-3 text-center">AI Onay Durumu</th>}
                   <th className="py-2.5 px-3 text-right">İşlemler</th>
                 </tr>
               </thead>
@@ -2360,6 +2670,16 @@ export default function MasterPlanGantt({
                     <td className="py-3 px-3">{act.responsibleConsultant}</td>
                     <td className="py-3 px-3 font-mono text-center">W{act.plannedStartWeek} - W{act.plannedFinishWeek}</td>
                     <td className="py-3 px-3 font-mono text-center text-gray-500">W{act.actualStartWeek} - W{act.actualFinishWeek}</td>
+                    {activeCustomPlan?.isAiGenerated && (
+                      <td className="py-3 px-3 text-center">
+                        <span className="font-mono font-semibold">{act.plannedManDays}</span>
+                        {act.aiStatus && (
+                          <span className="ml-1 text-[9px] bg-violet-50 text-violet-600 border border-violet-200 px-1 py-0.5 rounded font-bold whitespace-nowrap" title="Yapay zeka önerisi">
+                            AI Önerisi
+                          </span>
+                        )}
+                      </td>
+                    )}
                     <td className="py-3 px-3 text-center">
                       <div className="flex items-center justify-center space-x-1.5">
                         <span className="font-mono font-semibold">%{act.progressPercent}</span>
@@ -2387,6 +2707,34 @@ export default function MasterPlanGantt({
                         {act.status}
                       </span>
                     </td>
+                    {activeCustomPlan?.isAiGenerated && (
+                      <td className="py-3 px-3">
+                        <div className="flex items-center justify-center space-x-1.5">
+                          {act.aiRationale && (
+                            <span title={act.aiRationale} className="text-violet-400 hover:text-violet-600 cursor-help shrink-0">
+                              <Info className="w-3.5 h-3.5" />
+                            </span>
+                          )}
+                          {act.aiStatus === "committed" ? (
+                            <span className="px-2 py-0.5 rounded-[4px] font-bold text-[10px] uppercase bg-gray-100 text-gray-500 whitespace-nowrap">Aktarıldı</span>
+                          ) : (
+                            <select
+                              value={act.aiStatus || "proposed"}
+                              onChange={(e) => onUpdateActivityLocal({ ...act, aiStatus: e.target.value })}
+                              className={`text-[10px] font-bold uppercase rounded-full border px-2 py-0.5 cursor-pointer ${
+                                act.aiStatus === "approved" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                                act.aiStatus === "rejected" ? "bg-red-50 text-red-700 border-red-200" :
+                                "bg-amber-50 text-amber-700 border-amber-200"
+                              }`}
+                            >
+                              <option value="proposed">Beklemede</option>
+                              <option value="approved">Onayla</option>
+                              <option value="rejected">Reddet</option>
+                            </select>
+                          )}
+                        </div>
+                      </td>
+                    )}
                     <td className="py-3 px-3 text-right">
                       <div className="flex items-center justify-end space-x-1.5">
                         <button
@@ -2592,6 +2940,16 @@ export default function MasterPlanGantt({
 
             <form onSubmit={editingActivity ? handleEditSave : handleSave} className="p-5 space-y-3.5 text-xs overflow-y-auto">
 
+              {editingActivity?.aiRationale && (
+                <div className="bg-violet-50 border border-violet-200 rounded-lg p-2.5 flex items-start space-x-2">
+                  <Zap className="w-3.5 h-3.5 text-violet-500 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-violet-600 tracking-wider block">AI Önerisi — Neden Önerildi?</span>
+                    <p className="text-[11px] text-violet-800 leading-snug">{editingActivity.aiRationale}</p>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-gray-500 font-bold mb-1">Aktivite / Kaizen / Proje Adı *</label>
                 <input
@@ -2630,13 +2988,28 @@ export default function MasterPlanGantt({
 
                 <div>
                   <label className="block text-gray-500 font-bold mb-1">Yalın Danışman</label>
-                  <input
-                    type="text"
+                  <select
                     required
                     className="w-full bg-white border border-gray-300 rounded p-2"
                     value={formConsultant}
                     onChange={(e) => setFormConsultant(e.target.value)}
-                  />
+                  >
+                    <option value="" disabled>Danışman seçin…</option>
+                    {/* Editing an activity whose consultant is no longer on the customer's team
+                        (reassigned/removed since) still shows their name here, so the field never
+                        silently blanks out — but only the assigned list below is offered to pick from. */}
+                    {formConsultant && !assignedConsultants.some(c => c.full_name === formConsultant) && (
+                      <option value={formConsultant}>{formConsultant} (artık atanmış değil)</option>
+                    )}
+                    {assignedConsultants.map(c => (
+                      <option key={c.id} value={c.full_name}>{c.full_name}</option>
+                    ))}
+                  </select>
+                  {assignedConsultants.length === 0 && (
+                    <p className="text-[10px] text-amber-600 font-semibold mt-1">
+                      Bu müşteriye atanmış danışman yok. Önce Müşteri Kartı üzerinden bir danışman atayın.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -2998,6 +3371,77 @@ export default function MasterPlanGantt({
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* AI OPEX TRANSFORMATION PLANNER MODAL */}
+      {isAiPlannerOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-200">
+
+            <div className="bg-violet-50 px-5 py-4 border-b border-violet-100 flex justify-between items-center">
+              <h3 className="text-xs font-bold text-gray-900 uppercase flex items-center space-x-2">
+                <Zap className="w-4 h-4 text-violet-600" />
+                <span>AI Dönüşüm Planlayıcı</span>
+              </h3>
+              <button
+                onClick={() => { setIsAiPlannerOpen(false); setAiPlanError(null); }}
+                disabled={isAiPlanLoading}
+                className="text-gray-400 hover:text-gray-600 font-bold text-sm cursor-pointer disabled:opacity-40"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              <p className="text-gray-500 leading-relaxed">
+                Fabrikanın mevcut durumunu ve dönüşüm hedeflerini serbest metinle anlatın. Yapay zeka, bu açıklamayı ve sistemdeki mevcut OPEX Assessment / VSM / Loss Capacity / Time Study / Yamazumi / SMED / 5S / Kaizen verilerini birlikte değerlendirerek fazlara ayrılmış bir dönüşüm yol haritası önerecektir. Öneri doğrudan Master Plan'a yazılmaz — inceleyip düzenleyip onayladıktan sonra aktarabilirsiniz.
+              </p>
+
+              <div>
+                <label className="block text-gray-600 font-bold mb-2 uppercase tracking-wider text-[10px]">
+                  Mevcut Durum ve Hedefler *
+                </label>
+                <textarea
+                  required
+                  rows={6}
+                  placeholder="Örn: Fabrikada operasyonel veri tutulmuyor. Çevrim zamanları ölçülecek, kapasite analizi yapılacak, OEE altyapısı kurulacak. Mevcut üretim akışı analiz edilecek, ideal akış belirlenecek. Asakai ve günlük yönetim başlayacak. Faz 2'de prosesler arası çekme sistemine geçilecek."
+                  className="w-full bg-white border border-gray-300 rounded-lg p-2.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 resize-none"
+                  value={aiNarrativeInput}
+                  onChange={(e) => setAiNarrativeInput(e.target.value)}
+                  disabled={isAiPlanLoading}
+                  autoFocus
+                />
+                <p className="text-[10px] text-gray-400 mt-1.5">
+                  Kalan danışmanlık bütçesi: <b>{unusedCapacity} Adam-Gün</b> — öneri bu bütçeyi referans alır.
+                </p>
+              </div>
+
+              {aiPlanError && (
+                <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{aiPlanError}</div>
+              )}
+
+              <div className="flex justify-end space-x-2 pt-3 border-t border-gray-150">
+                <button
+                  type="button"
+                  onClick={() => { setIsAiPlannerOpen(false); setAiPlanError(null); }}
+                  disabled={isAiPlanLoading}
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold px-4 py-2 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGenerateAiTransformationPlan}
+                  disabled={isAiPlanLoading || !aiNarrativeInput.trim()}
+                  className="bg-violet-600 hover:bg-violet-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold px-5 py-2 rounded-lg transition-colors shadow-sm cursor-pointer flex items-center space-x-2"
+                >
+                  <Zap className={`w-3.5 h-3.5 ${isAiPlanLoading ? "animate-pulse" : ""}`} />
+                  <span>{isAiPlanLoading ? "Öneri Oluşturuluyor..." : "Öneri Oluştur"}</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
