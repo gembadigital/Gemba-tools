@@ -659,6 +659,22 @@ export default function MasterPlanGantt({
     }
   };
 
+  // Sets an AI-proposed activity's approve/reject status directly on `customPlans`, by id, using
+  // `activeCustomPlan.id` rather than routing through `onUpdateActivityLocal`/`currentTopTab`. That
+  // wrapper (and the table row's `act`) work off `upgradedActivities` — a derived object rebuilt
+  // every render with recomputed fallback fields (resolvedConsultant, actualWeeks, etc.) merged in
+  // — so writing it back wholesale risked baking transient derived values into persisted state.
+  // This targets only the one field that actually needs to change, directly on the raw stored
+  // activity, which is also what the commit button's `activeCustomPlan.activities.some(...)` check
+  // reads — keeping both in the same, single source of truth.
+  const handleSetAiStatus = (activityId: string, status: "proposed" | "approved" | "rejected" | "committed") => {
+    if (!activeCustomPlan) return;
+    const planId = activeCustomPlan.id;
+    setCustomPlans(prev => prev.map(p => p.id === planId
+      ? { ...p, activities: p.activities.map((a: any) => a.id === activityId ? { ...a, aiStatus: status } : a) }
+      : p));
+  };
+
   // Commit approved AI-proposed activities into the REAL Master Plan. Deliberately calls the
   // `onAddActivity` prop directly, not `onAddActivityLocal` — the user is sitting inside the AI
   // plan's own custom-plan tab while clicking this, so the local wrapper (which routes by
@@ -683,7 +699,7 @@ export default function MasterPlanGantt({
           startDate: "2026-06",
           endDate: "2026-08"
         });
-        onUpdateActivityLocal({ ...act, aiStatus: "committed" });
+        handleSetAiStatus(act.id, "committed");
       }
     } finally {
       setIsCommittingAiProposal(false);
@@ -2720,7 +2736,7 @@ export default function MasterPlanGantt({
                           ) : (
                             <select
                               value={act.aiStatus || "proposed"}
-                              onChange={(e) => onUpdateActivityLocal({ ...act, aiStatus: e.target.value })}
+                              onChange={(e) => handleSetAiStatus(act.id, e.target.value as any)}
                               className={`text-[10px] font-bold uppercase rounded-full border px-2 py-0.5 cursor-pointer ${
                                 act.aiStatus === "approved" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
                                 act.aiStatus === "rejected" ? "bg-red-50 text-red-700 border-red-200" :

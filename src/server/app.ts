@@ -2731,13 +2731,26 @@ app.post("/api/gemini/opex-transformation-plan", authenticateToken, async (req, 
     const isTurkish = language !== "en";
     const snapshots = moduleSnapshots || {};
 
+    // The consultant's own narrative is a genuine current-state input, not a summary to restate —
+    // it must be synthesized together with whatever system data exists, not echoed back as if the
+    // consultant's own sentences were "findings." OPEX Assessment is the one module this route
+    // explicitly branches on (per the user's own scoping): if it's empty, say so and lean on the
+    // narrative alone for that dimension; if it has data, both must be reasoned over together.
+    const hasOpexAssessmentData = Array.isArray(snapshots.opexAssessments) && snapshots.opexAssessments.length > 0;
+    const opexAssessmentInstruction = hasOpexAssessmentData
+      ? "OPEX Assessment verisi mevcut — mutlaka aşağıdaki OPEX Assessment kayıtlarını (skor/kategori bilgisi) danışmanın açıklamasıyla BİRLİKTE değerlendirerek analiz yap; ikisi arasında çelişki varsa bunu öncelikli problem olarak belirt."
+      : "OPEX Assessment verisi bulunmuyor — bu boşluğun kendisini bir öncelik problemi olarak belirt ve mevcut durum/hedefler için SADECE danışmanın açıklamasına dayan.";
+
     const prompt = `
 You are a Senior OpEx / Lean Transformation Consultant building a phased transformation roadmap for a factory, in ${isTurkish ? "Turkish" : "English"}.
 
-CONSULTANT'S DESCRIPTION OF CURRENT STATE AND GOALS (this is the primary source of truth — when the system data below is sparse or empty, rely on this narrative instead):
+CONSULTANT'S DESCRIPTION OF CURRENT STATE AND GOALS — this is a raw input to analyze, not a summary to repeat. Never copy or lightly reword the consultant's own sentences into "currentStateSummary" or "priorityProblems" — read it, combine it with the system data below, and produce your own synthesized assessment and findings:
 """
 ${narrative}
 """
+
+OPEX ASSESSMENT DATA RULE: ${opexAssessmentInstruction}
+For every OTHER module below that is empty, treat it the same way: an empty module has no data yet, which is itself worth naming as a gap, and for that specific dimension you fall back to the narrative; a module with data must be reasoned over alongside the narrative, not ignored.
 
 EXISTING MASTER PLAN CAPACITY (do not propose more total plannedManDays across all activities than the remaining budget below — treat this as a hard ceiling):
 - Weekly consulting capacity: ${masterPlanSummary?.weeklyCapacity ?? "unknown"} man-days/week
@@ -2745,7 +2758,7 @@ EXISTING MASTER PLAN CAPACITY (do not propose more total plannedManDays across a
 - Already consumed: ${masterPlanSummary?.consumedManDays ?? 0} man-days
 - Remaining budget for new proposed work: ${masterPlanSummary?.unusedCapacity ?? "unknown"} man-days
 
-EXISTING SYSTEM DATA (trimmed, most recent records; use to ground the current-state summary and avoid proposing work that's already done — if a section is empty, that module has no data yet and is itself a priority gap):
+EXISTING SYSTEM DATA (trimmed, most recent records; use to ground the current-state summary and avoid proposing work that's already done):
 - OPEX Assessments: ${JSON.stringify(snapshots.opexAssessments || [])}
 - VSM Projects: ${JSON.stringify(snapshots.vsmProjects || [])}
 - Loss Capacity Settings: ${JSON.stringify(snapshots.lossCapacitySettings || {})}
@@ -2755,7 +2768,7 @@ EXISTING SYSTEM DATA (trimmed, most recent records; use to ground the current-st
 - 5S Audits: ${JSON.stringify(snapshots.audits5S || [])}
 - Kaizen Projects: ${JSON.stringify(snapshots.kaizens || [])}
 
-Propose a phased transformation roadmap: a current-state summary, ranked priority problems, and 2-5 phases each with a small set of concrete activities (name, category, suggested duration in weeks, suggested man-days, a generic responsible role, dependencies on other proposed activities by tempId, and a short rationale for why each activity is proposed). Order phases and activities logically (e.g. measurement/data-collection before analysis, current-state analysis before future-state design, foundational work before advanced pull-system work). Keep total proposed man-days within the remaining budget stated above.
+Propose a phased transformation roadmap: a current-state summary (your own synthesis, not a restatement of the narrative), ranked priority problems (specific and diagnostic, not generic restatements of what the consultant already said), and 2-5 phases each with a small set of concrete activities (name, category, suggested duration in weeks, suggested man-days, a generic responsible role, dependencies on other proposed activities by tempId, and a short rationale for why each activity is proposed — the rationale must reference the actual data or narrative point that justifies it). Order phases and activities logically (e.g. measurement/data-collection before analysis, current-state analysis before future-state design, foundational work before advanced pull-system work). Keep total proposed man-days within the remaining budget stated above.
 `;
 
     const response = await client.models.generateContent({
