@@ -804,6 +804,14 @@ export default function LossAnalysis() {
   const totalIdealOperators = calculatedProcesses.reduce((sum, p) => sum + p.targetWorkforce, 0);
   const overallOLE = totalRealOperators > 0 ? (totalIdealOperators / totalRealOperators) * 100 : 0;
 
+  // Fazla İşçilik / Norm Kadro Fazlası — already-calculated per-process figures (helpers.ts
+  // excessLaborHeadcount/targetWorkforceTakt) that weren't yet surfaced anywhere on the
+  // dashboard. Reused as-is here, not recomputed, so this stays consistent with the Overall
+  // Labor Effectiveness card above and with financialImpact.laborLoss (which already prices
+  // excessLaborHeadcount at hourlyLaborRate and is scope/override-scaled).
+  const totalExcessLaborHeadcount = calculatedProcesses.reduce((sum, p) => sum + p.excessLaborHeadcount, 0);
+  const totalTargetWorkforceTakt = calculatedProcesses.reduce((sum, p) => sum + p.targetWorkforceTakt, 0);
+
   // Overall Value Stream Efficiency (OVSE)
   const overallOVSE = computedLeadTimeDays > 0 ? ( (averageCycleTime / (3600 * 8)) / computedLeadTimeDays ) * 100 : 0;
 
@@ -2369,6 +2377,42 @@ export default function LossAnalysis() {
 
             </div>
 
+            {/* İŞ GÜCÜ FİNANSAL ETKİSİ (FAZLA İŞÇİLİK / NORM KADRO) */}
+            <div className="bg-white border rounded-2xl p-5 shadow-xs border-slate-200" id="dashboard_workforce_financial_impact">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-b border-slate-100 pb-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <Target className="w-4 h-4 text-indigo-600" />
+                  <h3 className="text-sm font-black tracking-tight text-slate-800 uppercase">İş Gücü Finansal Etkisi (Fazla İşçilik / Norm Kadro)</h3>
+                </div>
+                <span className="text-[10px] text-slate-400">Mevcut kapasite &amp; OLE verilerinden hesaplanır — ek veri girişi gerekmez</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                  <span className="text-[10px] uppercase text-slate-400 font-bold tracking-wider block">Mevcut İş Gücü</span>
+                  <div className="text-xl font-black font-mono tracking-tight text-slate-900 mt-1">{totalRealOperators.toFixed(0)} kişi</div>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                  <span className="text-[10px] uppercase text-slate-400 font-bold tracking-wider block">Norm (Hedef) İş Gücü</span>
+                  <div className="text-xl font-black font-mono tracking-tight text-slate-900 mt-1">{totalIdealOperators.toFixed(1)} kişi</div>
+                  <p className="text-[10px] text-slate-400 mt-1">Takt bazlı: {totalTargetWorkforceTakt.toFixed(1)} kişi</p>
+                </div>
+
+                <div className="p-4 bg-rose-50 rounded-xl border border-rose-100">
+                  <span className="text-[10px] uppercase text-rose-500 font-bold tracking-wider block">Fazla İşçilik (Norm Fazlası)</span>
+                  <div className="text-xl font-black font-mono tracking-tight text-rose-700 mt-1">{totalExcessLaborHeadcount.toFixed(1)} kişi</div>
+                  <p className="text-[10px] text-rose-400 mt-1">Yeniden kullanım / redeploy potansiyeli</p>
+                </div>
+
+                <div className="p-4 bg-rose-50 rounded-xl border border-rose-100">
+                  <span className="text-[10px] uppercase text-rose-500 font-bold tracking-wider block">Yıllık Fazla İşçilik Maliyeti</span>
+                  <div className="text-xl font-black font-mono tracking-tight text-rose-700 mt-1">{formatMoney(financialImpact.laborLoss.year)}</div>
+                  <p className="text-[10px] text-rose-400 mt-1">Toplam Kârlılık Sızıntısı'nın %{financialImpact.totalOperationalLosses.year > 0 ? ((financialImpact.laborLoss.year / financialImpact.totalOperationalLosses.year) * 100).toFixed(1) : "0.0"} kadarı</p>
+                </div>
+              </div>
+            </div>
+
             {/* ADVANCED LEAN EFFECTIVENESS CHARTS */}
             <div className={`rounded-2xl border p-5 bg-white border-slate-200 shadow-xs`}>
               <span className="font-extrabold text-[10px] uppercase text-rose-800 tracking-wider">Tesis Yalın Etkinlik Çarpanları</span>
@@ -2979,7 +3023,7 @@ export default function LossAnalysis() {
                     <tr className="border-b text-[10px] font-extrabold uppercase font-sans bg-slate-50 text-slate-500">
                       <th className="py-3 px-4">Maliyet Kalemi</th>
                       <th className="py-3 px-4 text-center w-40">Oran (%)</th>
-                      <th className="py-3 px-4 text-right w-64">Parasal Karşılık (TL)</th>
+                      <th className="py-3 px-4 text-right w-64">Parasal Karşılık ({currencySymbol})</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -3237,7 +3281,7 @@ export default function LossAnalysis() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">Operatör Saatlik Ücreti (TL)</label>
+                  <label className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">Operatör Saatlik Ücreti ({currencySymbol})</label>
                   <input 
                     type="number"
                     value={hourlyLaborRate}
@@ -3258,7 +3302,7 @@ export default function LossAnalysis() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">Enerji kWh Birim Maliyeti (TL)</label>
+                  <label className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">Enerji kWh Birim Maliyeti ({currencySymbol})</label>
                   <input 
                     type="number"
                     step="0.1"
@@ -3269,7 +3313,7 @@ export default function LossAnalysis() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">Makine Saatlik Amortismanı (TL)</label>
+                  <label className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">Makine Saatlik Amortismanı ({currencySymbol})</label>
                   <input 
                     type="number"
                     value={machineOverheadHour}
@@ -3279,7 +3323,7 @@ export default function LossAnalysis() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">İç Lojistik Sevk Oranı (TL/km)</label>
+                  <label className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">İç Lojistik Sevk Oranı ({currencySymbol}/km)</label>
                   <input 
                     type="number"
                     value={logisticsRateKm}
