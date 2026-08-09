@@ -288,28 +288,25 @@ export default function MasterPlanGantt({
     }
   };
 
-  // Settings: Project Time Range (Zaman Aralığı) — Başlangıç/Bitiş Yıl+Hafta. Defaults below to
-  // "this ISO week -> +15 weeks" until the Proje Portföyü effect (further down) resolves a real
-  // default from the customer's registered project start/end dates; user can freely override
-  // afterward (this only runs once per customer since App.tsx remounts this component per
-  // key={selectedCustomerId}, so it never clobbers a manual edit mid-session).
+  // Settings: Project Time Range (Zaman Aralığı) — Başlangıç/Bitiş Yıl+Hafta, the actual chart
+  // zoom window. Kept narrow by default ("this ISO week -> +15 weeks") regardless of how long the
+  // customer's overall project runs — the Proje Portföyü span (which can be a full year or more)
+  // is shown separately, read-only, above the chart (see projectPortfolioRange below) instead of
+  // forcing this editable window that wide. Fully user-editable afterward.
   const nowIsoWeek = getIsoWeekAndYearFromDateString(new Date().toISOString().split("T")[0]);
   const [startWeek, setStartWeek] = useState(nowIsoWeek?.week ?? 1);
   const [startYear, setStartYear] = useState(nowIsoWeek?.year ?? new Date().getFullYear());
   const [endWeek, setEndWeek] = useState(Math.min(52, (nowIsoWeek?.week ?? 1) + 15));
   const [endYear, setEndYear] = useState(nowIsoWeek?.year ?? new Date().getFullYear());
-  // The rest of this module (chart columns, drag positioning, Excel export/import) treats
-  // start/endWeek as a single linear week-of-year axis and individual activities carry no year of
-  // their own — startYear/endYear are additional context for the picker and default-calculation
-  // only, not fed into that math, so this stays exactly as safe as before for same-year ranges.
-  // Clamped defensively since, unlike before, a user can now pick an end year/week that's
-  // technically "before" the start (e.g. mismatched years) without it being an impossible input.
   const totalWeeks = Math.max(1, endWeek - startWeek + 1);
 
-  // Default the Zaman Aralığı above from the customer card's Proje Portföyü (customer card >
-  // Proje Portföyü tab) — earliest registered project start date and latest end date, converted
-  // to ISO week/year. Runs once per customer; silently keeps the "this week -> +15" fallback above
-  // if the customer has no portfolio projects with dates yet (nothing to override with).
+  // Read-only "Proje Süresi" info line shown above the chart — earliest Proje Portföyü project
+  // start date to latest end date (customer card > Proje Portföyü), converted to ISO week/year.
+  // Purely informational: doesn't drive the editable Zaman Aralığı chart window above.
+  const [projectPortfolioRange, setProjectPortfolioRange] = useState<{
+    startWeek: number; startYear: number; endWeek: number; endYear: number;
+  } | null>(null);
+
   useEffect(() => {
     if (!activeCustomerId || !token) return;
     fetch("/api/business/company-workspace", {
@@ -320,19 +317,15 @@ export default function MasterPlanGantt({
         const projects: any[] = (res.success && res.data?.projects) || [];
         const starts = projects.map((p: any) => p.startDate).filter(Boolean).sort();
         const ends = projects.map((p: any) => p.endDate).filter(Boolean).sort();
-        if (starts.length === 0) return;
+        if (starts.length === 0) { setProjectPortfolioRange(null); return; }
         const startInfo = getIsoWeekAndYearFromDateString(starts[0]);
         const endInfo = getIsoWeekAndYearFromDateString(ends.length > 0 ? ends[ends.length - 1] : starts[starts.length - 1]);
-        if (startInfo) {
-          setStartWeek(startInfo.week);
-          setStartYear(startInfo.year);
-        }
-        if (endInfo) {
-          setEndWeek(endInfo.week);
-          setEndYear(endInfo.year);
-        }
+        setProjectPortfolioRange(startInfo && endInfo ? {
+          startWeek: startInfo.week, startYear: startInfo.year,
+          endWeek: endInfo.week, endYear: endInfo.year
+        } : null);
       })
-      .catch(() => {});
+      .catch(() => setProjectPortfolioRange(null));
   }, [activeCustomerId, token]);
 
   // 1. Consulting Package Contract State (selectedPackageId/customCapacity are declared above,
@@ -1717,7 +1710,17 @@ export default function MasterPlanGantt({
             ? "fixed inset-4 md:inset-8 z-50 flex flex-col bg-white border-2 border-slate-300 shadow-2xl rounded-2xl p-2 md:p-4 overflow-hidden animate-fadeIn" 
             : "overflow-hidden"
         }`}>
-          
+
+          {projectPortfolioRange && (
+            <div className="px-4 pt-3 pb-1 text-[11px] text-gray-500 font-semibold flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-gray-400" />
+              <span>Proje Süresi (Proje Portföyü):</span>
+              <span className="text-gray-800 font-bold">
+                {projectPortfolioRange.startYear}/H{projectPortfolioRange.startWeek} → {projectPortfolioRange.endYear}/H{projectPortfolioRange.endWeek}
+              </span>
+            </div>
+          )}
+
           <div className="p-4 border-b border-gray-150 bg-gray-50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-center space-x-2 flex-wrap gap-y-1">
               {isExpanded && (
@@ -1730,11 +1733,10 @@ export default function MasterPlanGantt({
               <span className="w-3 h-3 bg-emerald-500 rounded-full ml-2"></span>
               <span className="text-[11px] font-bold text-gray-600">Gerçekleşme / Mevcut Durum (Actual)</span>
             </div>
-            
+
             <div className="flex items-center space-x-3 text-xs w-full sm:w-auto justify-between sm:justify-end">
-              {/* Time range adjuster — defaults from Proje Portföyü's start/end dates (see the
-                  effect above), editable by hand as Başlangıç/Bitiş Yıl + Hafta. */}
-              <div className="flex items-center space-x-1.5" title="Müşteri kartı > Proje Portföyü başlangıç/bitiş tarihlerinden varsayılan olarak hesaplanır; elle değiştirilebilir.">
+              {/* Chart zoom window — independent of the read-only Proje Süresi banner above. */}
+              <div className="flex items-center space-x-1.5">
                 <span className="text-gray-500 font-medium">Zaman Aralığı:</span>
                 <div className="flex items-center gap-1">
                   <input
@@ -1779,11 +1781,6 @@ export default function MasterPlanGantt({
                     onChange={(e) => setEndWeek(Number(e.target.value))}
                   />
                 </div>
-                {startYear !== endYear && (
-                  <span className="text-amber-600 font-bold text-[10px]" title="Zaman ekseni tek takvim yılı varsayımıyla çalışır; farklı yıllara ait haftalar zaman çizelgesinde doğru sıralanmayabilir.">
-                    ⚠️
-                  </span>
-                )}
               </div>
 
               {/* Screen Expansion Trigger */}
