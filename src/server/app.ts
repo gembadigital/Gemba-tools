@@ -756,6 +756,36 @@ app.post("/api/admin/users/:id/status", authenticateToken, async (req, res) => {
   }
 });
 
+// Renaming yourself is fine (unlike role/status above) — there's no privilege or lockout risk in
+// an Admin correcting their own display name, so this intentionally skips the "not on yourself" guard.
+app.post("/api/admin/users/:id/name", authenticateToken, async (req, res) => {
+  try {
+    const adminUser = (req as any).user;
+    if (adminUser.role !== "Admin") {
+      res.status(403).json({ success: false, error: "Access Denied." });
+      return;
+    }
+
+    const fullName = (req.body.full_name || "").trim();
+    if (!fullName) {
+      res.status(400).json({ success: false, error: "Ad Soyad boş olamaz." });
+      return;
+    }
+    const targetUserId = req.params.id;
+
+    const targetUser = (await db.getUsers()).find(u => u.id === targetUserId && u.organization_id === adminUser.organization_id);
+    if (!targetUser) {
+      res.status(404).json({ success: false, error: "User not found in this workspace." });
+      return;
+    }
+
+    await db.updateUser(targetUserId, { full_name: fullName });
+    res.json({ success: true, message: "İsim güncellendi." });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // One-time cleanup for the "none_default" placeholder-id bug (see App.tsx / db.ts comments) —
 // deletes any records that ended up scoped to that literal synthetic id in this org.
 app.post("/api/admin/cleanup-orphaned-data", authenticateToken, async (req, res) => {
@@ -952,6 +982,40 @@ app.delete("/api/business/customers/:id/consultants/:userId", authenticateToken,
   }
   const consultantIds: string[] = (customer.consultantIds || []).filter((id: string) => id !== req.params.userId);
   await db.saveCustomer(user.organization_id, { id: customer.id, consultantIds }, user.id);
+  res.json({ success: true });
+});
+
+// Set (or clear) a customer's Primary Consultant. Nothing in this app ever wrote
+// `primaryConsultantId` before this route existed — invitation acceptance and the "add consultant"
+// route above both only ever add to `consultantIds` (secondary) — so for any customer whose primary
+// was never set at creation, there was genuinely no way to assign one. Admin-only: this is an
+// org-chart-level change (it changes who has `canManageConsultants` rights on the customer), not a
+// routine team edit like adding a secondary consultant.
+app.post("/api/business/customers/:id/set-primary-consultant", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  if (user.role !== "Admin") {
+    res.status(403).json({ success: false, error: "Only an Admin can assign the Primary Consultant." });
+    return;
+  }
+  const customer = (await db.getCustomers(user.organization_id)).find((c: any) => c.id === req.params.id);
+  if (!customer) {
+    res.status(404).json({ success: false, error: "Customer not found." });
+    return;
+  }
+
+  const consultantId = req.body.consultantId || null;
+  if (consultantId) {
+    const target = (await db.getUsers()).find(u => u.id === consultantId && u.organization_id === user.organization_id);
+    if (!target || (target.role !== "Consultant" && target.role !== "Admin")) {
+      res.status(400).json({ success: false, error: "Seçilen kullanıcı bu organizasyonda Danışman veya Yönetici rolünde değil." });
+      return;
+    }
+  }
+
+  // If the new primary was already a secondary consultant, drop them from that list — they now
+  // occupy the primary slot instead, not both (avoids double-counting against the 3-seat cap).
+  const consultantIds: string[] = (customer.consultantIds || []).filter((id: string) => id !== consultantId);
+  await db.saveCustomer(user.organization_id, { id: customer.id, primaryConsultantId: consultantId, consultantIds }, user.id);
   res.json({ success: true });
 });
 

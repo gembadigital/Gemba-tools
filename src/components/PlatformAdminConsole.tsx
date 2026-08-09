@@ -3,7 +3,7 @@ import {
   Building2, Users, ShieldCheck, Mail,
   Sparkles, Search, X, CheckCircle2,
   Plus, Lock, ShieldAlert,
-  ChevronRight, Trash2, Loader2, AlertTriangle, Save
+  ChevronRight, Trash2, Loader2, AlertTriangle, Save, Pencil
 } from "lucide-react";
 import { SIDEBAR_MODULES, DEFAULT_ROLE_MODULE_VISIBILITY, RoleModuleVisibility } from "../constants/sidebarModules";
 
@@ -80,6 +80,9 @@ const TRANSLATIONS = {
     youLabel: "(Siz)",
     roleChangeError: "Rol değiştirilemedi.",
     statusChangeError: "Durum değiştirilemedi.",
+    editNameTooltip: "Adı Düzenle",
+    nameEmptyError: "Ad Soyad boş olamaz.",
+    nameChangeError: "İsim güncellenemedi.",
     rbacHeading: "3. Rol ve Yetki Yönetimi (RBAC)",
     rbacSubtitle: "Rol bazlı modül erişim matrisi.",
     adminFullAccessNote: "Yönetici rolü tüm modüllerde tam yetkiye sahiptir.",
@@ -176,6 +179,9 @@ const TRANSLATIONS = {
     youLabel: "(You)",
     roleChangeError: "Failed to change role.",
     statusChangeError: "Failed to change status.",
+    editNameTooltip: "Edit Name",
+    nameEmptyError: "Full name cannot be empty.",
+    nameChangeError: "Failed to update name.",
     rbacHeading: "3. Role & Permission Management (RBAC)",
     rbacSubtitle: "Role-based module access matrix.",
     adminFullAccessNote: "The Admin role has full access to every module.",
@@ -272,6 +278,9 @@ const TRANSLATIONS = {
     youLabel: "(Sie)",
     roleChangeError: "Rolle konnte nicht geändert werden.",
     statusChangeError: "Status konnte nicht geändert werden.",
+    editNameTooltip: "Namen bearbeiten",
+    nameEmptyError: "Name darf nicht leer sein.",
+    nameChangeError: "Name konnte nicht aktualisiert werden.",
     rbacHeading: "3. Rollen- und Rechteverwaltung (RBAC)",
     rbacSubtitle: "Rollenbasierte Modulzugriffsmatrix.",
     adminFullAccessNote: "Die Rolle Administrator hat vollen Zugriff auf alle Module.",
@@ -345,6 +354,9 @@ export default function PlatformAdminConsole({
   const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
   const [roleChangeBusyId, setRoleChangeBusyId] = useState<string | null>(null);
   const [statusChangeBusyId, setStatusChangeBusyId] = useState<string | null>(null);
+  const [editingNameUserId, setEditingNameUserId] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState("");
+  const [nameSaveBusyId, setNameSaveBusyId] = useState<string | null>(null);
 
   // Section 3: Role & Module Visibility — real, backend-persisted (GET/POST
   // /api/admin/role-module-visibility), enforced live in App.tsx's sidebar. Admin always has full
@@ -488,6 +500,33 @@ export default function PlatformAdminConsole({
       showToast(e.message || t.statusChangeError);
     } finally {
       setStatusChangeBusyId(null);
+    }
+  };
+
+  const handleSaveName = async (userId: string) => {
+    const trimmed = nameDraft.trim();
+    if (!trimmed) {
+      showToast(t.nameEmptyError);
+      return;
+    }
+    setNameSaveBusyId(userId);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/name`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ full_name: trimmed })
+      });
+      const data = await res.json();
+      if (!data.success) {
+        showToast(data.error || t.nameChangeError);
+        return;
+      }
+      setEditingNameUserId(null);
+      fetchUsers();
+    } catch (e: any) {
+      showToast(e.message || t.nameChangeError);
+    } finally {
+      setNameSaveBusyId(null);
     }
   };
 
@@ -1004,7 +1043,50 @@ export default function PlatformAdminConsole({
                           return (
                           <tr key={u.id} className="hover:bg-slate-50/50">
                             <td className="px-4 py-3">
-                              <div className="font-bold text-slate-900">{u.full_name} {isSelf && <span className="text-slate-400 font-semibold">{t.youLabel}</span>}</div>
+                              {editingNameUserId === u.id ? (
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="text"
+                                    autoFocus
+                                    value={nameDraft}
+                                    onChange={(e) => setNameDraft(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") handleSaveName(u.id);
+                                      if (e.key === "Escape") setEditingNameUserId(null);
+                                    }}
+                                    disabled={nameSaveBusyId === u.id}
+                                    className="font-bold text-slate-900 border border-indigo-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveName(u.id)}
+                                    disabled={nameSaveBusyId === u.id}
+                                    className="p-1 text-emerald-600 hover:bg-emerald-50 rounded disabled:opacity-50"
+                                  >
+                                    <Save className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingNameUserId(null)}
+                                    disabled={nameSaveBusyId === u.id}
+                                    className="p-1 text-slate-400 hover:bg-slate-100 rounded disabled:opacity-50"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="font-bold text-slate-900 flex items-center gap-1.5 group">
+                                  <span>{u.full_name} {isSelf && <span className="text-slate-400 font-semibold">{t.youLabel}</span>}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setEditingNameUserId(u.id); setNameDraft(u.full_name); }}
+                                    title={t.editNameTooltip}
+                                    className="p-0.5 text-slate-300 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  >
+                                    <Pencil className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              )}
                               <div className="text-[10px] font-mono text-slate-400">{u.email}</div>
                             </td>
                             <td className="px-4 py-3">

@@ -94,6 +94,57 @@ export default function ProjectTeamTab({ workspace, customer, token, currentUser
   }, [customer?.id, token]);
 
   const isAdmin = currentUser?.role === "Admin";
+
+  // Org-wide Consultant/Admin roster, for the Primary Consultant picker below. Nothing in the app
+  // ever writes `customer.primaryConsultantId` on its own — invitation acceptance and "İlave
+  // Danışman Ekle" both only ever add to the secondary `consultantIds` list — so for a customer
+  // whose primary was never set (e.g. created before this existed, or never assigned), there was
+  // genuinely no way to assign one anywhere in the UI. Admin-only, same as the org-chart-level
+  // "/role" and "/status" admin actions elsewhere.
+  const [orgConsultants, setOrgConsultants] = useState<TeamBrief[]>([]);
+  const [isSettingPrimary, setIsSettingPrimary] = useState(false);
+  const [primaryPickerValue, setPrimaryPickerValue] = useState("");
+  const [primaryConsultantBusy, setPrimaryConsultantBusy] = useState(false);
+  const [primaryConsultantError, setPrimaryConsultantError] = useState("");
+
+  useEffect(() => {
+    if (!isAdmin || !token) return;
+    fetch("/api/admin/users", { headers: { "Authorization": `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) {
+          setOrgConsultants((res.users || []).filter((u: any) => u.role === "Consultant" || u.role === "Admin"));
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, token]);
+
+  const handleSetPrimaryConsultant = async () => {
+    if (!primaryPickerValue) return;
+    setPrimaryConsultantBusy(true);
+    setPrimaryConsultantError("");
+    try {
+      const res = await fetch(`/api/business/customers/${customer.id}/set-primary-consultant`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ consultantId: primaryPickerValue })
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setPrimaryConsultantError(data.error || "Birincil danışman atanamadı.");
+        return;
+      }
+      setIsSettingPrimary(false);
+      setPrimaryPickerValue("");
+      fetchTeam();
+      onRefreshCustomers?.();
+    } catch (e: any) {
+      setPrimaryConsultantError(e.message || "Birincil danışman atanamadı.");
+    } finally {
+      setPrimaryConsultantBusy(false);
+    }
+  };
   const isPrimaryConsultant = currentUser?.id === customer.primaryConsultantId;
   const isAssignedConsultant = isPrimaryConsultant || teamData.consultants.some((c) => c.id === currentUser?.id);
   const canManageConsultants = isAdmin || isPrimaryConsultant;
@@ -353,20 +404,87 @@ export default function ProjectTeamTab({ workspace, customer, token, currentUser
 
         {/* Danışman Listesi */}
         <div className="divide-y divide-gray-100">
-          {teamData.primaryConsultant && (
-            <div key={teamData.primaryConsultant.id} className="py-3 flex items-center gap-3">
-              <div className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-zinc-900 text-white">
-                1.D
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-gray-900">{teamData.primaryConsultant.full_name}</span>
-                  <span className="text-[11px] px-1.5 py-0.2 rounded font-bold border bg-zinc-100 text-zinc-800 border-zinc-200">
-                    1. Danışman (Birincil)
-                  </span>
+          {teamData.primaryConsultant ? (
+            <div key={teamData.primaryConsultant.id} className="py-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-zinc-900 text-white">
+                  1.D
                 </div>
-                <div className="text-[10px] text-gray-500 font-mono mt-0.5">{teamData.primaryConsultant.email}</div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-900">{teamData.primaryConsultant.full_name}</span>
+                    <span className="text-[11px] px-1.5 py-0.2 rounded font-bold border bg-zinc-100 text-zinc-800 border-zinc-200">
+                      1. Danışman (Birincil)
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-gray-500 font-mono mt-0.5">{teamData.primaryConsultant.email}</div>
+                </div>
               </div>
+              {isAdmin && !isSettingPrimary && (
+                <button
+                  type="button"
+                  onClick={() => { setIsSettingPrimary(true); setPrimaryPickerValue(""); setPrimaryConsultantError(""); }}
+                  className="text-[10px] font-bold text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 px-2 py-1 rounded-lg transition-colors shrink-0"
+                >
+                  Değiştir
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="py-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center font-extrabold text-xs shadow-2xs bg-gray-100 text-gray-400 border border-dashed border-gray-300">
+                  1.D
+                </div>
+                <span className="text-xs font-semibold text-gray-400">Birincil danışman atanmamış</span>
+              </div>
+              {isAdmin && !isSettingPrimary && (
+                <button
+                  type="button"
+                  onClick={() => { setIsSettingPrimary(true); setPrimaryPickerValue(""); setPrimaryConsultantError(""); }}
+                  className="text-[10px] font-bold text-white bg-zinc-900 hover:bg-zinc-800 px-2.5 py-1.5 rounded-lg transition-colors shrink-0"
+                >
+                  Birincil Danışman Ata
+                </button>
+              )}
+            </div>
+          )}
+          {isSettingPrimary && (
+            <div className="py-3 space-y-2 bg-zinc-50/60 -mx-4 px-4">
+              <label className="text-[10px] font-bold text-gray-500 uppercase block">
+                {teamData.primaryConsultant ? "Yeni Birincil Danışman" : "Birincil Danışman Seç"}
+              </label>
+              <div className="flex gap-2">
+                <select
+                  value={primaryPickerValue}
+                  onChange={(e) => setPrimaryPickerValue(e.target.value)}
+                  className="flex-1 min-w-0 text-xs border border-gray-200 rounded-lg px-3 py-2 bg-white"
+                >
+                  <option value="">Danışman seçin…</option>
+                  {orgConsultants.map((c) => (
+                    <option key={c.id} value={c.id}>{c.full_name} ({c.email})</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleSetPrimaryConsultant}
+                  disabled={!primaryPickerValue || primaryConsultantBusy}
+                  className="shrink-0 bg-zinc-950 text-white text-xs font-bold px-3 py-2 rounded-lg disabled:opacity-50"
+                >
+                  {primaryConsultantBusy ? "Atanıyor..." : "Ata"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setIsSettingPrimary(false); setPrimaryConsultantError(""); }}
+                  disabled={primaryConsultantBusy}
+                  className="shrink-0 text-xs font-bold text-gray-500 hover:bg-gray-100 px-3 py-2 rounded-lg disabled:opacity-50"
+                >
+                  İptal
+                </button>
+              </div>
+              {primaryConsultantError && (
+                <p className="text-[10px] text-red-600 font-semibold">{primaryConsultantError}</p>
+              )}
             </div>
           )}
           {teamData.consultants.map((cons, idx) => (

@@ -544,31 +544,37 @@ export default function CustomerRecords({
                     className="px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden"
                   />
                 </div>
+                {/* Para Birimi is its own field, chosen before the revenue amount — every other
+                    module (VSM, Loss Analizi, Master Plan) reads this customer's `currency` for
+                    every financial figure it shows, so it needs to be a deliberate, visible choice
+                    at creation time rather than a small inline selector easy to leave at the
+                    default and never revisit. */}
+                <div className="flex flex-col gap-1 sm:col-span-2">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase">Para Birimi</label>
+                  <select
+                    id="input-modal-currency"
+                    value={newCustState.currency}
+                    onChange={(e) => setNewCustState({ ...newCustState, currency: e.target.value })}
+                    className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden bg-white font-bold"
+                    title="Para Birimi — bu müşterinin tüm modüllerdeki (VSM, Loss Analizi vb.) finansal alanları bu birimi kullanır"
+                  >
+                    <option value="₺">₺ TRY</option>
+                    <option value="$">$ USD</option>
+                    <option value="€">€ EUR</option>
+                    <option value="£">£ GBP</option>
+                  </select>
+                </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase">Yıllık Ciro</label>
-                  <div className="flex gap-1.5">
-                    <input
-                      id="input-modal-annualRevenue"
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="Örn: 1.000.000"
-                      value={formatThousands(newCustState.annualRevenue)}
-                      onChange={(e) => setNewCustState({ ...newCustState, annualRevenue: parseThousands(e.target.value) })}
-                      className="flex-1 min-w-0 px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden"
-                    />
-                    <select
-                      id="input-modal-currency"
-                      value={newCustState.currency}
-                      onChange={(e) => setNewCustState({ ...newCustState, currency: e.target.value })}
-                      className="px-2 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden bg-white font-bold"
-                      title="Para Birimi — bu müşterinin tüm modüllerdeki (VSM, Loss Analizi vb.) finansal alanları bu birimi kullanır"
-                    >
-                      <option value="₺">₺ TRY</option>
-                      <option value="$">$ USD</option>
-                      <option value="€">€ EUR</option>
-                      <option value="£">£ GBP</option>
-                    </select>
-                  </div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase">Yıllık Ciro ({newCustState.currency})</label>
+                  <input
+                    id="input-modal-annualRevenue"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Örn: 1.000.000"
+                    value={formatThousands(newCustState.annualRevenue)}
+                    onChange={(e) => setNewCustState({ ...newCustState, annualRevenue: parseThousands(e.target.value) })}
+                    className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden"
+                  />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold text-gray-400 uppercase">Çalışan Sayısı</label>
