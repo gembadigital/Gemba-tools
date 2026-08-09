@@ -29,6 +29,26 @@ interface ContractPackage {
   value: number; // Man-Days per week
 }
 
+// ISO 8601 week/year from an ISO date string (YYYY-MM-DD) — same algorithm PtrTimeStudy.tsx's
+// getWeekAndYearFromDateString uses (kept consistent so "Hafta N" means the same calendar week
+// across the app), just taking an ISO date directly instead of a Turkish DD.MM.YYYY string.
+function getIsoWeekAndYearFromDateString(isoDateStr?: string): { week: number; year: number } | null {
+  if (!isoDateStr) return null;
+  const d = new Date(`${isoDateStr}T00:00:00`);
+  if (isNaN(d.getTime())) return null;
+  const year = d.getFullYear();
+  const target = new Date(d.valueOf());
+  const dayNr = (d.getDay() + 6) % 7;
+  target.setDate(target.getDate() - dayNr + 3);
+  const firstThursday = target.valueOf();
+  target.setMonth(0, 1);
+  if (target.getDay() !== 4) {
+    target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
+  }
+  const week = 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000);
+  return { week, year };
+}
+
 export default function MasterPlanGantt({
   activities,
   kaizens = [],
@@ -268,10 +288,52 @@ export default function MasterPlanGantt({
     }
   };
 
-  // Settings: Project Weeks Range (e.g. Week 24 to Week 39)
-  const [startWeek, setStartWeek] = useState(24);
-  const [endWeek, setEndWeek] = useState(39);
-  const totalWeeks = endWeek - startWeek + 1;
+  // Settings: Project Time Range (Zaman Aralığı) — Başlangıç/Bitiş Yıl+Hafta. Defaults below to
+  // "this ISO week -> +15 weeks" until the Proje Portföyü effect (further down) resolves a real
+  // default from the customer's registered project start/end dates; user can freely override
+  // afterward (this only runs once per customer since App.tsx remounts this component per
+  // key={selectedCustomerId}, so it never clobbers a manual edit mid-session).
+  const nowIsoWeek = getIsoWeekAndYearFromDateString(new Date().toISOString().split("T")[0]);
+  const [startWeek, setStartWeek] = useState(nowIsoWeek?.week ?? 1);
+  const [startYear, setStartYear] = useState(nowIsoWeek?.year ?? new Date().getFullYear());
+  const [endWeek, setEndWeek] = useState(Math.min(52, (nowIsoWeek?.week ?? 1) + 15));
+  const [endYear, setEndYear] = useState(nowIsoWeek?.year ?? new Date().getFullYear());
+  // The rest of this module (chart columns, drag positioning, Excel export/import) treats
+  // start/endWeek as a single linear week-of-year axis and individual activities carry no year of
+  // their own — startYear/endYear are additional context for the picker and default-calculation
+  // only, not fed into that math, so this stays exactly as safe as before for same-year ranges.
+  // Clamped defensively since, unlike before, a user can now pick an end year/week that's
+  // technically "before" the start (e.g. mismatched years) without it being an impossible input.
+  const totalWeeks = Math.max(1, endWeek - startWeek + 1);
+
+  // Default the Zaman Aralığı above from the customer card's Proje Portföyü (customer card >
+  // Proje Portföyü tab) — earliest registered project start date and latest end date, converted
+  // to ISO week/year. Runs once per customer; silently keeps the "this week -> +15" fallback above
+  // if the customer has no portfolio projects with dates yet (nothing to override with).
+  useEffect(() => {
+    if (!activeCustomerId || !token) return;
+    fetch("/api/business/company-workspace", {
+      headers: { "Authorization": `Bearer ${token}`, "x-factory-id": activeCustomerId }
+    })
+      .then(res => res.json())
+      .then(res => {
+        const projects: any[] = (res.success && res.data?.projects) || [];
+        const starts = projects.map((p: any) => p.startDate).filter(Boolean).sort();
+        const ends = projects.map((p: any) => p.endDate).filter(Boolean).sort();
+        if (starts.length === 0) return;
+        const startInfo = getIsoWeekAndYearFromDateString(starts[0]);
+        const endInfo = getIsoWeekAndYearFromDateString(ends.length > 0 ? ends[ends.length - 1] : starts[starts.length - 1]);
+        if (startInfo) {
+          setStartWeek(startInfo.week);
+          setStartYear(startInfo.year);
+        }
+        if (endInfo) {
+          setEndWeek(endInfo.week);
+          setEndYear(endInfo.year);
+        }
+      })
+      .catch(() => {});
+  }, [activeCustomerId, token]);
 
   // 1. Consulting Package Contract State (selectedPackageId/customCapacity are declared above,
   // loaded from and auto-saved to the server as part of the module's persisted state)
@@ -1670,26 +1732,58 @@ export default function MasterPlanGantt({
             </div>
             
             <div className="flex items-center space-x-3 text-xs w-full sm:w-auto justify-between sm:justify-end">
-              {/* Week range adjuster */}
-              <div className="flex items-center space-x-2">
-                <span className="text-gray-500 font-medium">Takvim Hafta Aralığı:</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="52"
-                  className="w-14 bg-white border border-gray-300 rounded px-1.5 py-0.5 font-bold focus:ring-1 focus:ring-slate-300 focus:outline-none text-center text-xs"
-                  value={startWeek}
-                  onChange={(e) => setStartWeek(Number(e.target.value))}
-                />
-                <span>-</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="52"
-                  className="w-14 bg-white border border-gray-300 rounded px-1.5 py-0.5 font-bold focus:ring-1 focus:ring-slate-300 focus:outline-none text-center text-xs"
-                  value={endWeek}
-                  onChange={(e) => setEndWeek(Number(e.target.value))}
-                />
+              {/* Time range adjuster — defaults from Proje Portföyü's start/end dates (see the
+                  effect above), editable by hand as Başlangıç/Bitiş Yıl + Hafta. */}
+              <div className="flex items-center space-x-1.5" title="Müşteri kartı > Proje Portföyü başlangıç/bitiş tarihlerinden varsayılan olarak hesaplanır; elle değiştirilebilir.">
+                <span className="text-gray-500 font-medium">Zaman Aralığı:</span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min="2020"
+                    max="2100"
+                    title="Başlangıç Yılı"
+                    className="w-16 bg-white border border-gray-300 rounded px-1.5 py-0.5 font-bold focus:ring-1 focus:ring-slate-300 focus:outline-none text-center text-xs"
+                    value={startYear}
+                    onChange={(e) => setStartYear(Number(e.target.value))}
+                  />
+                  <span className="text-gray-400">/H</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="52"
+                    title="Başlangıç Haftası"
+                    className="w-12 bg-white border border-gray-300 rounded px-1.5 py-0.5 font-bold focus:ring-1 focus:ring-slate-300 focus:outline-none text-center text-xs"
+                    value={startWeek}
+                    onChange={(e) => setStartWeek(Number(e.target.value))}
+                  />
+                </div>
+                <ArrowRight className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min="2020"
+                    max="2100"
+                    title="Bitiş Yılı"
+                    className="w-16 bg-white border border-gray-300 rounded px-1.5 py-0.5 font-bold focus:ring-1 focus:ring-slate-300 focus:outline-none text-center text-xs"
+                    value={endYear}
+                    onChange={(e) => setEndYear(Number(e.target.value))}
+                  />
+                  <span className="text-gray-400">/H</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="52"
+                    title="Bitiş Haftası"
+                    className="w-12 bg-white border border-gray-300 rounded px-1.5 py-0.5 font-bold focus:ring-1 focus:ring-slate-300 focus:outline-none text-center text-xs"
+                    value={endWeek}
+                    onChange={(e) => setEndWeek(Number(e.target.value))}
+                  />
+                </div>
+                {startYear !== endYear && (
+                  <span className="text-amber-600 font-bold text-[10px]" title="Zaman ekseni tek takvim yılı varsayımıyla çalışır; farklı yıllara ait haftalar zaman çizelgesinde doğru sıralanmayabilir.">
+                    ⚠️
+                  </span>
+                )}
               </div>
 
               {/* Screen Expansion Trigger */}
