@@ -289,10 +289,13 @@ export default function MasterPlanGantt({
   };
 
   // Settings: Project Time Range (Zaman Aralığı) — Başlangıç/Bitiş Yıl+Hafta, the actual chart
-  // zoom window. Kept narrow by default ("this ISO week -> +15 weeks") regardless of how long the
-  // customer's overall project runs — the Proje Portföyü span (which can be a full year or more)
-  // is shown separately, read-only, above the chart (see projectPortfolioRange below) instead of
-  // forcing this editable window that wide. Fully user-editable afterward.
+  // zoom window. Defaults to "this ISO week -> +15 weeks" only until the Proje Portföyü effect
+  // below resolves the customer's real project start/end dates, then updates to match those —
+  // safe to do now that week columns are fixed-width with horizontal scroll (see WEEK_COL_PX
+  // below): a wide real project span no longer squeezes cells unreadably thin the way it did
+  // before that fix, so there's no more reason to keep the picker narrower than reality. Still
+  // fully user-editable afterward (editing this doesn't get overwritten again — the effect only
+  // re-applies when activeCustomerId/token change, i.e. on customer switch).
   const nowIsoWeek = getIsoWeekAndYearFromDateString(new Date().toISOString().split("T")[0]);
   const [startWeek, setStartWeek] = useState(nowIsoWeek?.week ?? 1);
   const [startYear, setStartYear] = useState(nowIsoWeek?.year ?? new Date().getFullYear());
@@ -358,10 +361,20 @@ export default function MasterPlanGantt({
         if (starts.length === 0) { setProjectPortfolioRange(null); return; }
         const startInfo = getIsoWeekAndYearFromDateString(starts[0]);
         const endInfo = getIsoWeekAndYearFromDateString(ends.length > 0 ? ends[ends.length - 1] : starts[starts.length - 1]);
-        setProjectPortfolioRange(startInfo && endInfo ? {
-          startWeek: startInfo.week, startYear: startInfo.year,
-          endWeek: endInfo.week, endYear: endInfo.year
-        } : null);
+        if (startInfo && endInfo) {
+          setProjectPortfolioRange({
+            startWeek: startInfo.week, startYear: startInfo.year,
+            endWeek: endInfo.week, endYear: endInfo.year
+          });
+          // Drive the actual chart zoom window too, not just the read-only banner — see the
+          // comment on the startWeek/startYear/endWeek/endYear declarations above.
+          setStartWeek(startInfo.week);
+          setStartYear(startInfo.year);
+          setEndWeek(endInfo.week);
+          setEndYear(endInfo.year);
+        } else {
+          setProjectPortfolioRange(null);
+        }
       })
       .catch(() => setProjectPortfolioRange(null));
   }, [activeCustomerId, token]);
@@ -1860,7 +1873,7 @@ export default function MasterPlanGantt({
                 className="flex bg-gray-50/50 text-[10px] font-bold text-gray-400 uppercase tracking-wider py-2.5 items-center"
                 style={{ width: TOTAL_ROW_PX }}
               >
-                <div className="shrink-0 sticky left-0 z-10 bg-gray-50 px-4" style={{ width: INFO_COL_PX }}>Yalın Faaliyet Bilgileri</div>
+                <div className="shrink-0 sticky left-0 z-20 bg-gray-50 px-4" style={{ width: INFO_COL_PX }}>Yalın Faaliyet Bilgileri</div>
 
                 {/* Generated Weeks Header */}
                 <div
@@ -1943,7 +1956,7 @@ export default function MasterPlanGantt({
                       {/* Left: Info Card — fixed width, pinned via sticky while the week columns
                           scroll horizontally underneath (see WEEK_COL_PX/INFO_COL_PX above). */}
                       <div
-                        className="shrink-0 overflow-hidden sticky left-0 z-10 bg-white group-hover:bg-slate-50 px-4 flex items-start space-x-2.5"
+                        className="shrink-0 overflow-hidden sticky left-0 z-20 bg-white group-hover:bg-slate-50 px-4 flex items-start space-x-2.5"
                         style={{ width: INFO_COL_PX }}
                       >
 
