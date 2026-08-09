@@ -3004,26 +3004,41 @@ export default function MasterPlanGantt({
 
                 <div>
                   <label className="block text-gray-500 font-bold mb-1">Yalın Danışman</label>
-                  <select
-                    required
-                    className="w-full bg-white border border-gray-300 rounded p-2"
-                    value={formConsultant}
-                    onChange={(e) => setFormConsultant(e.target.value)}
-                  >
-                    <option value="" disabled>Danışman seçin…</option>
-                    {/* Editing an activity whose consultant is no longer on the customer's team
-                        (reassigned/removed since) still shows their name here, so the field never
-                        silently blanks out — but only the assigned list below is offered to pick from. */}
-                    {formConsultant && !assignedConsultants.some(c => c.full_name === formConsultant) && (
-                      <option value={formConsultant}>{formConsultant} (artık atanmış değil)</option>
-                    )}
-                    {assignedConsultants.map(c => (
-                      <option key={c.id} value={c.full_name}>{c.full_name}</option>
-                    ))}
-                  </select>
+                  {assignedConsultants.length > 0 ? (
+                    <select
+                      required
+                      className="w-full bg-white border border-gray-300 rounded p-2"
+                      value={formConsultant}
+                      onChange={(e) => setFormConsultant(e.target.value)}
+                    >
+                      <option value="" disabled>Danışman seçin…</option>
+                      {/* Editing an activity whose consultant is no longer on the customer's team
+                          (reassigned/removed since) still shows their name here, so the field never
+                          silently blanks out — but only the assigned list below is offered to pick from. */}
+                      {formConsultant && !assignedConsultants.some(c => c.full_name === formConsultant) && (
+                        <option value={formConsultant}>{formConsultant} (artık atanmış değil)</option>
+                      )}
+                      {assignedConsultants.map(c => (
+                        <option key={c.id} value={c.full_name}>{c.full_name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    // No consultant assigned to this customer yet on the Customer Card — falling
+                    // back to free text here (instead of a hard-required, unusably empty <select>)
+                    // so activity entry never gets blocked. Once a real team is assigned, this
+                    // reverts to the constrained dropdown above for that customer going forward.
+                    <input
+                      type="text"
+                      required
+                      placeholder="Danışman adı"
+                      className="w-full bg-white border border-gray-300 rounded p-2"
+                      value={formConsultant}
+                      onChange={(e) => setFormConsultant(e.target.value)}
+                    />
+                  )}
                   {assignedConsultants.length === 0 && (
                     <p className="text-[10px] text-amber-600 font-semibold mt-1">
-                      Bu müşteriye atanmış danışman yok. Önce Müşteri Kartı üzerinden bir danışman atayın.
+                      Bu müşteriye atanmış danışman yok — geçici olarak serbest metin girebilirsiniz, ancak doğru takip için Müşteri Kartı üzerinden gerçek bir danışman atamanız önerilir.
                     </p>
                   )}
                 </div>
