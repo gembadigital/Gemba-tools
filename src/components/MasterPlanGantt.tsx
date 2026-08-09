@@ -298,7 +298,24 @@ export default function MasterPlanGantt({
   const [startYear, setStartYear] = useState(nowIsoWeek?.year ?? new Date().getFullYear());
   const [endWeek, setEndWeek] = useState(Math.min(52, (nowIsoWeek?.week ?? 1) + 15));
   const [endYear, setEndYear] = useState(nowIsoWeek?.year ?? new Date().getFullYear());
-  const totalWeeks = Math.max(1, endWeek - startWeek + 1);
+
+  // Absolute week index (each calendar year treated as exactly 52 weeks — the same approximation
+  // already implicit in every "1-52" week input in this module) so the chart can correctly span a
+  // year boundary, e.g. Başlangıç 2026/H32 -> Bitiş 2027/H20, instead of endWeek-startWeek going
+  // negative and collapsing the whole axis to a single giant column (the reported bug: cells
+  // widening and nothing rendering past week 32). Individual activities only ever store a bare
+  // 1-52 week number with no year of their own, so toAbsWeek() resolves a raw week onto this axis
+  // by assuming it belongs to startYear unless that would place it before the axis start, in which
+  // case it's assumed to be the following year — correct for the common "spans one year boundary"
+  // case; a plan spanning 2+ years is a rarer edge case this single-wrap heuristic doesn't fully
+  // disambiguate.
+  const absStart = startYear * 52 + startWeek;
+  const absEnd = endYear * 52 + endWeek;
+  const totalWeeks = Math.max(1, absEnd - absStart + 1);
+  const toAbsWeek = (rawWeek: number) => {
+    const sameYear = startYear * 52 + rawWeek;
+    return sameYear >= absStart ? sameYear : sameYear + 52;
+  };
 
   // Read-only "Proje Süresi" info line shown above the chart — earliest Proje Portföyü project
   // start date to latest end date (customer card > Proje Portföyü), converted to ISO week/year.
@@ -553,7 +570,7 @@ export default function MasterPlanGantt({
   const remainingManDays = Math.max(0, totalPlannedManDays - consumedManDays);
   
   // Consulting Package calculations
-  const totalContractWeeks = endWeek - startWeek + 1;
+  const totalContractWeeks = totalWeeks;
   const totalConsultingCapacity = totalContractWeeks * weeklyCapacity;
   const unusedCapacity = Math.max(0, totalConsultingCapacity - consumedManDays);
   const capacityOverrun = consumedManDays > totalConsultingCapacity;
@@ -1809,10 +1826,14 @@ export default function MasterPlanGantt({
                 {/* Generated Weeks Header */}
                 <div className="col-span-7 grid grid-flow-col auto-cols-fr text-center border-l border-gray-200">
                   {Array.from({ length: totalWeeks }).map((_, i) => {
-                    const w = startWeek + i;
+                    const absW = absStart + i;
+                    // Unwrap the absolute index back to a real calendar week/year for display.
+                    const realWeek = ((absW - 1) % 52) + 1;
+                    const realYear = Math.floor((absW - 1) / 52);
                     return (
-                      <div key={w} className="border-r border-gray-100 last:border-0 font-mono text-[10px] py-1 text-gray-600 font-bold">
-                        W{w}
+                      <div key={absW} className="border-r border-gray-100 last:border-0 font-mono text-[10px] py-1 text-gray-600 font-bold">
+                        W{realWeek}
+                        {realYear !== startYear && <span className="block text-[8px] text-gray-400 font-normal">'{String(realYear).slice(-2)}</span>}
                       </div>
                     );
                   })}
@@ -1840,11 +1861,14 @@ export default function MasterPlanGantt({
                   const aStartRel = isDraggingActual ? dragPreview!.start : act.actualStartWeek;
                   const aFinishRel = isDraggingActual ? dragPreview!.finish : act.actualFinishWeek;
 
-                  const pLeftPercent = Math.max(0, ((pStartRel - startWeek) / totalWeeks) * 100);
-                  const pWidthPercent = Math.max(5, (((pFinishRel - pStartRel + 1)) / totalWeeks) * 100);
+                  // Routed through toAbsWeek() so positions stay correct when the chart's Zaman
+                  // Aralığı spans a year boundary (raw week numbers alone can't tell 2026's week 5
+                  // from 2027's week 5).
+                  const pLeftPercent = Math.max(0, ((toAbsWeek(pStartRel) - absStart) / totalWeeks) * 100);
+                  const pWidthPercent = Math.max(5, (((toAbsWeek(pFinishRel) - toAbsWeek(pStartRel) + 1)) / totalWeeks) * 100);
 
-                  const aLeftPercent = Math.max(0, ((aStartRel - startWeek) / totalWeeks) * 100);
-                  const aWidthPercent = Math.max(5, (((aFinishRel - aStartRel + 1)) / totalWeeks) * 100);
+                  const aLeftPercent = Math.max(0, ((toAbsWeek(aStartRel) - absStart) / totalWeeks) * 100);
+                  const aWidthPercent = Math.max(5, (((toAbsWeek(aFinishRel) - toAbsWeek(aStartRel) + 1)) / totalWeeks) * 100);
 
                   // Colors based on status
                   let actualColor = "bg-gray-400/80";
@@ -2132,8 +2156,8 @@ export default function MasterPlanGantt({
                                 // which rebuilds actualWeeks as one plain range — so the next render
                                 // collapses back to the simpler single-bar view.
                                 return blocks.map((b, bIdx) => {
-                                  const bLeft = Math.max(0, ((b.start - startWeek) / totalWeeks) * 100);
-                                  const bWidth = Math.max(2.5, (((b.finish - b.start + 1) / totalWeeks) * 100));
+                                  const bLeft = Math.max(0, ((toAbsWeek(b.start) - absStart) / totalWeeks) * 100);
+                                  const bWidth = Math.max(2.5, (((toAbsWeek(b.finish) - toAbsWeek(b.start) + 1) / totalWeeks) * 100));
                                   return (
                                     <div
                                       key={bIdx}
