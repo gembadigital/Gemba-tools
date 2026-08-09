@@ -45,13 +45,17 @@ export default function CompanyDashboardTab({ workspace, onUpdateKpiHistory }: C
     onUpdateKpiHistory(updated);
   };
 
-  const currentYearData = workspace.kpiHistory[workspace.kpiHistory.length - 1] || {
-    year: "N/A",
-    oee: workspace.opex.oee || 50,
-    transportationDistance: 4500,
-    fivesScore: Math.round((workspace.opex.fivesLevel || 3) * 20),
-    leadTimeDays: 10,
-  };
+  // No fabricated fallback numbers: with zero KPI history points, OEE/5S fall back to the
+  // customer's real, manually-entered Şirket Profili fields (opex.oee / opex.fivesLevel) — 0 if
+  // those are also unset, shown as "Veri Yok" below rather than a plausible-looking guess.
+  // Transportation distance and lead time have no such profile-level source at all — they only
+  // ever exist once a real KPI history point is added — so they show "Veri Yok" until then instead
+  // of a made-up figure (this previously showed a fixed 4500m "logistics flow" reading and a fixed
+  // 10-day lead time for every customer with no data entered).
+  const latestKpi = workspace.kpiHistory[workspace.kpiHistory.length - 1] || null;
+  const currentOee = latestKpi ? latestKpi.oee : (workspace.opex.oee || 0);
+  const currentTransportationDistance = latestKpi ? latestKpi.transportationDistance : null;
+  const currentFivesScore = latestKpi ? latestKpi.fivesScore : (workspace.opex.fivesLevel ? Math.round(workspace.opex.fivesLevel * 20) : 0);
 
   const activeProjectsCount = workspace.projects.filter((p) => p.status === "Active").length;
   const completedProjectsCount = workspace.projects.filter((p) => p.status === "Completed").length;
@@ -67,11 +71,17 @@ export default function CompanyDashboardTab({ workspace, onUpdateKpiHistory }: C
           </div>
           <div>
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Güncel OEE</span>
-            <h4 className="text-xl font-bold text-gray-900 mt-0.5">%{currentYearData.oee}</h4>
-            <span className="text-[10px] text-green-600 font-medium flex items-center gap-0.5 mt-1">
-              <TrendingUp className="w-3 h-3" />
-              Sürekli İyileşme
-            </span>
+            <h4 className="text-xl font-bold text-gray-900 mt-0.5">{currentOee > 0 ? `%${currentOee}` : "Veri Yok"}</h4>
+            {currentOee > 0 ? (
+              <span className="text-[10px] text-green-600 font-medium flex items-center gap-0.5 mt-1">
+                <TrendingUp className="w-3 h-3" />
+                {latestKpi ? `${latestKpi.year} Yıllık Verisi` : "Şirket Profili Verisi"}
+              </span>
+            ) : (
+              <span className="text-[10px] text-gray-400 font-medium mt-1 block">
+                Şirket Profili'nden veya bir KPI kaydından girin
+              </span>
+            )}
           </div>
         </div>
 
@@ -82,10 +92,18 @@ export default function CompanyDashboardTab({ workspace, onUpdateKpiHistory }: C
           </div>
           <div>
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Lojistik Akış</span>
-            <h4 className="text-xl font-bold text-gray-900 mt-0.5">{currentYearData.transportationDistance} m/gün</h4>
-            <span className="text-[10px] text-green-600 font-medium flex items-center gap-0.5 mt-1">
-              Mesafe Azaltımı Sürüyor
-            </span>
+            <h4 className="text-xl font-bold text-gray-900 mt-0.5">
+              {currentTransportationDistance !== null ? `${currentTransportationDistance} m/gün` : "Veri Yok"}
+            </h4>
+            {currentTransportationDistance !== null ? (
+              <span className="text-[10px] text-green-600 font-medium mt-1 block">
+                {latestKpi!.year} Yıllık Verisi
+              </span>
+            ) : (
+              <span className="text-[10px] text-gray-400 font-medium mt-1 block">
+                Bir yıllık KPI veri noktası ekleyin
+              </span>
+            )}
           </div>
         </div>
 
@@ -96,9 +114,9 @@ export default function CompanyDashboardTab({ workspace, onUpdateKpiHistory }: C
           </div>
           <div>
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">5S Sahanlık Skoru</span>
-            <h4 className="text-xl font-bold text-gray-900 mt-0.5">{currentYearData.fivesScore} / 100</h4>
+            <h4 className="text-xl font-bold text-gray-900 mt-0.5">{currentFivesScore > 0 ? `${currentFivesScore} / 100` : "Veri Yok"}</h4>
             <span className="text-[10px] text-gray-500 font-medium mt-1 block">
-              Sınıfının En İyilerinden
+              {currentFivesScore > 0 ? (latestKpi ? `${latestKpi.year} Yıllık Verisi` : "Şirket Profili Verisi") : "Şirket Profili'nden veya bir KPI kaydından girin"}
             </span>
           </div>
         </div>
@@ -264,7 +282,7 @@ export default function CompanyDashboardTab({ workspace, onUpdateKpiHistory }: C
           </div>
           <div className="bg-zinc-50 border border-zinc-100 p-3 rounded-xl mt-4">
             <p className="text-[10px] text-zinc-600 font-medium leading-relaxed">
-              * Bu veriler, kurumsal analiz motoru ve Yapay Zeka özetleyicisi tarafından otomatik olarak baz alınacaktır.
+              * Bu veriler, Yönetici Paneli'ndeki grafik ve göstergelerin kaynağıdır.
             </p>
           </div>
         </div>
