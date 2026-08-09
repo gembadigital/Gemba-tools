@@ -1019,7 +1019,10 @@ export default function MasterPlanGantt({
     const INFO_COLS = 13; // No..Sapma, before the "Tür" column
     const TYPE_COL = INFO_COLS + 1;
     const FIRST_WEEK_COL = TYPE_COL + 1;
-    const totalCols = FIRST_WEEK_COL + (endWeek - startWeek);
+    // Same absolute-week axis as the on-screen chart (see absStart/absEnd/toAbsWeek above) so a
+    // Zaman Aralığı spanning a year boundary exports the same week/activity layout instead of the
+    // old startWeek..endWeek loop silently producing 0 (or negative) week columns.
+    const totalCols = FIRST_WEEK_COL + (totalWeeks - 1);
 
     const THIN: Partial<ExcelJS.Border> = { style: "thin", color: { argb: "FFB0B7C3" } };
     const CELL_BORDER: Partial<ExcelJS.Borders> = { top: THIN, left: THIN, bottom: THIN, right: THIN };
@@ -1051,7 +1054,12 @@ export default function MasterPlanGantt({
       "Öncelik", "Durum", "İlerleme", "Adam-Gün", "Plan Başlangıç", "Plan Bitiş",
       "Gerçekleşen Başlangıç", "Gerçekleşen Bitiş", "Plan/Gerçek Sapması", "Tür"
     ];
-    for (let w = startWeek; w <= endWeek; w++) headers.push(`H${w}`);
+    for (let i = 0; i < totalWeeks; i++) {
+      const absW = absStart + i;
+      const realWeek = ((absW - 1) % 52) + 1;
+      const realYear = Math.floor((absW - 1) / 52);
+      headers.push(realYear !== startYear ? `H${realWeek}'${String(realYear).slice(-2)}` : `H${realWeek}`);
+    }
     const headerRow = ws.addRow(headers);
     headerRow.eachCell((cell) => {
       cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 9 };
@@ -1079,15 +1087,22 @@ export default function MasterPlanGantt({
         if (colNumber === TYPE_COL) cell.font = { size: 9, bold: true, color: { argb: "FF2563EB" } };
         if (colNumber === INFO_COLS && dev > 0) cell.font = { size: 9, bold: true, color: { argb: "FFDC2626" } };
       });
-      for (let w = startWeek; w <= endWeek; w++) {
-        const cell = planRow.getCell(FIRST_WEEK_COL + (w - startWeek));
+      // Resolved onto the same absolute-week axis as the on-screen chart (toAbsWeek), so a
+      // cross-year Zaman Aralığı fills the right columns instead of the old raw week comparison
+      // silently matching nothing once startWeek/endWeek could belong to different years.
+      const planStartAbs = toAbsWeek(act.plannedStartWeek);
+      const planFinishAbs = toAbsWeek(act.plannedFinishWeek);
+      for (let i = 0; i < totalWeeks; i++) {
+        const cell = planRow.getCell(FIRST_WEEK_COL + i);
         cell.border = CELL_BORDER;
-        if (w >= act.plannedStartWeek && w <= act.plannedFinishWeek) cell.fill = PLAN_FILL;
+        const absW = absStart + i;
+        if (absW >= planStartAbs && absW <= planFinishAbs) cell.fill = PLAN_FILL;
       }
 
       const actWeeksList = act.actualWeeks && act.actualWeeks.length > 0
         ? act.actualWeeks
         : Array.from({ length: Math.max(0, act.actualFinishWeek - act.actualStartWeek + 1) }, (_, i) => act.actualStartWeek + i);
+      const actWeeksAbsSet = new Set(actWeeksList.map((w: number) => toAbsWeek(w)));
 
       const actualRow = ws.addRow([
         "", act.name, act.category, "", "", "", "", act.consumedManDays || 0,
@@ -1098,17 +1113,17 @@ export default function MasterPlanGantt({
         cell.font = { size: 9 };
         if (colNumber === TYPE_COL) cell.font = { size: 9, bold: true, color: { argb: "FF059669" } };
       });
-      for (let w = startWeek; w <= endWeek; w++) {
-        const cell = actualRow.getCell(FIRST_WEEK_COL + (w - startWeek));
+      for (let i = 0; i < totalWeeks; i++) {
+        const cell = actualRow.getCell(FIRST_WEEK_COL + i);
         cell.border = { ...CELL_BORDER, bottom: { style: "medium", color: { argb: "FF475569" } } };
-        if (actWeeksList.includes(w)) cell.fill = ACTUAL_FILL;
+        if (actWeeksAbsSet.has(absStart + i)) cell.fill = ACTUAL_FILL;
       }
     });
 
     // Column widths
     const widths = [6, 38, 16, 18, 10, 12, 10, 10, 12, 12, 16, 16, 18, 12];
     widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
-    for (let w = startWeek; w <= endWeek; w++) ws.getColumn(FIRST_WEEK_COL + (w - startWeek)).width = 5;
+    for (let i = 0; i < totalWeeks; i++) ws.getColumn(FIRST_WEEK_COL + i).width = 5;
 
     const buffer = await wb.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
