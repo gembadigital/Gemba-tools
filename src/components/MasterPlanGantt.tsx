@@ -326,6 +326,17 @@ export default function MasterPlanGantt({
   // providing a horizontal scrollbar for whatever doesn't fit on screen.
   const INFO_COL_PX = 300;
   const WEEK_COL_PX = 34;
+  // Explicit width for each row (header + every activity row), NOT just its two shrink-0
+  // children — without this, a row with no declared width defaults to filling its containing
+  // block (i.e. the viewport-bounded scroll area) while its children merely overflow it visually.
+  // That's an ordinary/harmless quirk for plain overflow, but position:sticky computes how far an
+  // element can travel relative to its own parent's box, not the overflowed visual extent — so
+  // the info column would stick correctly only up to roughly the viewport's own width and then
+  // start scrolling away with the rest, instead of staying pinned for the entire scroll range.
+  // Confirmed via a standalone reproduction: identical layout without this explicit row width
+  // stuck fine up to ~200px of scroll and then broke; with it, sticky held correctly across the
+  // full scroll range.
+  const TOTAL_ROW_PX = INFO_COL_PX + totalWeeks * WEEK_COL_PX;
 
   // Read-only "Proje Süresi" info line shown above the chart — earliest Proje Portföyü project
   // start date to latest end date (customer card > Proje Portföyü), converted to ISO week/year.
@@ -1845,7 +1856,10 @@ export default function MasterPlanGantt({
             <div className="divide-y divide-gray-100">
 
               {/* Grid Header row */}
-              <div className="flex bg-gray-50/50 text-[10px] font-bold text-gray-400 uppercase tracking-wider py-2.5 items-center">
+              <div
+                className="flex bg-gray-50/50 text-[10px] font-bold text-gray-400 uppercase tracking-wider py-2.5 items-center"
+                style={{ width: TOTAL_ROW_PX }}
+              >
                 <div className="shrink-0 sticky left-0 z-10 bg-gray-50 px-4" style={{ width: INFO_COL_PX }}>Yalın Faaliyet Bilgileri</div>
 
                 {/* Generated Weeks Header */}
@@ -1912,6 +1926,7 @@ export default function MasterPlanGantt({
                       className={`flex py-3 items-center group hover:bg-slate-50/40 transition-colors ${
                         draggingActivityId === act.id ? "opacity-40" : ""
                       } ${isDragOverRow ? "border-t-2 border-emerald-500" : ""}`}
+                      style={{ width: TOTAL_ROW_PX }}
                       onDragOver={(e) => {
                         if (!draggingActivityId) return;
                         e.preventDefault();
@@ -1928,7 +1943,7 @@ export default function MasterPlanGantt({
                       {/* Left: Info Card — fixed width, pinned via sticky while the week columns
                           scroll horizontally underneath (see WEEK_COL_PX/INFO_COL_PX above). */}
                       <div
-                        className="shrink-0 sticky left-0 z-10 bg-white group-hover:bg-slate-50 px-4 flex items-start space-x-2.5"
+                        className="shrink-0 overflow-hidden sticky left-0 z-10 bg-white group-hover:bg-slate-50 px-4 flex items-start space-x-2.5"
                         style={{ width: INFO_COL_PX }}
                       >
 
@@ -1965,8 +1980,16 @@ export default function MasterPlanGantt({
                           </button>
                         </div>
 
-                        {/* Title, Category and Linked Badge */}
-                        <div className={`space-y-1 overflow-hidden ${isSubActivity ? "pl-4" : ""}`}>
+                        {/* Title, Category and Linked Badge — flex-1 min-w-0 is load-bearing: a
+                            flex child's default min-width is "auto" (its content's natural
+                            width), not 0, so without this it ignored its own overflow-hidden and
+                            the badges' flex-wrap below, and just overflowed past the frozen info
+                            column's fixed width straight into the week columns next to it. This
+                            was one of two causes behind the reported "sticky column doesn't work"
+                            bug — the other (see TOTAL_ROW_PX above) was position:sticky itself
+                            only holding for a limited scroll distance before the row's own
+                            (previously auto/viewport-clamped) box ran out of room. */}
+                        <div className={`flex-1 min-w-0 space-y-1 overflow-hidden ${isSubActivity ? "pl-4" : ""}`}>
                           <div className="flex items-center space-x-1.5 flex-wrap">
                             {!isSubActivity && childCount > 0 && (
                               <button
