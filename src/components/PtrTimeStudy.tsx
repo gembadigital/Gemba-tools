@@ -5,7 +5,7 @@ import {
   Check, X, RefreshCw, Layers, TrendingUp, AlertCircle, HelpCircle,
   Calendar, CheckCircle, Clock, Percent, DollarSign, ArrowRight, Table, BarChart2,
   Flame, Zap, Maximize2, Minimize2, Flag,
-  Filter, FilePlus, Sparkles, Mail, Eye
+  Filter, FilePlus, Sparkles, Mail, Eye, ArrowUp, ArrowDown, ArrowUpDown
 } from "lucide-react";
 import { useFactory } from "../context/FactoryContext";
 import OpexProjectDashboard from "./OpexProjectDashboard";
@@ -1238,6 +1238,21 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
     fetchWorkspaceTeamContacts();
   };
 
+  // Column sort (Hafta / Çalışma Tarihi) — click the header icon to toggle old→new / new→old.
+  // Only affects the main table's row order; filters/stats/exports still read the unsorted
+  // filteredRecords below, so this can't change any total/count anywhere else in the tab.
+  const [sortField, setSortField] = useState<"week" | "workDate" | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+
+  const handleToggleSort = (field: "week" | "workDate") => {
+    if (sortField !== field) {
+      setSortField(field);
+      setSortDirection("asc");
+    } else {
+      setSortDirection(prev => (prev === "asc" ? "desc" : "asc"));
+    }
+  };
+
   // Apply filters to row list
   const filteredRecords = useMemo(() => {
     return records.filter(r => {
@@ -1311,6 +1326,36 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
     selectedDueDateEnd,
     selectedComplianceFilter
   ]);
+
+  // Sorted view of filteredRecords for the main table — Hafta sorts by (year, week) so multi-year
+  // logs don't interleave week 5 of 2027 with week 5 of 2026; Çalışma Tarihi sorts by the real
+  // parsed date, with unparseable/empty dates always pushed to the end regardless of direction so
+  // they don't jump to the top on a descending sort. This is purely a display-order concern — a
+  // freshly added action always carries today's (i.e. the most recent) date/week, so it naturally
+  // lands at the bottom under an ascending (old→new) sort and at the top under a descending
+  // (new→old) one with no special-casing needed.
+  const displayRecords = useMemo(() => {
+    if (!sortField) return filteredRecords;
+    const dir = sortDirection === "asc" ? 1 : -1;
+    const sorted = [...filteredRecords];
+    if (sortField === "week") {
+      sorted.sort((a, b) => {
+        const aKey = (Number(a.year) || 0) * 100 + (parseInt(a.visitedWeek, 10) || 0);
+        const bKey = (Number(b.year) || 0) * 100 + (parseInt(b.visitedWeek, 10) || 0);
+        return (aKey - bKey) * dir;
+      });
+    } else {
+      sorted.sort((a, b) => {
+        const aTime = parseTurkishDate(a.workDate)?.getTime();
+        const bTime = parseTurkishDate(b.workDate)?.getTime();
+        if (aTime === undefined && bTime === undefined) return 0;
+        if (aTime === undefined) return 1;
+        if (bTime === undefined) return -1;
+        return (aTime - bTime) * dir;
+      });
+    }
+    return sorted;
+  }, [filteredRecords, sortField, sortDirection]);
 
   // Executive KPI Dashboard calculations (Row 1 & Row 2)
   const executiveKPIs = useMemo(() => {
@@ -2410,8 +2455,36 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
             <thead className="bg-[#fcfdfd] text-slate-900 border-b border-gray-200 sticky top-[21px] z-10 shadow-xs font-black">
               <tr>
                 <th className="p-2.5 border-r border-gray-200 text-center bg-gray-50 text-[10px] font-mono font-bold">Sıra</th>
-                <th className="p-2.5 border-r border-gray-200 min-w-[70px]">Hafta</th>
-                <th className="p-2.5 border-r border-gray-200 min-w-[90px]">Çalışma Tarihi</th>
+                <th className="p-2.5 border-r border-gray-200 min-w-[70px]">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleSort("week")}
+                    className="flex items-center gap-1 hover:text-indigo-700 transition-colors cursor-pointer"
+                    title="Haftaya göre azalan/artan sırala"
+                  >
+                    <span>Hafta</span>
+                    {sortField === "week" ? (
+                      sortDirection === "asc" ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                    )}
+                  </button>
+                </th>
+                <th className="p-2.5 border-r border-gray-200 min-w-[90px]">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleSort("workDate")}
+                    className="flex items-center gap-1 hover:text-indigo-700 transition-colors cursor-pointer"
+                    title="Çalışma tarihine göre eskiden yeniye/yeniden eskiye sırala"
+                  >
+                    <span>Çalışma Tarihi</span>
+                    {sortField === "workDate" ? (
+                      sortDirection === "asc" ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                    )}
+                  </button>
+                </th>
                 <th className="p-2.5 border-r border-gray-200 min-w-[110px]">Faaliyet Konusu</th>
                 <th className="p-2.5 border-r border-gray-200 min-w-[125px]">İyileştirme Konusu</th>
                 <th className="p-2.5 border-r border-gray-200 min-w-[320px]">Yapılan Çalışmalar / Alınan Kararlar</th>
@@ -2428,7 +2501,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
 
             {/* List Body */}
             <tbody className="divide-y divide-gray-200 bg-white">
-              {filteredRecords.map((item, idx) => {
+              {displayRecords.map((item, idx) => {
                 const isEditing = editingRowId === item.id;
                 
                 return (
