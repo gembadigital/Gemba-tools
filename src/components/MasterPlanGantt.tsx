@@ -300,22 +300,21 @@ export default function MasterPlanGantt({
   const [endYear, setEndYear] = useState(nowIsoWeek?.year ?? new Date().getFullYear());
 
   // Absolute week index (each calendar year treated as exactly 52 weeks — the same approximation
-  // already implicit in every "1-52" week input in this module) so the chart can correctly span a
-  // year boundary, e.g. Başlangıç 2026/H32 -> Bitiş 2027/H20, instead of endWeek-startWeek going
-  // negative and collapsing the whole axis to a single giant column (the reported bug: cells
-  // widening and nothing rendering past week 32). Individual activities only ever store a bare
-  // 1-52 week number with no year of their own, so toAbsWeek() resolves a raw week onto this axis
-  // by assuming it belongs to startYear unless that would place it before the axis start, in which
-  // case it's assumed to be the following year — correct for the common "spans one year boundary"
-  // case; a plan spanning 2+ years is a rarer edge case this single-wrap heuristic doesn't fully
-  // disambiguate.
+  // already implicit in every "1-52" week input in this module) so the chart's HEADER can
+  // correctly span a year boundary, e.g. Başlangıç 2026/H32 -> Bitiş 2027/H20, instead of
+  // endWeek-startWeek going negative and collapsing the whole axis to a single giant column.
   const absStart = startYear * 52 + startWeek;
   const absEnd = endYear * 52 + endWeek;
   const totalWeeks = Math.max(1, absEnd - absStart + 1);
-  const toAbsWeek = (rawWeek: number) => {
-    const sameYear = startYear * 52 + rawWeek;
-    return sameYear >= absStart ? sameYear : sameYear + 52;
-  };
+  // Individual activities only ever store a bare 1-52 week number with no year of their own, so
+  // there is no reliable way to tell "week 31, still in startYear, just before the visible Zaman
+  // Aralığı start" apart from "week 31 of the following year." An earlier version guessed the
+  // latter whenever rawWeek < startWeek — that actively RELOCATED existing startYear activities
+  // (e.g. real 2026/H31 data) a full year forward the moment startWeek was set above them, which
+  // is a much worse failure than just clipping. So this always resolves against startYear only;
+  // an activity earlier than the visible window simply renders pinned at the left edge (via the
+  // Math.max(0, ...) in the position calcs below) instead of being silently misdated.
+  const toAbsWeek = (rawWeek: number) => startYear * 52 + rawWeek;
 
   // Read-only "Proje Süresi" info line shown above the chart — earliest Proje Portföyü project
   // start date to latest end date (customer card > Proje Portföyü), converted to ISO week/year.
@@ -1836,10 +1835,10 @@ export default function MasterPlanGantt({
               
               {/* Grid Header row */}
               <div className="grid grid-cols-12 bg-gray-50/50 text-[10px] font-bold text-gray-400 uppercase tracking-wider py-2.5 items-center">
-                <div className="col-span-5 px-4">Yalın Faaliyet Bilgileri</div>
-                
+                <div className="col-span-4 px-4">Yalın Faaliyet Bilgileri</div>
+
                 {/* Generated Weeks Header */}
-                <div className="col-span-7 grid grid-flow-col auto-cols-fr text-center border-l border-gray-200">
+                <div className="col-span-8 grid grid-flow-col auto-cols-fr text-center border-l border-gray-200">
                   {Array.from({ length: totalWeeks }).map((_, i) => {
                     const absW = absStart + i;
                     // Unwrap the absolute index back to a real calendar week/year for display.
@@ -1913,7 +1912,7 @@ export default function MasterPlanGantt({
                     >
 
                       {/* Left: Info Card */}
-                      <div className="col-span-5 px-4 flex items-start space-x-2.5">
+                      <div className="col-span-4 px-4 flex items-start space-x-2.5">
 
                         {/* Drag handles & Order Controls */}
                         <div className="flex flex-col items-center justify-center space-y-0.5 shrink-0">
@@ -2053,7 +2052,7 @@ export default function MasterPlanGantt({
                       </div>
 
                       {/* Right: Dual timeline grid container */}
-                      <div className="col-span-7 h-16 relative border-l border-gray-200 flex flex-col justify-center px-1">
+                      <div className="col-span-8 h-16 relative border-l border-gray-200 flex flex-col justify-center px-1">
                         
                         {/* Weekly vertical lines background layer */}
                         <div className="absolute inset-0 grid grid-flow-col auto-cols-fr pointer-events-none">
