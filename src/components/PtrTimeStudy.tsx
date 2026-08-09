@@ -5,7 +5,7 @@ import {
   Check, X, RefreshCw, Layers, TrendingUp, AlertCircle, HelpCircle,
   Calendar, CheckCircle, Clock, Percent, DollarSign, ArrowRight, Table, BarChart2,
   Flame, Zap, Maximize2, Minimize2, Flag,
-  Filter, FilePlus, Sparkles, Mail
+  Filter, FilePlus, Sparkles, Mail, Eye
 } from "lucide-react";
 import { useFactory } from "../context/FactoryContext";
 import OpexProjectDashboard from "./OpexProjectDashboard";
@@ -1144,8 +1144,9 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
     cc: { name: string; email: string }[];
   }>({ to: [], cc: [] });
 
-  const handleOpenMailPanel = () => {
-    setShowMailPanel(true);
+  // Shared by both mail-send entry points (main table toolbar icon and the Danışman Faaliyet
+  // Özeti card's own icon below) so they always resolve the exact same recipients.
+  const fetchWorkspaceTeamContacts = () => {
     const customerId = selectedCustomer?.id || "default";
     fetch("/api/business/company-workspace", {
       headers: { "Authorization": `Bearer ${ptrToken}`, "x-factory-id": customerId }
@@ -1164,7 +1165,19 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
       });
   };
 
-  const handleSendWeeklyReportMail = async () => {
+  const handleOpenMailPanel = () => {
+    setShowMailPanel(true);
+    fetchWorkspaceTeamContacts();
+  };
+
+  // weekOverride lets the Danışman Faaliyet Özeti card (below) send for exactly the week it's
+  // showing (prevWeekNum) instead of whatever week happens to be selected in the main toolbar's
+  // "Hafta" dropdown (activeReportWeek) — those two could silently diverge (e.g. a demo customer's
+  // fixed historical weeks vs. today's real "geçen hafta"), which meant the Danışman Faaliyet
+  // Özeti notes the user actually wrote were often looked up under the wrong week on the backend
+  // and never made it into the email body at all.
+  const handleSendWeeklyReportMail = async (weekOverride?: string) => {
+    const weekToSend = weekOverride ?? activeReportWeek;
     if (workspaceTeamContacts.to.length === 0) {
       showToast("Proje ekibinde e-posta adresi tanımlı üye yok. Lütfen müşteri kartı > Proje Ekibi sekmesinden ekleyin.");
       return;
@@ -1179,7 +1192,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          week: activeReportWeek,
+          week: weekToSend,
           year: prevYear,
           to: workspaceTeamContacts.to.map(c => c.email),
           cc: workspaceTeamContacts.cc.map(c => c.email)
@@ -1189,13 +1202,40 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
       if (!res.ok || !data.success) {
         throw new Error(data.error || "Rapor e-postası gönderilemedi.");
       }
-      showToast(`${activeReportWeek}. Hafta ziyaret raporu proje ekibine gönderildi.`);
+      showToast(`${weekToSend}. Hafta ziyaret raporu proje ekibine gönderildi.`);
       setShowMailPanel(false);
+      setShowWeeklyMailConfirm(false);
     } catch (e: any) {
       showToast(`Hata: ${e.message || "Rapor e-postası gönderilemedi."}`);
     } finally {
       setIsSendingMail(false);
     }
+  };
+
+  // Danışman Faaliyet Özeti card — preview modal (WYSIWYG, backed by the same
+  // buildWeeklyReportEmailContent the send route uses) and its own mail-confirm mini-panel.
+  const [showWeeklyPreview, setShowWeeklyPreview] = useState(false);
+  const [isLoadingWeeklyPreview, setIsLoadingWeeklyPreview] = useState(false);
+  const [weeklyPreviewContent, setWeeklyPreviewContent] = useState<{ subject: string; body: string } | null>(null);
+  const [showWeeklyMailConfirm, setShowWeeklyMailConfirm] = useState(false);
+
+  const handleOpenWeeklyPreview = () => {
+    if (prevWeekNum === null || prevYear === null) return;
+    setShowWeeklyPreview(true);
+    setIsLoadingWeeklyPreview(true);
+    const customerId = selectedCustomer?.id || "default";
+    fetch(`/api/business/ptr-records/weekly-report-preview?week=${prevWeekNum}&year=${prevYear}`, {
+      headers: { "Authorization": `Bearer ${ptrToken}`, "x-factory-id": customerId }
+    })
+      .then(res => res.json())
+      .then(res => setWeeklyPreviewContent(res.success ? res.data : null))
+      .catch(() => setWeeklyPreviewContent(null))
+      .finally(() => setIsLoadingWeeklyPreview(false));
+  };
+
+  const handleOpenWeeklyMailConfirm = () => {
+    setShowWeeklyMailConfirm(true);
+    fetchWorkspaceTeamContacts();
   };
 
   // Apply filters to row list
@@ -2128,7 +2168,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                         Vazgeç
                       </button>
                       <button
-                        onClick={handleSendWeeklyReportMail}
+                        onClick={() => handleSendWeeklyReportMail()}
                         disabled={isSendingMail}
                         className="p-1 px-3 bg-emerald-800 hover:bg-emerald-700 text-white font-extrabold rounded-lg flex items-center space-x-1 cursor-pointer text-[10px] disabled:opacity-50 disabled:cursor-wait"
                       >
@@ -2739,19 +2779,88 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
           <div className="space-y-6 animate-fadeIn">
             {/* Danışman Faaliyet Özeti — free-text, one note per consultant per week */}
             <div className="bg-white border border-indigo-200 rounded-2xl p-5 shadow-xs">
-              <div className="flex items-center space-x-2 border-b border-indigo-100 pb-3 mb-4">
-                <div className="p-1.5 bg-indigo-50 rounded-xl text-indigo-800">
-                  <FileSpreadsheet className="w-4 h-4" />
+              <div className="flex items-center justify-between space-x-2 border-b border-indigo-100 pb-3 mb-4">
+                <div className="flex items-center space-x-2">
+                  <div className="p-1.5 bg-indigo-50 rounded-xl text-indigo-800">
+                    <FileSpreadsheet className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
+                      Danışman Faaliyet Özeti
+                    </h3>
+                    <p className="text-[10px] text-slate-500">
+                      {prevWeekNum !== null && prevYear !== null
+                        ? `${prevWeekNum}. Hafta (${getIsoWeekDateRangeLabel(prevWeekNum, prevYear)})`
+                        : "Geçen hafta"} — haftalık rapor e-postasına otomatik eklenir.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
-                    Danışman Faaliyet Özeti
-                  </h3>
-                  <p className="text-[10px] text-slate-500">
-                    {prevWeekNum !== null && prevYear !== null
-                      ? `${prevWeekNum}. Hafta (${getIsoWeekDateRangeLabel(prevWeekNum, prevYear)})`
-                      : "Geçen hafta"} — haftalık rapor e-postasına otomatik eklenir.
-                  </p>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleOpenWeeklyPreview}
+                    disabled={prevWeekNum === null}
+                    className="p-1.5 text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
+                    title="Mail Metnini Önizle"
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => (showWeeklyMailConfirm ? setShowWeeklyMailConfirm(false) : handleOpenWeeklyMailConfirm())}
+                      disabled={prevWeekNum === null}
+                      className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50"
+                      title="Bu Haftaki Raporu Mail Olarak Gönder"
+                    >
+                      <Mail className="w-4 h-4" />
+                    </button>
+                    {showWeeklyMailConfirm && (
+                      <div className="absolute right-0 top-full mt-1.5 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-30 p-3 space-y-2.5">
+                        <p className="font-extrabold text-slate-700 text-[11px] uppercase tracking-wider">
+                          {prevWeekNum}. Hafta Raporunu Gönder
+                        </p>
+                        <p className="text-[10px] text-slate-500 leading-snug">
+                          proje@gembapartner.com adresinden, bu Danışman Faaliyet Özeti mail metnine, PTR şablon Excel raporu ek olarak eklenip gönderilecek.
+                        </p>
+                        <div className="space-y-1.5 text-[10.5px] bg-slate-50 border border-slate-150 rounded-lg p-2.5">
+                          <div>
+                            <span className="font-extrabold text-slate-500 uppercase tracking-wider block mb-0.5">Kime (Proje Ekibi):</span>
+                            {workspaceTeamContacts.to.length > 0 ? (
+                              <span className="text-slate-700 font-semibold">{workspaceTeamContacts.to.map(c => c.name || c.email).join(", ")}</span>
+                            ) : (
+                              <span className="text-rose-600 font-bold">Tanımlı üye yok — müşteri kartı &gt; Proje Ekibi</span>
+                            )}
+                          </div>
+                          <div>
+                            <span className="font-extrabold text-slate-500 uppercase tracking-wider block mb-0.5">Bilgi (Cc):</span>
+                            <span className="text-slate-700 font-semibold">
+                              {[...workspaceTeamContacts.cc.map(c => c.name || c.email), "Proje Danışmanları", "a.zehir@gembapartner.com"].join(", ")}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex justify-end space-x-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setShowWeeklyMailConfirm(false)}
+                            className="p-1 px-2.5 text-slate-500 hover:text-slate-700 font-extrabold rounded-lg text-[10px] cursor-pointer"
+                          >
+                            Vazgeç
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSendWeeklyReportMail(prevWeekNum !== null ? String(prevWeekNum) : undefined)}
+                            disabled={isSendingMail}
+                            className="p-1 px-3 bg-emerald-800 hover:bg-emerald-700 text-white font-extrabold rounded-lg flex items-center space-x-1 cursor-pointer text-[10px] disabled:opacity-50 disabled:cursor-wait"
+                          >
+                            <Mail className="w-3 h-3" />
+                            <span>{isSendingMail ? "Gönderiliyor..." : "Gönder"}</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -2885,6 +2994,58 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
           currentUser={currentUser}
           projectTeamNames={projectTeamNames}
         />
+      )}
+
+      {/* DANIŞMAN FAALİYET ÖZETİ — HAFTALIK RAPOR MAIL ÖNİZLEME MODALI */}
+      {showWeeklyPreview && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[9999] p-4 animate-fadeIn animate-duration-200" id="weekly-report-preview-modal">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-xl shadow-2xl flex flex-col overflow-hidden max-h-[85vh]">
+            <div className="bg-slate-50 px-5 py-4 border-b border-slate-200 flex justify-between items-center shrink-0">
+              <div className="flex items-center space-x-2">
+                <Eye className="w-4 h-4 text-indigo-600" />
+                <h3 className="font-extrabold text-slate-900 text-xs uppercase tracking-wider">Mail Metni Önizleme</h3>
+              </div>
+              <button
+                onClick={() => setShowWeeklyPreview(false)}
+                className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-500 transition cursor-pointer"
+                title="Kapat"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto space-y-3 flex-1">
+              {isLoadingWeeklyPreview ? (
+                <div className="text-center text-slate-400 text-xs py-10">Yükleniyor…</div>
+              ) : weeklyPreviewContent ? (
+                <>
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Konu</span>
+                    <p className="text-xs font-bold text-slate-800">{weeklyPreviewContent.subject}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Mesaj (+ PTR Excel Eki)</span>
+                    <div className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed bg-slate-50 border border-slate-150 rounded-xl p-3.5">
+                      {weeklyPreviewContent.body}
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 italic">
+                    Bu bir önizlemedir, mail gönderilmedi. Kapatıp özetinizi tekrar düzenleyebilirsiniz.
+                  </p>
+                </>
+              ) : (
+                <div className="text-center text-rose-500 text-xs py-10">Önizleme yüklenemedi.</div>
+              )}
+            </div>
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0">
+              <button
+                onClick={() => setShowWeeklyPreview(false)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* CI PROJECT CONVERSION MODAL */}

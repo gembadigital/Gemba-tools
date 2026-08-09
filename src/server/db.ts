@@ -686,6 +686,43 @@ export class GeminiDb {
     await this.removeOne("weekly_consultant_notes", orgId, id);
   }
 
+  // Weekly report mail archive — one row per (factory, week, year), snapshotting the exact
+  // subject/body/recipients of the weekly report email (Danışman Faaliyet Özeti + PTR attachment)
+  // every time it's actually sent, so past send content stays visible even after the live
+  // Danışman Faaliyet Özeti draft notes for that week are later edited or a consultant deletes
+  // their note. Re-sending the same week updates the snapshot in place and bumps sentCount.
+  public async getWeeklyReportMailLog(orgId: string, factoryId: string): Promise<any[]> {
+    const all = await this.listCollection("weekly_report_mail_log", orgId);
+    return all
+      .filter((r: any) => r.factory_id === factoryId)
+      .sort((a: any, b: any) => (Number(b.year) - Number(a.year)) || (Number(b.week) - Number(a.week)));
+  }
+
+  public async saveWeeklyReportMailLogEntry(orgId: string, payload: {
+    factory_id: string; week: string; year: number; subject: string; body: string;
+    to: string[]; cc: string[];
+  }, userId: string, userName: string): Promise<any> {
+    const id = `wrml_${payload.factory_id}_${payload.year}_${payload.week}`;
+    const existing = await this.getRecordById("weekly_report_mail_log", id, orgId);
+    const record: any = {
+      id,
+      factory_id: payload.factory_id,
+      week: payload.week,
+      year: payload.year,
+      subject: payload.subject,
+      body: payload.body,
+      to: payload.to,
+      cc: payload.cc,
+      sentBy: userName,
+      sentById: userId,
+      organization_id: orgId,
+      firstSentAt: existing ? existing.firstSentAt : new Date().toISOString(),
+      sentAt: new Date().toISOString(),
+      sentCount: (existing?.sentCount || 0) + 1
+    };
+    return this.upsertMerged("weekly_report_mail_log", orgId, record);
+  }
+
   // Ticket / İyileştirme Takip — internal feedback & improvement backlog about gemba-tools itself
   // (not tied to any customer/factory, unlike almost everything else in this file). Admin +
   // Consultant only; enforced both in the API handlers (app.ts) and hidden in the UI for

@@ -1646,6 +1646,68 @@ app.get("/api/business/ptr-records/export-template-excel", authenticateToken, as
   }
 });
 
+// Shared by the actual send route and the preview-only route below, so the preview the user sees
+// in the Danışman Faaliyet Özeti card is guaranteed to be exactly what gets emailed — no separate
+// template copy to drift out of sync.
+async function buildWeeklyReportEmailContent(orgId: string, factoryId: string, week: string, year: number | null, customerName: string): Promise<{ subject: string; body: string }> {
+  const shortName = customerName.trim().split(/\s+/)[0] || customerName;
+  const subject = `[PTR] ${shortName} W${week} Proje Raporu`;
+
+  // Danışman Faaliyet Özeti: fold each consultant's free-text weekly note directly into the email
+  // body (not just the Excel attachment) so the customer sees this week's work without opening the
+  // file. Only ever populated when `week`/`year` match a week consultants actually wrote notes for.
+  let notesSection = "";
+  if (year) {
+    const weeklyNotes = (await db.getWeeklyConsultantNotes(orgId, factoryId, String(week), Number(year)))
+      .filter((n: any) => (n.note || "").trim());
+    if (weeklyNotes.length > 0) {
+      const notesList = weeklyNotes
+        .map((n: any) => `- ${n.consultant_name || "Danışman"}: ${n.note.trim()}`)
+        .join("\n");
+      notesSection = `\n\nBu Haftaki Danışman Faaliyet Özeti:\n${notesList}\n`;
+    }
+  }
+
+  const body = `Sayın İlgililer,\n\n${week}. hafta ziyareti sırasında yapılan çalışma ve aksiyon raporu ektedir. Lütfen termin tarihlerine uyum sağlamaya özen gösteriniz.${notesSection}\nSaygılarımızla,\nGemba Partner`;
+  return { subject, body };
+}
+
+// 6f-preview. Preview only — returns the exact subject/body the send route below would email, with
+// no PTR template/records requirement, so the UI (Haftalık OPEX Faaliyet Raporu tab's Danışman
+// Faaliyet Özeti card) can show a WYSIWYG preview before actually sending anything.
+app.get("/api/business/ptr-records/weekly-report-preview", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed || !scope.factoryId) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  const week = req.query.week as string;
+  const year = parseInt(req.query.year as string, 10);
+  if (!week || !year) {
+    res.status(400).json({ success: false, error: "week and year query params are required." });
+    return;
+  }
+  const customer = (await db.getCustomers(user.organization_id)).find((c: any) => c.id === scope.factoryId);
+  const customerName = customer?.companyName || "Müşteri";
+  const { subject, body } = await buildWeeklyReportEmailContent(user.organization_id, scope.factoryId, week, year, customerName);
+  res.json({ success: true, data: { subject, body } });
+});
+
+// 6f-log. Archived history of actually-sent weekly report emails (subject/body/recipients
+// snapshot, one row per week/year) — see db.saveWeeklyReportMailLogEntry. Kept separate from the
+// live-editable Danışman Faaliyet Özeti draft notes so what was actually sent stays visible even
+// if a consultant later edits or deletes their draft note for that week.
+app.get("/api/business/ptr-records/weekly-report-mail-log", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed || !scope.factoryId) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  res.json({ success: true, data: await db.getWeeklyReportMailLog(user.organization_id, scope.factoryId) });
+});
+
 // 6f. "Mail Gönder" — sends that week's visit report (real template Excel attached) to the
 // customer from the shared project mailbox. Honestly reports when SMTP isn't configured rather
 // than pretending success (see sendMail()).
@@ -1694,31 +1756,9 @@ app.post("/api/business/ptr-records/send-weekly-report", authenticateToken, asyn
     "a.zehir@gembapartner.com"
   ]));
 
-  // "Çelikel Tarım Ekipmanları San. Tic. A.Ş." -> "Çelikel", "Mazsan Makina San Tic A.Ş" -> "Mazsan"
-  const shortName = customerName.trim().split(/\s+/)[0] || customerName;
-
   try {
     const buffer = await generatePtrTemplateExcel(records, customerName);
-    const subject = `[PTR] ${shortName} W${week} Proje Raporu`;
-
-    // Danışman Faaliyet Özeti: fold each consultant's free-text weekly note directly into the
-    // email body (not just the Excel attachment) so the customer sees this week's work without
-    // opening the file. Only ever populated when `week`/`year` match a week consultants actually
-    // wrote notes for (Weekly tab always writes under "geçen hafta") — otherwise this is empty and
-    // the email reads exactly as it did before this feature existed.
-    let notesSection = "";
-    if (year) {
-      const weeklyNotes = (await db.getWeeklyConsultantNotes(user.organization_id, scope.factoryId!, String(week), Number(year)))
-        .filter((n: any) => (n.note || "").trim());
-      if (weeklyNotes.length > 0) {
-        const notesList = weeklyNotes
-          .map((n: any) => `- ${n.consultant_name || "Danışman"}: ${n.note.trim()}`)
-          .join("\n");
-        notesSection = `\n\nBu Haftaki Danışman Faaliyet Özeti:\n${notesList}\n`;
-      }
-    }
-
-    const body = `Sayın İlgililer,\n\n${week}. hafta ziyareti sırasında yapılan çalışma ve aksiyon raporu ektedir. Lütfen termin tarihlerine uyum sağlamaya özen gösteriniz.${notesSection}\nSaygılarımızla,\nGemba Partner`;
+    const { subject, body } = await buildWeeklyReportEmailContent(user.organization_id, scope.factoryId!, week, year ? Number(year) : null, customerName);
     const result = await sendMail({
       to: toList,
       cc: ccList,
@@ -1729,6 +1769,16 @@ app.post("/api/business/ptr-records/send-weekly-report", authenticateToken, asyn
     if (!result.success) {
       res.status(503).json(result);
       return;
+    }
+    // Archive exactly what was sent, keyed by week/year, so it stays visible even if the
+    // Danışman Faaliyet Özeti draft notes it was built from are later edited/deleted.
+    if (year) {
+      await db.saveWeeklyReportMailLogEntry(
+        user.organization_id,
+        { factory_id: scope.factoryId!, week: String(week), year: Number(year), subject, body, to: toList, cc: ccList },
+        user.id,
+        user.full_name
+      );
     }
     res.json({ success: true });
   } catch (e: any) {
