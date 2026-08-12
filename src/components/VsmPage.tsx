@@ -537,22 +537,50 @@ export default function VsmPage() {
     }
   };
 
-  // Push the operational fields VSM and the cost-table `processes` collection genuinely share
-  // (cycleTime, oee, capacity, headcount, shifts, working hours, utilization) back into the
-  // matching ProcessRecord, for any VSM process that originated from that table (same id).
-  // Cost fields (scrapCost/laborCost/etc.) are intentionally left untouched — VSM doesn't
-  // collect cost data, so there is no reliable source value to sync for those.
-  const syncVsmProcessesToCostTable = (processesToSync: VsmProcess[]) => {
-    if (!dbProcesses || dbProcesses.length === 0) return;
-    const dbById = new Map(dbProcesses.map(p => [p.id, p]));
+  // Push VSM process data into the cost-table `processes` collection (Loss Capacity Analizi's
+  // real data source) — both the operational fields the two screens genuinely share (cycleTime,
+  // oee, capacity, headcount, shifts, working hours, utilization) AND, for rows this VSM project
+  // itself owns (tagged via vsmProjectId), derived cost fields (scrapCost/reworkCost/downtimeCost/
+  // waitingLoss) computed from this project's own Tab 4 quantities (scrap/rework) and Fabrika
+  // Kurulum Parametreleri unit costs (scrapUnitCost/downtimeHourlyCost/holdingCostPerWipYearly) —
+  // the same rates estimatedAnnualWasteCost/simulationComparison already use elsewhere in this
+  // file, so this stays consistent with what VSM's own dashboard already tells the user its
+  // losses are worth. Previously this only ever UPDATED a pre-existing cost-table row with a
+  // matching id and silently did nothing otherwise — meaning a brand-new VSM process (or any
+  // project saved while the cost table was still empty, the removed `dbProcesses.length === 0`
+  // guard) never made it into Loss Capacity at all. Now creates the row when no match exists.
+  const syncVsmProcessesToCostTable = (processesToSync: VsmProcess[], vsmProjectId: string) => {
+    const dbById = new Map((dbProcesses || []).map(p => [p.id, p]));
+    const su = factorySetup.scrapUnitCost;
+    const dh = factorySetup.downtimeHourlyCost;
+    const hc = factorySetup.holdingCostPerWipYearly;
 
     processesToSync.forEach((vp) => {
       const matched = dbById.get(vp.id);
-      if (!matched) return; // Not sourced from the cost table (fallback/manual VSM-only process) — nothing to sync.
+      const perShiftHours = vp.shifts > 0 ? Math.round(vp.workingHours / vp.shifts) : (matched?.workingHours ?? vp.workingHours);
 
-      const perShiftHours = vp.shifts > 0 ? Math.round(vp.workingHours / vp.shifts) : matched.workingHours;
+      // Only recompute cost fields for rows this VSM project owns — a matched row belonging to a
+      // different origin (untagged legacy process, or another project's own manual cost-table
+      // edit) keeps its existing cost figures untouched, exactly as before.
+      const ownsCostFields = !matched || matched.vsmProjectId === vsmProjectId;
+      const costFields = ownsCostFields ? (() => {
+        const scrapQty = vp.scrap ?? 10;
+        const reworkQty = vp.rework ?? 5;
+        return {
+          scrapCost: su ? scrapQty * su * 250 : scrapQty * 800,
+          // 40% of item cost for rework matches the same ratio calculateFinancialImpact already
+          // assumes (helpers.ts) — no dedicated rework-unit-cost field exists on factorySetup.
+          reworkCost: su ? reworkQty * su * 0.4 * 250 : reworkQty * 350,
+          downtimeCost: dh ? (vp.downtimeMinutes / 60) * dh * 250 : vp.downtimeMinutes * 2500,
+          waitingLoss: hc ? vp.inventoryBefore * hc : vp.inventoryBefore * 50
+        };
+      })() : {};
+
       const updatedProcess = {
-        ...matched,
+        ...(matched || {}),
+        id: vp.id,
+        name: vp.name,
+        vsmProjectId,
         cycleTime: vp.cycleTime,
         oee: vp.oee,
         capacity: vp.capacity,
@@ -560,7 +588,8 @@ export default function VsmPage() {
         machineCount: vp.machineCount,
         shiftCount: vp.shifts,
         workingHours: perShiftHours,
-        utilizationRate: vp.availability
+        utilizationRate: vp.availability,
+        ...costFields
       };
 
       fetch("/api/business/processes", {
@@ -604,7 +633,11 @@ export default function VsmPage() {
       if (data.success) {
         setProjects(prev => prev.map(p => p.id === data.data.id ? data.data : p));
         setSelectedProject(data.data);
-        syncVsmProcessesToCostTable(vsmProcesses);
+        // Use the fresh server response's id, not `selectedProject` — React state setters are
+        // async, so `selectedProject` in this closure is still the pre-save value here (a real
+        // stale-closure bug: a brand-new project's very first save would otherwise sync with an
+        // undefined/wrong project id).
+        syncVsmProcessesToCostTable(vsmProcesses, data.data.id);
         setJustSavedProject(true);
         setTimeout(() => setJustSavedProject(false), 2000);
       }

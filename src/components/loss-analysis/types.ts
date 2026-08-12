@@ -1,6 +1,10 @@
 export interface ProcessItem {
   id: string;
   name: string;
+  // Owning VSM project id, when this row was synced from VsmPage.tsx — lets "product_group" cost
+  // model scope filter down to just that project's real stations instead of the whole customer's
+  // combined process list. Untagged for legacy/manually-entered rows.
+  vsmProjectId?: string;
   isCollapsed: boolean;
   shiftsPerDay: number;
   workingHoursPerShift: number;

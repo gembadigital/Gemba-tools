@@ -36,6 +36,9 @@ export interface Customer {
 export interface ProcessRecord {
   id: string;
   name: string;
+  // Owning VSM project id, when this row was synced from VsmPage.tsx — see ProcessItem.vsmProjectId
+  // (loss-analysis/types.ts) for how Loss Capacity Analizi uses this to scope by product group.
+  vsmProjectId?: string;
   operatorCount: number;
   machineCount: number;
   cycleTime: number; // in seconds

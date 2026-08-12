@@ -471,6 +471,7 @@ export default function LossAnalysis() {
           return {
             id: p.id,
             name: p.name,
+            vsmProjectId: p.vsmProjectId,
             isCollapsed: true,
             shiftsPerDay: p.shiftCount || 2,
             workingHoursPerShift: p.workingHours || 8,
@@ -674,7 +675,18 @@ export default function LossAnalysis() {
     setProcesses(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
   };
 
-  const activeProcesses = processes;
+  // "product_group" scope filters down to just the selected VSM project's own real stations
+  // (tagged via vsmProjectId when VsmPage.tsx syncs them) instead of the whole customer's combined
+  // process list — the previous behavior used ALL processes and only rescaled the $ output by a
+  // flat percentage, which meant "seçili ürün grubu" never actually reflected that product's real
+  // losses. "factory" scope is unaffected: still every process, tagged or not.
+  const activeProcesses = costModelScope === "product_group" && selectedVsmProject
+    ? processes.filter(p => p.vsmProjectId === selectedVsmProject.id)
+    : processes;
+  // A selected product group with zero tagged processes reads as a genuine "0 TL kayıp" unless
+  // called out explicitly — most likely the VSM project just hasn't been re-saved since sync
+  // started tagging rows, not that the product group truly has no losses.
+  const isScopedWithNoData = costModelScope === "product_group" && !!selectedVsmProject && activeProcesses.length === 0;
 
   // Run analytical models & algorithms
   const defaultDemand = 1100;
@@ -683,67 +695,15 @@ export default function LossAnalysis() {
   const computedTaktTime = defaultDemand > 0 ? parseFloat((dailyNetAvailableSeconds / defaultDemand).toFixed(1)) : 45;
 
   const calculatedProcesses = calculateProcessesData(activeProcesses, defaultDemand, computedTaktTime);
-  // Always computed at full-factory scale first: the underlying physical process data
-  // (downtime minutes, setup counts, scrap quantities) isn't itself filtered by product group,
-  // so the factory-wide figures are the correct base to scale down from.
-  const financialImpactFactory = calculateFinancialImpact(calculatedProcesses, annualRevenue, hourlyLaborRate * 8, materialCostFactor, energyRateKwh, defaultDemand);
-  const copqDataFactory = calculateCOPQ(calculatedProcesses, annualRevenue, financialImpactFactory);
-  const hiddenFactoryDataFactory = calculateHiddenFactory(calculatedProcesses, annualRevenue, copqDataFactory, financialImpactFactory);
-
-  // Single, consistent revenue-share scaling applied uniformly to every downstream figure — this
-  // is what "costModelScope === product_group" is supposed to mean throughout the whole module,
-  // not just in the Recovery Matrix / Simulation tabs (which previously had their own ad-hoc
-  // re-scaling while the Executive Dashboard headline COPQ card stayed at full-factory scale).
-  const revenueScopeRatio = annualRevenue > 0 ? (effectiveRevenue / annualRevenue) : 1;
-  const scaleMoneyBlock = (block: { day: number; week: number; month: number; year: number }) => ({
-    day: block.day * revenueScopeRatio,
-    week: block.week * revenueScopeRatio,
-    month: block.month * revenueScopeRatio,
-    year: block.year * revenueScopeRatio
-  });
-  const financialImpactBase = {
-    ...financialImpactFactory,
-    scrap: scaleMoneyBlock(financialImpactFactory.scrap),
-    rework: scaleMoneyBlock(financialImpactFactory.rework),
-    downtime: scaleMoneyBlock(financialImpactFactory.downtime),
-    setup: scaleMoneyBlock(financialImpactFactory.setup),
-    laborLoss: scaleMoneyBlock(financialImpactFactory.laborLoss),
-    inventory: scaleMoneyBlock(financialImpactFactory.inventory),
-    waiting: scaleMoneyBlock(financialImpactFactory.waiting),
-    lateDelivery: scaleMoneyBlock(financialImpactFactory.lateDelivery),
-    overtime: scaleMoneyBlock(financialImpactFactory.overtime),
-    energy: scaleMoneyBlock(financialImpactFactory.energy),
-    maintenance: scaleMoneyBlock(financialImpactFactory.maintenance),
-    totalOperationalLosses: scaleMoneyBlock(financialImpactFactory.totalOperationalLosses)
-  };
-  const copqDataBase = {
-    ...copqDataFactory,
-    internalFailure: copqDataFactory.internalFailure * revenueScopeRatio,
-    scrapCost: copqDataFactory.scrapCost * revenueScopeRatio,
-    reworkCost: copqDataFactory.reworkCost * revenueScopeRatio,
-    sortingCost: copqDataFactory.sortingCost * revenueScopeRatio,
-    customerReturns: copqDataFactory.customerReturns * revenueScopeRatio,
-    warrantyCost: copqDataFactory.warrantyCost * revenueScopeRatio,
-    expeditingCost: copqDataFactory.expeditingCost * revenueScopeRatio,
-    extraFreight: copqDataFactory.extraFreight * revenueScopeRatio,
-    customerComplaints: copqDataFactory.customerComplaints * revenueScopeRatio,
-    lostCapacityCost: copqDataFactory.lostCapacityCost * revenueScopeRatio,
-    lostSalesCost: copqDataFactory.lostSalesCost * revenueScopeRatio,
-    excessInventoryCost: copqDataFactory.excessInventoryCost * revenueScopeRatio,
-    lateDeliveryCost: copqDataFactory.lateDeliveryCost * revenueScopeRatio,
-    emergencyOvertimeCost: copqDataFactory.emergencyOvertimeCost * revenueScopeRatio,
-    inspectionCost: copqDataFactory.inspectionCost * revenueScopeRatio,
-    qualityPersonnelCost: copqDataFactory.qualityPersonnelCost * revenueScopeRatio,
-    totalCOPQ_TL: copqDataFactory.totalCOPQ_TL * revenueScopeRatio,
-    copqPercentOfRevenue: effectiveRevenue > 0 ? ((copqDataFactory.totalCOPQ_TL * revenueScopeRatio) / effectiveRevenue) * 100 : 0
-  };
-  const hiddenFactoryDataBase = {
-    ...hiddenFactoryDataFactory,
-    hiddenCostYear: hiddenFactoryDataFactory.hiddenCostYear * revenueScopeRatio,
-    equivalentRevenue: hiddenFactoryDataFactory.equivalentRevenue * revenueScopeRatio
-    // equivalentOperators / equivalentMachineCapacityPercent left as-is: both are physical
-    // (headcount, OEE gap), not financial, so they don't scale with revenue scope.
-  };
+  // Computed directly from the already-scoped process set and revenue — activeProcesses is now
+  // genuinely filtered to the selected product group's own stations when in "product_group" scope
+  // (see activeProcesses above), so there's no separate factory-wide pass to rescale down from
+  // anymore. This used to compute at full-factory scale first, then uniformly multiply every
+  // downstream $ figure by effectiveRevenue/annualRevenue — a proxy that never reflected the
+  // selected product group's real measured losses, only a percentage slice of the whole factory's.
+  const financialImpactBase = calculateFinancialImpact(calculatedProcesses, effectiveRevenue, hourlyLaborRate * 8, materialCostFactor, energyRateKwh, defaultDemand);
+  const copqDataBase = calculateCOPQ(calculatedProcesses, effectiveRevenue, financialImpactBase);
+  const hiddenFactoryDataBase = calculateHiddenFactory(calculatedProcesses, effectiveRevenue, copqDataBase, financialImpactBase);
 
   // --- Actual Financial Data Override Layer ---
   // If the consultant has enabled a real annual figure for a category, it replaces the
@@ -2327,7 +2287,16 @@ export default function LossAnalysis() {
         {/* TAB 1: EXECUTIVE DASHBOARD */}
         {activeTab === "executive_dashboard" && (
           <div className="space-y-6 animate-in fade-in duration-200">
-            
+
+            {isScopedWithNoData && (
+              <div className="p-3.5 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/45 rounded-xl flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-800 dark:text-amber-400 font-medium">
+                  <strong>{selectedVsmProject?.productGroup || "Bu ürün grubu"}</strong> için VSM'den senkronize edilmiş süreç verisi yok — aşağıdaki kartlar bu yüzden 0 görünüyor, ürün grubunun gerçekten kaybı olmadığı anlamına gelmez. VSM sayfasından ilgili projeyi yeniden kaydedin.
+                </p>
+              </div>
+            )}
+
             {/* CEO EXECUTIVE HIGHLIGHTS CARDS */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               
@@ -3563,6 +3532,15 @@ export default function LossAnalysis() {
                   <span>Kapsamı / VSM Projesini Değiştir</span>
                 </button>
               </div>
+
+              {isScopedWithNoData && (
+                <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/45 rounded-xl flex items-start gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-800 dark:text-amber-400 font-medium">
+                    <strong>{selectedVsmProject?.productGroup || "Bu ürün grubu"}</strong> için VSM'den senkronize edilmiş süreç verisi yok — aşağıdaki değerler bu yüzden 0 görünüyor, ürün grubunun gerçekten kaybı olmadığı anlamına gelmez. VSM sayfasından ilgili projeyi yeniden kaydedin.
+                  </p>
+                </div>
+              )}
 
               <div className="border-b pb-3 mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                 <div>
