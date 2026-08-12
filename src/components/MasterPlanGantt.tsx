@@ -317,7 +317,9 @@ export default function MasterPlanGantt({
           "Content-Type": "application/json"
         },
         body: JSON.stringify({ state: { contractPackageId: selectedPackageId, customCapacity, customPlans } })
-      }).catch(err => console.error("Failed to save Master Plan state", err));
+      })
+        .then(() => window.dispatchEvent(new CustomEvent("CustomPlansChanged")))
+        .catch(err => console.error("Failed to save Master Plan state", err));
     }, 800);
     return () => clearTimeout(timeoutId);
   }, [customPlans, selectedPackageId, customCapacity, masterPlanStateReady, activeCustomerId, token]);
@@ -3521,7 +3523,6 @@ export default function MasterPlanGantt({
                     setCurrentTopTab("master");
                   }
 
-                  window.dispatchEvent(new CustomEvent("CustomPlansChanged"));
                   setPlanToDelete(null);
                 }}
                 className="px-4 py-2 text-xs font-bold bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-xs transition-all cursor-pointer flex items-center space-x-1.5"

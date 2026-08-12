@@ -690,7 +690,20 @@ app.get("/api/admin/users", authenticateToken, async (req, res) => {
       assigned_customer_ids: u.assigned_customer_ids || []
     }));
 
-    res.json({ success: true, users: safeUsers });
+    // Invited consultants/guests only become rows in `users` once they accept — until then there
+    // was no way to tell they'd been invited at all. Surface still-pending invitations separately
+    // so the admin can see who hasn't accepted yet instead of them silently vanishing from the list.
+    const pendingInvitations = (await db.getInvitations())
+      .filter(inv => inv.organization_id === user.organization_id && !inv.accepted)
+      .map(inv => ({
+        id: inv.id,
+        email: inv.email,
+        role: inv.role,
+        customer_id: inv.customer_id,
+        expires_at: inv.expires_at
+      }));
+
+    res.json({ success: true, users: safeUsers, pendingInvitations });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }

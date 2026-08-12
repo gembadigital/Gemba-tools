@@ -93,7 +93,11 @@ export default function CustomerRecords({
           // an existing customer's real Customer.annualRevenue would show as blank here until
           // the profile is saved once.
           const loaded = res.data as CompanyWorkspaceExtended;
-          setWorkspace(loaded.annualRevenue !== undefined ? loaded : { ...loaded, annualRevenue: selectedCustomer.annualRevenue || 0 });
+          setWorkspace({
+            ...loaded,
+            annualRevenue: loaded.annualRevenue !== undefined ? loaded.annualRevenue : (selectedCustomer.annualRevenue || 0),
+            currency: loaded.currency !== undefined ? loaded.currency : (selectedCustomer.currency || "₺")
+          });
           return;
         }
         // One-time migration: nothing in the backend yet — if this browser has real,
@@ -148,6 +152,7 @@ export default function CustomerRecords({
       country: "Türkiye",
       city: "",
       annualRevenue: cust.annualRevenue || 0,
+      currency: cust.currency || "₺",
       operational: {
         ...template.operational,
         productFamilies: cust.productionType ? [cust.productionType] : []
@@ -192,6 +197,7 @@ export default function CustomerRecords({
       // Explicit undefined/null check (not `||`) so an intentionally-entered 0 isn't silently
       // overwritten back to the previous value — same `??`-vs-`||` bug class fixed elsewhere.
       annualRevenue: updated.annualRevenue ?? selectedCustomer.annualRevenue,
+      currency: updated.currency || selectedCustomer.currency,
       notes: updated.opex.currentImprovementProgram || selectedCustomer.notes
     });
   };

@@ -228,7 +228,23 @@ export default function CompanyProfileTab({ workspace, onSave }: CompanyProfileT
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-gray-500">Yıllık Ciro (₺)</label>
+              <label className="text-xs font-semibold text-gray-500">Para Birimi</label>
+              <select
+                id="input-currency"
+                disabled={!isEditing}
+                value={editedWorkspace.currency || "₺"}
+                onChange={(e) => handleFieldChange(null, "currency", e.target.value)}
+                title="Para Birimi — bu müşterinin tüm modüllerdeki (VSM, Loss Analizi vb.) finansal alanları bu birimi referans alır"
+                className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden focus:border-zinc-400 disabled:bg-gray-50 disabled:text-gray-600 transition-all font-bold bg-white"
+              >
+                <option value="₺">₺ TRY</option>
+                <option value="$">$ USD</option>
+                <option value="€">€ EUR</option>
+                <option value="£">£ GBP</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-gray-500">Yıllık Ciro ({editedWorkspace.currency || "₺"})</label>
               <input
                 id="input-annualRevenue"
                 type="text"

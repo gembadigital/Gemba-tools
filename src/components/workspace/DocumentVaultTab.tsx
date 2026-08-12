@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { CompanyWorkspaceExtended, DocumentItem } from "../../types/workspace";
-import { Folder, FolderOpen, File, Plus, Trash2, Search, Upload, Download, AlertTriangle } from "lucide-react";
+import { Folder, FolderOpen, File, Plus, Trash2, Search, Upload, Download, AlertTriangle, Eye, X } from "lucide-react";
 
 // Vercel's Node serverless functions cap request body size well below the app's own 20mb Express
 // limit (historically ~4.5MB) — this app has no separate blob/object storage, so document content
@@ -33,6 +33,15 @@ export default function DocumentVaultTab({ workspace, onUpdateDocuments }: Docum
   const [searchQuery, setSearchQuery] = useState("");
   const [dragActive, setDragActive] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
+
+  // The doc's mime type lives in its data URI header (`data:<mime>;base64,...`) — used to decide
+  // whether an inline preview (image/PDF) is possible or whether to fall back to download-only.
+  const getMimeType = (dataUrl?: string) => {
+    if (!dataUrl) return "";
+    const match = dataUrl.match(/^data:([^;]+);/);
+    return match ? match[1] : "";
+  };
 
   // Reads the actual file bytes (as a base64 data URI) and appends a real, retrievable document —
   // previously this only ever recorded the filename/size as metadata and never touched the file's
@@ -209,14 +218,24 @@ export default function DocumentVaultTab({ workspace, onUpdateDocuments }: Docum
                   <td className="py-3 text-gray-500">{doc.size}</td>
                   <td className="py-3 text-right whitespace-nowrap">
                     {doc.url ? (
-                      <a
-                        href={doc.url}
-                        download={doc.name}
-                        className="text-gray-400 hover:text-zinc-900 p-1.5 hover:bg-gray-100 rounded-lg transition-colors inline-flex"
-                        title="İndir"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                      </a>
+                      <>
+                        <button
+                          id={`btn-preview-doc-${doc.id}`}
+                          onClick={() => setPreviewDoc(doc)}
+                          className="text-gray-400 hover:text-zinc-900 p-1.5 hover:bg-gray-100 rounded-lg transition-colors inline-flex"
+                          title="Önizle"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                        <a
+                          href={doc.url}
+                          download={doc.name}
+                          className="text-gray-400 hover:text-zinc-900 p-1.5 hover:bg-gray-100 rounded-lg transition-colors inline-flex"
+                          title="İndir"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </a>
+                      </>
                     ) : (
                       <span className="text-[10px] text-gray-300 italic mr-1" title="Bu belge eski sürümde sadece bilgi olarak kaydedilmiş, dosya içeriği yok.">
                         içerik yok
@@ -244,6 +263,52 @@ export default function DocumentVaultTab({ workspace, onUpdateDocuments }: Docum
           </table>
         </div>
       </div>
+
+      {previewDoc && (
+        <div
+          id="document-preview-modal"
+          className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6"
+          onClick={() => setPreviewDoc(null)}
+        >
+          <div
+            className="bg-white rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <span className="text-xs font-semibold text-gray-800 truncate pr-4">{previewDoc.name}</span>
+              <div className="flex items-center gap-1 shrink-0">
+                <a
+                  href={previewDoc.url}
+                  download={previewDoc.name}
+                  className="text-gray-400 hover:text-zinc-900 p-1.5 hover:bg-gray-100 rounded-lg transition-colors inline-flex"
+                  title="İndir"
+                >
+                  <Download className="w-4 h-4" />
+                </a>
+                <button
+                  id="btn-close-preview"
+                  onClick={() => setPreviewDoc(null)}
+                  className="text-gray-400 hover:text-zinc-900 p-1.5 hover:bg-gray-100 rounded-lg transition-colors inline-flex"
+                  title="Kapat"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto bg-gray-50 flex items-center justify-center p-4">
+              {getMimeType(previewDoc.url).startsWith("image/") ? (
+                <img src={previewDoc.url} alt={previewDoc.name} className="max-w-full max-h-full object-contain" />
+              ) : getMimeType(previewDoc.url) === "application/pdf" ? (
+                <iframe src={previewDoc.url} title={previewDoc.name} className="w-full h-[70vh] border-0" />
+              ) : (
+                <p className="text-xs text-gray-500 font-medium text-center py-8">
+                  Bu dosya türü için tarayıcı içi önizleme desteklenmiyor. Görüntülemek için dosyayı indirin.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

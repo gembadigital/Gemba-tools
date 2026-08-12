@@ -161,6 +161,9 @@ export interface CompanyWorkspaceExtended {
   // calculations. Added here so it's actually visible/editable somewhere after a customer's
   // initial creation — previously only set once in the "Yeni Müşteri Ekle" modal, never again.
   annualRevenue?: number;
+  // Reference currency for annualRevenue and (by convention) every other cost figure elsewhere
+  // in the app for this customer — kept in sync with Customer.currency, same reasoning as above.
+  currency?: string;
   taxNumber?: string;
   taxOffice?: string;
   website?: string;

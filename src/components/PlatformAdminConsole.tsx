@@ -3,7 +3,7 @@ import {
   Building2, Users, ShieldCheck, Mail,
   Sparkles, Search, X, CheckCircle2,
   Plus, Lock, ShieldAlert,
-  ChevronRight, Trash2, Loader2, AlertTriangle, Save, Pencil
+  ChevronRight, Trash2, Loader2, AlertTriangle, Save, Pencil, Clock
 } from "lucide-react";
 import { SIDEBAR_MODULES, DEFAULT_ROLE_MODULE_VISIBILITY, RoleModuleVisibility } from "../constants/sidebarModules";
 
@@ -74,6 +74,8 @@ const TRANSLATIONS = {
     colNameEmail: "Adı Soyadı & E-Posta", colRole: "Rol", colFactory: "Atanan Müşteri",
     colStatus: "Durum", colLastLogin: "Son Giriş", colActions: "Aksiyonlar",
     statusActive: "Aktif", statusInactive: "Pasif", noLogin: "Giriş Yok",
+    pendingUsersHeading: "Bekleyen Kullanıcılar", pendingUsersCount: (n: number) => `Bekleyen: ${n}`,
+    colExpiresAt: "Son Geçerlilik", pendingStatusLabel: "Davet Bekleniyor",
     resetPasswordTitleAttr: "Şifre Sıfırla",
     allCustomersLabel: "Tüm Müşteriler",
     noCustomerAssignedLabel: "Atanmamış",
@@ -173,6 +175,8 @@ const TRANSLATIONS = {
     colNameEmail: "Name & Email", colRole: "Role", colFactory: "Assigned Customer",
     colStatus: "Status", colLastLogin: "Last Login", colActions: "Actions",
     statusActive: "Active", statusInactive: "Inactive", noLogin: "No Login Yet",
+    pendingUsersHeading: "Pending Users", pendingUsersCount: (n: number) => `Pending: ${n}`,
+    colExpiresAt: "Expires", pendingStatusLabel: "Invite Pending",
     resetPasswordTitleAttr: "Reset Password",
     allCustomersLabel: "All Customers",
     noCustomerAssignedLabel: "Not assigned",
@@ -272,6 +276,8 @@ const TRANSLATIONS = {
     colNameEmail: "Name & E-Mail", colRole: "Rolle", colFactory: "Zugewiesener Kunde",
     colStatus: "Status", colLastLogin: "Letzte Anmeldung", colActions: "Aktionen",
     statusActive: "Aktiv", statusInactive: "Inaktiv", noLogin: "Noch keine Anmeldung",
+    pendingUsersHeading: "Ausstehende Benutzer", pendingUsersCount: (n: number) => `Ausstehend: ${n}`,
+    colExpiresAt: "Läuft ab", pendingStatusLabel: "Einladung ausstehend",
     resetPasswordTitleAttr: "Passwort zurücksetzen",
     allCustomersLabel: "Alle Kunden",
     noCustomerAssignedLabel: "Nicht zugewiesen",
@@ -340,6 +346,9 @@ export default function PlatformAdminConsole({
 
   // Section 2: User Management State
   const [users, setUsers] = useState<any[]>([]);
+  // Invited consultants/guests who haven't accepted yet — no `users` row exists for these until
+  // they do, so they were previously invisible here with no trace that an invite had even gone out.
+  const [pendingInvitations, setPendingInvitations] = useState<any[]>([]);
   const [customersById, setCustomersById] = useState<Record<string, string>>({});
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("Customer User");
@@ -430,6 +439,7 @@ export default function PlatformAdminConsole({
     .then(data => {
       if (data.success) {
         setUsers(data.users);
+        setPendingInvitations(data.pendingInvitations || []);
       }
     })
     .catch(() => {});
@@ -1149,6 +1159,49 @@ export default function PlatformAdminConsole({
                     </table>
                   </div>
                 </div>
+
+                {/* Pending Invitations — invited but not yet accepted, so no `users` row exists yet */}
+                {pendingInvitations.length > 0 && (
+                  <div className="bg-white border border-amber-200 rounded-2xl overflow-hidden shadow-xs">
+                    <div className="p-4 bg-amber-50 border-b border-amber-100 flex items-center justify-between">
+                      <span className="text-xs font-black text-amber-900 uppercase tracking-wide flex items-center space-x-1.5">
+                        <Clock className="w-4 h-4 text-amber-500" />
+                        <span>{t.pendingUsersHeading}</span>
+                      </span>
+                      <span className="text-xs font-bold text-amber-700 bg-amber-100 px-3 py-1.5 rounded-lg border border-amber-200">
+                        {t.pendingUsersCount(pendingInvitations.length)}
+                      </span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-slate-100 text-xs text-left">
+                        <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px]">
+                          <tr>
+                            <th className="px-4 py-3">{t.colNameEmail}</th>
+                            <th className="px-4 py-3">{t.colRole}</th>
+                            <th className="px-4 py-3">{t.colStatus}</th>
+                            <th className="px-4 py-3">{t.colExpiresAt}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
+                          {pendingInvitations.map((inv) => (
+                            <tr key={inv.id}>
+                              <td className="px-4 py-3 font-mono text-[10px] text-slate-500">{inv.email}</td>
+                              <td className="px-4 py-3">{inv.role}</td>
+                              <td className="px-4 py-3">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                  {t.pendingStatusLabel}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-slate-400 font-mono text-[10px]">
+                                {inv.expires_at ? new Date(inv.expires_at).toLocaleString("tr-TR") : "-"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

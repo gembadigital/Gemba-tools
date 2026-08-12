@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { User, ShieldAlert, BadgePlus, UserCheck, Trash2, Send, RotateCcw, Lock, ClipboardCheck, Clipboard } from "lucide-react";
+import { User, ShieldAlert, BadgePlus, UserCheck, Trash2, Send, RotateCcw, Lock, ClipboardCheck, Clipboard, Clock } from "lucide-react";
 
 interface AdminUsersProps {
   token: string;
@@ -9,6 +9,9 @@ interface AdminUsersProps {
 
 export default function AdminUsers({ token, currentUser, currentOrg }: AdminUsersProps) {
   const [users, setUsers] = useState<any[]>([]);
+  // Invited consultants/guests who haven't accepted yet — they have no row in `users` until they
+  // do, so without this they simply vanished from the team list with no trace of the invite.
+  const [pendingInvitations, setPendingInvitations] = useState<any[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"Admin" | "Consultant" | "Customer User">("Customer User");
   
@@ -33,6 +36,7 @@ export default function AdminUsers({ token, currentUser, currentOrg }: AdminUser
       const data = await resp.json();
       if (data.success) {
         setUsers(data.users);
+        setPendingInvitations(data.pendingInvitations || []);
       } else {
         setErrorUsers(data.error || "Kullanıcı listesi alınamadı.");
       }
@@ -385,6 +389,50 @@ export default function AdminUsers({ token, currentUser, currentOrg }: AdminUser
             </table>
           </div>
         </div>
+
+        {/* PENDING INVITATIONS (invited but not yet accepted — no `users` row exists for these) */}
+        {pendingInvitations.length > 0 && (
+          <div className="lg:col-span-2 bg-white border border-amber-200 rounded-xl shadow-xs overflow-hidden flex flex-col">
+            <div className="px-5 py-4 border-b border-amber-100 bg-amber-50 flex items-center justify-between">
+              <span className="font-extrabold text-amber-900 uppercase tracking-wider text-xs flex items-center space-x-1.5">
+                <Clock className="w-4 h-4 text-amber-500" />
+                <span>Bekleyen Kullanıcılar ({pendingInvitations.length})</span>
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-150 text-left">
+                <thead className="bg-slate-50/65 text-[10px] text-slate-450 uppercase font-extrabold select-none">
+                  <tr>
+                    <th className="px-5 py-3">E-Posta</th>
+                    <th className="px-5 py-3 text-center">Yetki (Role)</th>
+                    <th className="px-5 py-3 text-center">Durum</th>
+                    <th className="px-5 py-3">Son Geçerlilik</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700 font-semibold">
+                  {pendingInvitations.map((inv) => (
+                    <tr key={inv.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-5 py-3.5 font-mono text-[10px] text-slate-500">{inv.email}</td>
+                      <td className="px-5 py-3.5 text-center">
+                        <span className="px-2 py-1 text-[11px] rounded font-extrabold border bg-white border-slate-200 text-slate-650">
+                          {inv.role === "Admin" ? "Yönetici" : inv.role === "Consultant" ? "Danışman" : "Müşteri Kullanıcısı"}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5 text-center">
+                        <span className="px-2 py-0.5 text-[11px] rounded font-extrabold select-none border bg-amber-50 border-amber-200 text-amber-800">
+                          Davet Bekleniyor
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5 text-slate-400 font-mono text-[10px]">
+                        {inv.expires_at ? new Date(inv.expires_at).toLocaleString("tr-TR") : "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* RIGHT: INVITATION PANEL CARD (Col span 1) */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden flex flex-col h-fit">
