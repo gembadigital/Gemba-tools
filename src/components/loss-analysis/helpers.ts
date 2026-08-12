@@ -314,7 +314,14 @@ export function calculateFinancialImpact(
   const overCapacityProcessCount = calculated.filter(p => p.capacityUtilization > 0.95).length;
   const totalOvertimeLoss = overCapacityProcessCount * laborRateBase * 0.5;
   const criticalOeeProcessCount = calculated.filter(p => p.oee < 60).length;
-  const deliveryFines = revenue * (criticalOeeProcessCount > 0 ? 0.0005 * criticalOeeProcessCount : 0.0001);
+  // The "no critically-low-OEE process" baseline (0.0001 * revenue) is a deliberate small-risk
+  // assumption for a plant that HAS been analyzed and found healthy — it must not fire when zero
+  // VSM processes have been entered at all, since that would fabricate a revenue-scaled cost
+  // figure with no underlying analysis behind it (e.g. a brand-new customer with no VSM data
+  // would otherwise show a nonzero "late delivery" cost out of thin air).
+  const deliveryFines = calculated.length > 0
+    ? revenue * (criticalOeeProcessCount > 0 ? 0.0005 * criticalOeeProcessCount : 0.0001)
+    : 0;
 
   // 8. Energy Cost — driven by actual net production time and the user-configured energy
   // rate (energyCostRate), instead of a flat constant that ignored the "Enerji Birim Fiyatı"
@@ -365,14 +372,18 @@ export function calculateCOPQ(calculated: CalculatedProcess[], revenue: number, 
   // External-failure and appraisal/prevention cost categories scale with company size (revenue),
   // not with how much scrap happens to occur — a flat TL amount here meant a small workshop and a
   // large plant showed the identical "customer complaint handling cost", which isn't realistic.
-  const customerComplaints = revenue * 0.003;
+  // All four gated by calculated.length > 0: these are revenue-scaled ASSUMPTIONS meant to size an
+  // already-analyzed plant's quality overhead — without any real VSM/loss process data entered at
+  // all, they must not fabricate a nonzero dollar figure purely from revenue (e.g. a customer with
+  // zero VSM data previously still showed hundreds of thousands in "kalitesizlik maliyeti").
+  const customerComplaints = calculated.length > 0 ? revenue * 0.003 : 0;
   const lostCapacityCost = financialImpact.downtime.year + financialImpact.setup.year * 0.6;
-  const lostSalesCost = calculated.some(p => p.oee < 60) ? (revenue * 0.03) : (revenue * 0.005);
+  const lostSalesCost = calculated.length === 0 ? 0 : (calculated.some(p => p.oee < 60) ? (revenue * 0.03) : (revenue * 0.005));
   const excessInventoryCost = financialImpact.inventory.year;
   const lateDeliveryCost = financialImpact.lateDelivery.year;
   const emergencyOvertimeCost = financialImpact.overtime.year;
-  const inspectionCost = revenue * 0.004;
-  const qualityPersonnelCost = revenue * 0.006;
+  const inspectionCost = calculated.length > 0 ? revenue * 0.004 : 0;
+  const qualityPersonnelCost = calculated.length > 0 ? revenue * 0.006 : 0;
 
   const totalCOPQ_TL = 
     internalFailure + sortingCost + customerReturns + warrantyCost + expeditingCost + 

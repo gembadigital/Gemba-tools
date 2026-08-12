@@ -75,16 +75,21 @@ export default function AnalysisViews({
     return new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 0 }).format(val) + " " + currency;
   };
 
-  // Render variables for Economic Loss Tree
+  // Render variables for Economic Loss Tree. Material/Hidden-factory rows used to be flat 45%/8%
+  // of revenue unconditionally — meaning a customer with zero VSM processes entered still showed
+  // millions in "losses" derived from nothing but their annual revenue. Gated behind
+  // `calculated.length > 0` so these only appear once real VSM/loss data actually exists to back
+  // them (matches the same guard added to calculateFinancialImpact/calculateCOPQ).
+  const hasRealData = calculated.length > 0;
   const stepLosses = [
     { name: "Yıllık Ciro (Revenue)", value: revenue, pct: 100, color: "bg-slate-900 border-slate-950 text-white" },
-    { name: "Malzeme Kayıpları (Material)", value: revenue * 0.45, pct: 45, color: "bg-amber-600 border-amber-700 text-white" },
-    { name: "Kalitesizlik Maliyeti (Quality)", value: copq.totalCOPQ_TL * 0.4, pct: (copq.totalCOPQ_TL * 0.4 / revenue) * 100, color: "bg-rose-500 border-rose-600 text-white" },
-    { name: "Setup / Kalıp Ayar Kayıpları", value: financialImpact.setup.year, pct: (financialImpact.setup.year / revenue) * 100, color: "bg-indigo-500 border-indigo-600 text-white" },
-    { name: "Makine Arıza Duruş Kayıpları", value: financialImpact.downtime.year, pct: (financialImpact.downtime.year / revenue) * 100, color: "bg-sky-500 border-sky-600 text-white" },
-    { name: "Yüksek Fazla Mesai (Overtime)", value: financialImpact.overtime.year, pct: (financialImpact.overtime.year / revenue) * 100, color: "bg-violet-500 border-violet-600 text-white" },
-    { name: "Fazla Stok / Envanter Kayıpları", value: financialImpact.inventory.year, pct: (financialImpact.inventory.year / revenue) * 100, color: "bg-emerald-500 border-emerald-600 text-white" },
-    { name: "Gizli Fabrika Kayıpları (Hidden)", value: revenue * 0.08, pct: 8, color: "bg-orange-500 border-orange-600 text-white" },
+    { name: "Malzeme Kayıpları (Material)", value: hasRealData ? revenue * 0.45 : 0, pct: hasRealData ? 45 : 0, color: "bg-amber-600 border-amber-700 text-white" },
+    { name: "Kalitesizlik Maliyeti (Quality)", value: copq.totalCOPQ_TL * 0.4, pct: revenue > 0 ? (copq.totalCOPQ_TL * 0.4 / revenue) * 100 : 0, color: "bg-rose-500 border-rose-600 text-white" },
+    { name: "Setup / Kalıp Ayar Kayıpları", value: financialImpact.setup.year, pct: revenue > 0 ? (financialImpact.setup.year / revenue) * 100 : 0, color: "bg-indigo-500 border-indigo-600 text-white" },
+    { name: "Makine Arıza Duruş Kayıpları", value: financialImpact.downtime.year, pct: revenue > 0 ? (financialImpact.downtime.year / revenue) * 100 : 0, color: "bg-sky-500 border-sky-600 text-white" },
+    { name: "Yüksek Fazla Mesai (Overtime)", value: financialImpact.overtime.year, pct: revenue > 0 ? (financialImpact.overtime.year / revenue) * 100 : 0, color: "bg-violet-500 border-violet-600 text-white" },
+    { name: "Fazla Stok / Envanter Kayıpları", value: financialImpact.inventory.year, pct: revenue > 0 ? (financialImpact.inventory.year / revenue) * 100 : 0, color: "bg-emerald-500 border-emerald-600 text-white" },
+    { name: "Gizli Fabrika Kayıpları (Hidden)", value: hasRealData ? revenue * 0.08 : 0, pct: hasRealData ? 8 : 0, color: "bg-orange-500 border-orange-600 text-white" },
     { name: "Kâr Sızıntısı (Profit Leakage)", value: copq.totalCOPQ_TL, pct: copq.copqPercentOfRevenue, color: "bg-red-700 border-red-800 text-white animate-pulse" }
   ];
 
