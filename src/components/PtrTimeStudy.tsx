@@ -553,6 +553,14 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
       .catch(err => console.error("Failed to load real team directory in PtrTimeStudy", err));
   }, [selectedCustomer?.id, ptrToken]);
 
+  // "Sorumlu" dropdown options: real consultants/customer-users (workspaceTeamMembers) plus the
+  // customer card's own Proje Ekibi roster (projectTeamNames) — before this merge, the dropdown
+  // only offered consultants, so project team members set up in the customer card had no way to
+  // be picked as an action's Sorumlu.
+  const responsibleOptions = useMemo(() => {
+    const combined = new Set([...workspaceTeamMembers, ...projectTeamNames]);
+    return Array.from(combined);
+  }, [workspaceTeamMembers, projectTeamNames]);
 
   // Draft new item state
   const [isAddingNew, setIsAddingNew] = useState(false);
@@ -1945,7 +1953,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                 onChange={(e) => setNewItem({ ...newItem, responsible: e.target.value })}
               >
                 <option value="">Seçiniz...</option>
-                {workspaceTeamMembers.map((name, idx) => (
+                {responsibleOptions.map((name, idx) => (
                   <option key={idx} value={name}>{name}</option>
                 ))}
               </select>
@@ -2618,7 +2626,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                           onChange={(e) => setEditForm({ ...editForm, responsible: e.target.value })}
                         >
                           <option value="">Seçiniz...</option>
-                          {workspaceTeamMembers.map((name, idx) => (
+                          {responsibleOptions.map((name, idx) => (
                             <option key={idx} value={name}>{name}</option>
                           ))}
                         </select>
