@@ -1739,8 +1739,8 @@ async function buildWeeklyReportEmailContent(orgId: string, factoryId: string, w
       .filter((n: any) => (n.note || "").trim());
     if (weeklyNotes.length > 0) {
       const notesList = weeklyNotes
-        .map((n: any) => `- ${n.consultant_name || "Danışman"}: ${n.note.trim()}`)
-        .join("\n");
+        .map((n: any) => `- ${n.consultant_name || "Danışman"}:\n${n.note.trim()}`)
+        .join("\n\n");
       notesSection = `\n\n${week}. Hafta Danışman Faaliyet Özeti:\n${notesList}\n`;
     }
   }
