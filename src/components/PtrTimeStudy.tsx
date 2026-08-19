@@ -214,17 +214,19 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
   const ptrToken = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
   const isInitialPtrLoad = useRef(true);
 
-  // "Geçen hafta" (the week the Haftalık OPEX Faaliyet Raporu tab and the weekly report email are
-  // about) is always today's ISO week minus 1 — hoisted here (not just computed inline in the tab's
-  // render) so the Danışman Faaliyet Özeti notes can be fetched for the right week regardless of
-  // which tab is currently active.
-  const { prevWeekNum, prevYear } = useMemo(() => {
+  // "Bu hafta" (the week the Haftalık OPEX Faaliyet Raporu tab, the Danışman Faaliyet Özeti note
+  // and the weekly report email are about) is today's own ISO week — hoisted here (not just
+  // computed inline in the tab's render) so the notes can be fetched for the right week regardless
+  // of which tab is currently active.
+  // Was previously "today's ISO week minus 1" (last week): a consultant writing/sending the
+  // summary during week 34 for week 34's visit got a note tagged and emailed under week 33,
+  // because the week number was always backdated by one. Danışman Faaliyet Özeti is written and
+  // sent about the week that's happening/just happened, i.e. the week of today's date — not the
+  // prior one — so no "-1" here.
+  const { reportWeekNum, reportYear } = useMemo(() => {
     const todayWeekInfo = getWeekAndYearFromDateString(new Date().toLocaleDateString("tr-TR"));
-    if (!todayWeekInfo) return { prevWeekNum: null as number | null, prevYear: null as number | null };
-    let w = parseInt(todayWeekInfo.week, 10) - 1;
-    let y = todayWeekInfo.year;
-    if (w < 1) { w = 52; y -= 1; }
-    return { prevWeekNum: w, prevYear: y };
+    if (!todayWeekInfo) return { reportWeekNum: null as number | null, reportYear: null as number | null };
+    return { reportWeekNum: parseInt(todayWeekInfo.week, 10), reportYear: todayWeekInfo.year };
   }, []);
 
   // Danışman Faaliyet Özeti: one free-text note per consultant per week (see weekly_consultant_notes
@@ -235,9 +237,9 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
   const [weeklyNoteStatus, setWeeklyNoteStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   useEffect(() => {
-    if (!prevWeekNum || !prevYear) return;
+    if (!reportWeekNum || !reportYear) return;
     const customerId = selectedCustomer?.id || "default";
-    fetch(`/api/business/weekly-consultant-notes?week=${prevWeekNum}&year=${prevYear}`, {
+    fetch(`/api/business/weekly-consultant-notes?week=${reportWeekNum}&year=${reportYear}`, {
       headers: { "Authorization": `Bearer ${ptrToken}`, "x-factory-id": customerId }
     })
       .then(res => res.json())
@@ -251,10 +253,10 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
         console.error("Failed to load weekly consultant notes", err);
         setWeeklyNotes([]);
       });
-  }, [selectedCustomer, prevWeekNum, prevYear, currentUser?.id]);
+  }, [selectedCustomer, reportWeekNum, reportYear, currentUser?.id]);
 
   const saveMyWeeklyNote = () => {
-    if (!prevWeekNum || !prevYear || !currentUser) return;
+    if (!reportWeekNum || !reportYear || !currentUser) return;
     const customerId = selectedCustomer?.id || "default";
     setWeeklyNoteStatus("saving");
     fetch("/api/business/weekly-consultant-notes", {
@@ -264,7 +266,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
         "x-factory-id": customerId,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ week: prevWeekNum, year: prevYear, note: myWeeklyNoteText })
+      body: JSON.stringify({ week: reportWeekNum, year: reportYear, note: myWeeklyNoteText })
     })
       .then(res => res.json())
       .then(res => {
@@ -1179,11 +1181,11 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
   };
 
   // weekOverride lets the Danışman Faaliyet Özeti card (below) send for exactly the week it's
-  // showing (prevWeekNum) instead of whatever week happens to be selected in the main toolbar's
-  // "Hafta" dropdown (activeReportWeek) — those two could silently diverge (e.g. a demo customer's
-  // fixed historical weeks vs. today's real "geçen hafta"), which meant the Danışman Faaliyet
-  // Özeti notes the user actually wrote were often looked up under the wrong week on the backend
-  // and never made it into the email body at all.
+  // showing (reportWeekNum, today's own ISO week) instead of whatever week happens to be selected
+  // in the main toolbar's "Hafta" dropdown (activeReportWeek) — those two could silently diverge
+  // (e.g. a demo customer's fixed historical weeks vs. today's real week), which meant the
+  // Danışman Faaliyet Özeti notes the user actually wrote were often looked up under the wrong
+  // week on the backend and never made it into the email body at all.
   const handleSendWeeklyReportMail = async (weekOverride?: string) => {
     const weekToSend = weekOverride ?? activeReportWeek;
     if (workspaceTeamContacts.to.length === 0) {
@@ -1201,7 +1203,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
         },
         body: JSON.stringify({
           week: weekToSend,
-          year: prevYear,
+          year: reportYear,
           to: workspaceTeamContacts.to.map(c => c.email),
           cc: workspaceTeamContacts.cc.map(c => c.email)
         })
@@ -1228,11 +1230,11 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
   const [showWeeklyMailConfirm, setShowWeeklyMailConfirm] = useState(false);
 
   const handleOpenWeeklyPreview = () => {
-    if (prevWeekNum === null || prevYear === null) return;
+    if (reportWeekNum === null || reportYear === null) return;
     setShowWeeklyPreview(true);
     setIsLoadingWeeklyPreview(true);
     const customerId = selectedCustomer?.id || "default";
-    fetch(`/api/business/ptr-records/weekly-report-preview?week=${prevWeekNum}&year=${prevYear}`, {
+    fetch(`/api/business/ptr-records/weekly-report-preview?week=${reportWeekNum}&year=${reportYear}`, {
       headers: { "Authorization": `Bearer ${ptrToken}`, "x-factory-id": customerId }
     })
       .then(res => res.json())
@@ -2838,10 +2840,10 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
       )}
 
       {activeTab === "weekly" && (() => {
-        // "Geçen hafta" (prevWeekNum/prevYear) is computed once at component level — shared with
+        // "Bu hafta" (reportWeekNum/reportYear) is computed once at component level — shared with
         // the Danışman Faaliyet Özeti notes fetch above, and with the weekly report email.
-        const lastWeekActivities = prevWeekNum !== null
-          ? records.filter(r => parseInt(r.visitedWeek, 10) === prevWeekNum && r.year === prevYear)
+        const thisWeekActivities = reportWeekNum !== null
+          ? records.filter(r => parseInt(r.visitedWeek, 10) === reportWeekNum && r.year === reportYear)
           : [];
 
         // Reminder list: still open/in-progress actions whose visit date is 30+ days in the past.
@@ -2870,9 +2872,9 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                       Danışman Faaliyet Özeti
                     </h3>
                     <p className="text-[10px] text-slate-500">
-                      {prevWeekNum !== null && prevYear !== null
-                        ? `${prevWeekNum}. Hafta (${getIsoWeekDateRangeLabel(prevWeekNum, prevYear)})`
-                        : "Geçen hafta"} — haftalık rapor e-postasına otomatik eklenir.
+                      {reportWeekNum !== null && reportYear !== null
+                        ? `${reportWeekNum}. Hafta (${getIsoWeekDateRangeLabel(reportWeekNum, reportYear)})`
+                        : "Bu hafta"} — haftalık rapor e-postasına otomatik eklenir.
                     </p>
                   </div>
                 </div>
@@ -2881,7 +2883,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                   <button
                     type="button"
                     onClick={handleOpenWeeklyPreview}
-                    disabled={prevWeekNum === null}
+                    disabled={reportWeekNum === null}
                     className="p-1.5 text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
                     title="Mail Metnini Önizle"
                   >
@@ -2891,7 +2893,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                     <button
                       type="button"
                       onClick={() => (showWeeklyMailConfirm ? setShowWeeklyMailConfirm(false) : handleOpenWeeklyMailConfirm())}
-                      disabled={prevWeekNum === null}
+                      disabled={reportWeekNum === null}
                       className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50"
                       title="Bu Haftaki Raporu Mail Olarak Gönder"
                     >
@@ -2900,7 +2902,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                     {showWeeklyMailConfirm && (
                       <div className="absolute right-0 top-full mt-1.5 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-30 p-3 space-y-2.5">
                         <p className="font-extrabold text-slate-700 text-[11px] uppercase tracking-wider">
-                          {prevWeekNum}. Hafta Raporunu Gönder
+                          {reportWeekNum}. Hafta Raporunu Gönder
                         </p>
                         <p className="text-[10px] text-slate-500 leading-snug">
                           proje@gembapartner.com adresinden, bu Danışman Faaliyet Özeti mail metnine, PTR şablon Excel raporu ek olarak eklenip gönderilecek.
@@ -2931,7 +2933,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleSendWeeklyReportMail(prevWeekNum !== null ? String(prevWeekNum) : undefined)}
+                            onClick={() => handleSendWeeklyReportMail(reportWeekNum !== null ? String(reportWeekNum) : undefined)}
                             disabled={isSendingMail}
                             className="p-1 px-3 bg-emerald-800 hover:bg-emerald-700 text-white font-extrabold rounded-lg flex items-center space-x-1 cursor-pointer text-[10px] disabled:opacity-50 disabled:cursor-wait"
                           >
@@ -2984,7 +2986,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
               )}
             </div>
 
-            {/* Geçen Hafta Yapılan Çalışmalar — auto-generated, no manual entry */}
+            {/* Bu Hafta Yapılan Çalışmalar — auto-generated, no manual entry */}
             <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-xs">
               <div className="flex items-center space-x-2 border-b pb-3 mb-4">
                 <div className="p-1.5 bg-emerald-50 rounded-xl text-emerald-800">
@@ -2992,19 +2994,19 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                 </div>
                 <div>
                   <h3 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
-                    Geçen Hafta Yapılan Çalışmalar{prevWeekNum !== null ? ` (Hafta ${prevWeekNum})` : ""}
+                    Bu Hafta Yapılan Çalışmalar{reportWeekNum !== null ? ` (Hafta ${reportWeekNum})` : ""}
                   </h3>
-                  <p className="text-[10px] text-slate-500">Bir önceki haftanın saha kayıtlarından otomatik olarak oluşturulmuştur.</p>
+                  <p className="text-[10px] text-slate-500">Bu haftanın saha kayıtlarından otomatik olarak oluşturulmuştur.</p>
                 </div>
               </div>
 
-              {lastWeekActivities.length === 0 ? (
+              {thisWeekActivities.length === 0 ? (
                 <div className="p-6 text-center text-slate-400 text-xs font-medium">
-                  Geçen hafta için kayıtlı saha aksiyonu bulunmuyor.
+                  Bu hafta için kayıtlı saha aksiyonu bulunmuyor.
                 </div>
               ) : (
                 <div className="space-y-2.5">
-                  {lastWeekActivities.map(act => (
+                  {thisWeekActivities.map(act => (
                     <div key={act.id} className="border border-slate-150 rounded-xl p-3.5 bg-slate-50/50">
                       <p className="text-xs font-bold text-slate-800 leading-relaxed">{act.workDone || act.improvementSubject}</p>
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[10.5px] text-slate-500 font-semibold">

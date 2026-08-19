@@ -1741,7 +1741,7 @@ async function buildWeeklyReportEmailContent(orgId: string, factoryId: string, w
       const notesList = weeklyNotes
         .map((n: any) => `- ${n.consultant_name || "Danışman"}: ${n.note.trim()}`)
         .join("\n");
-      notesSection = `\n\nBu Haftaki Danışman Faaliyet Özeti:\n${notesList}\n`;
+      notesSection = `\n\n${week}. Hafta Danışman Faaliyet Özeti:\n${notesList}\n`;
     }
   }
 
