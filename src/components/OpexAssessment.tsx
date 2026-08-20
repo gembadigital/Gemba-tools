@@ -981,9 +981,12 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     if (!activeAssessment) return [];
     return categories.map(cat => {
       const rawScore = activeAssessment.categoryScores[cat.id] || 0;
-      const rawTarget = activeAssessment.targetScores?.[cat.id] ?? 0;
+      // Same 45-point creation-time default used by the category table (see targetPct above) —
+      // without it, an old record with no targetScores collapses the whole "Hedef" radar ring to
+      // the center (radius 0), which is invisible rather than a genuine "no target" ring.
+      const rawTarget = activeAssessment.targetScores?.[cat.id] ?? 45;
       return {
-        subject: cat.id,
+        subject: cat.name,
         name: cat.name,
         "Gerçekleşen": Math.round(rawScore),
         "Hedef": Math.round(rawTarget)
@@ -997,13 +1000,47 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
       const prevRawScore = previousAssessment.categoryScores[cat.id] || 0;
       const currRawScore = activeAssessment.categoryScores[cat.id] || 0;
       return {
-        subject: cat.id,
+        subject: cat.name,
         name: cat.name,
         "Önceki Sonuç": Math.round(prevRawScore),
         "Mevcut Sonuç": Math.round(currRawScore)
       };
     });
   }, [activeAssessment, previousAssessment, categories]);
+
+  // Radar axis labels are full category names (not bare "A"/"B"/"C" codes) — recharts doesn't
+  // wrap long tick text on its own, so this splits each name across 2 lines at the nearest word
+  // boundary to the midpoint.
+  const renderWrappedRadarTick = (props: any) => {
+    const { x, y, payload, textAnchor } = props;
+    const words = String(payload.value).split(" ");
+    let line1 = String(payload.value);
+    let line2 = "";
+    if (words.length > 1) {
+      const mid = Math.ceil(words.length / 2);
+      line1 = words.slice(0, mid).join(" ");
+      line2 = words.slice(mid).join(" ");
+    }
+    return (
+      <text x={x} y={y} textAnchor={textAnchor} fontSize={9} fontWeight={700} fill="#334155">
+        <tspan x={x} dy={line2 ? "-0.3em" : "0.3em"}>{line1}</tspan>
+        {line2 && <tspan x={x} dy="1.1em">{line2}</tspan>}
+      </text>
+    );
+  };
+  const RADAR_RADIUS_TICKS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+
+  // Value labels at each radar point — a white "halo" stroke behind the dark text (paintOrder
+  // draws the stroke first) keeps the number legible whether it lands on the filled area or the
+  // plain white background outside it.
+  const renderRadarValueLabel = (props: any) => {
+    const { x, y, value } = props;
+    return (
+      <text x={x} y={y - 8} textAnchor="middle" fontSize={10} fontWeight={800} fill="#0f172a" stroke="#ffffff" strokeWidth={3} paintOrder="stroke">
+        {value}
+      </text>
+    );
+  };
 
   const overallComparisonData = useMemo(() => {
     return customerAssessments.map(a => {
@@ -2667,12 +2704,13 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
 
                   <div className="h-[480px]">
                     <ResponsiveContainer width="100%" height="100%">
-                      <RadarChart cx="50%" cy="50%" outerRadius="78%" data={radarChartDataScaled}>
+                      <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarChartDataScaled}>
                         <PolarGrid stroke="#dbe3ee" />
-                        <PolarAngleAxis dataKey="subject" tick={{ fill: "#334155", fontSize: 11, fontWeight: 700 }} />
-                        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: "#64748b", fontSize: 9 }} />
-                        <Radar name="Gerçekleşen" dataKey="Gerçekleşen" stroke="#1e3a8a" fill="#2f5597" fillOpacity={0.45} strokeWidth={2} />
+                        <PolarAngleAxis dataKey="subject" tick={renderWrappedRadarTick} />
+                        <PolarRadiusAxis angle={30} domain={[0, 100]} ticks={RADAR_RADIUS_TICKS} tick={{ fill: "#64748b", fontSize: 9 }} />
                         <Radar name="Hedef" dataKey="Hedef" stroke="#60a5fa" fill="transparent" strokeDasharray="4 3" strokeWidth={2} />
+                        <Radar name="Gerçekleşen" dataKey="Gerçekleşen" stroke="#1e3a8a" fill="#2f5597" fillOpacity={0.45} strokeWidth={2}
+                          label={renderRadarValueLabel} />
                         <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
                         <Legend wrapperStyle={{ fontSize: 11, fontWeight: 700 }} />
                       </RadarChart>
@@ -2686,12 +2724,13 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
                       <div className="md:col-span-5 h-[280px]">
                         <ResponsiveContainer width="100%" height="100%">
-                          <RadarChart cx="50%" cy="50%" outerRadius="80%" data={comparisonRadarData}>
+                          <RadarChart cx="50%" cy="50%" outerRadius="65%" data={comparisonRadarData}>
                             <PolarGrid stroke="#e2e8f0" />
-                            <PolarAngleAxis dataKey="subject" tick={{ fill: "#475569", fontSize: 10, fontWeight: "bold" }} />
-                            <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: "#64748b", fontSize: 8 }} />
-                            <Radar name="Mevcut Sonuç" dataKey="Mevcut Sonuç" stroke="#1e3a8a" fill="#1e3a8a" fillOpacity={0.35} />
+                            <PolarAngleAxis dataKey="subject" tick={renderWrappedRadarTick} />
+                            <PolarRadiusAxis angle={30} domain={[0, 100]} ticks={RADAR_RADIUS_TICKS} tick={{ fill: "#64748b", fontSize: 8 }} />
                             <Radar name="Önceki Sonuç" dataKey="Önceki Sonuç" stroke="#94a3b8" fill="transparent" strokeDasharray="4 4" />
+                            <Radar name="Mevcut Sonuç" dataKey="Mevcut Sonuç" stroke="#1e3a8a" fill="#1e3a8a" fillOpacity={0.35}
+                              label={renderRadarValueLabel} />
                             <Tooltip contentStyle={{ fontSize: 10, borderRadius: 8 }} />
                             <Legend wrapperStyle={{ fontSize: 10 }} />
                           </RadarChart>
