@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useFactory } from "../context/FactoryContext";
 import {
-  Award, TrendingUp, Shield, Sparkles, BookOpen, AlertCircle, FileText, 
-  Plus, Calendar, CheckCircle2, Save, Trash2, Printer, Lock, Layout, 
-  ChevronRight, Brain, AlertTriangle, FileSpreadsheet, Activity, Target
+  Award, TrendingUp, Shield, Sparkles, BookOpen, AlertCircle, FileText,
+  Plus, Calendar, CheckCircle2, Save, Trash2, Printer, Lock, Layout,
+  ChevronRight, Brain, AlertTriangle, FileSpreadsheet, Activity, Target,
+  Maximize2, X
 } from "lucide-react";
 import { 
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer,
@@ -1041,6 +1042,24 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
       </text>
     );
   };
+
+  // Shared between the card's normal-size chart and its fullscreen view (below) so the two can't
+  // drift out of sync — only the outer radius/label font scale with the container size.
+  const [showRadarFullscreen, setShowRadarFullscreen] = useState(false);
+  const renderMainRadarChart = (large?: boolean) => (
+    <ResponsiveContainer width="100%" height="100%">
+      <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarChartDataScaled}>
+        <PolarGrid stroke="#dbe3ee" />
+        <PolarAngleAxis dataKey="subject" tick={renderWrappedRadarTick} />
+        <PolarRadiusAxis angle={30} domain={[0, 100]} ticks={RADAR_RADIUS_TICKS} tick={{ fill: "#64748b", fontSize: large ? 11 : 9 }} />
+        <Radar name="Hedef" dataKey="Hedef" stroke="#60a5fa" fill="transparent" strokeDasharray="4 3" strokeWidth={2} />
+        <Radar name="Gerçekleşen" dataKey="Gerçekleşen" stroke="#1e3a8a" fill="#2f5597" fillOpacity={0.45} strokeWidth={2}
+          label={renderRadarValueLabel} />
+        <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+        <Legend wrapperStyle={{ fontSize: 11, fontWeight: 700 }} />
+      </RadarChart>
+    </ResponsiveContainer>
+  );
 
   const overallComparisonData = useMemo(() => {
     return customerAssessments.map(a => {
@@ -2694,29 +2713,59 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                     Hedef/Sonuç numbers already live in the table on the left, so this card is
                     just the radar itself, given real room instead of a cramped side-by-side slot
                     duplicating that same table. */}
-                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3" id="opex-pdf-radar-chart">
-                  <div>
-                    <h3 className="text-xs font-black text-[#2f5597] uppercase tracking-tight">Mevcut Durum Olgunluk Profili</h3>
-                    <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">
-                      Mevcut Denetim Puanı (Gerçekleşen) vs Belirlenen Hedef Puanı — 18 Bölüm
-                    </p>
-                  </div>
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3 relative">
+                  {/* Icon-only, no label — the PDF capture below reads only the inner
+                      #opex-pdf-radar-chart div, so this button (outside it) never ends up in
+                      the exported PDF. */}
+                  <button
+                    type="button"
+                    onClick={() => setShowRadarFullscreen(true)}
+                    title="Geniş ekranda incele"
+                    className="absolute top-4 right-4 z-10 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Maximize2 className="w-4 h-4" />
+                  </button>
 
-                  <div className="h-[480px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarChartDataScaled}>
-                        <PolarGrid stroke="#dbe3ee" />
-                        <PolarAngleAxis dataKey="subject" tick={renderWrappedRadarTick} />
-                        <PolarRadiusAxis angle={30} domain={[0, 100]} ticks={RADAR_RADIUS_TICKS} tick={{ fill: "#64748b", fontSize: 9 }} />
-                        <Radar name="Hedef" dataKey="Hedef" stroke="#60a5fa" fill="transparent" strokeDasharray="4 3" strokeWidth={2} />
-                        <Radar name="Gerçekleşen" dataKey="Gerçekleşen" stroke="#1e3a8a" fill="#2f5597" fillOpacity={0.45} strokeWidth={2}
-                          label={renderRadarValueLabel} />
-                        <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
-                        <Legend wrapperStyle={{ fontSize: 11, fontWeight: 700 }} />
-                      </RadarChart>
-                    </ResponsiveContainer>
+                  <div id="opex-pdf-radar-chart" className="space-y-3">
+                    <div>
+                      <h3 className="text-xs font-black text-[#2f5597] uppercase tracking-tight">Mevcut Durum Olgunluk Profili</h3>
+                      <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">
+                        Mevcut Denetim Puanı (Gerçekleşen) vs Belirlenen Hedef Puanı — 18 Bölüm
+                      </p>
+                    </div>
+
+                    <div className="h-[480px]">
+                      {renderMainRadarChart()}
+                    </div>
                   </div>
                 </div>
+
+                {/* Fullscreen radar view */}
+                {showRadarFullscreen && (
+                  <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center z-[9999] p-6" onClick={() => setShowRadarFullscreen(false)}>
+                    <div className="bg-white rounded-2xl shadow-xl w-full h-full max-w-6xl p-6 space-y-3 flex flex-col" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-start justify-between shrink-0">
+                        <div>
+                          <h3 className="text-sm font-black text-[#2f5597] uppercase tracking-tight">Mevcut Durum Olgunluk Profili</h3>
+                          <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">
+                            Mevcut Denetim Puanı (Gerçekleşen) vs Belirlenen Hedef Puanı — 18 Bölüm
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowRadarFullscreen(false)}
+                          title="Kapat"
+                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+                      <div className="flex-1 min-h-0">
+                        {renderMainRadarChart(true)}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* 2. Radar Chart: Previous Assessment Comparison (If auditNo >= 2) */}
                 <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
