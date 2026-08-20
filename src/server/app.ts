@@ -3,6 +3,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { db, hashPassword, verifyPassword, needsRehash, User } from "./db.js";
 import jwt from "jsonwebtoken";
 import { generatePtrTemplateExcel, isPtrTemplateAvailable, buildPtrExportFilename, PtrTemplateRecord } from "./ptrExcelTemplate.js";
+import { generateOpexTemplateExcel, isOpexTemplateAvailable, buildOpexExportFilename } from "./opexExcelTemplate.js";
 import * as XLSX from "xlsx";
 
 // This module only builds and configures the Express app (all /api/* routes) and exports it —
@@ -2358,6 +2359,39 @@ app.delete("/api/business/opex-assessments/:id", authenticateToken, async (req, 
   }
   await db.deleteOpexAssessment(user.organization_id, req.params.id);
   res.json({ success: true });
+});
+
+// 6g. "Excel'e Aktar" — clones the firm's real "OpEx Assessment" reporting template (18 category
+// detail sheets, native radar/bar charts) and injects this one assessment's data into it, so the
+// download is the actual client-facing report, not a from-scratch approximation.
+app.get("/api/business/opex-assessments/:id/export-excel", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const allowedCustomerIds = (req as any).allowedCustomerIds as string[] | null;
+  const assessment = await db.getOpexAssessmentById(user.organization_id, req.params.id);
+  if (!assessment) {
+    res.status(404).json({ success: false, error: "Denetim bulunamadı." });
+    return;
+  }
+  if (allowedCustomerIds !== null && !allowedCustomerIds.includes(assessment.customerId)) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  if (!isOpexTemplateAvailable()) {
+    res.status(503).json({ success: false, error: "OpEx Assessment şablon dosyası bulunamadı. OPEX_EXCEL_TEMPLATE_PATH ortam değişkenini kontrol edin." });
+    return;
+  }
+  const customer = (await db.getCustomers(user.organization_id)).find((c: any) => c.id === assessment.customerId);
+  const customerName = customer?.companyName || "Müşteri";
+  const questions = await db.getOpexQuestions(user.organization_id);
+  try {
+    const buffer = await generateOpexTemplateExcel(assessment, questions, customerName);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(buildOpexExportFilename(customerName, assessment.auditNo || 1))}"`);
+    res.send(buffer);
+  } catch (e: any) {
+    console.error("Failed to generate OpEx template Excel", e);
+    res.status(500).json({ success: false, error: "Excel raporu oluşturulamadı: " + (e.message || "bilinmeyen hata") });
+  }
 });
 
 // OpEx question bank (categories + questions) — org-wide, not per-factory: it's the assessment

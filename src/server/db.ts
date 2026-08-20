@@ -1151,6 +1151,11 @@ export class GeminiDb {
     return all.filter(a => !customerId || a.customerId === customerId);
   }
 
+  public async getOpexAssessmentById(orgId: string, id: string): Promise<any | null> {
+    const all = await this.listCollection("opex_assessments", orgId);
+    return all.find(a => a.id === id) || null;
+  }
+
   public async saveOpexAssessment(orgId: string, assessment: any, userId: string): Promise<any> {
     if (!assessment.id) {
       assessment.id = randomId("opex_ass");

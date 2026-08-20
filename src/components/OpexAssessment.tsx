@@ -598,6 +598,39 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     }
   };
 
+  // Real firm-template export: server clones the actual "OpEx Assessment" reporting template
+  // (18 category detail sheets, native radar/bar charts intact) and injects this assessment's
+  // data into it, so the download is the real client-facing report, not a from-scratch approximation.
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [excelExportError, setExcelExportError] = useState<string | null>(null);
+  const handleExportExcel = async () => {
+    if (!activeAssessment || !token) return;
+    setIsExportingExcel(true);
+    setExcelExportError(null);
+    try {
+      const res = await fetch(`/api/business/opex-assessments/${activeAssessment.id}/export-excel`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Rapor oluşturulamadı." }));
+        throw new Error(err.error || "Rapor oluşturulamadı.");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${selectedCustomer?.companyName || "Müşteri"}-OpexAssessment-${activeAssessment.auditNo || 1}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setExcelExportError(e.message || "Rapor indirilemedi.");
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
   // Complete and Lock the Audit
   const handleCompleteAudit = async () => {
     if (!activeAssessment) return;
@@ -2235,12 +2268,30 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                 </select>
               </div>
             </div>
-            <div className="text-right text-xs text-slate-500 font-bold font-mono">
-              <span>Denetçi: <strong className="text-slate-800 uppercase">{activeAssessment.assessorParticipants || "Atakan Zehir"}</strong></span>
-              <span className="mx-2">|</span>
-              <span>Tarih: <strong className="text-slate-800">{new Date(activeAssessment.auditDate).toLocaleDateString("tr-TR")}</strong></span>
+            <div className="flex items-center gap-4">
+              <div className="text-right text-xs text-slate-500 font-bold font-mono">
+                <span>Denetçi: <strong className="text-slate-800 uppercase">{activeAssessment.assessorParticipants || "Atakan Zehir"}</strong></span>
+                <span className="mx-2">|</span>
+                <span>Tarih: <strong className="text-slate-800">{new Date(activeAssessment.auditDate).toLocaleDateString("tr-TR")}</strong></span>
+              </div>
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                disabled={isExportingExcel}
+                title="Firma şablonuyla Excel raporu indir"
+                className="flex items-center space-x-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-black uppercase px-3 py-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-wait cursor-pointer shrink-0"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>{isExportingExcel ? "Hazırlanıyor..." : "Excel'e Aktar"}</span>
+              </button>
             </div>
           </div>
+          {excelExportError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-[11px] font-bold rounded-xl px-4 py-2.5 flex items-center space-x-2">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              <span>{excelExportError}</span>
+            </div>
+          )}
 
           {/* Main Power BI Report Grid */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
