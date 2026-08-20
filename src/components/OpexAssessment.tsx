@@ -2404,6 +2404,43 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
             );
           })()}
 
+          {/* Bu panelde gösterilen "Belirlenen Hedef Oran" her zaman targetPreAnswers'tan canlı
+              hesaplanır; alttaki genel analiz raporundaki tablo/grafikler ise kaydedilmiş
+              targetScores'u okur. İkisi normalde bir soruyu değiştirdiğinizde otomatik eşitlenir
+              (bkz. yukarıdaki dropdown'lar) — ama hiç dokunulmamış (varsayılan cevaplı) bir
+              denetimde targetScores oluşturma anındaki eski bir varsayılanla kalmış olabilir. Bu
+              buton, yukarıda gösterilen hedefi tüm bölümlere zorla yeniden yazar. */}
+          {activeAssessment.status !== "completed" && (
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  const preAnswers = activeAssessment.targetPreAnswers || [1, 1, 1, 1, 1, 1];
+                  const { targetPct } = getPreAssessmentMetrics(preAnswers);
+                  const updatedTargetScores = { ...(activeAssessment.targetScores || {}) };
+                  const updatedTargetNotes = { ...(activeAssessment.targetNotes || {}) };
+                  categories.forEach(c => {
+                    updatedTargetScores[c.id] = targetPct;
+                    updatedTargetNotes[c.id] = `Hedef sınıfı belirlendi: ${targetPct}`;
+                  });
+                  const updatedAssessment: Assessment = {
+                    ...activeAssessment,
+                    targetPreAnswers: preAnswers,
+                    targetScores: updatedTargetScores,
+                    targetNotes: updatedTargetNotes
+                  };
+                  setActiveAssessment(updatedAssessment);
+                  handleSaveDraft(undefined, undefined, undefined, updatedAssessment);
+                }}
+                title="Yukarıdaki Belirlenen Hedef Oranı tüm bölümlerin hedef puanına yeniden yaz"
+                className="flex items-center space-x-1.5 text-[11px] font-black uppercase text-[#2f5597] hover:text-[#1e3a5f] px-3 py-2 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <Target className="w-3.5 h-3.5" />
+                <span>Hedefi Tüm Bölümlere Senkronize Et</span>
+              </button>
+            </div>
+          )}
+
           {activeAssessment.status === "draft" && (
             <div className="bg-[#e2f0d9] border border-[#a9d18e] text-[#385723] rounded-2xl p-4 text-xs font-semibold flex items-center space-x-2">
               <CheckCircle2 className="w-5 h-5 text-[#385723] shrink-0" />
