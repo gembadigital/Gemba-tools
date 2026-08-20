@@ -603,10 +603,12 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
   // data into it, so the download is the real client-facing report, not a from-scratch approximation.
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [excelExportError, setExcelExportError] = useState<string | null>(null);
-  const handleExportExcel = async () => {
-    if (!activeAssessment || !token) return;
-    setIsExportingExcel(true);
-    setExcelExportError(null);
+  // Downloads the .xlsx via the browser's save dialog and returns the filename it was saved
+  // under (or null on failure) — shared by the Excel button and the PDF button below, since a
+  // PDF export of THIS report means "the same Excel workbook, saved as PDF from Excel/Print",
+  // not a separate document.
+  const downloadOpexExcel = async (): Promise<string | null> => {
+    if (!activeAssessment || !token) return null;
     try {
       const res = await fetch(`/api/business/opex-assessments/${activeAssessment.id}/export-excel`, {
         headers: { "Authorization": `Bearer ${token}` }
@@ -630,20 +632,33 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+      return filename;
     } catch (e: any) {
       setExcelExportError(e.message || "Rapor indirilemedi.");
-    } finally {
-      setIsExportingExcel(false);
+      return null;
     }
   };
 
-  // PDF export: no server-side PDF renderer exists for this report (it's a live Power BI-style
-  // dashboard with recharts SVGs, not a fixed layout), so rather than build a fragile one-off
-  // renderer, this opens the browser's native Print dialog on a print-only view of the Rapor tab
-  // (print CSS below hides the rest of the app) — the user picks "Save as PDF" as the destination
-  // and saves it themselves, same as FlowImprovement.tsx's "Yazdır / PDF Dışa Aktar" already does.
-  const handleExportPdf = () => {
-    window.print();
+  const handleExportExcel = async () => {
+    setIsExportingExcel(true);
+    setExcelExportError(null);
+    await downloadOpexExcel();
+    setIsExportingExcel(false);
+  };
+
+  // PDF export: there's no reliable way to convert this workbook (18 category sheets, 41 native
+  // Excel charts, cross-sheet formulas) to PDF on the server — Vercel's serverless functions can't
+  // run a real converter (LibreOffice/Excel) to render it. So this downloads the same .xlsx and
+  // shows the user exactly how to finish the conversion themselves in Excel (Farklı Kaydet > PDF,
+  // or Yazdır > PDF olarak kaydet) instead of silently failing or faking a lesser PDF.
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [showPdfGuide, setShowPdfGuide] = useState(false);
+  const handleExportPdf = async () => {
+    setIsExportingPdf(true);
+    setExcelExportError(null);
+    const filename = await downloadOpexExcel();
+    setIsExportingPdf(false);
+    if (filename) setShowPdfGuide(true);
   };
 
   // Complete and Lock the Audit
@@ -2263,26 +2278,10 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
 
       {/* REPORT TAB CONTENT (Power BI Style Dashboard) */}
       {activeAssessment && activeTab === "report" && (
-        <div className="space-y-6" id="opex-report-print-area">
+        <div className="space-y-6">
 
-          {/* Print-only letterhead — shown only inside the PDF/Print dialog output, the live
-              toolbar below (audit selector, export buttons) is hidden there via print:hidden. */}
-          <div className="hidden print:block border-b-2 border-[#2f5597] pb-4 mb-2">
-            <div className="flex justify-between items-start">
-              <div>
-                <h1 className="text-lg font-extrabold text-[#2f5597] uppercase tracking-tight">GEMBA OPEX PLATFORM</h1>
-                <h2 className="text-sm font-bold text-slate-700 uppercase">{selectedCustomer?.companyName} — OpEx Assessment Raporu</h2>
-              </div>
-              <div className="text-right text-xs text-slate-500 font-mono">
-                <div><strong>Denetim No:</strong> {activeAssessment.auditNo || 1}</div>
-                <div><strong>Tarih:</strong> {new Date(activeAssessment.auditDate).toLocaleDateString("tr-TR")}</div>
-                <div><strong>Genel Sonuç:</strong> {Math.round(activeAssessment.overallScore)} — {getSystemLevelText(activeAssessment.overallScore)}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Top Dropdown Selector to Switch Audits (Power BI Style) — not shown in print output */}
-          <div className="print:hidden bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          {/* Top Dropdown Selector to Switch Audits (Power BI Style) */}
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div className="space-y-1">
               <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">AKTİF RAPOR SEÇİMİ</span>
               <div className="flex items-center space-x-2">
@@ -2308,11 +2307,12 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
               <button
                 type="button"
                 onClick={handleExportPdf}
-                title="Raporu PDF olarak kaydet (Yazdır penceresinden 'PDF olarak kaydet' seçin)"
-                className="flex items-center space-x-1.5 bg-rose-700 hover:bg-rose-600 text-white text-[11px] font-black uppercase px-3 py-2 rounded-xl transition-colors cursor-pointer shrink-0"
+                disabled={isExportingPdf}
+                title="Excel raporunu indir ve PDF'e nasıl kaydedeceğini göster"
+                className="flex items-center space-x-1.5 bg-rose-700 hover:bg-rose-600 text-white text-[11px] font-black uppercase px-3 py-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-wait cursor-pointer shrink-0"
               >
                 <Printer className="w-3.5 h-3.5" />
-                <span>PDF'e Aktar</span>
+                <span>{isExportingPdf ? "Hazırlanıyor..." : "PDF'e Aktar"}</span>
               </button>
               <button
                 type="button"
@@ -2682,34 +2682,37 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
             )}
           </div>
 
-          {/* Print/PDF media query: this report tab's content sits several levels deep inside the
-              app shell (sidebar, tabs), so hiding "every OTHER sibling of body/#root/main" can't
-              work — #root itself always fails that :not() check and display:none on it would take
-              the target down with it, no matter how deep. The visibility trick below is the
-              standard fix: visibility (unlike display) is inherited but a descendant can re-assert
-              its own, so hiding everything and re-showing only the print area and its children
-              works regardless of nesting depth; position:absolute then pulls it out of the
-              (still layout-occupying, just invisible) flow so print doesn't leave a blank page. */}
-          <style>{`
-            @media print {
-              body * {
-                visibility: hidden !important;
-              }
-              #opex-report-print-area,
-              #opex-report-print-area * {
-                visibility: visible !important;
-              }
-              #opex-report-print-area {
-                position: absolute !important;
-                inset: 0 !important;
-                width: 100% !important;
-              }
-              .print-avoid-break {
-                page-break-inside: avoid !important;
-                break-inside: avoid !important;
-              }
-            }
-          `}</style>
+          {/* PDF conversion guide — shown right after the Excel download starts, since the PDF
+              button downloads the exact same workbook and Excel has to do the actual conversion
+              (no server-side renderer can reproduce 18 sheets + 41 native charts as a PDF). */}
+          {showPdfGuide && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[9999] p-4" onClick={() => setShowPdfGuide(false)}>
+              <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center space-x-2">
+                  <Printer className="w-5 h-5 text-rose-700 shrink-0" />
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Excel Raporu İndirildi — PDF'e Kaydedin</h3>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Excel dosyası indirildi. Bu dosyayı PDF olarak kaydetmek için:
+                </p>
+                <ol className="text-xs text-slate-700 font-semibold space-y-2 list-decimal list-inside bg-slate-50 border border-slate-100 rounded-xl p-4">
+                  <li>İndirilen dosyayı <strong>Microsoft Excel</strong>'de açın.</li>
+                  <li><strong>Dosya → Farklı Kaydet</strong> (File → Save As) seçin, dosya türü olarak <strong>PDF</strong>'i seçip kaydedin.</li>
+                  <li>Alternatif: <strong>Dosya → Yazdır</strong> (File → Print) penceresinden yazıcı olarak <strong>"PDF olarak kaydet"</strong>i seçip yazdırın.</li>
+                </ol>
+                <p className="text-[10.5px] text-slate-400">
+                  Rapor 18 kategori sayfası ve 41 grafik içerdiğinden bu dönüşüm sunucu tarafında otomatik yapılamıyor — Excel'in kendi PDF kaydetme özelliğini kullanmanız gerekiyor.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowPdfGuide(false)}
+                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer"
+                >
+                  Anladım
+                </button>
+              </div>
+            </div>
+          )}
 
         </div>
       )}

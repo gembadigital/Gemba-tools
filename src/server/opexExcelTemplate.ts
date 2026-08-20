@@ -199,13 +199,21 @@ export async function generateOpexTemplateExcel(
     addCell(row, inlineStrCell(`D${row}`, finding));
   });
 
-  // Q:R + X:Y — one row per topic letter ("KategoriSonuc" + "KategorsiYorum"), 18 rows (A-S, no Q)
+  // Q:R + X:Y — one row per topic letter ("KategoriSonuc" + "KategorsiYorum"), 18 rows (A-S, no Q).
+  // S (HEDEF) isn't part of the template's original "KategoriSonuc" table — the template shipped
+  // with a single report-wide target constant (Veriler!J2, still written below) applied uniformly
+  // to every category, which doesn't reflect the app's own per-category "Hedef Puan Belirleme"
+  // targets. sheet10.xml ("8" — SAHA İNCELEME RAPORU)'s HEDEF column was patched to
+  // VLOOKUP(A{row},Veriler!Q:S,3,0) so it reads the real per-category target from this column
+  // instead of repeating the same global number for all 18 rows.
   const topicLetters = Array.from(new Set(templateQuestions.map(q => q.categoryId))).sort();
   topicLetters.forEach((letter, idx) => {
     const row = idx + 2;
     addCell(row, inlineStrCell(`Q${row}`, letter));
     const score = assessment.categoryScores?.[letter];
     if (typeof score === "number") addCell(row, numberCell(`R${row}`, Math.round(score * 100) / 100));
+    const target = assessment.targetScores?.[letter];
+    if (typeof target === "number") addCell(row, numberCell(`S${row}`, Math.round(target * 100) / 100));
     addCell(row, inlineStrCell(`X${row}`, letter));
     addCell(row, inlineStrCell(`Y${row}`, assessment.categoryComments?.[letter]));
   });
