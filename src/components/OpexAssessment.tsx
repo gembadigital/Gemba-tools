@@ -84,6 +84,21 @@ const getPreAssessmentMetrics = (preAnswersArray: number[]) => {
   };
 };
 
+// Single authoritative "what's the target" number for an assessment, used everywhere the report
+// tab needs one overall figure (bar chart, audit-history mini table) rather than a per-category
+// breakdown. Prefers targetScores (the per-category values a consultant can hand-edit in the
+// Hedef Puan Belirleme tab's detail table) since those reflect real fine-tuning; only falls back
+// to re-deriving from the 6-question pre-assessment quiz (targetPreAnswers) when no per-category
+// value was ever saved — and that fallback always resolves to a real 45/70, never a bare 0, so an
+// assessment that simply never had its target touched doesn't show a misleading "hedef: 0".
+const getAssessmentTargetPct = (a: { targetScores?: Record<string, number>; targetPreAnswers?: number[] }): number => {
+  if (a.targetScores) {
+    const vals = Object.values(a.targetScores).filter((v): v is number => typeof v === "number");
+    if (vals.length > 0) return Math.round(vals.reduce((s, v) => s + v, 0) / vals.length);
+  }
+  return getPreAssessmentMetrics(a.targetPreAnswers || []).targetPct;
+};
+
 // Scoring engine — verified against the original Power Apps "Denetimi Bitir" formula (decoded
 // from the .msapp source) and the real question bank, where every category's question weights
 // sum to ~20 by design. Because of that, "Σ (soru puanı × soru ağırlığı)" for a category lands
@@ -207,7 +222,13 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
   const [newAssessorParticipants, setNewAssessorParticipants] = useState("");
   const [newCustomerParticipants, setNewCustomerParticipants] = useState("");
 
-  const [creationTargetScore, setCreationTargetScore] = useState<number>(45);
+  // Was hardcoded to 45, independent of creationPreAnswers' own default ([1,1,1,1,1,1], which
+  // getPreAssessmentMetrics scores as Sınıf A → 70) — the two only ever synced on an explicit
+  // quiz-dropdown change (see onChange below), so an assessment created without touching either
+  // field shipped with a target score (45) that didn't match what its own saved quiz answers
+  // computed to (70), which is exactly the mismatch between the Hedef Puan Belirleme tab (always
+  // recomputed live from targetPreAnswers) and the report charts (read the stale saved value).
+  const [creationTargetScore, setCreationTargetScore] = useState<number>(() => getPreAssessmentMetrics([1, 1, 1, 1, 1, 1]).targetPct);
   const [creationPreAnswers, setCreationPreAnswers] = useState<number[]>([1, 1, 1, 1, 1, 1]);
   const [creationAssignments, setCreationAssignments] = useState<Record<string, string>>({});
 
@@ -740,7 +761,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
       // LEFT: category table (Kategori / Kategori Adı / Hedef / Sonuç)
       const tableRows = categories.map(cat => {
         const scorePct = Math.round(activeAssessment.categoryScores[cat.id] || 0);
-        const targetPct = Math.round(activeAssessment.targetScores?.[cat.id] ?? 45);
+        const targetPct = Math.round(activeAssessment.targetScores?.[cat.id] ?? getPreAssessmentMetrics(activeAssessment.targetPreAnswers || []).targetPct);
         return [cat.id, pdfSafe(cat.name), String(targetPct), String(scorePct)];
       });
       autoTable(doc, {
@@ -965,7 +986,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     return results;
   }, [activeAssessment, categories, questions]);
 
-  // Dynamic calculations for Power BI Report page matching screenshot
+  // Dynamic calculations for the report page
   const customerAssessments = useMemo(() => {
     return assessments
       .filter(a => a.customerId === selectedCustomer?.id)
@@ -978,14 +999,21 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     return customerAssessments.find(a => a.auditNo === currentNo - 1) || null;
   }, [activeAssessment, customerAssessments]);
 
+  // Fallback for a single category whose targetScores entry was never explicitly set (sparse
+  // object) — re-derives what the pre-assessment quiz itself would give as the uniform default,
+  // instead of a flat 45, so it always matches whatever the Hedef Puan Belirleme tab is showing.
+  const activeQuizTargetPct = useMemo(
+    () => getPreAssessmentMetrics(activeAssessment?.targetPreAnswers || []).targetPct,
+    [activeAssessment]
+  );
+
   const radarChartDataScaled = useMemo(() => {
     if (!activeAssessment) return [];
     return categories.map(cat => {
       const rawScore = activeAssessment.categoryScores[cat.id] || 0;
-      // Same 45-point creation-time default used by the category table (see targetPct above) —
-      // without it, an old record with no targetScores collapses the whole "Hedef" radar ring to
-      // the center (radius 0), which is invisible rather than a genuine "no target" ring.
-      const rawTarget = activeAssessment.targetScores?.[cat.id] ?? 45;
+      // Without this fallback, a category with no explicit targetScores entry collapses the
+      // "Hedef" radar ring to the center (radius 0) — invisible rather than a genuine target ring.
+      const rawTarget = activeAssessment.targetScores?.[cat.id] ?? activeQuizTargetPct;
       return {
         subject: cat.name,
         name: cat.name,
@@ -1063,20 +1091,9 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
 
   const overallComparisonData = useMemo(() => {
     return customerAssessments.map(a => {
-      let targetPct = 0;
-      if (a.targetPreAnswers) {
-        const metrics = getPreAssessmentMetrics(a.targetPreAnswers);
-        targetPct = metrics.targetPct;
-      } else if (a.targetScores) {
-        const keys = Object.keys(a.targetScores);
-        if (keys.length > 0) {
-          const sum = keys.reduce((s, k) => s + (a.targetScores?.[k] ?? 0), 0);
-          targetPct = Math.round(sum / keys.length);
-        }
-      }
       return {
         name: `D-${a.auditNo || 1}`,
-        "Hedef": targetPct,
+        "Hedef": getAssessmentTargetPct(a),
         "Sonuç": a.overallScore || 0
       };
     });
@@ -1615,7 +1632,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
             }`}
           >
             <Award className="w-4 h-4" />
-            <span>Genel Analiz Raporu (Power BI)</span>
+            <span>Genel Analiz Raporu</span>
           </button>
         </div>
       )}
@@ -2495,11 +2512,11 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
         </div>
       )}
 
-      {/* REPORT TAB CONTENT (Power BI Style Dashboard) */}
+      {/* REPORT TAB CONTENT */}
       {activeAssessment && activeTab === "report" && (
         <div className="space-y-6">
 
-          {/* Top Dropdown Selector to Switch Audits (Power BI Style) */}
+          {/* Top Dropdown Selector to Switch Audits */}
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div className="space-y-1">
               <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">AKTİF RAPOR SEÇİMİ</span>
@@ -2552,7 +2569,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
             </div>
           )}
 
-          {/* Main Power BI Report Grid */}
+          {/* Main Report Grid */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
             
             {/* LEFT COLUMN: CATEGORIES TABLE & DEVIATION COMPARISON (xl:col-span-5) */}
@@ -2578,11 +2595,10 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                     <tbody className="divide-y divide-slate-150 font-bold text-slate-700">
                       {categories.map((cat, idx) => {
                         const scorePct = Math.round(activeAssessment.categoryScores[cat.id] || 0);
-                        // Every assessment is seeded with a per-category target at creation time
-                        // (see creationTargetScore) — a genuinely missing value here means an old
-                        // record that predates that, not "no target required", so fall back to
-                        // that same 45-point default rather than a misleading 0.
-                        const targetPct = Math.round(activeAssessment.targetScores?.[cat.id] ?? 45);
+                        // A category with no explicit targetScores entry falls back to the same
+                        // quiz-derived default the Hedef Puan Belirleme tab itself shows, so the
+                        // two never disagree.
+                        const targetPct = Math.round(activeAssessment.targetScores?.[cat.id] ?? activeQuizTargetPct);
 
                         return (
                           <tr key={cat.id} className="hover:bg-slate-50/60 transition-colors">
@@ -2651,16 +2667,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                       </thead>
                       <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
                         {customerAssessments.map((a, index) => {
-                          let targetPct = 0;
-                          if (a.targetPreAnswers) {
-                            targetPct = getPreAssessmentMetrics(a.targetPreAnswers).targetPct;
-                          } else if (a.targetScores) {
-                            const keys = Object.keys(a.targetScores);
-                            if (keys.length > 0) {
-                              const sum = keys.reduce((s, k) => s + (a.targetScores?.[k] ?? 0), 0);
-                              targetPct = Math.round(sum / keys.length);
-                            }
-                          }
+                          const targetPct = getAssessmentTargetPct(a);
                           const isActive = a.id === activeAssessment.id;
                           return (
                             <tr key={a.id} className={`hover:bg-slate-50/50 ${isActive ? "bg-slate-100/80 font-black text-slate-950" : ""}`}>
