@@ -10,6 +10,10 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, BarChart, Bar, Cell
 } from "recharts";
 import Markdown from "react-markdown";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+import { domToCanvas } from "modern-screenshot";
+import gembaGIcon from "../assets/images/gemba_g_icon.png";
 
 interface OpexCategory {
   id: string;
@@ -646,19 +650,178 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     setIsExportingExcel(false);
   };
 
-  // PDF export: there's no reliable way to convert this workbook (18 category sheets, 41 native
-  // Excel charts, cross-sheet formulas) to PDF on the server — Vercel's serverless functions can't
-  // run a real converter (LibreOffice/Excel) to render it. So this downloads the same .xlsx and
-  // shows the user exactly how to finish the conversion themselves in Excel (Farklı Kaydet > PDF,
-  // or Yazdır > PDF olarak kaydet) instead of silently failing or faking a lesser PDF.
+  // jsPDF's built-in standard fonts (Helvetica etc.) only support WinAnsi/Latin-1 — İ, ı, Ş, ş,
+  // Ğ, ğ aren't in that set and render as garbled digits/symbols (Ç/ç/Ö/ö/Ü/ü are fine, they're
+  // valid Latin-1). Transliterate just those five letters rather than embedding a Unicode font
+  // just for this export — same fix OpexProjectDashboard.tsx's PDF export already uses.
+  const pdfSafe = (s: string): string => String(s)
+    .replace(/İ/g, "I").replace(/ı/g, "i")
+    .replace(/Ş/g, "S").replace(/ş/g, "s")
+    .replace(/Ğ/g, "G").replace(/ğ/g, "g");
+
+  const captureChartImage = async (elementId: string): Promise<{ dataUrl: string; aspectRatio: number } | null> => {
+    const el = document.getElementById(elementId);
+    if (!el) return null;
+    try {
+      const canvas = await domToCanvas(el, { scale: 2, backgroundColor: "#ffffff" });
+      if (canvas.width === 0 || canvas.height === 0) return null;
+      return { dataUrl: canvas.toDataURL("image/png", 1.0), aspectRatio: canvas.width / canvas.height };
+    } catch (e) {
+      console.error(`Failed to capture chart ${elementId} for PDF export`, e);
+      return null;
+    }
+  };
+
+  const loadImageAsDataUrl = async (url: string): Promise<string | null> => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  // A real, self-contained single-page PDF (A4 landscape) — not the .xlsx or a print of the live
+  // page. Captures the actual on-screen radar/bar chart DOM (via domToCanvas, same technique
+  // OpexProjectDashboard.tsx's PDF export uses) and lays the category table, comparison table,
+  // KPI cards and both charts out on one page with jsPDF/autoTable, mirroring the reference
+  // one-page summary report layout.
   const [isExportingPdf, setIsExportingPdf] = useState(false);
-  const [showPdfGuide, setShowPdfGuide] = useState(false);
   const handleExportPdf = async () => {
+    if (!activeAssessment) return;
     setIsExportingPdf(true);
     setExcelExportError(null);
-    const filename = await downloadOpexExcel();
-    setIsExportingPdf(false);
-    if (filename) setShowPdfGuide(true);
+    try {
+      const [radarImg, barImg, logoDataUrl] = await Promise.all([
+        captureChartImage("opex-pdf-radar-chart"),
+        captureChartImage("opex-pdf-bar-chart"),
+        loadImageAsDataUrl(gembaGIcon)
+      ]);
+
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const marginX = 10;
+      const customerName = selectedCustomer?.companyName || "Müşteri";
+      const reportNo = `${new Date().getFullYear().toString().slice(-2)}${String(new Date().getMonth() + 1).padStart(2, "0")}${String(activeAssessment.auditNo || 1).padStart(2, "0")}`;
+
+      // Header banner
+      doc.setFillColor(47, 85, 151); // #2f5597
+      doc.rect(0, 0, pageWidth, 22, "F");
+      if (logoDataUrl) {
+        try { doc.addImage(logoDataUrl, "PNG", marginX, 4, 14, 14); } catch { /* non-fatal */ }
+      }
+      const titleX = logoDataUrl ? marginX + 18 : marginX;
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(15);
+      doc.text(pdfSafe("OPEX ASSESSMENT"), titleX, 10);
+      doc.setFont("Helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text(pdfSafe(`${customerName} — Assessment Sonuçları`), titleX, 17);
+      doc.setFontSize(8);
+      doc.text(pdfSafe(`Rapor Tarihi/No: ${new Date().toLocaleDateString("tr-TR")} / ${reportNo}`), pageWidth - marginX, 10, { align: "right" });
+      doc.text(pdfSafe(`Denetim No: ${activeAssessment.auditNo || 1}`), pageWidth - marginX, 17, { align: "right" });
+      doc.setTextColor(15, 23, 42);
+
+      const startY = 28;
+      const colGap = 8;
+      const leftW = (pageWidth - marginX * 2 - colGap) * 0.42;
+      const rightX = marginX + leftW + colGap;
+      const rightW = pageWidth - marginX * 2 - leftW - colGap;
+
+      // LEFT: category table (Kategori / Kategori Adı / Hedef / Sonuç)
+      const tableRows = categories.map(cat => {
+        const scorePct = Math.round(activeAssessment.categoryScores[cat.id] || 0);
+        const targetPct = Math.round(activeAssessment.targetScores?.[cat.id] ?? 45);
+        return [cat.id, pdfSafe(cat.name), String(targetPct), String(scorePct)];
+      });
+      autoTable(doc, {
+        startY,
+        margin: { left: marginX },
+        tableWidth: leftW,
+        head: [[pdfSafe("Kategori"), pdfSafe("Kategori Adı"), pdfSafe("Hedef"), pdfSafe("Sonuç")]],
+        body: tableRows,
+        styles: { fontSize: 6.8, cellPadding: 1.3, textColor: [51, 65, 85] },
+        headStyles: { fillColor: [47, 85, 151], textColor: [255, 255, 255], fontStyle: "bold" },
+        columnStyles: {
+          0: { cellWidth: leftW * 0.12, halign: "center", fontStyle: "bold" },
+          1: { cellWidth: leftW * 0.58 },
+          2: { cellWidth: leftW * 0.15, halign: "center" },
+          3: { cellWidth: leftW * 0.15, halign: "center", fontStyle: "bold" }
+        },
+        didParseCell: (data) => {
+          if (data.section === "body" && data.column.index === 3) {
+            const target = Number(data.row.raw[2]);
+            const result = Number(data.row.raw[3]);
+            data.cell.styles.textColor = result >= target ? [4, 120, 87] : result >= target - 15 ? [180, 83, 9] : [190, 18, 60];
+          }
+        }
+      });
+
+      // Below the category table: the bar chart image
+      const afterTableY = (doc as any).lastAutoTable.finalY + 6;
+      if (barImg) {
+        const barH = Math.min(pageHeight - marginX - afterTableY, leftW / barImg.aspectRatio);
+        doc.addImage(barImg.dataUrl, "PNG", marginX, afterTableY, barH * barImg.aspectRatio, barH);
+      }
+
+      // RIGHT, top: Denetleme No / Hedef / Sonuç mini table
+      autoTable(doc, {
+        startY,
+        margin: { left: rightX },
+        tableWidth: rightW * 0.42,
+        head: [[pdfSafe("Denetleme"), pdfSafe("Hedef"), pdfSafe("Sonuç")]],
+        body: overallComparisonData.map(d => [d.name, String(d.Hedef), String(d.Sonuç)]),
+        styles: { fontSize: 7, cellPadding: 1.5, halign: "center", textColor: [51, 65, 85] },
+        headStyles: { fillColor: [47, 85, 151], textColor: [255, 255, 255], fontStyle: "bold" }
+      });
+
+      // RIGHT, top-right: Sistem Seviyesi + Denetim Puanı KPI cards, next to the mini table
+      const cardsX = rightX + rightW * 0.42 + 6;
+      const cardsW = rightW - rightW * 0.42 - 6;
+      const cardH = 18;
+      doc.setFillColor(47, 85, 151);
+      doc.roundedRect(cardsX, startY, cardsW, cardH, 2, 2, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(7);
+      doc.setFont("Helvetica", "bold");
+      doc.text(pdfSafe("SİSTEM SEVİYESİ"), cardsX + 3, startY + 6);
+      doc.setFontSize(11);
+      doc.text(pdfSafe(getSystemLevelText(activeAssessment.overallScore)), cardsX + 3, startY + 14, { maxWidth: cardsW - 6 });
+
+      doc.setFillColor(47, 85, 151);
+      doc.roundedRect(cardsX, startY + cardH + 4, cardsW, cardH, 2, 2, "F");
+      doc.setFontSize(7);
+      doc.text(pdfSafe("DENETİM PUANI"), cardsX + 3, startY + cardH + 4 + 6);
+      doc.setFontSize(16);
+      doc.text(String(Math.round(activeAssessment.overallScore)), cardsX + 3, startY + cardH + 4 + 15);
+      doc.setTextColor(15, 23, 42);
+
+      // RIGHT, bottom: the radar chart image, filling the remaining space
+      const radarTop = startY + Math.max((doc as any).lastAutoTable.finalY - startY, cardH * 2 + 4) + 6;
+      if (radarImg) {
+        const availH = pageHeight - marginX - radarTop;
+        const availW = rightW;
+        let h = Math.min(availH, availW / radarImg.aspectRatio);
+        let w = h * radarImg.aspectRatio;
+        if (w > availW) { w = availW; h = w / radarImg.aspectRatio; }
+        doc.addImage(radarImg.dataUrl, "PNG", rightX + (availW - w) / 2, radarTop, w, h);
+      }
+
+      doc.save(`${(customerName.split(/\s+/)[0] || customerName)}-${reportNo}.pdf`);
+    } catch (e: any) {
+      console.error("Failed to generate OpEx PDF summary", e);
+      setExcelExportError(e.message || "PDF raporu oluşturulamadı.");
+    } finally {
+      setIsExportingPdf(false);
+    }
   };
 
   // Complete and Lock the Audit
@@ -2308,7 +2471,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                 type="button"
                 onClick={handleExportPdf}
                 disabled={isExportingPdf}
-                title="Excel raporunu indir ve PDF'e nasıl kaydedeceğini göster"
+                title="Tek sayfalık A4 özet raporu PDF olarak indir"
                 className="flex items-center space-x-1.5 bg-rose-700 hover:bg-rose-600 text-white text-[11px] font-black uppercase px-3 py-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-wait cursor-pointer shrink-0"
               >
                 <Printer className="w-3.5 h-3.5" />
@@ -2359,7 +2522,11 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                     <tbody className="divide-y divide-slate-150 font-bold text-slate-700">
                       {categories.map((cat, idx) => {
                         const scorePct = Math.round(activeAssessment.categoryScores[cat.id] || 0);
-                        const targetPct = Math.round(activeAssessment.targetScores?.[cat.id] ?? 0);
+                        // Every assessment is seeded with a per-category target at creation time
+                        // (see creationTargetScore) — a genuinely missing value here means an old
+                        // record that predates that, not "no target required", so fall back to
+                        // that same 45-point default rather than a misleading 0.
+                        const targetPct = Math.round(activeAssessment.targetScores?.[cat.id] ?? 45);
 
                         return (
                           <tr key={cat.id} className="hover:bg-slate-50/60 transition-colors">
@@ -2367,10 +2534,10 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                             <td className="p-2.5 text-slate-900 font-black uppercase text-[10px] truncate max-w-[200px]" title={cat.name}>{cat.name}</td>
                             <td className="p-2.5 text-center font-mono font-extrabold text-slate-500 border-l border-r border-slate-100 bg-slate-50/10 w-16">{targetPct}</td>
                             <td className={`p-2.5 text-center font-mono font-black border-r border-slate-100 w-16 ${
-                              scorePct >= targetPct 
-                                ? "text-emerald-700 bg-emerald-50/30" 
-                                : scorePct >= targetPct - 15 
-                                ? "text-amber-700 bg-amber-50/30" 
+                              scorePct >= targetPct
+                                ? "text-emerald-700 bg-emerald-50/30"
+                                : scorePct >= targetPct - 15
+                                ? "text-amber-700 bg-amber-50/30"
                                 : "text-red-700 bg-red-50/30"
                             }`}>
                               {scorePct}
@@ -2384,7 +2551,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
               </div>
 
               {/* Denetleme Sonuç Karşılaştırması Bar Chart (Overall comparison of audits) */}
-              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4" id="opex-pdf-bar-chart">
                 <div>
                   <h3 className="text-xs font-black text-slate-950 uppercase tracking-tight">Denetleme Sonuç Karşılaştırması</h3>
                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
@@ -2486,67 +2653,30 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
               {/* Main Radar and Previous Comparison Row */}
               <div className="space-y-6">
                 
-                {/* 1. Radar Chart: Active Assessment Hedef vs Gerçekleşen */}
-                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+                {/* 1. Radar Chart: Active Assessment Hedef vs Gerçekleşen — the per-category
+                    Hedef/Sonuç numbers already live in the table on the left, so this card is
+                    just the radar itself, given real room instead of a cramped side-by-side slot
+                    duplicating that same table. */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3" id="opex-pdf-radar-chart">
                   <div>
-                    <h3 className="text-xs font-black text-[#2f5597] uppercase tracking-tight">Mevcut Durum Olgunluk Profili & Bölüm Detayları</h3>
+                    <h3 className="text-xs font-black text-[#2f5597] uppercase tracking-tight">Mevcut Durum Olgunluk Profili</h3>
                     <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">
-                      Mevcut Denetim Puanı (Gerçekleşen) vs Belirlenen Hedef Puanı ve Bölüm Değerleri
+                      Mevcut Denetim Puanı (Gerçekleşen) vs Belirlenen Hedef Puanı — 18 Bölüm
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
-                    {/* Radar Chart Column */}
-                    <div className="md:col-span-5 h-[280px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarChartDataScaled}>
-                          <PolarGrid stroke="#e2e8f0" />
-                          <PolarAngleAxis dataKey="subject" tick={{ fill: "#475569", fontSize: 10, fontWeight: "bold" }} />
-                          <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: "#64748b", fontSize: 8 }} />
-                          <Radar name="Gerçekleşen" dataKey="Gerçekleşen" stroke="#1e3a8a" fill="#3b82f6" fillOpacity={0.4} />
-                          <Radar name="Hedef" dataKey="Hedef" stroke="#3b82f6" fill="transparent" strokeDasharray="3 3" />
-                          <Tooltip contentStyle={{ fontSize: 10, borderRadius: 8 }} />
-                          <Legend wrapperStyle={{ fontSize: 10 }} />
-                        </RadarChart>
-                      </ResponsiveContainer>
-                    </div>
-
-                    {/* Section Titles Table Column */}
-                    <div className="md:col-span-7 border border-slate-100 rounded-xl overflow-hidden max-h-[280px] overflow-y-auto shadow-3xs">
-                      <table className="w-full text-left text-[10px] border-collapse">
-                        <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10 font-black text-slate-500 text-[11px] uppercase tracking-wider">
-                          <tr>
-                            <th className="p-2 w-12 text-center">Bölüm</th>
-                            <th className="p-2">Bölüm Başlığı</th>
-                            <th className="p-2 w-16 text-center">Hedef Puan</th>
-                            <th className="p-2 w-16 text-center">Gerçekleşen</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
-                          {categories.map((cat) => {
-                            const scorePct = Math.round(activeAssessment.categoryScores[cat.id] || 0);
-                            const targetPct = Math.round(activeAssessment.targetScores?.[cat.id] ?? 0);
-
-                            return (
-                              <tr key={cat.id} className="hover:bg-slate-50/80 transition-colors">
-                                <td className="p-2 text-center font-black text-[#2f5597] border-r border-slate-150 w-12 bg-slate-50/30 font-mono">{cat.id}</td>
-                                <td className="p-2 text-slate-900 font-black uppercase text-[11px] truncate max-w-[150px]" title={cat.name}>{cat.name}</td>
-                                <td className="p-2 text-center font-mono font-extrabold text-slate-500 border-l border-r border-slate-150 w-16 bg-slate-50/10">{targetPct}</td>
-                                <td className={`p-2 text-center font-mono font-black border-r border-slate-150 w-16 ${
-                                  scorePct >= targetPct
-                                    ? "text-emerald-700 bg-emerald-50/30"
-                                    : scorePct >= targetPct - 15
-                                    ? "text-amber-700 bg-amber-50/30"
-                                    : "text-red-700 bg-red-50/30"
-                                }`}>
-                                  {scorePct}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                  <div className="h-[480px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RadarChart cx="50%" cy="50%" outerRadius="78%" data={radarChartDataScaled}>
+                        <PolarGrid stroke="#dbe3ee" />
+                        <PolarAngleAxis dataKey="subject" tick={{ fill: "#334155", fontSize: 11, fontWeight: 700 }} />
+                        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: "#64748b", fontSize: 9 }} />
+                        <Radar name="Gerçekleşen" dataKey="Gerçekleşen" stroke="#1e3a8a" fill="#2f5597" fillOpacity={0.45} strokeWidth={2} />
+                        <Radar name="Hedef" dataKey="Hedef" stroke="#60a5fa" fill="transparent" strokeDasharray="4 3" strokeWidth={2} />
+                        <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                        <Legend wrapperStyle={{ fontSize: 11, fontWeight: 700 }} />
+                      </RadarChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
 
@@ -2681,38 +2811,6 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
               </div>
             )}
           </div>
-
-          {/* PDF conversion guide — shown right after the Excel download starts, since the PDF
-              button downloads the exact same workbook and Excel has to do the actual conversion
-              (no server-side renderer can reproduce 18 sheets + 41 native charts as a PDF). */}
-          {showPdfGuide && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[9999] p-4" onClick={() => setShowPdfGuide(false)}>
-              <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center space-x-2">
-                  <Printer className="w-5 h-5 text-rose-700 shrink-0" />
-                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Excel Raporu İndirildi — PDF'e Kaydedin</h3>
-                </div>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Excel dosyası indirildi. Bu dosyayı PDF olarak kaydetmek için:
-                </p>
-                <ol className="text-xs text-slate-700 font-semibold space-y-2 list-decimal list-inside bg-slate-50 border border-slate-100 rounded-xl p-4">
-                  <li>İndirilen dosyayı <strong>Microsoft Excel</strong>'de açın.</li>
-                  <li><strong>Dosya → Farklı Kaydet</strong> (File → Save As) seçin, dosya türü olarak <strong>PDF</strong>'i seçip kaydedin.</li>
-                  <li>Alternatif: <strong>Dosya → Yazdır</strong> (File → Print) penceresinden yazıcı olarak <strong>"PDF olarak kaydet"</strong>i seçip yazdırın.</li>
-                </ol>
-                <p className="text-[10.5px] text-slate-400">
-                  Rapor 18 kategori sayfası ve 41 grafik içerdiğinden bu dönüşüm sunucu tarafında otomatik yapılamıyor — Excel'in kendi PDF kaydetme özelliğini kullanmanız gerekiyor.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setShowPdfGuide(false)}
-                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer"
-                >
-                  Anladım
-                </button>
-              </div>
-            </div>
-          )}
 
         </div>
       )}
