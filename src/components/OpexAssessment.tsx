@@ -637,6 +637,15 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     }
   };
 
+  // PDF export: no server-side PDF renderer exists for this report (it's a live Power BI-style
+  // dashboard with recharts SVGs, not a fixed layout), so rather than build a fragile one-off
+  // renderer, this opens the browser's native Print dialog on a print-only view of the Rapor tab
+  // (print CSS below hides the rest of the app) — the user picks "Save as PDF" as the destination
+  // and saves it themselves, same as FlowImprovement.tsx's "Yazdır / PDF Dışa Aktar" already does.
+  const handleExportPdf = () => {
+    window.print();
+  };
+
   // Complete and Lock the Audit
   const handleCompleteAudit = async () => {
     if (!activeAssessment) return;
@@ -2254,10 +2263,26 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
 
       {/* REPORT TAB CONTENT (Power BI Style Dashboard) */}
       {activeAssessment && activeTab === "report" && (
-        <div className="space-y-6">
-          
-          {/* Top Dropdown Selector to Switch Audits (Power BI Style) */}
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="space-y-6" id="opex-report-print-area">
+
+          {/* Print-only letterhead — shown only inside the PDF/Print dialog output, the live
+              toolbar below (audit selector, export buttons) is hidden there via print:hidden. */}
+          <div className="hidden print:block border-b-2 border-[#2f5597] pb-4 mb-2">
+            <div className="flex justify-between items-start">
+              <div>
+                <h1 className="text-lg font-extrabold text-[#2f5597] uppercase tracking-tight">GEMBA OPEX PLATFORM</h1>
+                <h2 className="text-sm font-bold text-slate-700 uppercase">{selectedCustomer?.companyName} — OpEx Assessment Raporu</h2>
+              </div>
+              <div className="text-right text-xs text-slate-500 font-mono">
+                <div><strong>Denetim No:</strong> {activeAssessment.auditNo || 1}</div>
+                <div><strong>Tarih:</strong> {new Date(activeAssessment.auditDate).toLocaleDateString("tr-TR")}</div>
+                <div><strong>Genel Sonuç:</strong> {Math.round(activeAssessment.overallScore)} — {getSystemLevelText(activeAssessment.overallScore)}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Top Dropdown Selector to Switch Audits (Power BI Style) — not shown in print output */}
+          <div className="print:hidden bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div className="space-y-1">
               <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">AKTİF RAPOR SEÇİMİ</span>
               <div className="flex items-center space-x-2">
@@ -2280,6 +2305,15 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                 <span className="mx-2">|</span>
                 <span>Tarih: <strong className="text-slate-800">{new Date(activeAssessment.auditDate).toLocaleDateString("tr-TR")}</strong></span>
               </div>
+              <button
+                type="button"
+                onClick={handleExportPdf}
+                title="Raporu PDF olarak kaydet (Yazdır penceresinden 'PDF olarak kaydet' seçin)"
+                className="flex items-center space-x-1.5 bg-rose-700 hover:bg-rose-600 text-white text-[11px] font-black uppercase px-3 py-2 rounded-xl transition-colors cursor-pointer shrink-0"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>PDF'e Aktar</span>
+              </button>
               <button
                 type="button"
                 onClick={handleExportExcel}
@@ -2647,6 +2681,35 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
               </div>
             )}
           </div>
+
+          {/* Print/PDF media query: this report tab's content sits several levels deep inside the
+              app shell (sidebar, tabs), so hiding "every OTHER sibling of body/#root/main" can't
+              work — #root itself always fails that :not() check and display:none on it would take
+              the target down with it, no matter how deep. The visibility trick below is the
+              standard fix: visibility (unlike display) is inherited but a descendant can re-assert
+              its own, so hiding everything and re-showing only the print area and its children
+              works regardless of nesting depth; position:absolute then pulls it out of the
+              (still layout-occupying, just invisible) flow so print doesn't leave a blank page. */}
+          <style>{`
+            @media print {
+              body * {
+                visibility: hidden !important;
+              }
+              #opex-report-print-area,
+              #opex-report-print-area * {
+                visibility: visible !important;
+              }
+              #opex-report-print-area {
+                position: absolute !important;
+                inset: 0 !important;
+                width: 100% !important;
+              }
+              .print-avoid-break {
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+              }
+            }
+          `}</style>
 
         </div>
       )}
