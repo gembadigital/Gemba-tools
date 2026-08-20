@@ -2383,10 +2383,18 @@ app.get("/api/business/opex-assessments/:id/export-excel", authenticateToken, as
   const customer = (await db.getCustomers(user.organization_id)).find((c: any) => c.id === assessment.customerId);
   const customerName = customer?.companyName || "Müşteri";
   const questions = await db.getOpexQuestions(user.organization_id);
+  // Filename's sequence number counts across every OpEx assessment ever recorded in this org
+  // (any customer), by creation order — not just this customer's own auditNo — so it reads as a
+  // firm-wide report code (e.g. "Acme-2608-06.xlsx" = the 6th assessment report in the system).
+  const allOrgAssessments = await db.getOpexAssessments(user.organization_id);
+  const bySeqOrder = [...allOrgAssessments].sort((a: any, b: any) =>
+    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
+  const systemSeqNo = bySeqOrder.findIndex((a: any) => a.id === assessment.id) + 1 || allOrgAssessments.length;
   try {
     const buffer = await generateOpexTemplateExcel(assessment, questions, customerName);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(buildOpexExportFilename(customerName, assessment.auditNo || 1))}"`);
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(buildOpexExportFilename(customerName, systemSeqNo))}"`);
     res.send(buffer);
   } catch (e: any) {
     console.error("Failed to generate OpEx template Excel", e);

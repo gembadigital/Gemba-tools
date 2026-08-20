@@ -22,8 +22,15 @@ export function isOpexTemplateAvailable(): boolean {
   return fs.existsSync(TEMPLATE_PATH);
 }
 
-export function buildOpexExportFilename(customerName: string, auditNo: number): string {
-  return `${customerName}-OpexAssessment-${auditNo}.xlsx`;
+// "MüşteriKısaAd-YYAA-SS.xlsx" — short customer name, then the report's year+month, then a
+// sequence number that counts across every OpEx assessment report in the org's own system (not
+// just this customer's), so it reads like a firm-wide report code rather than a per-customer index.
+export function buildOpexExportFilename(customerName: string, systemSeqNo: number, date: Date = new Date()): string {
+  const shortName = customerName.trim().split(/\s+/)[0] || customerName;
+  const yy = String(date.getFullYear()).slice(-2);
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const seq = String(systemSeqNo).padStart(2, "0");
+  return `${shortName}-${yy}${mm}-${seq}.xlsx`;
 }
 
 export interface OpexTemplateQuestionInput {

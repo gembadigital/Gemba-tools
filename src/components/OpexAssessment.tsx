@@ -615,11 +615,17 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
         const err = await res.json().catch(() => ({ error: "Rapor oluşturulamadı." }));
         throw new Error(err.error || "Rapor oluşturulamadı.");
       }
+      // Filename (short customer name + YYAA + firm-wide sequence number) is decided server-side
+      // in buildOpexExportFilename — read it back from Content-Disposition instead of duplicating
+      // that naming logic here, so the two can't drift apart.
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const filenameMatch = disposition.match(/filename="?([^";]+)"?/);
+      const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : `${selectedCustomer?.companyName || "Müşteri"}-OpexAssessment.xlsx`;
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${selectedCustomer?.companyName || "Müşteri"}-OpexAssessment-${activeAssessment.auditNo || 1}.xlsx`;
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
