@@ -67,6 +67,12 @@ const FIVE_S_COLLECTIONS = [
 ] as const;
 type FiveSCollection = typeof FIVE_S_COLLECTIONS[number];
 
+// Kaizen Suggestions module — same generic collection-CRUD pattern as FIVE_S_COLLECTIONS above.
+const KAIZEN_COLLECTIONS = [
+  "kaizen_personnel", "kaizen_criteria", "kaizen_suggestions", "kaizen_approvals", "kaizen_evaluations"
+] as const;
+type KaizenCollection = typeof KAIZEN_COLLECTIONS[number];
+
 // Lazily create the pool (same pattern as getGeminiClient/getMailTransporter below) so importing
 // this module never fails module resolution order — dotenv.config() runs in the entry point
 // (server.ts / api/index.ts), which may be evaluated after this file's imports are resolved.
@@ -997,6 +1003,211 @@ export class GeminiDb {
     const updatedAudit = { ...audit, status: "Tamamlandı", overallScore: Math.round(avg * 100) / 100, updated_at: new Date().toISOString() };
     await this.upsertMerged("five_s_audits", orgId, updatedAudit);
     return { success: true, audit: updatedAudit };
+  }
+
+  // Kaizen Suggestions module — ported from a legacy Power Apps app ("KaizenSuite") that ran an
+  // employee suggestion-box workflow for one plant: submit -> team-leader (Manager) approval ->
+  // Kaizen Board evaluation/approval -> tracked to completion. Personnel/Criteria are simple
+  // factory-scoped rosters (generic CRUD, same shape as the 5S module); Suggestions/Approvals/
+  // Evaluations get their own routes below since the approve/reject actions involve real
+  // server-side state transitions + authorization, not a plain upsert.
+  public async getKaizenRecords(collection: KaizenCollection, orgId: string, factoryId?: string): Promise<any[]> {
+    const all = await this.listCollection(collection, orgId);
+    return all.filter(r => !factoryId || r.factory_id === factoryId);
+  }
+
+  public async saveKaizenRecord(collection: KaizenCollection, orgId: string, factoryId: string, record: any, userId: string): Promise<any> {
+    const isNew = !record.id || !(await this.getRecordById(collection, record.id, orgId));
+    if (isNew) {
+      if (!record.id) record.id = randomId(collection);
+      record.created_by = userId;
+      record.created_at = new Date().toISOString();
+    }
+    record.organization_id = orgId;
+    record.factory_id = factoryId;
+    record.updated_by = userId;
+    record.updated_at = new Date().toISOString();
+    return this.upsertMerged(collection, orgId, record);
+  }
+
+  public async deleteKaizenRecord(collection: KaizenCollection, orgId: string, id: string): Promise<void> {
+    await this.removeOne(collection, orgId, id);
+  }
+
+  // "Yeni Öneri Kaydet" — creates a suggestion in Pending status. Unlike the legacy app, the
+  // submitter identity is captured once here and never silently reassigned on later edits (see
+  // updateKaizenSuggestion below), and ISG/Çevre/Motivasyon are actually persisted (legacy captured
+  // them in the UI but discarded them on save — see kaizenTypes.ts header comment).
+  public async createKaizenSuggestion(orgId: string, factoryId: string, payload: any, userId: string, userEmail: string, userName: string): Promise<any> {
+    const nowIso = new Date().toISOString();
+    const record = {
+      id: randomId("kaizen_suggestions"),
+      organization_id: orgId,
+      factory_id: factoryId,
+      authorEmail: userEmail,
+      authorName: userName,
+      personnelName: payload.personnelName || userName,
+      personnelDepartment: payload.personnelDepartment || "",
+      personnelJobTitle: payload.personnelJobTitle || "",
+      shift: payload.shift || "",
+      teamLeaderName: payload.teamLeaderName || "",
+      teamLeaderEmail: payload.teamLeaderEmail || "",
+      machineLeaderName: payload.machineLeaderName || "",
+      machineLeaderEmail: payload.machineLeaderEmail || "",
+      subject: payload.subject || "",
+      suggestionTypes: payload.suggestionTypes || [],
+      currentState: payload.currentState || "",
+      improvementSuggestion: payload.improvementSuggestion || "",
+      stage: payload.stage || "",
+      paybackPeriod: payload.paybackPeriod || "",
+      estimatedSaving: Number(payload.estimatedSaving) || 0,
+      estimatedSavingCurrency: payload.estimatedSavingCurrency || "TL",
+      estimatedCost: Number(payload.estimatedCost) || 0,
+      estimatedCostCurrency: payload.estimatedCostCurrency || "TL",
+      isg: !!payload.isg,
+      cevre: !!payload.cevre,
+      motivasyon: !!payload.motivasyon,
+      photosCurrent: payload.photosCurrent || [],
+      photosPropose: payload.photosPropose || [],
+      approvalStatus: "Pending",
+      completed: false,
+      created_by: userId,
+      createdBy: userName,
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+    await this.upsertMerged("kaizen_suggestions", orgId, record);
+    return record;
+  }
+
+  // "Öneriyi Düzenle" — only reachable while Rejected/Rejected 2nd (enforced by the route). Resets
+  // the suggestion back to Pending so it re-enters the Manager queue, matching the legacy resubmit
+  // flow. The submitter identity is preserved (legacy app bug: it overwrote `Personel` with
+  // whoever last saved the record, even a team leader editing someone else's rejected suggestion).
+  public async updateKaizenSuggestion(orgId: string, id: string, payload: any, userId: string): Promise<any> {
+    const existing = await this.getRecordById("kaizen_suggestions", id, orgId);
+    if (!existing) return null;
+    const updated = {
+      ...existing,
+      personnelJobTitle: payload.personnelJobTitle ?? existing.personnelJobTitle,
+      subject: payload.subject ?? existing.subject,
+      suggestionTypes: payload.suggestionTypes ?? existing.suggestionTypes,
+      currentState: payload.currentState ?? existing.currentState,
+      improvementSuggestion: payload.improvementSuggestion ?? existing.improvementSuggestion,
+      stage: payload.stage ?? existing.stage,
+      paybackPeriod: payload.paybackPeriod ?? existing.paybackPeriod,
+      estimatedSaving: payload.estimatedSaving !== undefined ? Number(payload.estimatedSaving) : existing.estimatedSaving,
+      estimatedSavingCurrency: payload.estimatedSavingCurrency ?? existing.estimatedSavingCurrency,
+      estimatedCost: payload.estimatedCost !== undefined ? Number(payload.estimatedCost) : existing.estimatedCost,
+      estimatedCostCurrency: payload.estimatedCostCurrency ?? existing.estimatedCostCurrency,
+      isg: payload.isg !== undefined ? !!payload.isg : existing.isg,
+      cevre: payload.cevre !== undefined ? !!payload.cevre : existing.cevre,
+      motivasyon: payload.motivasyon !== undefined ? !!payload.motivasyon : existing.motivasyon,
+      photosCurrent: payload.photosCurrent ?? existing.photosCurrent,
+      photosPropose: payload.photosPropose ?? existing.photosPropose,
+      approvalStatus: "Pending",
+      updated_by: userId,
+      updatedAt: new Date().toISOString()
+    };
+    await this.upsertMerged("kaizen_suggestions", orgId, updated);
+    return updated;
+  }
+
+  // Manager (team-leader) decision. Fixes a confirmed legacy bug where rejecting still wrote
+  // "First Approval" regardless of the decision (see analysis notes) — here the status genuinely
+  // branches on `approved`.
+  public async decideKaizenManager(
+    orgId: string, suggestionId: string, approved: boolean, comment: string,
+    approverName: string, approverEmail: string
+  ): Promise<{ suggestion: any; approval: any } | null> {
+    const suggestion = await this.getRecordById("kaizen_suggestions", suggestionId, orgId);
+    if (!suggestion || suggestion.approvalStatus !== "Pending") return null;
+    const nowIso = new Date().toISOString();
+    const approval = {
+      id: randomId("kaizen_approvals"),
+      organization_id: orgId,
+      factory_id: suggestion.factory_id,
+      suggestionId,
+      stage: "Manager",
+      approverName,
+      approverEmail,
+      approved,
+      comment: comment || "",
+      createdAt: nowIso
+    };
+    await this.upsertMerged("kaizen_approvals", orgId, approval);
+    const updatedSuggestion = {
+      ...suggestion,
+      approvalStatus: approved ? "First Approval" : "Rejected",
+      updatedAt: nowIso
+    };
+    await this.upsertMerged("kaizen_suggestions", orgId, updatedSuggestion);
+    return { suggestion: updatedSuggestion, approval };
+  }
+
+  // Kaizen Board decision — creates the Evaluation record and advances/rejects the suggestion in
+  // one atomic step, matching the legacy app's one-popup-does-both design (Section 3c of the
+  // analysis). `criteria`/`point` are snapshotted onto the Evaluation row so a later edit to the
+  // Criteria rubric doesn't retroactively change historical scores.
+  public async decideKaizenBoard(
+    orgId: string, suggestionId: string, approved: boolean,
+    evaluation: { criteriaId: string; criteriaLabel: string; point: number; yokoten: boolean; yokotenDescription: string; estimatedIncome: number; estimatedIncomeCurrency: string; comment: string },
+    approverName: string, approverEmail: string
+  ): Promise<{ suggestion: any; approval: any; evaluation: any } | null> {
+    const suggestion = await this.getRecordById("kaizen_suggestions", suggestionId, orgId);
+    if (!suggestion || suggestion.approvalStatus !== "First Approval") return null;
+    const nowIso = new Date().toISOString();
+
+    const approvalRecord = {
+      id: randomId("kaizen_approvals"),
+      organization_id: orgId,
+      factory_id: suggestion.factory_id,
+      suggestionId,
+      stage: "Board",
+      approverName,
+      approverEmail,
+      approved,
+      comment: evaluation.comment || "",
+      createdAt: nowIso
+    };
+    await this.upsertMerged("kaizen_approvals", orgId, approvalRecord);
+
+    const evaluationRecord = {
+      id: randomId("kaizen_evaluations"),
+      organization_id: orgId,
+      factory_id: suggestion.factory_id,
+      suggestionId,
+      criteriaId: evaluation.criteriaId || "",
+      criteriaLabel: evaluation.criteriaLabel || "",
+      point: Number(evaluation.point) || 0,
+      yokoten: !!evaluation.yokoten,
+      yokotenDescription: evaluation.yokotenDescription || "",
+      estimatedIncome: Number(evaluation.estimatedIncome) || 0,
+      estimatedIncomeCurrency: evaluation.estimatedIncomeCurrency || "TL",
+      comment: evaluation.comment || "",
+      createdAt: nowIso
+    };
+    await this.upsertMerged("kaizen_evaluations", orgId, evaluationRecord);
+
+    const updatedSuggestion = {
+      ...suggestion,
+      approvalStatus: approved ? "Second Approval" : "Rejected 2nd",
+      updatedAt: nowIso
+    };
+    await this.upsertMerged("kaizen_suggestions", orgId, updatedSuggestion);
+
+    return { suggestion: updatedSuggestion, approval: approvalRecord, evaluation: evaluationRecord };
+  }
+
+  // "Uygulandı olarak işaretle" — only meaningful once the Board has approved (Second Approval);
+  // a standalone action rather than folded into the Board decision, since implementation usually
+  // happens well after the suggestion is approved.
+  public async markKaizenCompleted(orgId: string, suggestionId: string): Promise<any | null> {
+    const suggestion = await this.getRecordById("kaizen_suggestions", suggestionId, orgId);
+    if (!suggestion || suggestion.approvalStatus !== "Second Approval") return null;
+    const updated = { ...suggestion, completed: true, updatedAt: new Date().toISOString() };
+    await this.upsertMerged("kaizen_suggestions", orgId, updated);
+    return updated;
   }
 
   // COPQ Snapshots (Loss Capacity Analizi historical trend tracking)

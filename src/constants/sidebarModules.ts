@@ -19,6 +19,7 @@ export const SIDEBAR_MODULES: SidebarModuleDef[] = [
   { key: "balancing", label: "Yamazumi Analizi" },
   { key: "smed", label: "SMED Analizi" },
   { key: "ptr", label: "Proje Takip Raporu" },
+  { key: "kaizen-suggestions", label: "Kaizen Öneri Sistemi" },
   { key: "fives", label: "5S Olgunluk Auditler" }
 ];
 

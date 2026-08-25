@@ -13,6 +13,7 @@ import MasterPlanGantt from "./components/MasterPlanGantt";
 import FlowImprovement from "./components/FlowImprovement";
 import KaizenManager from "./components/KaizenManager";
 import FiveSAuditSystem from "./components/fiveS/FiveSAuditSystem";
+import KaizenSuggestionSystem from "./components/kaizen/KaizenSuggestionSystem";
 import LineBalancing from "./components/LineBalancing";
 import PtrTimeStudy from "./components/PtrTimeStudy";
 import ExecutiveDashboard from "./components/ExecutiveDashboard";
@@ -31,10 +32,10 @@ import {
   Building2, Users, BarChart3, Clock, Map, Sparkles, 
   Settings, FolderKanban, ShieldCheck, AlignLeft, LayoutDashboard, 
   HelpCircle, CheckCircle2, ChevronRight, ChevronLeft, Loader2, RefreshCw, FileText,
-  UserCheck, User, LogOut, Lock, Percent, GitCommit, Layers, Award, Cog, Menu, X
+  UserCheck, User, LogOut, Lock, Percent, GitCommit, Layers, Award, Cog, Menu, X, Star
 } from "lucide-react";
 
-type MenuTab = "customers" | "plan" | "flow" | "vsm" | "kaizen" | "fives" | "balancing" | "ptr" | "dashboard" | "loss-analysis" | "timestudy" | "smed" | "opex-assessment";
+type MenuTab = "customers" | "plan" | "flow" | "vsm" | "kaizen" | "kaizen-suggestions" | "fives" | "balancing" | "ptr" | "dashboard" | "loss-analysis" | "timestudy" | "smed" | "opex-assessment";
 
 export default function App() {
   // STATE GATEKEEPER REPRESENTATIONS
@@ -882,6 +883,21 @@ export default function App() {
               </button>
               )}
 
+              {/* 11.5. Kaizen Öneri Sistemi — positioned directly above 5S per the module's intended placement */}
+              {isModuleVisible("kaizen-suggestions") && (
+              <button
+                onClick={() => setActiveTab("kaizen-suggestions")}
+                className={`w-full flex items-center rounded-xl font-bold tracking-tight transition-all cursor-pointer ${
+                  activeTab === "kaizen-suggestions"
+                    ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
+                } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
+                title="Kaizen Öneri Sistemi"
+              >
+                <Star className={`w-4 h-4 shrink-0 ${activeTab === "kaizen-suggestions" ? "text-white" : "text-slate-400"}`} />
+                {!effectivelyCollapsed && <span>Kaizen Öneri Sistemi</span>}
+              </button>
+              )}
+
               {/* 12. 5S Olgunluk Auditler */}
               {isModuleVisible("fives") && (
               <button
@@ -1035,6 +1051,12 @@ export default function App() {
                   onDeleteActivity={handleDeleteActivity}
                   selectedCustomer={selectedCustomer}
                 />
+              </div>
+            )}
+
+            {activeTab === "kaizen-suggestions" && (
+              <div key={selectedCustomerId}>
+                <KaizenSuggestionSystem />
               </div>
             )}
 

@@ -2280,6 +2280,230 @@ app.post("/api/business/five-s/gemba-walk/send-report", authenticateToken, async
   res.json({ success: true });
 });
 
+// 6h. Kaizen Suggestions module — ported from a legacy Power Apps app ("KaizenSuite") that ran an
+// employee suggestion-box workflow: submit -> team-leader (Manager) approval -> Kaizen Board
+// evaluation/approval -> tracked to completion. Personnel/Criteria are simple factory-scoped
+// rosters (generic CRUD, mirrors the 5S module's FIVE_S_SIMPLE_ENTITIES pattern); the suggestion
+// workflow gets its own routes since each decision is a real state transition with authorization,
+// not a plain upsert. See src/components/kaizen/kaizenTypes.ts for the fixes this port makes vs.
+// the legacy app's confirmed bugs (silent-reassignment-on-edit, Manager-reject-doesn't-reject,
+// no real server-side authorization, ISG/Çevre/Motivasyon discarded on save).
+
+const KAIZEN_SIMPLE_ENTITIES: { path: string; collection: Parameters<typeof db.getKaizenRecords>[0] }[] = [
+  { path: "personnel", collection: "kaizen_personnel" },
+  { path: "criteria", collection: "kaizen_criteria" }
+];
+
+for (const { path, collection } of KAIZEN_SIMPLE_ENTITIES) {
+  app.get(`/api/business/kaizen/${path}`, authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+    if (!scope.allowed) {
+      res.status(403).json({ success: false, error: "Access Denied." });
+      return;
+    }
+    res.json({ success: true, data: await db.getKaizenRecords(collection, user.organization_id, scope.factoryId) });
+  });
+
+  app.post(`/api/business/kaizen/${path}`, authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+    if (!scope.allowed) {
+      res.status(403).json({ success: false, error: "Access Denied." });
+      return;
+    }
+    const saved = await db.saveKaizenRecord(collection, user.organization_id, scope.factoryId || "", { ...req.body }, user.id);
+    res.json({ success: true, data: saved });
+  });
+
+  app.delete(`/api/business/kaizen/${path}/:id`, authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    await db.deleteKaizenRecord(collection, user.organization_id, req.params.id);
+    res.json({ success: true });
+  });
+}
+
+app.get("/api/business/kaizen/suggestions", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  res.json({ success: true, data: await db.getKaizenRecords("kaizen_suggestions", user.organization_id, scope.factoryId) });
+});
+
+app.get("/api/business/kaizen/approvals", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  res.json({ success: true, data: await db.getKaizenRecords("kaizen_approvals", user.organization_id, scope.factoryId) });
+});
+
+app.get("/api/business/kaizen/evaluations", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  res.json({ success: true, data: await db.getKaizenRecords("kaizen_evaluations", user.organization_id, scope.factoryId) });
+});
+
+app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed || !scope.factoryId) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  if (!req.body.subject || !req.body.currentState || !req.body.improvementSuggestion) {
+    res.status(400).json({ success: false, error: "Öneri Konusu, Mevcut Durum ve Önerilen İyileştirme alanları zorunludur." });
+    return;
+  }
+  const suggestion = await db.createKaizenSuggestion(user.organization_id, scope.factoryId, req.body, user.id, user.email, user.full_name);
+
+  if (suggestion.teamLeaderEmail) {
+    sendMail({
+      to: suggestion.teamLeaderEmail,
+      subject: `Yeni Kaizen Önerisi: ${suggestion.subject}`,
+      text: `${suggestion.personnelName} tarafından yeni bir Kaizen önerisi gönderildi ve onayınızı bekliyor.\n\nKonu: ${suggestion.subject}\n\nGemba Tools üzerinden inceleyip onaylayabilirsiniz.`
+    }).catch(() => {});
+  }
+  res.json({ success: true, data: suggestion });
+});
+
+app.post("/api/business/kaizen/suggestions/:id", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const existing = (await db.getKaizenRecords("kaizen_suggestions", user.organization_id)).find((s: any) => s.id === req.params.id);
+  if (!existing) {
+    res.status(404).json({ success: false, error: "Öneri bulunamadı." });
+    return;
+  }
+  if (existing.approvalStatus !== "Rejected" && existing.approvalStatus !== "Rejected 2nd") {
+    res.status(400).json({ success: false, error: "Sadece reddedilen öneriler yeniden düzenlenip gönderilebilir." });
+    return;
+  }
+  const updated = await db.updateKaizenSuggestion(user.organization_id, req.params.id, req.body, user.id);
+  res.json({ success: true, data: updated });
+});
+
+app.post("/api/business/kaizen/suggestions/:id/manager-decision", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const suggestion = (await db.getKaizenRecords("kaizen_suggestions", user.organization_id)).find((s: any) => s.id === req.params.id);
+  if (!suggestion) {
+    res.status(404).json({ success: false, error: "Öneri bulunamadı." });
+    return;
+  }
+  const isManager = user.role === "Admin" || user.role === "Consultant" ||
+    (!!suggestion.teamLeaderEmail && suggestion.teamLeaderEmail.toLowerCase() === (user.email || "").toLowerCase());
+  if (!isManager) {
+    res.status(403).json({ success: false, error: "Bu öneriyi onaylama/reddetme yetkiniz yok." });
+    return;
+  }
+  const { approved, comment } = req.body;
+  if (!approved && !comment) {
+    res.status(400).json({ success: false, error: "Lütfen red nedeni giriniz." });
+    return;
+  }
+  const result = await db.decideKaizenManager(user.organization_id, req.params.id, !!approved, comment || "", user.full_name, user.email);
+  if (!result) {
+    res.status(400).json({ success: false, error: "Bu öneri artık Amir onayı bekleyen durumda değil." });
+    return;
+  }
+
+  const notifyEmail = approved
+    ? (await db.getKaizenRecords("kaizen_personnel", user.organization_id)).filter((p: any) => p.isBoardMember).map((p: any) => p.email).filter(Boolean)
+    : [result.suggestion.authorEmail].filter(Boolean);
+  if (notifyEmail.length > 0) {
+    sendMail({
+      to: notifyEmail,
+      subject: approved ? `Değerlendirmeye Hazır: ${result.suggestion.subject}` : `Öneriniz Reddedildi: ${result.suggestion.subject}`,
+      text: approved
+        ? `${result.suggestion.subject} konulu öneri amir onayından geçti ve Kaizen Kurulu değerlendirmesini bekliyor.`
+        : `${result.suggestion.subject} konulu öneriniz amiriniz tarafından reddedildi.\n\nGerekçe: ${comment || "-"}`
+    }).catch(() => {});
+  }
+  res.json({ success: true, data: result });
+});
+
+app.post("/api/business/kaizen/suggestions/:id/board-decision", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const suggestion = (await db.getKaizenRecords("kaizen_suggestions", user.organization_id)).find((s: any) => s.id === req.params.id);
+  if (!suggestion) {
+    res.status(404).json({ success: false, error: "Öneri bulunamadı." });
+    return;
+  }
+  const personnel = await db.getKaizenRecords("kaizen_personnel", user.organization_id);
+  const myRecord = personnel.find((p: any) => (p.email || "").toLowerCase() === (user.email || "").toLowerCase());
+  const isBoard = user.role === "Admin" || user.role === "Consultant" || !!myRecord?.isBoardMember;
+  if (!isBoard) {
+    res.status(403).json({ success: false, error: "Kurul değerlendirmesi yapma yetkiniz yok." });
+    return;
+  }
+  const { approved, criteriaId, criteriaLabel, point, yokoten, yokotenDescription, estimatedIncome, estimatedIncomeCurrency, comment } = req.body;
+  if (!approved && !comment) {
+    res.status(400).json({ success: false, error: "Lütfen red nedeni giriniz." });
+    return;
+  }
+  const result = await db.decideKaizenBoard(
+    user.organization_id, req.params.id, !!approved,
+    { criteriaId, criteriaLabel, point, yokoten, yokotenDescription, estimatedIncome, estimatedIncomeCurrency, comment },
+    user.full_name, user.email
+  );
+  if (!result) {
+    res.status(400).json({ success: false, error: "Bu öneri artık Kurul onayı bekleyen durumda değil." });
+    return;
+  }
+  if (result.suggestion.authorEmail) {
+    sendMail({
+      to: result.suggestion.authorEmail,
+      subject: approved ? `Öneriniz Onaylandı: ${result.suggestion.subject}` : `Öneriniz Reddedildi: ${result.suggestion.subject}`,
+      text: approved
+        ? `Tebrikler! ${result.suggestion.subject} konulu Kaizen öneriniz Kaizen Kurulu tarafından onaylandı.`
+        : `${result.suggestion.subject} konulu öneriniz Kaizen Kurulu tarafından reddedildi.\n\nGerekçe: ${comment || "-"}`
+    }).catch(() => {});
+  }
+  res.json({ success: true, data: result });
+});
+
+app.post("/api/business/kaizen/suggestions/:id/complete", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const updated = await db.markKaizenCompleted(user.organization_id, req.params.id);
+  if (!updated) {
+    res.status(400).json({ success: false, error: "Sadece Kurul tarafından onaylanmış öneriler tamamlandı olarak işaretlenebilir." });
+    return;
+  }
+  res.json({ success: true, data: updated });
+});
+
+app.get("/api/business/kaizen/suggestions/export-excel", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  const suggestions = await db.getKaizenRecords("kaizen_suggestions", user.organization_id, scope.factoryId);
+  const tableHeader = ["Tarih", "Ad Soyad", "Bölüm", "Konu", "Kategori", "Durum", "Tahmini Kazanç", "Tahmini Maliyet"];
+  const tableRows = suggestions
+    .sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || ""))
+    .map((s: any) => [
+      (s.createdAt || "").slice(0, 10), s.personnelName, s.personnelDepartment, s.subject,
+      (s.suggestionTypes || []).join(", "), s.approvalStatus,
+      `${s.estimatedSaving} ${s.estimatedSavingCurrency}`, `${s.estimatedCost} ${s.estimatedCostCurrency}`
+    ]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Kaizen Önerileri Raporu"], [], tableHeader, ...tableRows]), "Kaizen Önerileri");
+  const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="Kaizen_Onerileri.xlsx"`);
+  res.send(buffer);
+});
+
 // 7. VSM Projects
 app.get("/api/business/vsm-projects", authenticateToken, async (req, res) => {
   const user = (req as any).user;
