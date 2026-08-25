@@ -121,7 +121,7 @@ export default function FiveSAuditSystem() {
   const answersCrud = makeCrud<FiveSAuditAnswer>(api, "answers", setAnswers, showToast);
 
   const myPersonnelRecord = personnel.find(p => p.name === currentUser?.full_name || p.email === currentUser?.email);
-  const isFiveSAdmin = currentUser?.role === "Admin" || !!myPersonnelRecord?.isAdmin;
+  const isFiveSAdmin = currentUser?.role === "Admin" || currentUser?.role === "Consultant" || !!myPersonnelRecord?.isAdmin;
   const isAuditor = isFiveSAdmin || !!myPersonnelRecord?.isAuditor;
 
   const NAV_ITEMS: { key: typeof section; label: string; icon: any; gated?: boolean }[] = [
