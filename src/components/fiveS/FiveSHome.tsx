@@ -107,7 +107,16 @@ export default function FiveSHome({ currentUser, areas, personnel, audits, resul
                 <td>{r.areaName}</td>
                 <td className="max-w-[220px] truncate" title={r.action}>{r.action}</td>
                 <td>{r.actionStatus}</td>
-                <td>{r.dueDate || "-"}</td>
+                <td>
+                  <span className={`inline-flex items-center space-x-1.5 ${
+                    r.status === 2 ? "text-emerald-600" : r.status === 1 ? "text-slate-600" : "text-red-600"
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${
+                      r.status === 2 ? "bg-emerald-500" : r.status === 1 ? "bg-slate-400" : "bg-red-500"
+                    }`} />
+                    <span>{r.dueDate || "-"}</span>
+                  </span>
+                </td>
               </tr>
             ))}
             {personalActions.length === 0 && <tr><td colSpan={6} className="text-slate-400 py-2">Size atanmış açık bir aksiyon bulunmuyor.</td></tr>}
