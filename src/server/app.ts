@@ -2014,6 +2014,9 @@ for (const { path, collection } of FIVE_S_SIMPLE_ENTITIES) {
       res.status(403).json({ success: false, error: "Access Denied." });
       return;
     }
+    if (path === "departments" && scope.factoryId) {
+      await db.ensureFiveSDefaults(user.organization_id, scope.factoryId, user.id);
+    }
     res.json({ success: true, data: await db.getFiveSRecords(collection, user.organization_id, scope.factoryId) });
   });
 

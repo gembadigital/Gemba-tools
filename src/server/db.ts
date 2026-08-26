@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { Pool } from "pg";
 import { OPEX_SEED_CATEGORIES, OPEX_SEED_QUESTIONS } from "./opexSeedData.js";
+import { FIVE_S_DEFAULT_DEPARTMENTS, FIVE_S_DEFAULT_QUESTIONS } from "./fiveSSeedData.js";
 import { DEFAULT_ROLE_MODULE_VISIBILITY, RoleModuleVisibility } from "../constants/sidebarModules.js";
 
 // Schema Definitions
@@ -782,6 +783,61 @@ export class GeminiDb {
 
   public async deleteFiveSRecord(collection: FiveSCollection, orgId: string, id: string): Promise<void> {
     await this.removeOne(collection, orgId, id);
+  }
+
+  // Bootstraps a brand-new customer's 5S module with Gemba Digital's real 5S audit methodology
+  // (FIVE_S_DEFAULT_DEPARTMENTS/FIVE_S_DEFAULT_QUESTIONS, ported 1:1 from the legacy Power Apps
+  // app's SharePoint list — see fiveSSeedData.ts) instead of leaving it empty. Guarded by "only if
+  // this factory has zero departments yet" so it never touches a customer who already has any real
+  // 5S setup, and only ever runs once per factory. Unlike the old seedIfEmpty bug (removed
+  // 2026-08-07 for silently writing fabricated personnel/areas), this content is genuine real
+  // methodology, not invented placeholder data — and it's inserted as normal editable rows, so
+  // consultants can still add/edit/remove via Kurulum afterward. Uses two bulk multi-row INSERTs
+  // (not 606 round trips) so it stays well within a serverless function's execution budget.
+  public async ensureFiveSDefaults(orgId: string, factoryId: string, userId: string): Promise<void> {
+    const existingDepts = await this.getFiveSRecords("five_s_departments", orgId, factoryId);
+    if (existingDepts.length > 0) return;
+
+    const nowIso = new Date().toISOString();
+    const deptIdByName: Record<string, string> = {};
+    const deptRows = FIVE_S_DEFAULT_DEPARTMENTS.map(name => {
+      const id = randomId("five_s_departments");
+      deptIdByName[name] = id;
+      const data = { id, organization_id: orgId, factory_id: factoryId, name, created_by: userId, created_at: nowIso, updated_by: userId, updated_at: nowIso };
+      return { id, data };
+    });
+
+    const questionRows = FIVE_S_DEFAULT_QUESTIONS.map(q => {
+      const id = randomId("five_s_questions");
+      const data = {
+        id, organization_id: orgId, factory_id: factoryId,
+        departmentId: deptIdByName[q.department], level: q.level, difficultyLevel: q.difficultyLevel,
+        questionNo: q.questionNo, text: q.text,
+        created_by: userId, created_at: nowIso, updated_by: userId, updated_at: nowIso
+      };
+      return { id, data };
+    });
+
+    await this.bulkInsertRecords("five_s_departments", orgId, deptRows);
+    await this.bulkInsertRecords("five_s_questions", orgId, questionRows);
+  }
+
+  // Single multi-row INSERT for a batch of brand-new records (no upsert/merge — callers must
+  // guarantee these ids don't already exist), used where inserting one-row-at-a-time would blow a
+  // serverless function's execution budget (e.g. seeding hundreds of rows at once).
+  private async bulkInsertRecords(collection: string, orgId: string, rows: { id: string; data: any; factoryId?: string }[]): Promise<void> {
+    if (rows.length === 0) return;
+    const values: string[] = [];
+    const params: any[] = [];
+    rows.forEach((row, i) => {
+      const base = i * 5;
+      values.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, now())`);
+      params.push(row.id, collection, orgId, row.factoryId ?? row.data.factory_id ?? null, row.data);
+    });
+    await getPool().query(
+      `insert into records (id, collection, organization_id, factory_id, data, updated_at) values ${values.join(", ")}`,
+      params
+    );
   }
 
   // Deleting an audit header also drops everything that only makes sense in its context

@@ -96,8 +96,12 @@ export default function FiveSAuditSystem() {
 
   const loadAll = useCallback(async () => {
     setLoading(true);
-    const [dep, ar, per, que, cat, aud, team, ans, res, gw] = await Promise.all([
-      api.get("departments"), api.get("areas"), api.get("personnel"), api.get("questions"),
+    // Fetched first, on its own: the departments endpoint bootstraps a brand-new factory's default
+    // 5S question bank server-side (see ensureFiveSDefaults in db.ts) — awaiting it alone first
+    // avoids a race where the parallel "questions" fetch below reads before that seeding commits.
+    const dep = await api.get("departments");
+    const [ar, per, que, cat, aud, team, ans, res, gw] = await Promise.all([
+      api.get("areas"), api.get("personnel"), api.get("questions"),
       api.get("problem-categories"), api.get("audits"), api.get("team-assignments"),
       api.get("answers"), api.get("results"), api.get("gemba-walk")
     ]);
