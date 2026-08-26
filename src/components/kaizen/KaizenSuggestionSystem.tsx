@@ -227,7 +227,7 @@ export default function KaizenSuggestionSystem() {
       )}
 
       {section === "reports" && isBoardMember && (
-        <KaizenReports suggestions={suggestions} evaluations={evaluations} api={api} />
+        <KaizenReports suggestions={suggestions} evaluations={evaluations} personnel={personnel} api={api} />
       )}
 
       {section === "setup" && (currentUser?.role === "Admin" || currentUser?.role === "Consultant") && (

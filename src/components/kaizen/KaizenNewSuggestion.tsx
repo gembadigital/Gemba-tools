@@ -321,7 +321,7 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
             </div>
           </div>
           <div className="flex flex-wrap gap-4 pt-2">
-            {[["isg", "İş Sağlığı ve Güvenliği"], ["cevre", "Çevre"], ["motivasyon", "Motivasyon"]].map(([key, label]) => (
+            {[["isg", "ISG"], ["cevre", "Çevre"], ["motivasyon", "Motivasyon"]].map(([key, label]) => (
               <label key={key} className="flex items-center space-x-1.5 text-xs font-bold cursor-pointer">
                 <input type="checkbox" checked={(form as any)[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.checked }))} />
                 <span>{label}</span>

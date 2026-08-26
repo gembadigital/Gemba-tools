@@ -1,29 +1,44 @@
 import React, { useMemo, useState } from "react";
 import { Download, ShieldAlert, Leaf, Sparkles } from "lucide-react";
-import { ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
-import { KaizenSuggestion, KaizenEvaluation, ApprovalStatus } from "./kaizenTypes";
-import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, SUGGESTION_TYPE_OPTIONS } from "./kaizenCalc";
+import {
+  ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, RadialBarChart, RadialBar, PolarAngleAxis
+} from "recharts";
+import { KaizenSuggestion, KaizenEvaluation, KaizenPersonnel, ApprovalStatus } from "./kaizenTypes";
+import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, SUGGESTION_TYPE_OPTIONS, STAGE_OPTIONS } from "./kaizenCalc";
 import { KaizenApi } from "./KaizenSuggestionSystem";
 
-// Native replacement for the legacy app's embedded Power BI tile (Reports.pa.yaml) — that report's
-// actual content lived entirely inside an external Power BI workspace and isn't recoverable from
-// the .msapp package. The legacy report was described as a set of indicators grouped by topic
-// (durum, bölüm, kategori, finansal etki, İSG/Çevre/Motivasyon) behind a shared filter bar — this
-// rebuilds that same grouping with recharts (already a dependency) and real, wired-up filters
-// instead of a static embed.
+// Native replacement for the legacy app's embedded Power BI tile (Reports.pa.yaml). Confirmed
+// directly against the live KaizenSuite app's actual Power BI report (its content lives in an
+// external Power BI workspace and isn't part of the .msapp package, but the report itself was
+// viewable in Power Apps Studio's preview): two pages — a topic-grouped KPI/chart dashboard with a
+// 5-filter sidebar (Personel, Departman, Öneri Sınıfı, Öneri Durumu, Öneri Aşaması), and a detailed
+// per-suggestion "Personel Bazlı Kaizen Puan Tablosu". Rebuilt here with recharts using the same
+// grouping, plus the two rate gauges (Kabul Edilen Öneri Oranı, Katılım Oranı) and the monthly/
+// per-person status-stacked breakdowns the real report showed.
 interface Props {
   suggestions: KaizenSuggestion[];
   evaluations: KaizenEvaluation[];
+  personnel: KaizenPersonnel[];
   api: KaizenApi;
 }
 
 const ALL = "__ALL__";
 const COLORS = ["#0f172a", "#3b82f6", "#00A280", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#64748b"];
+const STATUS_BUCKET_COLORS = { approved: "#00A280", pending: "#facc15", rejected: "#ef4444" };
 
-export default function KaizenReports({ suggestions, evaluations }: Props) {
+function statusBucket(status: ApprovalStatus): "approved" | "pending" | "rejected" {
+  if (status === "Pending") return "pending";
+  if (status === "Rejected" || status === "Rejected 2nd") return "rejected";
+  return "approved";
+}
+
+export default function KaizenReports({ suggestions, evaluations, personnel, api }: Props) {
   const [fDepartment, setFDepartment] = useState(ALL);
   const [fType, setFType] = useState(ALL);
   const [fStatus, setFStatus] = useState(ALL);
+  const [fStage, setFStage] = useState(ALL);
+  const [fPersonnel, setFPersonnel] = useState(ALL);
   const [fFrom, setFFrom] = useState("");
   const [fTo, setFTo] = useState("");
 
@@ -31,26 +46,47 @@ export default function KaizenReports({ suggestions, evaluations }: Props) {
     () => Array.from(new Set(suggestions.map(s => s.personnelDepartment).filter(Boolean))).sort(),
     [suggestions]
   );
+  const personnelNames = useMemo(
+    () => Array.from(new Set(suggestions.map(s => s.personnelName).filter(Boolean))).sort(),
+    [suggestions]
+  );
 
   const filtered = useMemo(() => suggestions.filter(s => {
     if (fDepartment !== ALL && s.personnelDepartment !== fDepartment) return false;
     if (fType !== ALL && !(s.suggestionTypes || []).includes(fType)) return false;
     if (fStatus !== ALL && s.approvalStatus !== fStatus) return false;
+    if (fStage !== ALL && s.stage !== fStage) return false;
+    if (fPersonnel !== ALL && s.personnelName !== fPersonnel) return false;
     const created = (s.createdAt || "").slice(0, 10);
     if (fFrom && created < fFrom) return false;
     if (fTo && created > fTo) return false;
     return true;
-  }), [suggestions, fDepartment, fType, fStatus, fFrom, fTo]);
+  }), [suggestions, fDepartment, fType, fStatus, fStage, fPersonnel, fFrom, fTo]);
 
   const filteredIds = useMemo(() => new Set(filtered.map(s => s.id)), [filtered]);
   const filteredEvaluations = useMemo(() => evaluations.filter(e => filteredIds.has(e.suggestionId)), [evaluations, filteredIds]);
+  const evaluationBySuggestion = useMemo(() => {
+    const map = new Map<string, KaizenEvaluation>();
+    filteredEvaluations.forEach(e => map.set(e.suggestionId, e));
+    return map;
+  }, [filteredEvaluations]);
 
-  const resetFilters = () => { setFDepartment(ALL); setFType(ALL); setFStatus(ALL); setFFrom(""); setFTo(""); };
+  const resetFilters = () => { setFDepartment(ALL); setFType(ALL); setFStatus(ALL); setFStage(ALL); setFPersonnel(ALL); setFFrom(""); setFTo(""); };
 
   // ---- Topic: Genel Özet ----
   const totalSaving = filtered.reduce((sum, s) => sum + (s.estimatedSaving || 0), 0);
   const totalPoints = filteredEvaluations.reduce((sum, e) => sum + (e.point || 0), 0);
   const completedCount = filtered.filter(s => s.completed).length;
+
+  // "Kabul Edilen Öneri Oranı" — of suggestions that have actually been decided (i.e. not still
+  // Pending), what share ended up approved. Matches the live report's acceptance-rate gauge.
+  const decided = filtered.filter(s => s.approvalStatus !== "Pending");
+  const acceptedCount = decided.filter(s => statusBucket(s.approvalStatus) === "approved").length;
+  const acceptanceRate = decided.length > 0 ? Math.round((acceptedCount / decided.length) * 100) : 0;
+
+  // "Katılım Oranı" — share of the personnel roster who have submitted at least one suggestion.
+  const participants = new Set(filtered.map(s => s.personnelName)).size;
+  const participationRate = personnel.length > 0 ? Math.round((participants / personnel.length) * 100) : 0;
 
   // ---- Topic: Durum Analizi ----
   const byStatus = useMemo(() => {
@@ -81,11 +117,34 @@ export default function KaizenReports({ suggestions, evaluations }: Props) {
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
   }, [filtered]);
 
+  // ---- Topic: Kaizen Sayısı / Ay — monthly count stacked by status bucket ----
+  const byMonth = useMemo(() => {
+    const buckets: Record<string, { month: string; approved: number; pending: number; rejected: number }> = {};
+    filtered.forEach(s => {
+      const month = (s.createdAt || "").slice(0, 7);
+      if (!month) return;
+      if (!buckets[month]) buckets[month] = { month, approved: 0, pending: 0, rejected: 0 };
+      buckets[month][statusBucket(s.approvalStatus)]++;
+    });
+    return Object.values(buckets).sort((a, b) => a.month.localeCompare(b.month));
+  }, [filtered]);
+
+  // ---- Topic: Kaizen Sayısı / Adam — per-person count stacked by status bucket ----
+  const byPerson = useMemo(() => {
+    const buckets: Record<string, { name: string; approved: number; pending: number; rejected: number }> = {};
+    filtered.forEach(s => {
+      const name = s.personnelName || "Belirtilmemiş";
+      if (!buckets[name]) buckets[name] = { name, approved: 0, pending: 0, rejected: 0 };
+      buckets[name][statusBucket(s.approvalStatus)]++;
+    });
+    return Object.values(buckets);
+  }, [filtered]);
+
   // ---- Topic: Finansal Etki (aylık trend) ----
   const monthlyTrend = useMemo(() => {
     const byMonth: Record<string, { month: string; count: number; saving: number }> = {};
     filtered.forEach(s => {
-      const month = (s.createdAt || "").slice(0, 7); // YYYY-MM
+      const month = (s.createdAt || "").slice(0, 7);
       if (!month) return;
       if (!byMonth[month]) byMonth[month] = { month, count: 0, saving: 0 };
       byMonth[month].count++;
@@ -101,6 +160,12 @@ export default function KaizenReports({ suggestions, evaluations }: Props) {
     motivasyon: filtered.filter(s => s.motivasyon).length
   };
 
+  // ---- Personel Bazlı Kaizen Puan Tablosu ----
+  const detailRows = useMemo(
+    () => [...filtered].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")),
+    [filtered]
+  );
+
   const exportUrl = "/api/business/kaizen/suggestions/export-excel";
 
   return (
@@ -110,7 +175,11 @@ export default function KaizenReports({ suggestions, evaluations }: Props) {
           <h3 className="font-black text-xs uppercase text-slate-700">Filtreler</h3>
           <button onClick={resetFilters} className="text-[10px] font-black text-slate-400 hover:text-slate-700 cursor-pointer">Filtreleri Sıfırla</button>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 text-xs">
+          <select value={fPersonnel} onChange={e => setFPersonnel(e.target.value)} className="p-2 border border-gray-200 rounded-lg font-bold">
+            <option value={ALL}>Tüm Personel</option>
+            {personnelNames.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
           <select value={fDepartment} onChange={e => setFDepartment(e.target.value)} className="p-2 border border-gray-200 rounded-lg font-bold">
             <option value={ALL}>Tüm Bölümler</option>
             {departments.map(d => <option key={d} value={d}>{d}</option>)}
@@ -122,6 +191,10 @@ export default function KaizenReports({ suggestions, evaluations }: Props) {
           <select value={fStatus} onChange={e => setFStatus(e.target.value)} className="p-2 border border-gray-200 rounded-lg font-bold">
             <option value={ALL}>Tüm Durumlar</option>
             {Object.entries(APPROVAL_STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <select value={fStage} onChange={e => setFStage(e.target.value)} className="p-2 border border-gray-200 rounded-lg font-bold">
+            <option value={ALL}>Tüm Aşamalar</option>
+            {STAGE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <input type="date" value={fFrom} onChange={e => setFFrom(e.target.value)} className="p-2 border border-gray-200 rounded-lg font-bold" placeholder="Başlangıç" />
           <input type="date" value={fTo} onChange={e => setFTo(e.target.value)} className="p-2 border border-gray-200 rounded-lg font-bold" placeholder="Bitiş" />
@@ -135,6 +208,10 @@ export default function KaizenReports({ suggestions, evaluations }: Props) {
         <StatCard label="Toplam Kazanç Puanı" value={totalPoints} />
         <StatCard label="Tahmini Toplam Kazanç (TL)" value={totalSaving.toLocaleString("tr-TR")} />
       </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <GaugeCard label="Kabul Edilen Öneri Oranı" value={acceptanceRate} color="#3b82f6" />
+        <GaugeCard label="Katılım Oranı" value={participationRate} color="#00A280" />
+      </div>
 
       {/* Topic: Durum Analizi */}
       <TopicSection title="Durum Analizi">
@@ -147,6 +224,38 @@ export default function KaizenReports({ suggestions, evaluations }: Props) {
             <Bar dataKey="count" radius={[4, 4, 0, 0]}>
               {byStatus.map((d, i) => <Cell key={i} fill={d.fill} />)}
             </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </TopicSection>
+
+      {/* Topic: Kaizen Sayısı / Ay */}
+      <TopicSection title="Kaizen Sayısı / Ay">
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={byMonth}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+            <YAxis allowDecimals={false} />
+            <Tooltip />
+            <Legend />
+            <Bar dataKey="approved" name="Onaylandı" stackId="s" fill={STATUS_BUCKET_COLORS.approved} />
+            <Bar dataKey="pending" name="Onay Bekliyor" stackId="s" fill={STATUS_BUCKET_COLORS.pending} />
+            <Bar dataKey="rejected" name="Reddedildi" stackId="s" fill={STATUS_BUCKET_COLORS.rejected} />
+          </BarChart>
+        </ResponsiveContainer>
+      </TopicSection>
+
+      {/* Topic: Kaizen Sayısı / Adam */}
+      <TopicSection title="Kaizen Sayısı / Adam">
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={byPerson}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="name" tick={{ fontSize: 9 }} interval={0} angle={-30} textAnchor="end" height={70} />
+            <YAxis allowDecimals={false} />
+            <Tooltip />
+            <Legend />
+            <Bar dataKey="approved" name="Onaylandı" stackId="s" fill={STATUS_BUCKET_COLORS.approved} />
+            <Bar dataKey="pending" name="Onay Bekliyor" stackId="s" fill={STATUS_BUCKET_COLORS.pending} />
+            <Bar dataKey="rejected" name="Reddedildi" stackId="s" fill={STATUS_BUCKET_COLORS.rejected} />
           </BarChart>
         </ResponsiveContainer>
       </TopicSection>
@@ -197,9 +306,47 @@ export default function KaizenReports({ suggestions, evaluations }: Props) {
       {/* Topic: İSG / Çevre / Motivasyon */}
       <TopicSection title="İSG / Çevre / Motivasyon Dağılımı">
         <div className="grid grid-cols-3 gap-3">
-          <FlagCard icon={ShieldAlert} label="İş Sağlığı ve Güvenliği" value={flagCounts.isg} color="text-red-600 bg-red-50" />
+          <FlagCard icon={ShieldAlert} label="ISG" value={flagCounts.isg} color="text-red-600 bg-red-50" />
           <FlagCard icon={Leaf} label="Çevre" value={flagCounts.cevre} color="text-emerald-700 bg-emerald-50" />
           <FlagCard icon={Sparkles} label="Motivasyon" value={flagCounts.motivasyon} color="text-amber-600 bg-amber-50" />
+        </div>
+      </TopicSection>
+
+      {/* Personel Bazlı Kaizen Puan Tablosu */}
+      <TopicSection title="Personel Bazlı Kaizen Puan Tablosu">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-slate-400 uppercase text-[10px] border-b">
+                <th className="py-1.5 pr-2">Ad Soyad</th>
+                <th className="pr-2">Bölüm</th>
+                <th className="pr-2">Görev</th>
+                <th className="pr-2">Öneri Tarihi</th>
+                <th className="pr-2">Kategori</th>
+                <th className="pr-2">Öneri Durumu</th>
+                <th className="pr-2">Öneri Getirisi</th>
+                <th>Öneri Puanı</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {detailRows.map(s => {
+                const evalRow = evaluationBySuggestion.get(s.id);
+                return (
+                  <tr key={s.id}>
+                    <td className="py-1.5 pr-2 font-bold">{s.personnelName}</td>
+                    <td className="pr-2">{s.personnelDepartment}</td>
+                    <td className="pr-2">{s.personnelJobTitle}</td>
+                    <td className="pr-2">{(s.createdAt || "").slice(0, 10)}</td>
+                    <td className="pr-2">{(s.suggestionTypes || []).join(", ")}</td>
+                    <td className="pr-2">{APPROVAL_STATUS_LABELS[s.approvalStatus]}</td>
+                    <td className="pr-2">{evalRow?.estimatedIncome ? `${evalRow.estimatedIncome.toLocaleString("tr-TR")} ${evalRow.estimatedIncomeCurrency}` : "-"}</td>
+                    <td>{evalRow?.point ?? "-"}</td>
+                  </tr>
+                );
+              })}
+              {detailRows.length === 0 && <tr><td colSpan={8} className="text-slate-400 py-3">Kayıt bulunamadı.</td></tr>}
+            </tbody>
+          </table>
         </div>
       </TopicSection>
 
@@ -238,6 +385,30 @@ function FlagCard({ icon: Icon, label, value, color }: { icon: any; label: strin
         <p className="text-2xl font-black">{value}</p>
         <p className="text-[10px] font-black uppercase opacity-80">{label}</p>
       </div>
+    </div>
+  );
+}
+
+// Matches the live Power BI report's "Kabul Edilen Öneri Oranı"/"Katılım Oranı" radial gauges.
+function GaugeCard({ label, value, color }: { label: string; value: number; color: string }) {
+  const data = [{ value, fill: color }];
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-4 flex items-center space-x-4">
+      <div className="relative w-28 h-28 shrink-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <RadialBarChart
+            width={112} height={112} innerRadius="70%" outerRadius="100%"
+            data={data} startAngle={90} endAngle={-270} barSize={12}
+          >
+            <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
+            <RadialBar background dataKey="value" cornerRadius={6} />
+          </RadialBarChart>
+        </ResponsiveContainer>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-xl font-black text-slate-800">%{value}</span>
+        </div>
+      </div>
+      <p className="text-xs font-black uppercase text-slate-500">{label}</p>
     </div>
   );
 }

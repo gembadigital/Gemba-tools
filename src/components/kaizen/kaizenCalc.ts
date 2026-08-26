@@ -1,19 +1,27 @@
 // Shared display/option helpers for the Kaizen Suggestions module. Option lists below are the
-// port's own reasonable defaults (see kaizenTypes.ts) — the source app's SharePoint choice columns
-// are populated live from the list and their exact values aren't recoverable from the .msapp
-// package; these are edited the same way the 5S module's DIFFICULTY_LEVEL_OPTIONS/etc. are —
-// hardcoded constants, not admin-configurable choice lists.
+// REAL choice values confirmed directly against the live KaizenSuite app in Power Apps Studio
+// (its SharePoint choice columns aren't recoverable from the .msapp package alone — this app's
+// live "Yeni Öneri" wizard and Criteria/Ayarlar screen were checked directly to get these exact
+// values, replacing an earlier best-guess version of this file).
 import { ApprovalStatus } from "./kaizenTypes";
 
+// Öneri Sınıfı (Suggestion.SuggestionType) — confirmed exact values from the live app's picker.
 export const SUGGESTION_TYPE_OPTIONS = [
-  "Kalite", "Verimlilik", "İş Güvenliği", "Maliyet", "Çevre", "Ergonomi", "5S", "Diğer"
+  "Maliyet Azaltma", "Kalite", "ISG", "5S", "Verimlilik", "Enerji"
 ] as const;
 
-export const STAGE_OPTIONS = ["Fikir Aşaması", "Planlandı", "Uygulamada", "Uygulandı"] as const;
+// Öneri Aşaması (Suggestion.Status) — this is the PDCA improvement-cycle stage, not a maturity
+// label like "planned/in progress" — confirmed from the live picker.
+export const STAGE_OPTIONS = ["Plan (Planlama)", "Do (Yap)", "Check (Kontrol)", "Action (Önlem Al)"] as const;
 
-export const PAYBACK_PERIOD_OPTIONS = ["0-3 Ay", "3-6 Ay", "6-12 Ay", "12+ Ay"] as const;
+// Kazanç Süresi (Suggestion.Time) — this describes how the estimated saving RECURS (per unit
+// produced, once a year, or a one-off), not a payback-period window — confirmed from the live
+// picker (an earlier version of this file wrongly modeled it as a payback window like "0-3 Ay").
+export const PAYBACK_PERIOD_OPTIONS = ["Parça Başı", "Senelik", "Bir Sefer"] as const;
 
-export const CURRENCY_OPTIONS = ["TL", "USD", "EUR"] as const;
+// Estimated_Saving_Currency / Estimated_Cost_Currency — confirmed from the live picker; "Eş Değer
+// Ürün" (in-kind/equivalent product) is a real 4th option alongside actual currencies.
+export const CURRENCY_OPTIONS = ["TL", "USD", "EUR", "Eş Değer Ürün"] as const;
 
 export const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
   "Pending": "Onay Bekliyor",

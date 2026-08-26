@@ -62,8 +62,8 @@ export interface KaizenSuggestion {
   suggestionTypes: string[];       // Öneri Sınıfı (multi-choice)
   currentState: string;            // Mevcut Durum
   improvementSuggestion: string;   // Önerilen İyileştirme
-  stage: string;                   // Öneri Aşaması
-  paybackPeriod: string;           // Kazanç Süresi
+  stage: string;                   // Öneri Aşaması — PDCA cycle stage (Plan/Do/Check/Action)
+  paybackPeriod: string;           // Kazanç Süresi — how the saving recurs (Parça Başı/Senelik/Bir Sefer)
 
   estimatedSaving: number;
   estimatedSavingCurrency: string;
@@ -97,13 +97,16 @@ export interface KaizenApproval {
   createdAt: string;
 }
 
-// Scoring rubric row (legacy Criteria list) — admin-managed.
+// Scoring rubric row (legacy Criteria list) — admin-managed. Confirmed against the live app's
+// "Ayarlar" popup: a 5-tier letter-grade rubric (D/C/B/A/A+) banded by estimated income, e.g.
+// D=5pt (0-50.000), C=10pt (50.000-250.000), B=15pt (250.000-1.000.000), A=20pt
+// (1.000.000-5.000.000), A+=25pt (5.000.000+).
 export interface KaizenCriteria {
   id: string;
   criteria: string;    // short label
   description: string;
   point: number;
-  category: string;
+  category: string;    // letter grade tier (D/C/B/A/A+ in the real rubric)
   minIncome: number;   // Min_Kazanc
   maxIncome: number;   // Max_Kazanc
 }
