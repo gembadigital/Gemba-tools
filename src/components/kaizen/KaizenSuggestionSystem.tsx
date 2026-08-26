@@ -211,6 +211,9 @@ export default function KaizenSuggestionSystem() {
           approvals={approvals}
           evaluations={evaluations}
           onEdit={openEdit}
+          api={api}
+          showToast={showToast}
+          onReload={loadAll}
         />
       )}
 
@@ -218,6 +221,8 @@ export default function KaizenSuggestionSystem() {
         <KaizenApprovals
           currentUser={currentUser}
           suggestions={suggestions}
+          approvals={approvals}
+          evaluations={evaluations}
           criteria={criteria}
           isBoardMember={isBoardMember}
           api={api}

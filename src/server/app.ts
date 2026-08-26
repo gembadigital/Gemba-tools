@@ -2652,6 +2652,53 @@ app.post("/api/business/kaizen/suggestions/:id/complete", authenticateToken, asy
   res.json({ success: true, data: updated });
 });
 
+// "Öneriyi Geri Çek" — only the submitter, only while still Pending (see kaizenTypes.ts header —
+// the legacy app had no withdraw capability at all).
+app.post("/api/business/kaizen/suggestions/:id/withdraw", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const result = await db.withdrawKaizenSuggestion(user.organization_id, req.params.id, user.email);
+  if (!result.success) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json({ success: true });
+});
+
+// Yokoten (yatay yayılım) ve Ödül takibi — Board/Admin only, since these are follow-up actions on
+// an already-scored evaluation, not part of the original approve/reject decision.
+async function requireKaizenBoardAccess(req: express.Request, res: express.Response): Promise<boolean> {
+  const user = (req as any).user;
+  if (user.role === "Admin" || user.role === "Consultant") return true;
+  const personnel = await db.getKaizenRecords("kaizen_personnel", user.organization_id);
+  const myRecord = personnel.find((p: any) => (p.email || "").toLowerCase() === (user.email || "").toLowerCase());
+  if (myRecord?.isBoardMember) return true;
+  res.status(403).json({ success: false, error: "Bu işlem için Kaizen Kurulu yetkisi gereklidir." });
+  return false;
+}
+
+app.post("/api/business/kaizen/evaluations/:id/yokoten-implemented", authenticateToken, async (req, res) => {
+  if (!(await requireKaizenBoardAccess(req, res))) return;
+  const user = (req as any).user;
+  const updated = await db.setKaizenYokotenImplemented(user.organization_id, req.params.id, !!req.body.implemented);
+  if (!updated) {
+    res.status(404).json({ success: false, error: "Değerlendirme bulunamadı." });
+    return;
+  }
+  res.json({ success: true, data: updated });
+});
+
+app.post("/api/business/kaizen/evaluations/:id/reward-status", authenticateToken, async (req, res) => {
+  if (!(await requireKaizenBoardAccess(req, res))) return;
+  const user = (req as any).user;
+  const status = req.body.status === "Ödendi" ? "Ödendi" : "Bekliyor";
+  const updated = await db.setKaizenRewardStatus(user.organization_id, req.params.id, status);
+  if (!updated) {
+    res.status(404).json({ success: false, error: "Değerlendirme bulunamadı." });
+    return;
+  }
+  res.json({ success: true, data: updated });
+});
+
 app.get("/api/business/kaizen/suggestions/export-excel", authenticateToken, async (req, res) => {
   const user = (req as any).user;
   const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);

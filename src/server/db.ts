@@ -1316,8 +1316,10 @@ export class GeminiDb {
       point: Number(evaluation.point) || 0,
       yokoten: !!evaluation.yokoten,
       yokotenDescription: evaluation.yokotenDescription || "",
+      yokotenImplemented: false,
       estimatedIncome: Number(evaluation.estimatedIncome) || 0,
       estimatedIncomeCurrency: evaluation.estimatedIncomeCurrency || "TL",
+      rewardStatus: "Bekliyor",
       comment: evaluation.comment || "",
       createdAt: nowIso
     };
@@ -1342,6 +1344,42 @@ export class GeminiDb {
     const updated = { ...suggestion, completed: true, updatedAt: new Date().toISOString() };
     await this.upsertMerged("kaizen_suggestions", orgId, updated);
     return updated;
+  }
+
+  // "Yokoten Uygulandı" işaretleme — bir önerinin Board tarafından "yatay yayılıma uygun" olarak
+  // işaretlenmesinden sonra, bu fikrin fiilen diğer alanlara/hatlara da uygulanıp uygulanmadığının
+  // takibi. Ne legacy uygulama ne de bu portun ilk sürümü bunu bir yerde gösteriyordu — sadece bir
+  // checkbox olarak kaydedilip unutuluyordu.
+  public async setKaizenYokotenImplemented(orgId: string, evaluationId: string, implemented: boolean): Promise<any | null> {
+    const evaluation = await this.getRecordById("kaizen_evaluations", evaluationId, orgId);
+    if (!evaluation) return null;
+    const updated = { ...evaluation, yokotenImplemented: !!implemented };
+    await this.upsertMerged("kaizen_evaluations", orgId, updated);
+    return updated;
+  }
+
+  // "Ödül Durumu" güncelleme — kazanılan puanın/kazancın fiilen çalışana bir ödül olarak ödenip
+  // ödenmediğinin takibi. Puanlama yapılıyor ama sonrasında ödül sürecinin izlenmesi eksikti.
+  public async setKaizenRewardStatus(orgId: string, evaluationId: string, status: "Bekliyor" | "Ödendi"): Promise<any | null> {
+    const evaluation = await this.getRecordById("kaizen_evaluations", evaluationId, orgId);
+    if (!evaluation) return null;
+    const updated = { ...evaluation, rewardStatus: status };
+    await this.upsertMerged("kaizen_evaluations", orgId, updated);
+    return updated;
+  }
+
+  // "Öneriyi Geri Çek" — sadece gönderen kişi, henüz Amir kararına ulaşmamış (Pending) bir öneriyi
+  // iptal edebilir. Legacy uygulamada bu imkan hiç yoktu; yanlışlıkla gönderilen bir öneri onay
+  // sürecine girmeden geri alınamıyordu.
+  public async withdrawKaizenSuggestion(orgId: string, suggestionId: string, userEmail: string): Promise<{ success: boolean; error?: string }> {
+    const suggestion = await this.getRecordById("kaizen_suggestions", suggestionId, orgId);
+    if (!suggestion) return { success: false, error: "Öneri bulunamadı." };
+    if (suggestion.approvalStatus !== "Pending") return { success: false, error: "Sadece onay bekleyen öneriler geri çekilebilir." };
+    if ((suggestion.authorEmail || "").toLowerCase() !== (userEmail || "").toLowerCase()) {
+      return { success: false, error: "Sadece kendi öneriniz geri çekebilirsiniz." };
+    }
+    await this.removeOne("kaizen_suggestions", orgId, suggestionId);
+    return { success: true };
   }
 
   // COPQ Snapshots (Loss Capacity Analizi historical trend tracking)

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Download, ShieldAlert, Leaf, Sparkles } from "lucide-react";
+import { Download, ShieldAlert, Leaf, Sparkles, Trophy } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, RadialBarChart, RadialBar, PolarAngleAxis
@@ -160,6 +160,24 @@ export default function KaizenReports({ suggestions, evaluations, personnel, api
     motivasyon: filtered.filter(s => s.motivasyon).length
   };
 
+  // ---- Topic: Lider Panosu — en çok öneri veren / en yüksek puanı toplayan kişiler. Legacy
+  // uygulamada motivasyon unsuru olarak hiçbir sıralama/ödüllendirme görünürlüğü yoktu. ----
+  const leaderboard = useMemo(() => {
+    const byPersonMap: Record<string, { name: string; department: string; count: number; points: number }> = {};
+    filtered.forEach(s => {
+      const name = s.personnelName || "Belirtilmemiş";
+      if (!byPersonMap[name]) byPersonMap[name] = { name, department: s.personnelDepartment, count: 0, points: 0 };
+      byPersonMap[name].count++;
+    });
+    filteredEvaluations.forEach(e => {
+      const s = filtered.find(x => x.id === e.suggestionId);
+      if (!s) return;
+      const name = s.personnelName || "Belirtilmemiş";
+      if (byPersonMap[name]) byPersonMap[name].points += e.point || 0;
+    });
+    return Object.values(byPersonMap).sort((a, b) => b.points - a.points || b.count - a.count).slice(0, 10);
+  }, [filtered, filteredEvaluations]);
+
   // ---- Personel Bazlı Kaizen Puan Tablosu ----
   const detailRows = useMemo(
     () => [...filtered].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")),
@@ -301,6 +319,30 @@ export default function KaizenReports({ suggestions, evaluations, personnel, api
             <Line yAxisId="right" type="monotone" dataKey="saving" name="Tahmini Kazanç (TL)" stroke="#00A280" strokeWidth={2} />
           </LineChart>
         </ResponsiveContainer>
+      </TopicSection>
+
+      {/* Topic: Lider Panosu */}
+      <TopicSection title="Lider Panosu">
+        <div className="divide-y divide-gray-100 text-xs">
+          {leaderboard.map((row, i) => (
+            <div key={row.name} className="py-2 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <span className={`w-6 text-center font-black ${i === 0 ? "text-amber-500" : i === 1 ? "text-slate-400" : i === 2 ? "text-amber-700" : "text-slate-300"}`}>
+                  {i < 3 ? <Trophy className="w-4 h-4 inline" /> : i + 1}
+                </span>
+                <div>
+                  <p className="font-bold text-slate-700">{row.name}</p>
+                  <p className="text-slate-400">{row.department}</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="font-black text-slate-800">{row.points} puan</p>
+                <p className="text-slate-400">{row.count} öneri</p>
+              </div>
+            </div>
+          ))}
+          {leaderboard.length === 0 && <p className="text-slate-400 py-2">Kayıt bulunamadı.</p>}
+        </div>
       </TopicSection>
 
       {/* Topic: İSG / Çevre / Motivasyon */}

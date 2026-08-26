@@ -111,8 +111,17 @@ export interface KaizenCriteria {
   maxIncome: number;   // Max_Kazanc
 }
 
+export type RewardStatus = "Bekliyor" | "Ödendi";
+
 // Kaizen Board's evaluation of one suggestion (legacy Evaluation list) — created together with the
 // Board's approve/reject decision, not a separate step.
+//
+// yokotenImplemented and rewardStatus are additions beyond the legacy app — the source captured a
+// Yokoten (horizontal-deployment) flag and a score but never surfaced either anywhere as an actual
+// tracked follow-up: there was no view of "which approved ideas are candidates to roll out
+// elsewhere" and no record of whether the resulting point/kazanç ever turned into a paid reward.
+// Both are standard parts of a real Kaizen program (see KaizenSuggestionSystem's "Yokoten Takibi"
+// and "Ödül Takibi" tabs), not just a scored-and-forgotten evaluation record.
 export interface KaizenEvaluation {
   id: string;
   suggestionId: string;
@@ -121,8 +130,10 @@ export interface KaizenEvaluation {
   point: number;          // snapshot of Criteria.point at scoring time
   yokoten: boolean;        // Lean term: can this improvement be spread to other areas?
   yokotenDescription: string;
+  yokotenImplemented: boolean; // has this been rolled out to other areas yet?
   estimatedIncome: number;
   estimatedIncomeCurrency: string;
+  rewardStatus: RewardStatus;  // has the earned point/kazanç actually been paid out to the employee?
   comment: string;
   createdAt: string;
 }

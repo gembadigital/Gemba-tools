@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from "react";
-import { Edit, X } from "lucide-react";
+import { Edit, X, Undo2 } from "lucide-react";
 import { KaizenSuggestion, KaizenApproval, KaizenEvaluation } from "./kaizenTypes";
 import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, canEditSuggestion } from "./kaizenCalc";
+import { KaizenApi } from "./KaizenSuggestionSystem";
 
 interface Props {
   currentUser: any;
@@ -9,11 +10,14 @@ interface Props {
   approvals: KaizenApproval[];
   evaluations: KaizenEvaluation[];
   onEdit: (s: KaizenSuggestion) => void;
+  api: KaizenApi;
+  showToast: (msg: string) => void;
+  onReload: () => void;
 }
 
 const ALL = "__ALL__";
 
-export default function KaizenMySuggestions({ currentUser, suggestions, approvals, evaluations, onEdit }: Props) {
+export default function KaizenMySuggestions({ currentUser, suggestions, approvals, evaluations, onEdit, api, showToast, onReload }: Props) {
   const myEmail = (currentUser?.email || "").toLowerCase();
   // Legacy rule: a suggestion shows here if I authored it OR I am its team leader (so team leaders
   // can track their team's submissions in the same list).
@@ -29,6 +33,14 @@ export default function KaizenMySuggestions({ currentUser, suggestions, approval
   );
 
   const [detail, setDetail] = useState<KaizenSuggestion | null>(null);
+
+  const withdraw = async (s: KaizenSuggestion, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`"${s.subject}" önerisini geri çekmek istediğinizden emin misiniz? Bu işlem geri alınamaz.`)) return;
+    const res = await api.post(`suggestions/${s.id}/withdraw`, {});
+    if (res.success) { showToast("Öneri geri çekildi."); onReload(); }
+    else showToast(`Hata: ${res.error || "Geri çekilemedi."}`);
+  };
 
   return (
     <div className="space-y-4">
@@ -60,8 +72,13 @@ export default function KaizenMySuggestions({ currentUser, suggestions, approval
                 </td>
                 <td>
                   {canEditSuggestion(s.approvalStatus) && (s.authorEmail || "").toLowerCase() === myEmail && (
-                    <button onClick={(e) => { e.stopPropagation(); onEdit(s); }} className="text-slate-500 hover:text-slate-800 cursor-pointer p-1">
+                    <button onClick={(e) => { e.stopPropagation(); onEdit(s); }} className="text-slate-500 hover:text-slate-800 cursor-pointer p-1" title="Düzenle">
                       <Edit className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  {s.approvalStatus === "Pending" && (s.authorEmail || "").toLowerCase() === myEmail && (
+                    <button onClick={(e) => withdraw(s, e)} className="text-red-500 hover:text-red-700 cursor-pointer p-1" title="Öneriyi Geri Çek">
+                      <Undo2 className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </td>
@@ -163,7 +180,9 @@ function DetailModal({ suggestion, approvals, evaluations, onClose }: { suggesti
           <div>
             <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Değerlendirme</p>
             {evaluations.map(e => (
-              <p key={e.id} className="text-xs text-slate-600">{e.criteriaLabel} — {e.point} puan{e.yokoten ? " · Yokoten uygulanabilir" : ""}</p>
+              <p key={e.id} className="text-xs text-slate-600">
+                {e.criteriaLabel} — {e.point} puan{e.yokoten ? " · Yokoten uygulanabilir" : ""} · Ödül: {e.rewardStatus || "Bekliyor"}
+              </p>
             ))}
           </div>
         )}

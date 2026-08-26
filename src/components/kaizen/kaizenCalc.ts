@@ -61,3 +61,26 @@ export function canDecideAsBoard(userEmail: string, userRole: string, isBoardMem
   if (userRole === "Admin" || userRole === "Consultant") return true;
   return isBoardMember;
 }
+
+// SLA / bekleme süresi — a queue item's age in whole days since it entered its current stage.
+// Neither the legacy app nor the first cut of this port surfaced this anywhere, so a suggestion
+// could sit unreviewed indefinitely with no visual cue.
+export function daysWaiting(since: string): number {
+  const then = new Date(since).getTime();
+  if (Number.isNaN(then)) return 0;
+  return Math.max(0, Math.floor((Date.now() - then) / (24 * 60 * 60 * 1000)));
+}
+
+// Waiting-time severity used to color-code approval queues: 7+ days = overdue (red), 3-6 = warning
+// (amber), else normal.
+export function waitingSeverity(days: number): "normal" | "warning" | "overdue" {
+  if (days >= 7) return "overdue";
+  if (days >= 3) return "warning";
+  return "normal";
+}
+
+export const WAITING_SEVERITY_COLORS: Record<ReturnType<typeof waitingSeverity>, string> = {
+  normal: "#64748b",
+  warning: "#f59e0b",
+  overdue: "#ef4444"
+};
