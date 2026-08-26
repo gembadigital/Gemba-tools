@@ -2110,7 +2110,7 @@ app.post("/api/business/five-s/audits/:auditId/team", authenticateToken, async (
     res.status(403).json({ success: false, error: "Access Denied." });
     return;
   }
-  const assignments = req.body.assignments as { areaId: string; auditorName: string }[];
+  const assignments = req.body.assignments as { areaId: string; auditorName: string; auditorId?: string }[];
   if (!Array.isArray(assignments)) {
     res.status(400).json({ success: false, error: "assignments dizisi gereklidir." });
     return;

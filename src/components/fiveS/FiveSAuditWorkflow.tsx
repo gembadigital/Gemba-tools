@@ -194,13 +194,17 @@ function TeamTab({ departments, areas, personnel, audits, teamAssignments, api, 
 
   React.useEffect(() => {
     const initial: Record<string, string> = {};
-    rows.forEach(r => { initial[r.areaId] = r.auditorName; });
+    rows.forEach(r => { initial[r.areaId] = r.auditorId || auditors.find(p => p.name === r.auditorName)?.id || ""; });
     setDraft(initial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auditId, teamAssignments.length]);
 
   const save = async () => {
-    const assignments = rows.map(r => ({ areaId: r.areaId, auditorName: draft[r.areaId] ?? r.auditorName }));
+    const assignments = rows.map(r => {
+      const id = draft[r.areaId] ?? "";
+      const person = auditors.find(p => p.id === id);
+      return { areaId: r.areaId, auditorId: person?.id || "", auditorName: person?.name || "" };
+    });
     const res = await api.post(`audits/${auditId}/team`, { assignments });
     if (res.success) {
       setTeamAssignments(prev => {
@@ -241,7 +245,7 @@ function TeamTab({ departments, areas, personnel, audits, teamAssignments, api, 
                     <td>
                       <select value={draft[r.areaId] ?? ""} onChange={e => setDraft(d => ({ ...d, [r.areaId]: e.target.value }))} className="p-1.5 border border-gray-200 rounded-lg font-bold">
                         <option value="">Atanmadı</option>
-                        {auditors.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                        {auditors.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
                     </td>
                   </tr>

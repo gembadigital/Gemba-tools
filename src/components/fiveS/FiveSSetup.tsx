@@ -57,11 +57,11 @@ function FacilityTab({ departments, areas, personnel, departmentsCrud, areasCrud
   departmentsCrud: Crud<FiveSDepartment>; areasCrud: Crud<FiveSArea>;
 }) {
   const [newDept, setNewDept] = useState("");
-  const [areaForm, setAreaForm] = useState<{ id?: string; departmentId: string; name: string; responsible: string; difficultyLevel: string }>({
-    departmentId: "", name: "", responsible: "", difficultyLevel: "1"
+  const [areaForm, setAreaForm] = useState<{ id?: string; departmentId: string; name: string; responsible: string; responsibleId?: string; difficultyLevel: string }>({
+    departmentId: "", name: "", responsible: "", responsibleId: "", difficultyLevel: "1"
   });
 
-  const resetAreaForm = () => setAreaForm({ departmentId: "", name: "", responsible: "", difficultyLevel: "1" });
+  const resetAreaForm = () => setAreaForm({ departmentId: "", name: "", responsible: "", responsibleId: "", difficultyLevel: "1" });
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -102,16 +102,17 @@ function FacilityTab({ departments, areas, personnel, departmentsCrud, areasCrud
             {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
           <input value={areaForm.name} onChange={e => setAreaForm(f => ({ ...f, name: e.target.value }))} placeholder="Alan Adı" className="p-2 border border-gray-200 rounded-lg font-bold" />
-          <input
-            list="five-s-personnel-names"
-            value={areaForm.responsible}
-            onChange={e => setAreaForm(f => ({ ...f, responsible: e.target.value }))}
-            placeholder="Sorumlu Kişi"
+          <select
+            value={areaForm.responsibleId || ""}
+            onChange={e => {
+              const p = personnel.find(pp => pp.id === e.target.value);
+              setAreaForm(f => ({ ...f, responsibleId: p?.id || "", responsible: p?.name || "" }));
+            }}
             className="p-2 border border-gray-200 rounded-lg font-bold"
-          />
-          <datalist id="five-s-personnel-names">
-            {personnel.map(p => <option key={p.id} value={p.name} />)}
-          </datalist>
+          >
+            <option value="">Sorumlu Kişi Seçiniz...</option>
+            {personnel.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
           <select value={areaForm.difficultyLevel} onChange={e => setAreaForm(f => ({ ...f, difficultyLevel: e.target.value }))} className="p-2 border border-gray-200 rounded-lg font-bold">
             {DIFFICULTY_LEVEL_OPTIONS.map(l => <option key={l} value={l}>Zorluk Seviyesi {l}</option>)}
           </select>
@@ -138,7 +139,7 @@ function FacilityTab({ departments, areas, personnel, departmentsCrud, areasCrud
                 <span className="text-slate-400"> — {departments.find(d => d.id === a.departmentId)?.name || "-"} — Sorumlu: {a.responsible || "-"} — Zorluk: {a.difficultyLevel}</span>
               </div>
               <div className="flex items-center space-x-2 shrink-0">
-                <button onClick={() => setAreaForm({ id: a.id, departmentId: a.departmentId, name: a.name, responsible: a.responsible, difficultyLevel: a.difficultyLevel })} className="text-slate-500 hover:text-slate-800 cursor-pointer">
+                <button onClick={() => setAreaForm({ id: a.id, departmentId: a.departmentId, name: a.name, responsible: a.responsible, responsibleId: a.responsibleId, difficultyLevel: a.difficultyLevel })} className="text-slate-500 hover:text-slate-800 cursor-pointer">
                   <Edit className="w-3.5 h-3.5" />
                 </button>
                 <button onClick={() => { if (window.confirm(`"${a.name}" alanını silmek istediğinizden emin misiniz?`)) areasCrud.remove(a.id); }} className="text-red-500 hover:text-red-700 cursor-pointer">

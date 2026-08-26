@@ -39,6 +39,7 @@ interface LogForm {
   photo?: string;
   action: string;
   responsible: string;
+  responsibleId: string;
   status: string;
   dueDate: string;
   completedDate: string;
@@ -53,6 +54,7 @@ const blankForm: LogForm = {
   photo: undefined,
   action: "",
   responsible: "",
+  responsibleId: "",
   status: "Açık",
   dueDate: "",
   completedDate: ""
@@ -95,6 +97,7 @@ function LogTab({ departments, areas, personnel, problemCategories, findings, ge
       photo: form.photo,
       action: form.action,
       responsible: form.responsible,
+      responsibleId: form.responsibleId,
       status: form.status,
       dueDate: form.dueDate || null,
       completedDate: form.completedDate || null
@@ -190,9 +193,16 @@ function LogTab({ departments, areas, personnel, problemCategories, findings, ge
           <p className="text-[10px] font-black uppercase text-slate-400">Aksiyon Tespit</p>
           <textarea value={form.action} onChange={e => setForm(f => ({ ...f, action: e.target.value }))} placeholder="Aksiyon Tanımı" rows={2} className="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold" />
           <div className="grid grid-cols-3 gap-2">
-            <select value={form.responsible} onChange={e => setForm(f => ({ ...f, responsible: e.target.value }))} className="p-2 border border-gray-200 rounded-lg text-xs font-bold">
+            <select
+              value={form.responsibleId}
+              onChange={e => {
+                const p = personnel.find(pp => pp.id === e.target.value);
+                setForm(f => ({ ...f, responsibleId: p?.id || "", responsible: p?.name || "" }));
+              }}
+              className="p-2 border border-gray-200 rounded-lg text-xs font-bold"
+            >
               <option value="">Sorumlu...</option>
-              {personnel.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+              {personnel.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
             <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} className="p-2 border border-gray-200 rounded-lg text-xs font-bold">
               {GEMBA_WALK_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
@@ -226,7 +236,7 @@ function LogTab({ departments, areas, personnel, problemCategories, findings, ge
                   </div>
                 </div>
                 <div className="flex items-center space-x-2 shrink-0">
-                  <button onClick={() => setForm({ ...f, dueDate: f.dueDate || "", completedDate: f.completedDate || "" })} className="text-slate-500 hover:text-slate-800 cursor-pointer"><Edit className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => setForm({ ...f, dueDate: f.dueDate || "", completedDate: f.completedDate || "", responsibleId: f.responsibleId || "" })} className="text-slate-500 hover:text-slate-800 cursor-pointer"><Edit className="w-3.5 h-3.5" /></button>
                   <button onClick={() => { if (window.confirm("Bu Gemba Walk kaydını silmek istediğinizden emin misiniz?")) gembaWalkCrud.remove(f.id); }} className="text-red-500 hover:text-red-700 cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               </div>

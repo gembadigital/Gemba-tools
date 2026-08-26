@@ -24,7 +24,9 @@ export interface FiveSArea {
   id: string;
   departmentId: string; // Bölüm
   name: string; // Alan
-  responsible: string; // Sorumlu — personnel name
+  responsible: string; // Sorumlu — denormalized personnel name, kept in sync with responsibleId
+  responsibleId?: string; // -> FiveSPersonnel.id — source of truth when set (see db.ts's cascade
+  // rename on personnel save); older rows saved before this field existed only have `responsible`.
   difficultyLevel: string; // ZorlukSeviyesi — selects which question bank applies to this area
 }
 
@@ -59,7 +61,8 @@ export interface FiveSTeamAssignment {
   id: string;
   auditId: string; // -> FiveSAuditHeader.id
   areaId: string; // -> FiveSArea.id
-  auditorName: string; // Ad — must be a personnel record with isAuditor
+  auditorName: string; // Ad — denormalized personnel name, kept in sync with auditorId
+  auditorId?: string; // -> FiveSPersonnel.id — source of truth when set (see FiveSArea.responsibleId)
 }
 
 export interface FiveSAuditAnswer {
@@ -98,7 +101,8 @@ export interface GembaWalkFinding {
   problemDescription: string; // ProblemTanimi
   photo?: string; // Gorsel — base64 data URL
   action: string; // Aksiyon
-  responsible: string; // Sorumlu
+  responsible: string; // Sorumlu — denormalized personnel name, kept in sync with responsibleId
+  responsibleId?: string; // -> FiveSPersonnel.id — source of truth when set (see FiveSArea.responsibleId)
   status: string; // Durum: Açık / Devam Ediyor / Kapalı
   dueDate: string | null; // TerminTarihi
   completedDate: string | null; // GerceklestirmeTarihi

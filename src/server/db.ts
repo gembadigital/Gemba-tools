@@ -778,7 +778,32 @@ export class GeminiDb {
     record.factory_id = factoryId;
     record.updated_by = userId;
     record.updated_at = new Date().toISOString();
-    return this.upsertMerged(collection, orgId, record);
+    const saved = await this.upsertMerged(collection, orgId, record);
+    if (collection === "five_s_personnel" && !isNew) {
+      await this.cascadeFiveSPersonnelRename(orgId, factoryId, saved.id, saved.name);
+    }
+    return saved;
+  }
+
+  // Areas/team-assignments/Gemba Walk findings store a denormalized personnel *name* alongside the
+  // real *Id* (responsibleId/auditorId) so existing name-matching UI (myAreas, "my actions", the
+  // auditor leaderboard) keeps working without a wider rewrite — but that only stays correct if the
+  // name is re-synced whenever the personnel record it points to is renamed. Without this, editing
+  // someone's name in Ekip Listesi would silently orphan every place that used to match them by the
+  // old name (the exact fragility this Id linkage was added to fix).
+  private async cascadeFiveSPersonnelRename(orgId: string, factoryId: string, personnelId: string, newName: string): Promise<void> {
+    const areas = (await this.getFiveSRecords("five_s_areas", orgId, factoryId)).filter((a: any) => a.responsibleId === personnelId && a.responsible !== newName);
+    for (const a of areas) {
+      await this.upsertMerged("five_s_areas", orgId, { ...a, responsible: newName });
+    }
+    const assignments = (await this.getFiveSRecords("five_s_team_assignments", orgId, factoryId)).filter((t: any) => t.auditorId === personnelId && t.auditorName !== newName);
+    for (const t of assignments) {
+      await this.upsertMerged("five_s_team_assignments", orgId, { ...t, auditorName: newName });
+    }
+    const findings = (await this.getFiveSRecords("gemba_walk_findings", orgId, factoryId)).filter((f: any) => f.responsibleId === personnelId && f.responsible !== newName);
+    for (const f of findings) {
+      await this.upsertMerged("gemba_walk_findings", orgId, { ...f, responsible: newName });
+    }
   }
 
   public async deleteFiveSRecord(collection: FiveSCollection, orgId: string, id: string): Promise<void> {
@@ -972,7 +997,7 @@ export class GeminiDb {
     orgId: string,
     factoryId: string,
     auditId: string,
-    assignments: { areaId: string; auditorName: string }[],
+    assignments: { areaId: string; auditorName: string; auditorId?: string }[],
     userId: string
   ): Promise<any[]> {
     const existingAssignments = await this.listCollection("five_s_team_assignments", orgId);
@@ -981,7 +1006,7 @@ export class GeminiDb {
       const existing = existingAssignments.find(r => r.auditId === auditId && r.areaId === a.areaId);
       const nowIso = new Date().toISOString();
       if (existing) {
-        const updated = { ...existing, auditorName: a.auditorName, updated_by: userId, updated_at: nowIso };
+        const updated = { ...existing, auditorName: a.auditorName, auditorId: a.auditorId || "", updated_by: userId, updated_at: nowIso };
         await this.upsertMerged("five_s_team_assignments", orgId, updated);
         saved.push(updated);
       } else {
@@ -992,6 +1017,7 @@ export class GeminiDb {
           auditId,
           areaId: a.areaId,
           auditorName: a.auditorName,
+          auditorId: a.auditorId || "",
           created_by: userId,
           created_at: nowIso,
           updated_by: userId,
