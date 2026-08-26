@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { CheckCircle, XCircle, Filter, X, Save, Mail } from "lucide-react";
+import { CheckCircle, XCircle, Filter, X, Save, Mail, Download } from "lucide-react";
 import { FiveSDepartment, FiveSArea, FiveSQuestion, FiveSAuditHeader, FiveSTeamAssignment, FiveSAuditAnswer, FiveSActionRow, ActionStatus } from "./fiveSTypes";
 import { isOnTime, ACTION_STATUS_OPTIONS } from "./fiveSCalc";
 import { FiveSApi } from "./FiveSAuditSystem";
@@ -123,6 +123,15 @@ export default function FiveSActions({
     else showToast(`Hata: ${res.error || "Rapor gönderilemedi."}`);
   };
 
+  const [downloading, setDownloading] = useState(false);
+  const downloadReport = async () => {
+    if (!selectedAudit) return;
+    setDownloading(true);
+    const res = await api.download(`audits/${selectedAudit.id}/report.xlsx`);
+    setDownloading(false);
+    if (!res.success) showToast(`Hata: ${res.error || "Rapor indirilemedi."}`);
+  };
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -177,7 +186,10 @@ export default function FiveSActions({
           <h3 className="font-black text-xs uppercase text-slate-700">Aksiyon Listesi ({filtered.length})</h3>
           {selectedAudit && (
             <div className="flex items-center space-x-2">
-              <span className="text-[10px] font-bold text-slate-400">Denetim No {selectedAudit.auditNo} raporunu gönder:</span>
+              <span className="text-[10px] font-bold text-slate-400">Denetim No {selectedAudit.auditNo} raporu:</span>
+              <button onClick={downloadReport} disabled={downloading} className="p-1.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-black flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
+                <Download className="w-3.5 h-3.5" /><span>{downloading ? "İndiriliyor..." : "İndir"}</span>
+              </button>
               <input value={recipientEmail} onChange={e => setRecipientEmail(e.target.value)} placeholder="ornek@musteri.com" type="email" className="p-1.5 border border-gray-200 rounded-lg text-xs font-bold" />
               <button onClick={sendReport} disabled={sending} className="p-1.5 px-3 bg-emerald-800 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-black flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
                 <Mail className="w-3.5 h-3.5" /><span>{sending ? "Gönderiliyor..." : "Rapor Gönder"}</span>

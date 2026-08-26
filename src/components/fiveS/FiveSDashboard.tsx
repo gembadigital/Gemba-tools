@@ -1,6 +1,7 @@
-import React, { useMemo } from "react";
-import { ClipboardCheck, CheckCircle2, AlertTriangle, TrendingUp } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { ClipboardCheck, CheckCircle2, AlertTriangle, TrendingUp, Download, Mail } from "lucide-react";
 import { FiveSDepartment, FiveSArea, FiveSPersonnel, FiveSAuditHeader, FiveSTeamAssignment, FiveSAuditAnswer, FiveSAuditResult, GembaWalkFinding, FIVE_S_LEVELS } from "./fiveSTypes";
+import { FiveSApi } from "./FiveSAuditSystem";
 
 interface FiveSDashboardProps {
   departments: FiveSDepartment[];
@@ -11,6 +12,8 @@ interface FiveSDashboardProps {
   answers: FiveSAuditAnswer[];
   results: FiveSAuditResult[];
   gembaWalkFindings: GembaWalkFinding[];
+  api: FiveSApi;
+  showToast: (msg: string) => void;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -21,7 +24,7 @@ const STATUS_COLORS: Record<string, string> = {
   "Tamamlandı": "#059669"
 };
 
-export default function FiveSDashboard({ departments, areas, personnel, audits, teamAssignments, answers, results, gembaWalkFindings }: FiveSDashboardProps) {
+export default function FiveSDashboard({ departments, areas, personnel, audits, teamAssignments, answers, results, gembaWalkFindings, api, showToast }: FiveSDashboardProps) {
   const completedAudits = audits.filter(a => a.status === "Tamamlandı" && a.overallScore !== null).sort((a, b) => a.auditNo - b.auditNo);
 
   const deptScores = departments.map(d => {
@@ -68,8 +71,44 @@ export default function FiveSDashboard({ departments, areas, personnel, audits, 
   const overallAvg = results.length > 0 ? Math.round((results.reduce((s, r) => s + r.score, 0) / results.length) * 100) / 100 : null;
   const activeActionCount = actionStatusBreakdown.filter(s => s.status !== "Kapalı").reduce((s, r) => s + r.count, 0);
 
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [sending, setSending] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  const downloadReport = async () => {
+    setDownloading(true);
+    const res = await api.download("dashboard-report.xlsx");
+    setDownloading(false);
+    if (!res.success) showToast(`Hata: ${res.error || "Rapor indirilemedi."}`);
+  };
+
+  const sendReport = async () => {
+    if (!recipientEmail || !recipientEmail.includes("@")) {
+      showToast("Lütfen geçerli bir alıcı e-posta adresi girin.");
+      return;
+    }
+    setSending(true);
+    const res = await api.post("dashboard-report/send", { recipientEmail });
+    setSending(false);
+    if (res.success) showToast(`Rapor ${recipientEmail} adresine gönderildi.`);
+    else showToast(`Hata: ${res.error || "Rapor gönderilemedi."}`);
+  };
+
   return (
     <div className="space-y-4">
+      <div className="bg-white border border-gray-200 rounded-xl p-4 flex items-center justify-between flex-wrap gap-2">
+        <h3 className="font-black text-xs uppercase text-slate-700">5S Dashboard Özeti</h3>
+        <div className="flex items-center space-x-2">
+          <button onClick={downloadReport} disabled={downloading} className="p-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-black flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
+            <Download className="w-3.5 h-3.5" /><span>{downloading ? "İndiriliyor..." : "İndir (XLS)"}</span>
+          </button>
+          <input value={recipientEmail} onChange={e => setRecipientEmail(e.target.value)} placeholder="ornek@musteri.com" type="email" className="p-1.5 border border-gray-200 rounded-lg text-xs font-bold w-40" />
+          <button onClick={sendReport} disabled={sending} className="p-2 px-3 bg-emerald-800 hover:bg-emerald-700 text-white rounded-lg text-xs font-black flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
+            <Mail className="w-3.5 h-3.5" /><span>{sending ? "Gönderiliyor..." : "Gönder"}</span>
+          </button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard icon={ClipboardCheck} label="Toplam Denetim" value={audits.length} color="text-slate-800" />
         <KpiCard icon={CheckCircle2} label="Tamamlanan Denetim" value={completedAudits.length} color="text-emerald-600" />

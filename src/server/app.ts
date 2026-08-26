@@ -2034,6 +2034,14 @@ for (const { path, collection } of FIVE_S_SIMPLE_ENTITIES) {
   app.delete(`/api/business/five-s/${path}/:id`, authenticateToken, async (req, res) => {
     const user = (req as any).user;
     if (!(await fiveSAccessCheck(req, res, collection, req.params.id))) return;
+    const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+    if (scope.factoryId) {
+      const blockReason = await db.getFiveSDeleteBlockReason(collection, user.organization_id, req.params.id, scope.factoryId);
+      if (blockReason) {
+        res.status(400).json({ success: false, error: blockReason });
+        return;
+      }
+    }
     await db.deleteFiveSRecord(collection, user.organization_id, req.params.id);
     res.json({ success: true });
   });
@@ -2172,33 +2180,19 @@ app.post("/api/business/five-s/audits/:auditId/areas/:areaId/save-answers", auth
 // template and attached it; there's no Flow infrastructure here, so this generates a plain .xlsx
 // summary (same "real file, real email" approach already proven for the PTR weekly report) and
 // sends it via the shared sendMail() helper.
-app.post("/api/business/five-s/audits/:id/send-report", authenticateToken, async (req, res) => {
-  const user = (req as any).user;
-  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
-  if (!scope.allowed) {
-    res.status(403).json({ success: false, error: "Access Denied." });
-    return;
-  }
-  const { recipientEmail } = req.body;
-  if (!recipientEmail) {
-    res.status(400).json({ success: false, error: "Alıcı e-posta adresi gereklidir." });
-    return;
-  }
-  const audit = (await db.getFiveSRecords("five_s_audits", user.organization_id, scope.factoryId)).find((a: any) => a.id === req.params.id);
-  if (!audit) {
-    res.status(404).json({ success: false, error: "Denetim bulunamadı." });
-    return;
-  }
-  if (audit.status !== "Tamamlandı") {
-    res.status(400).json({ success: false, error: "Sadece tamamlanmış denetimler için rapor gönderilebilir." });
-    return;
-  }
-  const areas = await db.getFiveSRecords("five_s_areas", user.organization_id, scope.factoryId);
-  const departments = await db.getFiveSRecords("five_s_departments", user.organization_id, scope.factoryId);
-  const results = (await db.getFiveSRecords("five_s_results", user.organization_id, scope.factoryId)).filter((r: any) => r.auditId === audit.id);
-  const assignments = (await db.getFiveSRecords("five_s_team_assignments", user.organization_id, scope.factoryId)).filter((a: any) => a.auditId === audit.id);
-  const customer = (await db.getCustomers(user.organization_id)).find((c: any) => c.id === scope.factoryId);
+// Shared report builders — used by both the "Mail Gönder" (email attachment) and "İndir" (direct
+// download) routes for each report, so the two paths can never drift into showing different content.
+async function buildFiveSAuditReportBuffer(orgId: string, factoryId: string, auditId: string): Promise<{ buffer: Buffer; filename: string; customerName: string; error?: string; status?: number } > {
+  const audit = (await db.getFiveSRecords("five_s_audits", orgId, factoryId)).find((a: any) => a.id === auditId);
+  const customer = (await db.getCustomers(orgId)).find((c: any) => c.id === factoryId);
   const customerName = customer?.companyName || "Müşteri";
+  if (!audit) return { buffer: Buffer.alloc(0), filename: "", customerName, error: "Denetim bulunamadı.", status: 404 };
+  if (audit.status !== "Tamamlandı") return { buffer: Buffer.alloc(0), filename: "", customerName, error: "Sadece tamamlanmış denetimler için rapor alınabilir.", status: 400 };
+
+  const areas = await db.getFiveSRecords("five_s_areas", orgId, factoryId);
+  const departments = await db.getFiveSRecords("five_s_departments", orgId, factoryId);
+  const results = (await db.getFiveSRecords("five_s_results", orgId, factoryId)).filter((r: any) => r.auditId === audit.id);
+  const assignments = (await db.getFiveSRecords("five_s_team_assignments", orgId, factoryId)).filter((a: any) => a.auditId === audit.id);
 
   const headerRows = [
     ["5S Denetim Raporu", customerName],
@@ -2219,20 +2213,126 @@ app.post("/api/business/five-s/audits/:id/send-report", authenticateToken, async
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([...headerRows, tableHeader, ...tableRows]), "5S Denetim Raporu");
   const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  return { buffer, filename: `5S_Denetim_${audit.auditNo}_${customerName.replace(/\s+/g, "_")}.xlsx`, customerName };
+}
 
-  const subject = `${customerName} - 5S Denetim Raporu - Denetim No ${audit.auditNo}`;
-  const body = `Sayın İlgililer,\n\n${audit.date} tarihli, ${audit.auditNo} numaralı 5S denetiminin sonuç raporu ektedir.\n\nSaygılarımızla,\nGemba Partner`;
-  const result = await sendMail({
-    to: recipientEmail,
-    subject,
-    text: body,
-    attachments: [{ filename: `5S_Denetim_${audit.auditNo}_${customerName.replace(/\s+/g, "_")}.xlsx`, content: buffer }]
+async function buildFiveSGembaWalkReportBuffer(orgId: string, factoryId: string, findingIds?: string[]): Promise<{ buffer: Buffer; filename: string; customerName: string; error?: string; status?: number }> {
+  const customer = (await db.getCustomers(orgId)).find((c: any) => c.id === factoryId);
+  const customerName = customer?.companyName || "Müşteri";
+  let findings = await db.getFiveSRecords("gemba_walk_findings", orgId, factoryId);
+  if (Array.isArray(findingIds) && findingIds.length > 0) {
+    findings = findings.filter((f: any) => findingIds.includes(f.id));
+  }
+  if (findings.length === 0) return { buffer: Buffer.alloc(0), filename: "", customerName, error: "Aktarılacak Gemba Walk kaydı bulunamadı.", status: 400 };
+
+  const areas = await db.getFiveSRecords("five_s_areas", orgId, factoryId);
+  const tableHeader = ["Alan", "Problem Kategorisi", "Problem Tarihi", "Problem Tanımı", "Aksiyon", "Sorumlu", "Durum", "Termin", "Gerçekleşme"];
+  const tableRows = findings.map((f: any) => {
+    const area = areas.find((a: any) => a.id === f.areaId);
+    return [area?.name || "-", f.problemCategory, f.problemDate, f.problemDescription, f.action, f.responsible, f.status, f.dueDate || "-", f.completedDate || "-"];
   });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Gemba Walk Raporu", customerName], [], tableHeader, ...tableRows]), "Gemba Walk");
+  const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  return { buffer, filename: `GembaWalk_${customerName.replace(/\s+/g, "_")}.xlsx`, customerName };
+}
+
+async function buildFiveSDashboardReportBuffer(orgId: string, factoryId: string): Promise<{ buffer: Buffer; filename: string; customerName: string }> {
+  const customer = (await db.getCustomers(orgId)).find((c: any) => c.id === factoryId);
+  const customerName = customer?.companyName || "Müşteri";
+  const [departments, areas, audits, results, answers, gembaFindings] = await Promise.all([
+    db.getFiveSRecords("five_s_departments", orgId, factoryId),
+    db.getFiveSRecords("five_s_areas", orgId, factoryId),
+    db.getFiveSRecords("five_s_audits", orgId, factoryId),
+    db.getFiveSRecords("five_s_results", orgId, factoryId),
+    db.getFiveSRecords("five_s_answers", orgId, factoryId),
+    db.getFiveSRecords("gemba_walk_findings", orgId, factoryId)
+  ]);
+
+  const deptScoreRows = departments.map((d: any) => {
+    const deptAreaIds = new Set(areas.filter((a: any) => a.departmentId === d.id).map((a: any) => a.id));
+    const deptResults = results.filter((r: any) => deptAreaIds.has(r.areaId));
+    const avg = deptResults.length > 0 ? Math.round((deptResults.reduce((s: number, r: any) => s + Number(r.score || 0), 0) / deptResults.length) * 100) / 100 : "-";
+    return [d.name, deptResults.length, avg];
+  });
+
+  const auditStatusCounts = ["Başlanmadı", "Devam Ediyor", "Tamamlandı"].map(s => [s, audits.filter((a: any) => a.status === s).length]);
+  const actionStatusCounts = ["Açık", "Devam Ediyor", "Kapalı"].map(s => [s, answers.filter((a: any) => a.actionStatus === s).length]);
+  const gembaCategoryCounts = Object.entries(
+    gembaFindings.reduce((acc: Record<string, number>, f: any) => { acc[f.problemCategory] = (acc[f.problemCategory] || 0) + 1; return acc; }, {})
+  ).map(([cat, count]) => [cat, count]);
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ["5S Dashboard Özeti", customerName], [],
+    ["Bölüm Bazlı Ortalama Puan"], ["Bölüm", "Sonuç Sayısı", "Ortalama Puan"], ...deptScoreRows, [],
+    ["Denetim Durumu"], ["Durum", "Adet"], ...auditStatusCounts, [],
+    ["Aksiyon Durumu"], ["Durum", "Adet"], ...actionStatusCounts, [],
+    ["Gemba Walk - Problem Kategorisi Dağılımı"], ["Kategori", "Adet"], ...gembaCategoryCounts
+  ]), "Dashboard Özeti");
+  const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  return { buffer, filename: `5S_Dashboard_Ozeti_${customerName.replace(/\s+/g, "_")}.xlsx`, customerName };
+}
+
+async function buildFiveSAuditListReportBuffer(orgId: string, factoryId: string): Promise<{ buffer: Buffer; filename: string; customerName: string }> {
+  const customer = (await db.getCustomers(orgId)).find((c: any) => c.id === factoryId);
+  const customerName = customer?.companyName || "Müşteri";
+  const audits = await db.getFiveSRecords("five_s_audits", orgId, factoryId);
+  const tableHeader = ["Denetim No", "Tarih", "Durum", "Genel Puan"];
+  const tableRows = [...audits].sort((a: any, b: any) => a.auditNo - b.auditNo).map((a: any) => [a.auditNo, a.date, a.status, a.overallScore ?? "-"]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["5S Denetim Takvimi", customerName], [], tableHeader, ...tableRows]), "Denetim Takvimi");
+  const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  return { buffer, filename: `5S_Denetim_Takvimi_${customerName.replace(/\s+/g, "_")}.xlsx`, customerName };
+}
+
+function sendXlsxDownload(res: express.Response, buffer: Buffer, filename: string) {
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
+  res.send(buffer);
+}
+
+app.post("/api/business/five-s/audits/:id/send-report", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  const { recipientEmail } = req.body;
+  if (!recipientEmail) {
+    res.status(400).json({ success: false, error: "Alıcı e-posta adresi gereklidir." });
+    return;
+  }
+  const report = await buildFiveSAuditReportBuffer(user.organization_id, scope.factoryId || "", req.params.id);
+  if (report.error) {
+    res.status(report.status || 400).json({ success: false, error: report.error });
+    return;
+  }
+  const audit = (await db.getFiveSRecords("five_s_audits", user.organization_id, scope.factoryId)).find((a: any) => a.id === req.params.id);
+  const subject = `${report.customerName} - 5S Denetim Raporu - Denetim No ${audit?.auditNo}`;
+  const body = `Sayın İlgililer,\n\n${audit?.date} tarihli, ${audit?.auditNo} numaralı 5S denetiminin sonuç raporu ektedir.\n\nSaygılarımızla,\nGemba Partner`;
+  const result = await sendMail({ to: recipientEmail, subject, text: body, attachments: [{ filename: report.filename, content: report.buffer }] });
   if (!result.success) {
     res.status(503).json(result);
     return;
   }
   res.json({ success: true });
+});
+
+app.get("/api/business/five-s/audits/:id/report.xlsx", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  const report = await buildFiveSAuditReportBuffer(user.organization_id, scope.factoryId || "", req.params.id);
+  if (report.error) {
+    res.status(report.status || 400).json({ success: false, error: report.error });
+    return;
+  }
+  sendXlsxDownload(res, report.buffer, report.filename);
 });
 
 app.post("/api/business/five-s/gemba-walk/send-report", authenticateToken, async (req, res) => {
@@ -2247,34 +2347,103 @@ app.post("/api/business/five-s/gemba-walk/send-report", authenticateToken, async
     res.status(400).json({ success: false, error: "Alıcı e-posta adresi gereklidir." });
     return;
   }
-  let findings = await db.getFiveSRecords("gemba_walk_findings", user.organization_id, scope.factoryId);
-  if (Array.isArray(findingIds) && findingIds.length > 0) {
-    findings = findings.filter((f: any) => findingIds.includes(f.id));
-  }
-  if (findings.length === 0) {
-    res.status(400).json({ success: false, error: "Aktarılacak Gemba Walk kaydı bulunamadı." });
+  const report = await buildFiveSGembaWalkReportBuffer(user.organization_id, scope.factoryId || "", findingIds);
+  if (report.error) {
+    res.status(report.status || 400).json({ success: false, error: report.error });
     return;
   }
-  const areas = await db.getFiveSRecords("five_s_areas", user.organization_id, scope.factoryId);
-  const customer = (await db.getCustomers(user.organization_id)).find((c: any) => c.id === scope.factoryId);
-  const customerName = customer?.companyName || "Müşteri";
-
-  const tableHeader = ["Alan", "Problem Kategorisi", "Problem Tarihi", "Problem Tanımı", "Aksiyon", "Sorumlu", "Durum", "Termin", "Gerçekleşme"];
-  const tableRows = findings.map((f: any) => {
-    const area = areas.find((a: any) => a.id === f.areaId);
-    return [area?.name || "-", f.problemCategory, f.problemDate, f.problemDescription, f.action, f.responsible, f.status, f.dueDate || "-", f.completedDate || "-"];
-  });
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Gemba Walk Raporu", customerName], [], tableHeader, ...tableRows]), "Gemba Walk");
-  const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
-
-  const subject = `${customerName} - Gemba Walk Raporu`;
+  const subject = `${report.customerName} - Gemba Walk Raporu`;
   const body = `Sayın İlgililer,\n\nGemba Walk saha gözlem raporu ektedir.\n\nSaygılarımızla,\nGemba Partner`;
+  const result = await sendMail({ to: recipientEmail, subject, text: body, attachments: [{ filename: report.filename, content: report.buffer }] });
+  if (!result.success) {
+    res.status(503).json(result);
+    return;
+  }
+  res.json({ success: true });
+});
+
+app.post("/api/business/five-s/gemba-walk/report.xlsx", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  const { findingIds } = req.body;
+  const report = await buildFiveSGembaWalkReportBuffer(user.organization_id, scope.factoryId || "", findingIds);
+  if (report.error) {
+    res.status(report.status || 400).json({ success: false, error: report.error });
+    return;
+  }
+  sendXlsxDownload(res, report.buffer, report.filename);
+});
+
+app.get("/api/business/five-s/dashboard-report.xlsx", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  const report = await buildFiveSDashboardReportBuffer(user.organization_id, scope.factoryId || "");
+  sendXlsxDownload(res, report.buffer, report.filename);
+});
+
+app.post("/api/business/five-s/dashboard-report/send", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  const { recipientEmail } = req.body;
+  if (!recipientEmail) {
+    res.status(400).json({ success: false, error: "Alıcı e-posta adresi gereklidir." });
+    return;
+  }
+  const report = await buildFiveSDashboardReportBuffer(user.organization_id, scope.factoryId || "");
   const result = await sendMail({
     to: recipientEmail,
-    subject,
-    text: body,
-    attachments: [{ filename: `GembaWalk_${customerName.replace(/\s+/g, "_")}.xlsx`, content: buffer }]
+    subject: `${report.customerName} - 5S Dashboard Özeti`,
+    text: `Sayın İlgililer,\n\n5S Dashboard özet raporu ektedir.\n\nSaygılarımızla,\nGemba Partner`,
+    attachments: [{ filename: report.filename, content: report.buffer }]
+  });
+  if (!result.success) {
+    res.status(503).json(result);
+    return;
+  }
+  res.json({ success: true });
+});
+
+app.get("/api/business/five-s/audit-list-report.xlsx", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  const report = await buildFiveSAuditListReportBuffer(user.organization_id, scope.factoryId || "");
+  sendXlsxDownload(res, report.buffer, report.filename);
+});
+
+app.post("/api/business/five-s/audit-list-report/send", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  const { recipientEmail } = req.body;
+  if (!recipientEmail) {
+    res.status(400).json({ success: false, error: "Alıcı e-posta adresi gereklidir." });
+    return;
+  }
+  const report = await buildFiveSAuditListReportBuffer(user.organization_id, scope.factoryId || "");
+  const result = await sendMail({
+    to: recipientEmail,
+    subject: `${report.customerName} - 5S Denetim Takvimi`,
+    text: `Sayın İlgililer,\n\n5S denetim takvimi ektedir.\n\nSaygılarımızla,\nGemba Partner`,
+    attachments: [{ filename: report.filename, content: report.buffer }]
   });
   if (!result.success) {
     res.status(503).json(result);

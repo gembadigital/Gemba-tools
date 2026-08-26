@@ -16,6 +16,7 @@ export type FiveSApi = {
   get: (path: string) => Promise<any[]>;
   post: (path: string, body: any) => Promise<any>;
   del: (path: string) => Promise<any>;
+  download: (path: string, options?: { method?: "GET" | "POST"; body?: any }) => Promise<{ success: boolean; error?: string }>;
 };
 
 function makeCrud<T extends { id: string }>(
@@ -91,7 +92,32 @@ export default function FiveSAuditSystem() {
     post: async (path: string, body: any) =>
       fetch(`/api/business/five-s/${path}`, { method: "POST", headers: jsonHeaders, body: JSON.stringify(body) }).then(r => r.json()),
     del: async (path: string) =>
-      fetch(`/api/business/five-s/${path}`, { method: "DELETE", headers }).then(r => r.json())
+      fetch(`/api/business/five-s/${path}`, { method: "DELETE", headers }).then(r => r.json()),
+    download: async (path: string, options?: { method?: "GET" | "POST"; body?: any }) => {
+      const method = options?.method || "GET";
+      const res = await fetch(`/api/business/five-s/${path}`, {
+        method,
+        headers: method === "POST" ? jsonHeaders : headers,
+        body: method === "POST" ? JSON.stringify(options?.body || {}) : undefined
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        return { success: false, error: err?.error || "Rapor indirilemedi." };
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      const filename = match ? decodeURIComponent(match[1]) : "rapor.xlsx";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return { success: true };
+    }
   };
 
   const loadAll = useCallback(async () => {
@@ -216,6 +242,8 @@ export default function FiveSAuditSystem() {
           answers={answers}
           results={results}
           gembaWalkFindings={gembaWalkFindings}
+          api={api}
+          showToast={showToast}
         />
       )}
 

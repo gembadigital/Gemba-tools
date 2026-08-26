@@ -785,6 +785,58 @@ export class GeminiDb {
     await this.removeOne(collection, orgId, id);
   }
 
+  // Referential-integrity guard for the FIVE_S_SIMPLE_ENTITIES delete routes: departments/areas/
+  // questions/personnel have no DB-level foreign keys (everything lives in one generic JSONB
+  // `records` table), so nothing stopped a delete from silently orphaning real audit history —
+  // an area/question referenced by past scored answers, or a department still holding areas/
+  // questions. Returns a Turkish error message to show the user if the delete should be blocked,
+  // or null if it's safe. Personnel is guarded softly (name-matched, not a real FK — see
+  // FiveSArea.responsible/FiveSTeamAssignment.auditorName) since deleting them just silently breaks
+  // "my areas"/"my actions" matching for that person rather than orphaning a hard reference.
+  public async getFiveSDeleteBlockReason(collection: FiveSCollection, orgId: string, id: string, factoryId: string): Promise<string | null> {
+    if (collection === "five_s_departments") {
+      const [areas, questions] = await Promise.all([
+        this.getFiveSRecords("five_s_areas", orgId, factoryId),
+        this.getFiveSRecords("five_s_questions", orgId, factoryId)
+      ]);
+      const areaCount = areas.filter((a: any) => a.departmentId === id).length;
+      const questionCount = questions.filter((q: any) => q.departmentId === id).length;
+      if (areaCount > 0 || questionCount > 0) {
+        return `Bu bölüm silinemez: ${areaCount} alan ve ${questionCount} soru bu bölüme bağlı. Önce onları başka bir bölüme taşıyın veya silin.`;
+      }
+    } else if (collection === "five_s_areas") {
+      const [assignments, answers, findings] = await Promise.all([
+        this.getFiveSRecords("five_s_team_assignments", orgId, factoryId),
+        this.getFiveSRecords("five_s_answers", orgId, factoryId),
+        this.getFiveSRecords("gemba_walk_findings", orgId, factoryId)
+      ]);
+      const hasHistory = assignments.some((a: any) => a.areaId === id) || answers.some((a: any) => a.areaId === id) || findings.some((f: any) => f.areaId === id);
+      if (hasHistory) {
+        return "Bu alan silinemez: geçmiş denetim ataması, puanlanmış cevap veya Gemba Walk kaydı bu alana bağlı.";
+      }
+    } else if (collection === "five_s_questions") {
+      const answers = await this.getFiveSRecords("five_s_answers", orgId, factoryId);
+      if (answers.some((a: any) => a.questionId === id)) {
+        return "Bu soru silinemez: geçmiş bir denetimde bu soruya verilmiş puanlanmış cevap var.";
+      }
+    } else if (collection === "five_s_personnel") {
+      const personnel = await this.getFiveSRecords("five_s_personnel", orgId, factoryId);
+      const person = personnel.find((p: any) => p.id === id);
+      if (person) {
+        const [areas, assignments] = await Promise.all([
+          this.getFiveSRecords("five_s_areas", orgId, factoryId),
+          this.getFiveSRecords("five_s_team_assignments", orgId, factoryId)
+        ]);
+        const usedAsResponsible = areas.some((a: any) => a.responsible === person.name);
+        const usedAsAuditor = assignments.some((a: any) => a.auditorName === person.name);
+        if (usedAsResponsible || usedAsAuditor) {
+          return `${person.name} silinemez: bir alanın sorumlusu veya bir denetim ekibinin denetçisi olarak atanmış. Önce o atamaları değiştirin.`;
+        }
+      }
+    }
+    return null;
+  }
+
   // Bootstraps a brand-new customer's 5S module with Gemba Digital's real 5S audit methodology
   // (FIVE_S_DEFAULT_DEPARTMENTS/FIVE_S_DEFAULT_QUESTIONS, ported 1:1 from the legacy Power Apps
   // app's SharePoint list — see fiveSSeedData.ts) instead of leaving it empty. Guarded by "only if

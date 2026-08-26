@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Calendar, Users, ClipboardList, CheckCircle2, Trash2, Save, TrendingUp, TrendingDown, Minus, Sparkles, Mail, Camera, X } from "lucide-react";
+import { Calendar, Users, ClipboardList, CheckCircle2, Trash2, Save, TrendingUp, TrendingDown, Minus, Sparkles, Mail, Camera, X, Download } from "lucide-react";
 import {
   FiveSDepartment, FiveSArea, FiveSPersonnel, FiveSQuestion, FiveSAuditHeader,
   FiveSTeamAssignment, FiveSAuditAnswer, FiveSAuditResult, FIVE_S_LEVELS, FiveSLevel
@@ -64,6 +64,9 @@ function CalendarTab({ audits, api, showToast, onReload }: FiveSAuditWorkflowPro
   const [endDate, setEndDate] = useState(today);
   const [weeklyFreq, setWeeklyFreq] = useState(1);
   const [monthlyFreq, setMonthlyFreq] = useState(1);
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [sending, setSending] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const generate = async (frequencyDays: number) => {
     const res = await api.post("audits/bulk-generate", { startDate, endDate, frequencyDays });
@@ -73,6 +76,25 @@ function CalendarTab({ audits, api, showToast, onReload }: FiveSAuditWorkflowPro
     } else {
       showToast(`Hata: ${res.error || "Denetim takvimi oluşturulamadı."}`);
     }
+  };
+
+  const downloadListReport = async () => {
+    setDownloading(true);
+    const res = await api.download("audit-list-report.xlsx");
+    setDownloading(false);
+    if (!res.success) showToast(`Hata: ${res.error || "Rapor indirilemedi."}`);
+  };
+
+  const sendListReport = async () => {
+    if (!recipientEmail || !recipientEmail.includes("@")) {
+      showToast("Lütfen geçerli bir alıcı e-posta adresi girin.");
+      return;
+    }
+    setSending(true);
+    const res = await api.post("audit-list-report/send", { recipientEmail });
+    setSending(false);
+    if (res.success) showToast(`Rapor ${recipientEmail} adresine gönderildi.`);
+    else showToast(`Hata: ${res.error || "Rapor gönderilemedi."}`);
   };
 
   return (
@@ -110,7 +132,18 @@ function CalendarTab({ audits, api, showToast, onReload }: FiveSAuditWorkflowPro
       </div>
 
       <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <h3 className="font-black text-xs uppercase text-slate-700 mb-2">Denetim Listesi ({audits.length})</h3>
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+          <h3 className="font-black text-xs uppercase text-slate-700">Denetim Listesi ({audits.length})</h3>
+          <div className="flex items-center space-x-2">
+            <button onClick={downloadListReport} disabled={downloading} className="p-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-black flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
+              <Download className="w-3.5 h-3.5" /><span>{downloading ? "İndiriliyor..." : "İndir (XLS)"}</span>
+            </button>
+            <input value={recipientEmail} onChange={e => setRecipientEmail(e.target.value)} placeholder="ornek@musteri.com" type="email" className="p-1.5 border border-gray-200 rounded-lg text-xs font-bold w-40" />
+            <button onClick={sendListReport} disabled={sending} className="p-2 px-3 bg-emerald-800 hover:bg-emerald-700 text-white rounded-lg text-xs font-black flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
+              <Mail className="w-3.5 h-3.5" /><span>{sending ? "Gönderiliyor..." : "Gönder"}</span>
+            </button>
+          </div>
+        </div>
         <table className="w-full text-xs">
           <thead>
             <tr className="text-left text-slate-400 uppercase text-[10px] border-b">
@@ -480,6 +513,14 @@ function CompleteTab({ areas, departments, audits, teamAssignments, results, api
     else showToast(`Hata: ${res.error || "Rapor gönderilemedi."}`);
   };
 
+  const [downloading, setDownloading] = useState(false);
+  const downloadReport = async () => {
+    setDownloading(true);
+    const res = await api.download(`audits/${auditId}/report.xlsx`);
+    setDownloading(false);
+    if (!res.success) showToast(`Hata: ${res.error || "Rapor indirilemedi."}`);
+  };
+
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -519,8 +560,11 @@ function CompleteTab({ areas, departments, audits, teamAssignments, results, api
               <CheckCircle2 className="w-3.5 h-3.5" /><span>Denetimi Tamamla{!allComplete && " (tüm alanlar %100 olmalı)"}</span>
             </button>
           ) : (
-            <div className="flex items-center space-x-2 pt-2 border-t border-gray-100">
+            <div className="flex items-center space-x-2 pt-2 border-t border-gray-100 flex-wrap gap-y-2">
               <p className="text-xs font-black text-emerald-700">Tamamlandı — Genel Puan: {audit.overallScore}/5</p>
+              <button onClick={downloadReport} disabled={downloading} className="p-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-black flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
+                <Download className="w-3.5 h-3.5" /><span>{downloading ? "İndiriliyor..." : "İndir (XLS)"}</span>
+              </button>
               <input value={recipientEmail} onChange={e => setRecipientEmail(e.target.value)} placeholder="ornek@musteri.com" type="email" className="p-1.5 border border-gray-200 rounded-lg text-xs font-bold flex-1 max-w-xs" />
               <button onClick={sendReport} disabled={sending} className="p-2 px-3 bg-emerald-800 hover:bg-emerald-700 text-white rounded-lg text-xs font-black flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
                 <Mail className="w-3.5 h-3.5" /><span>{sending ? "Gönderiliyor..." : "Rapor Gönder"}</span>

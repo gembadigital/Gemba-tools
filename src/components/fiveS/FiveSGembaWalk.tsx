@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Footprints, ListChecks, Plus, Save, X, Edit, Trash2, CheckCircle, XCircle, Mail, Camera } from "lucide-react";
+import { Footprints, ListChecks, Plus, Save, X, Edit, Trash2, CheckCircle, XCircle, Mail, Camera, Download } from "lucide-react";
 import { FiveSDepartment, FiveSArea, FiveSPersonnel, FiveSProblemCategory, GembaWalkFinding } from "./fiveSTypes";
 import { isOnTime, GEMBA_WALK_STATUS_OPTIONS, DIFFICULTY_LEVEL_OPTIONS } from "./fiveSCalc";
 import { FiveSApi } from "./FiveSAuditSystem";
@@ -283,6 +283,14 @@ function ActionsTab({ departments, areas, findings, currentUser, isFiveSAdmin, g
     else showToast(`Hata: ${res.error || "Rapor gönderilemedi."}`);
   };
 
+  const [downloading, setDownloading] = useState(false);
+  const downloadReport = async () => {
+    setDownloading(true);
+    const res = await api.download("gemba-walk/report.xlsx", { method: "POST", body: { findingIds: filtered.map(r => r.id) } });
+    setDownloading(false);
+    if (!res.success) showToast(`Hata: ${res.error || "Rapor indirilemedi."}`);
+  };
+
   return (
     <div className="space-y-4">
       <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
@@ -318,6 +326,9 @@ function ActionsTab({ departments, areas, findings, currentUser, isFiveSAdmin, g
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h3 className="font-black text-xs uppercase text-slate-700">Gemba Walk Aksiyonları ({filtered.length})</h3>
           <div className="flex items-center space-x-2">
+            <button onClick={downloadReport} disabled={downloading} className="p-1.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-black flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
+              <Download className="w-3.5 h-3.5" /><span>{downloading ? "İndiriliyor..." : "İndir"}</span>
+            </button>
             <input value={recipientEmail} onChange={e => setRecipientEmail(e.target.value)} placeholder="ornek@musteri.com" type="email" className="p-1.5 border border-gray-200 rounded-lg text-xs font-bold" />
             <button onClick={sendReport} disabled={sending} className="p-1.5 px-3 bg-emerald-800 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-black flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
               <Mail className="w-3.5 h-3.5" /><span>{sending ? "Gönderiliyor..." : "Rapor Gönder"}</span>
