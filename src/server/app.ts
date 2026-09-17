@@ -1724,23 +1724,9 @@ app.get("/api/business/ptr-records/export-template-excel", authenticateToken, as
   }
 });
 
-// Notes/consultant names are interpolated into an HTML email body below — escape plain text before
-// embedding it (note HTML itself is already sanitized by db.getWeeklyConsultantNotes, but names and
-// the customer-derived subject/greeting text are not).
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 // Shared by the actual send route and the preview-only route below, so the preview the user sees
 // in the Danışman Faaliyet Özeti card is guaranteed to be exactly what gets emailed — no separate
-// template copy to drift out of sync. Returns an HTML body (not plain text) so the Danışman Faaliyet
-// Özeti's rich-text formatting (bold/italic/underline/font size/color) survives into the actual
-// email, not just the in-app preview.
+// template copy to drift out of sync.
 async function buildWeeklyReportEmailContent(orgId: string, factoryId: string, week: string, year: number | null, customerName: string): Promise<{ subject: string; body: string }> {
   const shortName = customerName.trim().split(/\s+/)[0] || customerName;
   const subject = `[PTR] ${shortName} W${week} Proje Raporu`;
@@ -1750,20 +1736,17 @@ async function buildWeeklyReportEmailContent(orgId: string, factoryId: string, w
   // file. Only ever populated when `week`/`year` match a week consultants actually wrote notes for.
   let notesSection = "";
   if (year) {
-    // A visually-empty contentEditable note can still serialize as e.g. "<br>" — strip tags before
-    // checking for real content so those don't show up as an empty-looking entry in the email.
     const weeklyNotes = (await db.getWeeklyConsultantNotes(orgId, factoryId, String(week), Number(year)))
-      .filter((n: any) => (n.note || "").replace(/<[^>]+>/g, "").trim());
+      .filter((n: any) => (n.note || "").trim());
     if (weeklyNotes.length > 0) {
-      // n.note is already sanitized HTML (db.getWeeklyConsultantNotes) — safe to embed as-is.
       const notesList = weeklyNotes
-        .map((n: any) => `<p><strong>${escapeHtml(n.consultant_name || "Danışman")}:</strong><br>${n.note.trim()}</p>`)
-        .join("");
-      notesSection = `<p><strong>${escapeHtml(week)}. Hafta Danışman Faaliyet Özeti:</strong></p>${notesList}`;
+        .map((n: any) => `- ${n.consultant_name || "Danışman"}:\n${n.note.trim()}`)
+        .join("\n\n");
+      notesSection = `\n\n${week}. Hafta Danışman Faaliyet Özeti:\n${notesList}\n`;
     }
   }
 
-  const body = `<p>Sayın İlgililer,</p><p>${escapeHtml(week)}. hafta ziyareti sırasında yapılan çalışma ve aksiyon raporu ektedir. Lütfen termin tarihlerine uyum sağlamaya özen gösteriniz.</p>${notesSection}<p>Saygılarımızla,<br>Gemba Partner</p>`;
+  const body = `Sayın İlgililer,\n\n${week}. hafta ziyareti sırasında yapılan çalışma ve aksiyon raporu ektedir. Lütfen termin tarihlerine uyum sağlamaya özen gösteriniz.${notesSection}\nSaygılarımızla,\nGemba Partner`;
   return { subject, body };
 }
 
@@ -1858,7 +1841,7 @@ app.post("/api/business/ptr-records/send-weekly-report", authenticateToken, asyn
       to: toList,
       cc: ccList,
       subject,
-      html: body,
+      text: body,
       attachments: [{ filename: buildPtrExportFilename(customerName), content: buffer }]
     });
     if (!result.success) {
