@@ -5,7 +5,8 @@ import {
   Check, X, RefreshCw, Layers, TrendingUp, AlertCircle, HelpCircle,
   Calendar, CheckCircle, Clock, Percent, DollarSign, ArrowRight, Table, BarChart2,
   Flame, Zap, Maximize2, Minimize2, Flag,
-  Filter, FilePlus, Sparkles, Mail, Eye, ArrowUp, ArrowDown, ArrowUpDown
+  Filter, FilePlus, Sparkles, Mail, Eye, ArrowUp, ArrowDown, ArrowUpDown,
+  Bold, Italic, Underline, Type, ChevronDown
 } from "lucide-react";
 import { useFactory } from "../context/FactoryContext";
 import OpexProjectDashboard from "./OpexProjectDashboard";
@@ -39,6 +40,35 @@ export interface ProjectRecord {
 // Statuses that must NOT count toward project progress (cancelled).
 export const EXCLUDED_STATUSES = ["İptal"];
 export const STATUS_OPTIONS = ["Açık", "Devam Ediyor", "Kapalı", "İptal"];
+
+// Danışman Faaliyet Özeti's rich-text font-size toolbar — document.execCommand("fontSize", ...) only
+// accepts the legacy HTML 1-7 scale, never real px; these codes are then translated to real px (via
+// FONT_SIZE_PX_BY_LEGACY_CODE, read off the <font size="N"> execCommand actually inserts) so the
+// stored/sent HTML uses a real CSS font-size instead of that legacy attribute.
+const FONT_SIZE_OPTIONS: { label: string; legacyCode: string }[] = [
+  { label: "Küçük", legacyCode: "2" },
+  { label: "Normal", legacyCode: "3" },
+  { label: "Büyük", legacyCode: "5" },
+  { label: "Çok Büyük", legacyCode: "7" }
+];
+const FONT_SIZE_PX_BY_LEGACY_CODE: Record<string, number> = { "2": 11, "3": 13, "5": 16, "7": 20 };
+
+// Shared by the empty-note check below and the archive panel's .txt download — collapses the
+// Danışman Faaliyet Özeti's rich-text HTML back down to plain text.
+const stripHtmlToText = (html: string): string => {
+  if (!html) return "";
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'")
+    .trim();
+};
 
 // Helper function to parse Turkish dates in formats like DD.MM.YYYY
 const parseTurkishDate = (dateStr: string): Date | null => {
@@ -232,9 +262,17 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
   // Danışman Faaliyet Özeti: one free-text note per consultant per week (see weekly_consultant_notes
   // on the backend). `weeklyNotes` holds everyone's notes for the reported week; `myWeeklyNoteText`
   // is this browser's editable draft, seeded from the current user's own existing note if any.
+  // The note is basic-rich-text HTML (bold/italic/underline/font-size/color — see the contentEditable
+  // editor + toolbar below), not plain text; the value is only ever written into the DOM imperatively
+  // (on load, via noteEditorRef) so React re-renders never fight the browser's own cursor position
+  // inside the editable div — see handleNoteEditorMouseDown/apply* helpers below.
   const [weeklyNotes, setWeeklyNotes] = useState<any[]>([]);
   const [myWeeklyNoteText, setMyWeeklyNoteText] = useState("");
   const [weeklyNoteStatus, setWeeklyNoteStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [showFormatToolbar, setShowFormatToolbar] = useState(true);
+  const [showFontSizeMenu, setShowFontSizeMenu] = useState(false);
+  const noteEditorRef = useRef<HTMLDivElement>(null);
+  const savedNoteSelectionRef = useRef<Range | null>(null);
 
   useEffect(() => {
     if (!reportWeekNum || !reportYear) return;
@@ -247,7 +285,9 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
         const data: any[] = (res.success && Array.isArray(res.data)) ? res.data : [];
         setWeeklyNotes(data);
         const mine = data.find(n => n.consultant_id === currentUser?.id);
-        setMyWeeklyNoteText(mine?.note || "");
+        const noteHtml = mine?.note || "";
+        setMyWeeklyNoteText(noteHtml);
+        if (noteEditorRef.current) noteEditorRef.current.innerHTML = noteHtml;
       })
       .catch(err => {
         console.error("Failed to load weekly consultant notes", err);
@@ -255,9 +295,71 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
       });
   }, [selectedCustomer, reportWeekNum, reportYear, currentUser?.id]);
 
+  // Formatting toolbar for the contentEditable note editor above — hand-rolled with
+  // document.execCommand (still supported everywhere despite the formal deprecation; adding a real
+  // rich-text-editor dependency would be overkill for "temel araçlar" — bold/italic/underline/font
+  // size/color). Two things need care: (1) toolbar buttons must not steal focus/selection from the
+  // editor before the command runs — onMouseDown preventDefault handles that for in-page buttons;
+  // (2) the native <input type="color"> opens an OS-level picker that steals focus regardless, so its
+  // selection is captured on mousedown and restored right before applying the color.
+  const normalizeLegacyFontTags = () => {
+    const root = noteEditorRef.current;
+    if (!root) return;
+    root.querySelectorAll("font").forEach(f => {
+      const span = document.createElement("span");
+      const size = f.getAttribute("size");
+      const color = f.getAttribute("color");
+      const styles: string[] = [];
+      if (size) styles.push(`font-size:${FONT_SIZE_PX_BY_LEGACY_CODE[size] || 13}px`);
+      if (color) styles.push(`color:${color}`);
+      if (styles.length > 0) span.setAttribute("style", styles.join(";"));
+      while (f.firstChild) span.appendChild(f.firstChild);
+      f.replaceWith(span);
+    });
+  };
+
+  const syncNoteStateFromEditor = () => {
+    if (noteEditorRef.current) setMyWeeklyNoteText(noteEditorRef.current.innerHTML);
+  };
+
+  const handleNoteToolbarMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault(); // keep the editor's current selection instead of losing it to the button
+  };
+
+  const applyBold = () => { noteEditorRef.current?.focus(); document.execCommand("bold"); normalizeLegacyFontTags(); syncNoteStateFromEditor(); };
+  const applyItalic = () => { noteEditorRef.current?.focus(); document.execCommand("italic"); normalizeLegacyFontTags(); syncNoteStateFromEditor(); };
+  const applyUnderline = () => { noteEditorRef.current?.focus(); document.execCommand("underline"); normalizeLegacyFontTags(); syncNoteStateFromEditor(); };
+  const applyFontSize = (legacyCode: string) => {
+    noteEditorRef.current?.focus();
+    document.execCommand("styleWithCSS", false, "true" as any);
+    document.execCommand("fontSize", false, legacyCode);
+    normalizeLegacyFontTags();
+    syncNoteStateFromEditor();
+    setShowFontSizeMenu(false);
+  };
+  const captureNoteSelection = () => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && noteEditorRef.current?.contains(sel.anchorNode)) {
+      savedNoteSelectionRef.current = sel.getRangeAt(0).cloneRange();
+    }
+  };
+  const applyColor = (hex: string) => {
+    const sel = window.getSelection();
+    if (sel && savedNoteSelectionRef.current) {
+      sel.removeAllRanges();
+      sel.addRange(savedNoteSelectionRef.current);
+    }
+    noteEditorRef.current?.focus();
+    document.execCommand("styleWithCSS", false, "true" as any);
+    document.execCommand("foreColor", false, hex);
+    normalizeLegacyFontTags();
+    syncNoteStateFromEditor();
+  };
+
   const saveMyWeeklyNote = () => {
     if (!reportWeekNum || !reportYear || !currentUser) return;
     const customerId = selectedCustomer?.id || "default";
+    const noteHtml = noteEditorRef.current?.innerHTML ?? myWeeklyNoteText;
     setWeeklyNoteStatus("saving");
     fetch("/api/business/weekly-consultant-notes", {
       method: "POST",
@@ -266,7 +368,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
         "x-factory-id": customerId,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ week: reportWeekNum, year: reportYear, note: myWeeklyNoteText })
+      body: JSON.stringify({ week: reportWeekNum, year: reportYear, note: noteHtml })
     })
       .then(res => res.json())
       .then(res => {
@@ -1297,7 +1399,10 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
 
   const handleDownloadArchiveEntry = () => {
     if (!selectedArchiveEntry) return;
-    const text = `Konu: ${selectedArchiveEntry.subject}\n\n${selectedArchiveEntry.body}`;
+    // body is HTML (rich-text notes folded into the email) — flatten to plain text for the .txt
+    // download; older archive rows (pre rich-text feature) are already plain text, stripHtmlToText
+    // is a no-op on those.
+    const text = `Konu: ${selectedArchiveEntry.subject}\n\n${stripHtmlToText(selectedArchiveEntry.body)}`;
     const blob = new Blob(["﻿" + text], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -3017,9 +3122,10 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                                   <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Konu</span>
                                   <p className="text-xs font-bold text-slate-800">{selectedArchiveEntry.subject}</p>
                                 </div>
-                                <div className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed bg-slate-50 border border-slate-150 rounded-xl p-3 max-h-48 overflow-y-auto">
-                                  {selectedArchiveEntry.body}
-                                </div>
+                                <div
+                                  className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed bg-slate-50 border border-slate-150 rounded-xl p-3 max-h-48 overflow-y-auto"
+                                  dangerouslySetInnerHTML={{ __html: selectedArchiveEntry.body }}
+                                />
                                 <div className="flex justify-end">
                                   <button
                                     type="button"
@@ -3107,18 +3213,82 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
               {/* This browser's own note */}
               <div className="space-y-1.5 mb-4">
                 <label className="text-[10.5px] font-bold text-slate-500 flex items-center justify-between">
-                  <span>{currentUser?.full_name || "Danışman"} — Bu Haftaki Özetiniz</span>
+                  <span className="flex items-center gap-1.5">
+                    {currentUser?.full_name || "Danışman"} — Bu Haftaki Özetiniz
+                    <button
+                      type="button"
+                      onClick={() => setShowFormatToolbar(v => !v)}
+                      className={`p-1 rounded-lg transition-colors ${showFormatToolbar ? "text-indigo-700 bg-indigo-50" : "text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"}`}
+                      title={showFormatToolbar ? "Biçimlendirme Araç Çubuğunu Gizle" : "Biçimlendirme Araç Çubuğunu Göster"}
+                    >
+                      <Type className="w-3.5 h-3.5" />
+                    </button>
+                  </span>
                   {weeklyNoteStatus === "saving" && <span className="text-slate-400 font-semibold normal-case">Kaydediliyor…</span>}
                   {weeklyNoteStatus === "saved" && <span className="text-emerald-600 font-semibold normal-case">Kaydedildi</span>}
                   {weeklyNoteStatus === "error" && <span className="text-rose-600 font-semibold normal-case">Kaydedilemedi</span>}
                 </label>
-                <textarea
-                  rows={3}
-                  value={myWeeklyNoteText}
-                  onChange={(e) => setMyWeeklyNoteText(e.target.value)}
+
+                {showFormatToolbar && (
+                  <div className="flex items-center gap-0.5 p-1 bg-slate-50 border border-slate-200 rounded-lg w-fit">
+                    <button type="button" onMouseDown={handleNoteToolbarMouseDown} onClick={applyBold} title="Kalın" className="p-1.5 text-slate-600 hover:text-indigo-700 hover:bg-white rounded-md transition-colors cursor-pointer">
+                      <Bold className="w-3.5 h-3.5" />
+                    </button>
+                    <button type="button" onMouseDown={handleNoteToolbarMouseDown} onClick={applyItalic} title="İtalik" className="p-1.5 text-slate-600 hover:text-indigo-700 hover:bg-white rounded-md transition-colors cursor-pointer">
+                      <Italic className="w-3.5 h-3.5" />
+                    </button>
+                    <button type="button" onMouseDown={handleNoteToolbarMouseDown} onClick={applyUnderline} title="Altı Çizili" className="p-1.5 text-slate-600 hover:text-indigo-700 hover:bg-white rounded-md transition-colors cursor-pointer">
+                      <Underline className="w-3.5 h-3.5" />
+                    </button>
+                    <div className="w-px h-4 bg-slate-200 mx-0.5" />
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onMouseDown={handleNoteToolbarMouseDown}
+                        onClick={() => setShowFontSizeMenu(v => !v)}
+                        title="Font Boyutu"
+                        className="p-1.5 text-slate-600 hover:text-indigo-700 hover:bg-white rounded-md transition-colors cursor-pointer flex items-center"
+                      >
+                        <span className="text-[10px] font-black px-0.5">Aa</span>
+                        <ChevronDown className="w-3 h-3" />
+                      </button>
+                      {showFontSizeMenu && (
+                        <div className="absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-30 py-1 w-28">
+                          {FONT_SIZE_OPTIONS.map(opt => (
+                            <button
+                              key={opt.legacyCode}
+                              type="button"
+                              onMouseDown={handleNoteToolbarMouseDown}
+                              onClick={() => applyFontSize(opt.legacyCode)}
+                              className="w-full text-left px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 cursor-pointer"
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="relative w-6 h-6 flex items-center justify-center" title="Yazı Rengi">
+                      <input
+                        type="color"
+                        onMouseDown={captureNoteSelection}
+                        onChange={(e) => applyColor(e.target.value)}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                      <span className="text-[11px] font-black text-slate-600 pointer-events-none">A</span>
+                      <span className="absolute bottom-0.5 left-1 right-1 h-0.5 bg-gradient-to-r from-rose-500 via-amber-400 to-indigo-500 rounded-full pointer-events-none" />
+                    </div>
+                  </div>
+                )}
+
+                <div
+                  ref={noteEditorRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  onInput={syncNoteStateFromEditor}
                   onBlur={saveMyWeeklyNote}
-                  placeholder="Bu hafta yaptığınız çalışmaların kısa özetini yazın."
-                  className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  data-placeholder="Bu hafta yaptığınız çalışmaların kısa özetini yazın."
+                  className="w-full min-h-[4.5rem] text-xs p-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-400 empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400"
                 />
                 <button
                   type="button"
@@ -3131,12 +3301,12 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
               </div>
 
               {/* Everyone else's notes for the same week, each labeled with the consultant's name */}
-              {weeklyNotes.filter(n => n.consultant_id !== currentUser?.id && n.note?.trim()).length > 0 && (
+              {weeklyNotes.filter(n => n.consultant_id !== currentUser?.id && stripHtmlToText(n.note).length > 0).length > 0 && (
                 <div className="space-y-2.5 pt-3 border-t border-slate-100">
-                  {weeklyNotes.filter(n => n.consultant_id !== currentUser?.id && n.note?.trim()).map(n => (
+                  {weeklyNotes.filter(n => n.consultant_id !== currentUser?.id && stripHtmlToText(n.note).length > 0).map(n => (
                     <div key={n.id} className="border border-slate-150 rounded-xl p-3 bg-slate-50/50">
                       <p className="text-[10.5px] font-black text-slate-700 mb-1">{n.consultant_name || "Danışman"}</p>
-                      <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">{n.note}</p>
+                      <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed" dangerouslySetInnerHTML={{ __html: n.note }} />
                     </div>
                   ))}
                 </div>
@@ -3264,9 +3434,10 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                   </div>
                   <div className="space-y-1">
                     <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Mesaj (+ PTR Excel Eki)</span>
-                    <div className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed bg-slate-50 border border-slate-150 rounded-xl p-3.5">
-                      {weeklyPreviewContent.body}
-                    </div>
+                    <div
+                      className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed bg-slate-50 border border-slate-150 rounded-xl p-3.5"
+                      dangerouslySetInnerHTML={{ __html: weeklyPreviewContent.body }}
+                    />
                   </div>
                   <p className="text-[10px] text-slate-400 italic">
                     Bu bir önizlemedir, mail gönderilmedi. Kapatıp özetinizi tekrar düzenleyebilirsiniz.

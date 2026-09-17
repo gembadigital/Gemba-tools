@@ -1,8 +1,34 @@
 import crypto from "crypto";
 import { Pool } from "pg";
+import sanitizeHtml from "sanitize-html";
 import { OPEX_SEED_CATEGORIES, OPEX_SEED_QUESTIONS } from "./opexSeedData.js";
 import { FIVE_S_DEFAULT_DEPARTMENTS, FIVE_S_DEFAULT_QUESTIONS } from "./fiveSSeedData.js";
 import { DEFAULT_ROLE_MODULE_VISIBILITY, RoleModuleVisibility } from "../constants/sidebarModules.js";
+
+// Danışman Faaliyet Özeti notes are basic-rich-text HTML (Bold/Italic/Underline/font-size/color,
+// see PtrTimeStudy.tsx's contentEditable editor) submitted by any authenticated consultant via a
+// plain JSON API — the client can't be trusted to have actually gone through the editor, and this
+// HTML later gets (a) rendered to other logged-in users via dangerouslySetInnerHTML and (b) emailed
+// as the HTML body of the real weekly report sent to the customer (see buildWeeklyReportEmailContent
+// in app.ts). Sanitized once, here, at the single shared read point (getWeeklyConsultantNotes) so
+// every consumer — new HTML notes and old plain-text notes saved before this feature existed alike —
+// always gets safe output regardless of what was actually persisted.
+const NOTE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: ["b", "strong", "i", "em", "u", "span", "br"],
+  allowedAttributes: { span: ["style"] },
+  allowedStyles: {
+    span: {
+      color: [/^#[0-9a-f]{3,8}$/i, /^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$/i],
+      "font-size": [/^\d+(?:\.\d+)?px$/]
+    }
+  },
+  disallowedTagsMode: "escape"
+};
+
+function sanitizeConsultantNoteHtml(note: string): string {
+  if (!note) return "";
+  return sanitizeHtml(note, NOTE_SANITIZE_OPTIONS);
+}
 
 // Schema Definitions
 export interface Organization {
@@ -659,7 +685,9 @@ export class GeminiDb {
   // re-saving updates their own note in place instead of creating a duplicate.
   public async getWeeklyConsultantNotes(orgId: string, factoryId: string, week: string, year: number): Promise<any[]> {
     const all = await this.listCollection("weekly_consultant_notes", orgId);
-    return all.filter(n => n.factory_id === factoryId && String(n.week) === String(week) && Number(n.year) === Number(year));
+    return all
+      .filter(n => n.factory_id === factoryId && String(n.week) === String(week) && Number(n.year) === Number(year))
+      .map(n => ({ ...n, note: sanitizeConsultantNoteHtml(n.note) }));
   }
 
   public async saveWeeklyConsultantNote(orgId: string, payload: { factory_id: string; week: string; year: number; note: string }, userId: string, userName: string): Promise<any> {
