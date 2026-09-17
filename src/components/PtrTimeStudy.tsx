@@ -1248,6 +1248,67 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
     fetchWorkspaceTeamContacts();
   };
 
+  // Danışman Faaliyet Özeti card — archive panel (filter icon). Backed by weekly_report_mail_log,
+  // which already snapshots the exact subject/body sent for every (factory, week, year) — see
+  // db.saveWeeklyReportMailLogEntry. Fetched once when the panel opens; year/week options are
+  // derived from whichever weeks actually have an archived send, not the full project calendar,
+  // since only those have content to show.
+  const [showWeeklyArchive, setShowWeeklyArchive] = useState(false);
+  const [isLoadingWeeklyArchive, setIsLoadingWeeklyArchive] = useState(false);
+  const [weeklyArchiveEntries, setWeeklyArchiveEntries] = useState<any[]>([]);
+  const [archiveYear, setArchiveYear] = useState<number | null>(null);
+  const [archiveWeek, setArchiveWeek] = useState<string | null>(null);
+
+  const handleOpenWeeklyArchive = () => {
+    setShowWeeklyArchive(true);
+    setIsLoadingWeeklyArchive(true);
+    const customerId = selectedCustomer?.id || "default";
+    fetch("/api/business/ptr-records/weekly-report-mail-log", {
+      headers: { "Authorization": `Bearer ${ptrToken}`, "x-factory-id": customerId }
+    })
+      .then(res => res.json())
+      .then(res => {
+        const entries: any[] = (res.success && res.data) || [];
+        setWeeklyArchiveEntries(entries);
+        // Entries arrive sorted newest-first (db.getWeeklyReportMailLog) — default to the most
+        // recent so the panel isn't empty on open.
+        setArchiveYear(entries.length > 0 ? entries[0].year : null);
+        setArchiveWeek(entries.length > 0 ? entries[0].week : null);
+      })
+      .catch(() => setWeeklyArchiveEntries([]))
+      .finally(() => setIsLoadingWeeklyArchive(false));
+  };
+
+  const archiveYears = useMemo(
+    () => Array.from(new Set(weeklyArchiveEntries.map(e => e.year))).sort((a, b) => b - a),
+    [weeklyArchiveEntries]
+  );
+  const archiveWeeksForYear = useMemo(
+    () => weeklyArchiveEntries
+      .filter(e => e.year === archiveYear)
+      .map(e => e.week)
+      .sort((a, b) => parseInt(b, 10) - parseInt(a, 10)),
+    [weeklyArchiveEntries, archiveYear]
+  );
+  const selectedArchiveEntry = useMemo(
+    () => weeklyArchiveEntries.find(e => e.year === archiveYear && e.week === archiveWeek) || null,
+    [weeklyArchiveEntries, archiveYear, archiveWeek]
+  );
+
+  const handleDownloadArchiveEntry = () => {
+    if (!selectedArchiveEntry) return;
+    const text = `Konu: ${selectedArchiveEntry.subject}\n\n${selectedArchiveEntry.body}`;
+    const blob = new Blob(["﻿" + text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Danisman_Faaliyet_Ozeti_${selectedArchiveEntry.year}_Hafta${selectedArchiveEntry.week}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   // Column sort (Hafta / Çalışma Tarihi) — click the header icon to toggle old→new / new→old.
   // Only affects the main table's row order; filters/stats/exports still read the unsorted
   // filteredRecords below, so this can't change any total/count anywhere else in the tab.
@@ -2880,6 +2941,102 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => (showWeeklyArchive ? setShowWeeklyArchive(false) : handleOpenWeeklyArchive())}
+                      className="p-1.5 text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors"
+                      title="Geçmiş Haftaların Raporlarını Görüntüle"
+                    >
+                      <Filter className="w-4 h-4" />
+                    </button>
+                    {showWeeklyArchive && (
+                      <div className="absolute right-0 top-full mt-1.5 w-96 bg-white border border-gray-200 rounded-xl shadow-lg z-30 p-3 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <p className="font-extrabold text-slate-700 text-[11px] uppercase tracking-wider">
+                            Geçmiş Rapor Arşivi
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setShowWeeklyArchive(false)}
+                            className="p-1 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+                            title="Kapat"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {isLoadingWeeklyArchive ? (
+                          <div className="text-center text-slate-400 text-xs py-6">Yükleniyor…</div>
+                        ) : weeklyArchiveEntries.length === 0 ? (
+                          <div className="text-center text-slate-400 text-[11px] py-6">
+                            Bu müşteri için arşivlenmiş rapor bulunamadı.
+                          </div>
+                        ) : (
+                          <>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Yıl</label>
+                                <select
+                                  value={archiveYear ?? ""}
+                                  onChange={(e) => {
+                                    const y = parseInt(e.target.value, 10);
+                                    setArchiveYear(y);
+                                    const weeksForY = weeklyArchiveEntries
+                                      .filter(en => en.year === y)
+                                      .map(en => en.week)
+                                      .sort((a, b) => parseInt(b, 10) - parseInt(a, 10));
+                                    setArchiveWeek(weeksForY[0] ?? null);
+                                  }}
+                                  className="w-full text-xs p-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400 font-semibold text-slate-700"
+                                >
+                                  {archiveYears.map(y => <option key={y} value={y}>{y}</option>)}
+                                </select>
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Hafta</label>
+                                <select
+                                  value={archiveWeek ?? ""}
+                                  onChange={(e) => setArchiveWeek(e.target.value)}
+                                  className="w-full text-xs p-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400 font-semibold text-slate-700"
+                                >
+                                  {archiveWeeksForYear.map(w => <option key={w} value={w}>{w}. Hafta</option>)}
+                                </select>
+                              </div>
+                            </div>
+
+                            {selectedArchiveEntry && (
+                              <div className="space-y-2 pt-1">
+                                <div className="text-[10px] text-slate-400">
+                                  {getIsoWeekDateRangeLabel(parseInt(selectedArchiveEntry.week, 10), selectedArchiveEntry.year)}
+                                  {" · "}
+                                  {selectedArchiveEntry.sentBy} tarafından gönderildi
+                                  {selectedArchiveEntry.sentCount > 1 ? ` (${selectedArchiveEntry.sentCount}x)` : ""}
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Konu</span>
+                                  <p className="text-xs font-bold text-slate-800">{selectedArchiveEntry.subject}</p>
+                                </div>
+                                <div className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed bg-slate-50 border border-slate-150 rounded-xl p-3 max-h-48 overflow-y-auto">
+                                  {selectedArchiveEntry.body}
+                                </div>
+                                <div className="flex justify-end">
+                                  <button
+                                    type="button"
+                                    onClick={handleDownloadArchiveEntry}
+                                    className="p-1 px-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-lg flex items-center space-x-1.5 cursor-pointer text-[10px]"
+                                  >
+                                    <Download className="w-3 h-3" />
+                                    <span>İndir (.txt)</span>
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <button
                     type="button"
                     onClick={handleOpenWeeklyPreview}
