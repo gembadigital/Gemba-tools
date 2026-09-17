@@ -1624,14 +1624,19 @@ app.post("/api/business/weekly-consultant-notes", authenticateToken, async (req,
     res.status(403).json({ success: false, error: "Access Denied." });
     return;
   }
-  const { week, year, note } = req.body;
+  const { week, year, runs, note } = req.body;
   if (!week || !year) {
     res.status(400).json({ success: false, error: "week and year are required." });
     return;
   }
+  // Prefer structured `runs` from the rich-text editor (see buildNoteHtmlFromRuns — the client
+  // never sends raw HTML); fall back to a plain-text `note` string for any caller that doesn't.
+  const noteHtml = runs !== undefined
+    ? buildNoteHtmlFromRuns(runs)
+    : buildNoteHtmlFromPlainText(typeof note === "string" ? note : "");
   const saved = await db.saveWeeklyConsultantNote(
     user.organization_id,
-    { factory_id: scope.factoryId, week, year, note: note || "" },
+    { factory_id: scope.factoryId, week, year, note: noteHtml },
     user.id,
     user.full_name
   );
@@ -1724,9 +1729,71 @@ app.get("/api/business/ptr-records/export-template-excel", authenticateToken, as
   }
 });
 
+// Plain text (consultant names, fixed template wording) interpolated into the HTML email body
+// below — the Danışman Faaliyet Özeti note itself never needs this, see buildNoteHtmlFromRuns.
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Danışman Faaliyet Özeti's basic-rich-text note (bold/italic/underline/font size/color — see
+// PtrTimeStudy.tsx's contentEditable editor + toolbar): the client never sends raw HTML. It sends
+// "runs" — plain text pieces tagged with which formatting applies — and this function is the ONLY
+// place that ever builds real markup, entirely from validated primitives (text is always escaped;
+// color/fontSize are checked against a strict pattern/range, anything else is silently dropped).
+// This is deliberately not "sanitize arbitrary HTML the client sent" (that needs a real HTML
+// parser/sanitizer library) but "validate data and build safe HTML ourselves" — there's no
+// attacker-controlled markup to parse in the first place. Matters because this note is (a) rendered
+// to other logged-in users via dangerouslySetInnerHTML and (b) becomes the HTML body of the real
+// weekly report email sent to the customer once "Gönder" is used.
+interface NoteRun { text?: unknown; break?: unknown; bold?: unknown; italic?: unknown; underline?: unknown; color?: unknown; fontSize?: unknown }
+const NOTE_COLOR_PATTERN = /^(#[0-9a-f]{6}|rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\))$/i;
+const MAX_NOTE_RUNS = 2000;
+const MAX_NOTE_RUN_TEXT = 5000;
+
+function buildNoteHtmlFromRuns(runs: unknown): string {
+  if (!Array.isArray(runs)) return "";
+  let html = "";
+  let count = 0;
+  for (const raw of runs) {
+    if (count >= MAX_NOTE_RUNS) break;
+    if (!raw || typeof raw !== "object") continue;
+    const run = raw as NoteRun;
+    if (run.break) { html += "<br>"; count++; continue; }
+    const text = typeof run.text === "string" ? run.text.slice(0, MAX_NOTE_RUN_TEXT) : "";
+    if (!text) continue;
+    let inner = escapeHtml(text);
+    if (run.underline) inner = `<u>${inner}</u>`;
+    if (run.italic) inner = `<i>${inner}</i>`;
+    if (run.bold) inner = `<b>${inner}</b>`;
+    const styles: string[] = [];
+    if (typeof run.color === "string" && NOTE_COLOR_PATTERN.test(run.color.trim())) {
+      styles.push(`color:${run.color.trim()}`);
+    }
+    if (typeof run.fontSize === "number" && Number.isFinite(run.fontSize) && run.fontSize >= 8 && run.fontSize <= 40) {
+      styles.push(`font-size:${Math.round(run.fontSize)}px`);
+    }
+    if (styles.length > 0) inner = `<span style="${styles.join(";")}">${inner}</span>`;
+    html += inner;
+    count++;
+  }
+  return html;
+}
+
+// Legacy fallback for a plain-text `note` string (notes saved before this feature existed, or any
+// direct API caller that doesn't send `runs`) — escaped and newline-converted, never parsed as HTML.
+function buildNoteHtmlFromPlainText(note: string): string {
+  return escapeHtml(note).replace(/\r\n|\r|\n/g, "<br>");
+}
+
 // Shared by the actual send route and the preview-only route below, so the preview the user sees
 // in the Danışman Faaliyet Özeti card is guaranteed to be exactly what gets emailed — no separate
-// template copy to drift out of sync.
+// template copy to drift out of sync. Returns an HTML body (not plain text) so the Danışman Faaliyet
+// Özeti's rich-text formatting survives into the actual email, not just the in-app preview.
 async function buildWeeklyReportEmailContent(orgId: string, factoryId: string, week: string, year: number | null, customerName: string): Promise<{ subject: string; body: string }> {
   const shortName = customerName.trim().split(/\s+/)[0] || customerName;
   const subject = `[PTR] ${shortName} W${week} Proje Raporu`;
@@ -1736,17 +1803,20 @@ async function buildWeeklyReportEmailContent(orgId: string, factoryId: string, w
   // file. Only ever populated when `week`/`year` match a week consultants actually wrote notes for.
   let notesSection = "";
   if (year) {
+    // note is already safe HTML (built by buildNoteHtmlFromRuns/buildNoteHtmlFromPlainText at save
+    // time — see the POST route) — strip tags just for the "is this actually empty" check, a
+    // visually-empty contentEditable note can still serialize as e.g. a lone "<br>".
     const weeklyNotes = (await db.getWeeklyConsultantNotes(orgId, factoryId, String(week), Number(year)))
-      .filter((n: any) => (n.note || "").trim());
+      .filter((n: any) => (n.note || "").replace(/<[^>]+>/g, "").trim());
     if (weeklyNotes.length > 0) {
       const notesList = weeklyNotes
-        .map((n: any) => `- ${n.consultant_name || "Danışman"}:\n${n.note.trim()}`)
-        .join("\n\n");
-      notesSection = `\n\n${week}. Hafta Danışman Faaliyet Özeti:\n${notesList}\n`;
+        .map((n: any) => `<p><strong>${escapeHtml(n.consultant_name || "Danışman")}:</strong><br>${n.note}</p>`)
+        .join("");
+      notesSection = `<p><strong>${escapeHtml(week)}. Hafta Danışman Faaliyet Özeti:</strong></p>${notesList}`;
     }
   }
 
-  const body = `Sayın İlgililer,\n\n${week}. hafta ziyareti sırasında yapılan çalışma ve aksiyon raporu ektedir. Lütfen termin tarihlerine uyum sağlamaya özen gösteriniz.${notesSection}\nSaygılarımızla,\nGemba Partner`;
+  const body = `<p>Sayın İlgililer,</p><p>${escapeHtml(week)}. hafta ziyareti sırasında yapılan çalışma ve aksiyon raporu ektedir. Lütfen termin tarihlerine uyum sağlamaya özen gösteriniz.</p>${notesSection}<p>Saygılarımızla,<br>Gemba Partner</p>`;
   return { subject, body };
 }
 
@@ -1841,7 +1911,7 @@ app.post("/api/business/ptr-records/send-weekly-report", authenticateToken, asyn
       to: toList,
       cc: ccList,
       subject,
-      text: body,
+      html: body,
       attachments: [{ filename: buildPtrExportFilename(customerName), content: buffer }]
     });
     if (!result.success) {
