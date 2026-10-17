@@ -15,7 +15,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { domToCanvas } from "modern-screenshot";
 import gembaGIcon from "../assets/images/gemba_g_icon.png";
-import { computeOpexScores } from "../utils/opexScoring";
+import { computeOpexScores, getOpexLevel } from "../utils/opexScoring";
 
 interface OpexCategory {
   id: string;
@@ -59,6 +59,25 @@ interface Assessment {
   customRubrics?: Record<string, string>;
   assessorAssignments?: Record<string, string>;
   targetPreAnswers?: number[];
+  // Executive report inputs
+  bestPractices?: Record<string, OpexBestPractice>; // questionId -> evaluator's best-practice pick
+  executiveSummary?: string; // optional headline; generated from data when empty
+  roadmap?: OpexRoadmapWave[]; // evaluator-written 90-day plan; section hidden when empty
+  completed_at?: string;
+}
+
+export interface OpexBestPractice {
+  selected: boolean;
+  why: string; // "Neden örnek uygulama"
+  how: string; // "Yaygınlaştırma fırsatı"
+}
+
+export interface OpexRoadmapWave {
+  when: string; // e.g. "0–30 gün"
+  title: string;
+  items: string[];
+  kpi: string; // success criterion
+  criteria: string[]; // covered question ids, for the expected-impact column
 }
 
 const TARGET_PRE_QUESTIONS = [
@@ -234,20 +253,20 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     return filtered.length > 0 ? filtered : categories;
   }, [categories, activeAssessment, filterAssignedOnly, currentAssessorId]);
 
-  const getSystemLevelText = (score: number) => {
-    if (score < 40) return "İSRAF YOĞUN";
-    if (score < 60) return "GELİŞMEKTE OLAN";
-    if (score < 80) return "SİSTEMATİK UYGULAMA";
-    return "MÜKEMMELLİK (WORLD CLASS)";
-  };
+  // Five maturity levels — single definition in src/utils/opexScoring.ts (also used by the report).
+  const getSystemLevelText = (score: number) => getOpexLevel(score).name.toLocaleUpperCase("tr-TR");
 
   // Same red/amber/sky/emerald tiering used for status pills elsewhere in this component —
   // keeps the score cards' color tied to the actual result instead of a fixed hardcoded green.
   const getSystemLevelTone = (score: number) => {
-    if (score < 40) return { bg: "bg-red-50", text: "text-red-700" };
-    if (score < 60) return { bg: "bg-amber-50", text: "text-amber-700" };
-    if (score < 80) return { bg: "bg-sky-50", text: "text-sky-700" };
-    return { bg: "bg-emerald-50", text: "text-emerald-700" };
+    const tones = [
+      { bg: "bg-red-50", text: "text-red-700" },
+      { bg: "bg-orange-50", text: "text-orange-700" },
+      { bg: "bg-amber-50", text: "text-amber-700" },
+      { bg: "bg-emerald-50", text: "text-emerald-700" },
+      { bg: "bg-sky-50", text: "text-sky-700" },
+    ];
+    return tones[getOpexLevel(score).index];
   };
 
   // Multi-assessor flow: Admin edits every category; an assessor edits only categories the Admin
@@ -418,7 +437,8 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     const defaultAssessorAssignments: Record<string, string> = {};
 
     questions.forEach(q => {
-      defaultAnswers[q.id] = -1; // -1 represents unanswered / to be filled
+      // -1 = unanswered; bank items flagged defaultNotApplicable start as "Kapsam dışı" (-2).
+      defaultAnswers[q.id] = (q as any).defaultNotApplicable ? -2 : -1;
       defaultComments[q.id] = "";
     });
 
@@ -552,6 +572,21 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     setActiveAssessment(prev => prev ? { ...prev, comments: newComments } : null);
   };
 
+  // Best practice pick for a question (any score; 5-point answers are included in the report
+  // automatically). Saved on toggle and on blur of the two text fields.
+  const handleBestPracticeChange = (questionId: string, patch: Partial<OpexBestPractice>, save: boolean) => {
+    const catId = categoryOfQuestion(questionId);
+    if (!activeAssessment || !canEditCategory(catId)) return;
+    markEdited(catId);
+    const current = activeAssessment.bestPractices?.[questionId] || { selected: false, why: "", how: "" };
+    const updated: Assessment = {
+      ...activeAssessment,
+      bestPractices: { ...(activeAssessment.bestPractices || {}), [questionId]: { ...current, ...patch } },
+    };
+    setActiveAssessment(updated);
+    if (save) handleSaveDraft(undefined, undefined, undefined, updated);
+  };
+
   // Change category level comment
   const handleCategoryCommentChange = (categoryId: string, comment: string) => {
     if (!canEditCategory(categoryId)) return;
@@ -616,6 +651,120 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
   // (18 category detail sheets, native radar/bar charts intact) and injects this assessment's
   // data into it, so the download is the real client-facing report, not a from-scratch approximation.
   const [isExportingExcel, setIsExportingExcel] = useState(false);
+
+  // ---- Executive report ("Yönetici Raporu") ----
+  // Admin any time; consultants on the customer card's team or assessors of this audit once it is
+  // completed (the server enforces the same rule in src/server/opexReport/load.ts).
+  const canDownloadExecReport = !!activeAssessment && (isAdmin || (
+    currentUser?.role === "Consultant" && activeAssessment.status === "completed" && (
+      [selectedCustomer?.primaryConsultantId, ...(selectedCustomer?.consultantIds || [])].includes(currentUser?.id) ||
+      Object.values(activeAssessment.assessorAssignments || {}).includes(currentUser?.id)
+    )
+  ));
+  const [execReportBusy, setExecReportBusy] = useState<"pdf" | "print" | null>(null);
+  const [execReportNotes, setExecReportNotes] = useState<string[]>([]);
+  const readReportWarnings = (res: Response): string[] => {
+    try { return JSON.parse(decodeURIComponent(res.headers.get("X-Report-Warnings") || "%5B%5D")); } catch { return []; }
+  };
+
+  const handleExecReportPdf = async () => {
+    if (!activeAssessment || !token) return;
+    setExecReportBusy("pdf");
+    setExcelExportError(null);
+    setExecReportNotes([]);
+    try {
+      const res = await fetch(`/api/opex-report/${activeAssessment.id}?format=pdf`, { headers: { "Authorization": `Bearer ${token}` } });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Yönetici raporu oluşturulamadı." }));
+        throw new Error((err.error || "Yönetici raporu oluşturulamadı.") + " Yazdır butonuyla tarayıcıdan PDF olarak kaydedebilirsiniz.");
+      }
+      setExecReportNotes(readReportWarnings(res));
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^";]+)"?/);
+      const filename = match ? decodeURIComponent(match[1]) : "Yonetici-Raporu.pdf";
+      const url = URL.createObjectURL(await res.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setExcelExportError(e.message);
+    } finally {
+      setExecReportBusy(null);
+    }
+  };
+
+  // Opens the report in a new tab with the print dialog ("PDF olarak kaydet"). Uses the
+  // Chromium-checked layout; falls back to the main API's print view if that function fails.
+  const handleExecReportPrint = async () => {
+    if (!activeAssessment || !token) return;
+    const win = window.open("", "_blank");
+    if (win) win.document.write("<p style='font-family:sans-serif;padding:24px'>Rapor hazırlanıyor…</p>");
+    setExecReportBusy("print");
+    setExcelExportError(null);
+    try {
+      const auth = { headers: { "Authorization": `Bearer ${token}` } };
+      let res = await fetch(`/api/opex-report/${activeAssessment.id}?format=html`, auth);
+      if (!res.ok && res.status >= 500) res = await fetch(`/api/business/opex-assessments/${activeAssessment.id}/executive-report.html`, auth);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Rapor açılamadı." }));
+        throw new Error(err.error || "Rapor açılamadı.");
+      }
+      setExecReportNotes(readReportWarnings(res));
+      const html = await res.text();
+      if (win) { win.document.open(); win.document.write(html); win.document.close(); }
+    } catch (e: any) {
+      if (win) win.close();
+      setExcelExportError(e.message);
+    } finally {
+      setExecReportBusy(null);
+    }
+  };
+
+  // Admin-written report texts; saved separately so they stay editable after the audit is locked.
+  const emptyWaves = (): OpexRoadmapWave[] => [
+    { when: "0–30 gün", title: "", items: [], kpi: "", criteria: [] },
+    { when: "30–60 gün", title: "", items: [], kpi: "", criteria: [] },
+    { when: "60–90 gün", title: "", items: [], kpi: "", criteria: [] },
+  ];
+  const [reportSummaryDraft, setReportSummaryDraft] = useState("");
+  const [roadmapDraft, setRoadmapDraft] = useState<OpexRoadmapWave[]>(emptyWaves());
+  const [reportTextsSaving, setReportTextsSaving] = useState(false);
+  const [reportTextsSaved, setReportTextsSaved] = useState(false);
+  useEffect(() => {
+    setReportSummaryDraft(activeAssessment?.executiveSummary || "");
+    const saved = activeAssessment?.roadmap || [];
+    setRoadmapDraft(emptyWaves().map((w, i) => ({ ...w, ...(saved[i] || {}) })));
+    setReportTextsSaved(false);
+  }, [activeAssessment?.id]);
+  const updateWave = (i: number, patch: Partial<OpexRoadmapWave>) =>
+    setRoadmapDraft(prev => prev.map((w, j) => (j === i ? { ...w, ...patch } : w)));
+  const handleSaveReportTexts = async () => {
+    if (!activeAssessment || !isAdmin) return;
+    setReportTextsSaving(true);
+    setReportTextsSaved(false);
+    const roadmap = roadmapDraft
+      .map(w => ({ ...w, items: w.items.map(x => x.trim()).filter(Boolean), criteria: w.criteria.map(x => x.trim()).filter(Boolean) }))
+      .filter(w => w.title.trim() || w.items.length > 0);
+    try {
+      const res = await fetch("/api/business/opex-assessments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}`, "x-factory-id": selectedCustomer.id },
+        body: JSON.stringify({ id: activeAssessment.id, customerId: activeAssessment.customerId, _reportTextsOnly: true, executiveSummary: reportSummaryDraft.trim(), roadmap })
+      }).then(r => r.json());
+      if (!res.success) throw new Error(res.error || "Kaydedilemedi.");
+      setAssessments(prev => prev.map(a => a.id === res.data.id ? res.data : a));
+      setActiveAssessment(res.data);
+      setReportTextsSaved(true);
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setReportTextsSaving(false);
+    }
+  };
   const [excelExportError, setExcelExportError] = useState<string | null>(null);
   // Downloads the .xlsx via the browser's save dialog and returns the filename it was saved
   // under (or null on failure). The Excel workbook is the full report; "PDF Rapor" below is a
@@ -843,7 +992,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     const unassigned = categories.filter(c => !activeAssessment.assessorAssignments?.[c.id]).length;
     const unansweredCount = questions.filter(q => (activeAssessment.answers[q.id] ?? -1) === -1).length;
     const warnings = [
-      unansweredCount > 0 ? `${unansweredCount} soru cevaplanmamış (0 kabul edilecek).` : "",
+      unansweredCount > 0 ? `${unansweredCount} soru cevaplanmamış ("Kapsam dışı" sayılacak, skora katılmayacak).` : "",
       unassigned > 0 ? `${unassigned} bölüme denetçi atanmamış.` : "",
     ].filter(Boolean).join("\n");
     if (!window.confirm(`${warnings ? warnings + "\n\n" : ""}Tüm denetçilerin bölümleri birleştirilip denetim kilitlenecek. Kilitlendikten sonra değişiklik yapılamaz. Devam edilsin mi?`)) {
@@ -2145,7 +2294,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                                 : "bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                             }`}
                           >
-                            N/A
+                            N/A · Kapsam dışı
                           </button>
                         </div>
                       </div>
@@ -2172,9 +2321,54 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                         </div>
                       )}
 
+                      {/* Best practice pick — shown in the executive report ("Best practice uygulamalar").
+                          5-point answers are listed automatically; lower scores can be picked here. */}
+                      {currentScore >= 0 && (() => {
+                        const bp = activeAssessment.bestPractices?.[q.id] || { selected: false, why: "", how: "" };
+                        const included = bp.selected || currentScore === 5;
+                        return (
+                          <div className={`rounded-xl p-3.5 space-y-2 border ${included ? "bg-emerald-50/50 border-emerald-200" : "bg-white border-slate-200"}`}>
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                disabled={isCompleted}
+                                checked={included}
+                                onChange={(e) => handleBestPracticeChange(q.id, { selected: e.target.checked }, true)}
+                                className="w-4 h-4 rounded border-slate-300"
+                              />
+                              <span className="text-[11px] font-black uppercase tracking-wider text-emerald-900">
+                                Best practice olarak rapora ekle{currentScore === 5 ? " (5 puan: otomatik)" : ""}
+                              </span>
+                            </label>
+                            {included && (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                <textarea
+                                  disabled={isCompleted}
+                                  rows={2}
+                                  value={bp.why}
+                                  onChange={(e) => handleBestPracticeChange(q.id, { why: e.target.value }, false)}
+                                  onBlur={() => handleSaveDraft()}
+                                  placeholder="Neden örnek uygulama? (boşsa raporda gösterilmez)"
+                                  className="w-full text-xs bg-white border border-emerald-200 rounded-lg p-2 font-semibold text-slate-700 focus:outline-none"
+                                />
+                                <textarea
+                                  disabled={isCompleted}
+                                  rows={2}
+                                  value={bp.how}
+                                  onChange={(e) => handleBestPracticeChange(q.id, { how: e.target.value }, false)}
+                                  onBlur={() => handleSaveDraft()}
+                                  placeholder="Yaygınlaştırma fırsatı (boşsa raporda gösterilmez)"
+                                  className="w-full text-xs bg-white border border-emerald-200 rounded-lg p-2 font-semibold text-slate-700 focus:outline-none"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
                       {currentScore === -2 && (
                         <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-500 leading-relaxed font-semibold italic">
-                          Bu kriter denetim kapsamı dışı (N/A) bırakılmıştır. Skor hesaba ve bölüm ortalamasına katılmayacaktır.
+                          Bu kriter kapsam dışı (N/A) bırakılmıştır. Skora katılmaz; ağırlığı bölümdeki puanlanan sorulara eşit dağıtılır.
                         </div>
                       )}
                     </div>
@@ -2559,6 +2753,30 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                 <span className="mx-2">|</span>
                 <span>Tarih: <strong className="text-slate-800">{new Date(activeAssessment.auditDate).toLocaleDateString("tr-TR")}</strong></span>
               </div>
+              {canDownloadExecReport && (
+              <button
+                type="button"
+                onClick={handleExecReportPdf}
+                disabled={execReportBusy !== null}
+                title="Çok sayfalı yönetici raporu (PDF)"
+                className="flex items-center space-x-1.5 bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-black uppercase px-3 py-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-wait cursor-pointer shrink-0"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>{execReportBusy === "pdf" ? "Hazırlanıyor..." : "Yönetici Raporu (PDF)"}</span>
+              </button>
+              )}
+              {canDownloadExecReport && (
+              <button
+                type="button"
+                onClick={handleExecReportPrint}
+                disabled={execReportBusy !== null}
+                title="Yönetici raporunu yeni sekmede açıp yazdır / PDF olarak kaydet"
+                className="flex items-center space-x-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 text-[11px] font-black uppercase px-3 py-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-wait cursor-pointer shrink-0"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>{execReportBusy === "print" ? "Hazırlanıyor..." : "Yazdır"}</span>
+              </button>
+              )}
               {isAdmin && (
               <button
                 type="button"
@@ -2589,6 +2807,83 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
             <div className="bg-red-50 border border-red-200 text-red-700 text-[11px] font-bold rounded-xl px-4 py-2.5 flex items-center space-x-2">
               <AlertCircle className="w-3.5 h-3.5 shrink-0" />
               <span>{excelExportError}</span>
+            </div>
+          )}
+          {execReportNotes.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-bold rounded-xl px-4 py-2.5 space-y-0.5">
+              {execReportNotes.map((n, i) => <div key={i}>⚠ {n}</div>)}
+            </div>
+          )}
+          {!isAdmin && activeAssessment.status !== "completed" && (
+            <div className="bg-slate-50 border border-slate-200 text-slate-500 text-[11px] font-bold rounded-xl px-4 py-2.5">
+              Yönetici raporu, Admin denetimi birleştirip kilitledikten sonra indirilebilir.
+            </div>
+          )}
+
+          {/* Executive report texts — Admin only, editable before and after locking */}
+          {isAdmin && (
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div>
+                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-tight">Yönetici Raporu İçeriği</h3>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Boş bırakılan özet veriden otomatik üretilir · yol haritası boşsa raporda gösterilmez</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveReportTexts}
+                  disabled={reportTextsSaving}
+                  className="flex items-center space-x-1.5 bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-black uppercase px-3 py-2 rounded-xl disabled:opacity-50 cursor-pointer shrink-0"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{reportTextsSaving ? "Kaydediliyor..." : reportTextsSaved ? "Kaydedildi" : "Kaydet"}</span>
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Yönetici özeti (rapor başlığı)</label>
+                <textarea
+                  rows={3}
+                  value={reportSummaryDraft}
+                  onChange={(e) => setReportSummaryDraft(e.target.value)}
+                  placeholder="Örn: Fabrika yalın dönüşümün başlangıç noktasında… (boşsa skorlardan otomatik üretilir)"
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 font-semibold text-slate-700 focus:outline-none focus:border-slate-400"
+                />
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                {roadmapDraft.map((w, i) => (
+                  <div key={i} className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                    <input
+                      value={w.when}
+                      onChange={(e) => updateWave(i, { when: e.target.value })}
+                      className="w-full text-[11px] font-black uppercase text-rose-700 bg-transparent border-b border-slate-200 focus:outline-none"
+                    />
+                    <input
+                      value={w.title}
+                      onChange={(e) => updateWave(i, { title: e.target.value })}
+                      placeholder="Dalga başlığı (örn: Yönetim altyapısı ve ritim)"
+                      className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none"
+                    />
+                    <textarea
+                      rows={3}
+                      value={w.items.join("\n")}
+                      onChange={(e) => updateWave(i, { items: e.target.value.split("\n") })}
+                      placeholder="Aksiyonlar (her satıra bir tane)"
+                      className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none"
+                    />
+                    <input
+                      value={w.kpi}
+                      onChange={(e) => updateWave(i, { kpi: e.target.value })}
+                      placeholder="Başarı ölçütü"
+                      className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none"
+                    />
+                    <input
+                      value={w.criteria.join(", ")}
+                      onChange={(e) => updateWave(i, { criteria: e.target.value.split(",") })}
+                      placeholder="Kapsanan kriter ID'leri (örn: A3.1, E1.1) — skor etkisi için"
+                      className="w-full text-[11px] font-mono bg-white border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -2713,13 +3008,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                   <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-1">Sistem Seviyesi</span>
                   <div className="bg-[#2f5597] text-white rounded-xl p-4 flex items-center justify-center text-center h-full min-h-[75px]">
                     <span className="text-xs font-black uppercase tracking-tight">
-                      {(() => {
-                        const score = activeAssessment.overallScore;
-                        if (score < 40) return "İSRAF YOĞUN";
-                        if (score < 60) return "GELİŞMEKTE OLAN";
-                        if (score < 80) return "SİSTEMATİK UYGULAMA";
-                        return "SÜRDÜRÜLEBİLİR";
-                      })()}
+                      {getSystemLevelText(activeAssessment.overallScore)}
                     </span>
                   </div>
                 </div>

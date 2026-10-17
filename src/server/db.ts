@@ -1609,7 +1609,28 @@ export class GeminiDb {
     // Piggyback on getOpexCategories' seeding so a fresh org gets both in one call regardless of
     // which endpoint the frontend happens to hit first.
     await this.getOpexCategories(orgId);
-    return this.listCollection("opex_questions", orgId);
+    const list = await this.listCollection("opex_questions", orgId);
+    return this.applyOpexQuestionRevisions(orgId, list);
+  }
+
+  // Question-bank corrections for orgs seeded before the fix (the seed file only applies to new
+  // orgs). Each revision only fires while the field still holds its old seed value, so an Admin's
+  // own later edit in the Soru Bankası is never overwritten. Idempotent and write-free once applied.
+  private async applyOpexQuestionRevisions(orgId: string, list: any[]): Promise<any[]> {
+    const revisions: { id: string; field: string; from: any; to: any }[] = [
+      // 5S category summed to 19 — aligned with the reference checklist so it totals 20.
+      { id: "E3.1", field: "weight", from: 2, to: 2.5 },
+      { id: "E3.4", field: "weight", from: 2, to: 2.5 },
+      // Not in the reference checklist: new audits start it as "Kapsam dışı" (N/A).
+      { id: "F2.6", field: "defaultNotApplicable", from: undefined, to: true },
+    ];
+    const out = [...list];
+    for (const r of revisions) {
+      const i = out.findIndex(q => q.id === r.id);
+      if (i < 0 || out[i][r.field] !== r.from) continue;
+      out[i] = await this.upsertMerged("opex_questions", orgId, { ...out[i], [r.field]: r.to });
+    }
+    return out;
   }
 
   public async saveOpexQuestion(orgId: string, q: any, userId: string): Promise<any> {

@@ -2,15 +2,32 @@
   "buildCommand": "vite build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/api/opex-report/:path*",
+      "destination": "/api/opex-report"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ],
   "functions": {
     "api/index.ts": {
       "includeFiles": "assets/**"
+    },
+    "api/opex-report.ts": {
+      "maxDuration": 60,
+      "includeFiles": "node_modules/@sparticuz/chromium/bin/**"
     }
   },
   "crons": [
-    { "path": "/api/cron/weekly-consultant-digest", "schedule": "0 5 * * 1" }
+    {
+      "path": "/api/cron/weekly-consultant-digest",
+      "schedule": "0 5 * * 1"
+    }
   ]
 }

@@ -29,6 +29,9 @@ const ADMIN_FIELDS = [
   "targetNotes",
   "assessorAssignments",
   "targetPreAnswers",
+  // Executive report texts — written by the Admin when finalising the report.
+  "executiveSummary",
+  "roadmap",
 ] as const;
 
 // -2 = N/A, -1 = unanswered, 0..5 = score
@@ -58,7 +61,7 @@ export function mergeOpexAssessmentSave(args: {
   const { existing, payload, user, questions, categories } = args;
   const now = args.now || new Date().toISOString();
   const isAdmin = user.role === "Admin";
-  const { _editedCategories, _recomputeOnly, ...body } = payload || {};
+  const { _editedCategories, _recomputeOnly, _reportTextsOnly, ...body } = payload || {};
 
   // New audit: only the Admin sets one up (and assigns the categories).
   if (!existing) {
@@ -80,6 +83,16 @@ export function mergeOpexAssessmentSave(args: {
     if (!isAdmin) return { ok: false, status: 403, error: "Yetkiniz yok." };
     const { categoryScores, overallScore } = computeOpexScores(questions, categories, existing.answers || {});
     return { ok: true, record: { ...existing, categoryScores, overallScore, updated_at: now } };
+  }
+
+  // Executive-report texts (summary headline, roadmap) are report content, not audit data — the
+  // Admin may write them before or after locking. Nothing else is touched.
+  if (_reportTextsOnly) {
+    if (!isAdmin) return { ok: false, status: 403, error: "Rapor metinlerini yalnızca Admin düzenleyebilir." };
+    const record = { ...existing, updated_at: now };
+    if (typeof body.executiveSummary === "string") record.executiveSummary = body.executiveSummary;
+    if (Array.isArray(body.roadmap)) record.roadmap = body.roadmap;
+    return { ok: true, record };
   }
 
   if (existing.status === "completed") {
@@ -124,16 +137,30 @@ export function mergeOpexAssessmentSave(args: {
     if (edited.has(catId) && typeof v === "string") categoryComments[catId] = v;
   });
 
-  const record: any = { ...existing, answers, comments, customRubrics, categoryComments, updated_at: now };
+  // Best practice selection is per question, so it follows the same per-category ownership.
+  const bestPractices: Record<string, any> = { ...(existing.bestPractices || {}) };
+  Object.entries(body.bestPractices || {}).forEach(([qid, v]) => {
+    if (!inEdited(qid) || !v || typeof v !== "object") return;
+    const bp = v as any;
+    bestPractices[qid] = {
+      selected: !!bp.selected,
+      why: typeof bp.why === "string" ? bp.why : "",
+      how: typeof bp.how === "string" ? bp.how : "",
+    };
+  });
+
+  const record: any = { ...existing, answers, comments, customRubrics, categoryComments, bestPractices, updated_at: now };
 
   if (isAdmin) {
     ADMIN_FIELDS.forEach(f => { if (body[f] !== undefined) record[f] = body[f]; });
   }
 
   if (wantsComplete) {
-    // Merge step: every question in the bank gets a final value; unanswered ones count as 0.
+    // Merge step: every question in the bank gets a final value; unanswered ones become
+    // "Kapsam dışı" (N/A, -2) — excluded from scoring with their weight redistributed — instead
+    // of silently counting as 0.
     questions.forEach(q => {
-      if (record.answers[q.id] === undefined || record.answers[q.id] === -1) record.answers[q.id] = 0;
+      if (record.answers[q.id] === undefined || record.answers[q.id] === -1) record.answers[q.id] = -2;
     });
     record.status = "completed";
     record.completed_at = now;

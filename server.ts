@@ -8,12 +8,16 @@ dotenv.config();
 // Imported after dotenv.config() so any module in the dependency graph that reads process.env
 // (directly or lazily) sees real values — this is the local/Cloud Run entry point; the Vercel
 // entry point is api/index.ts, which mounts the same app as a serverless function instead.
-import app from "./src/server/app";
+import app, { authenticateToken } from "./src/server/app";
+import { executiveReportRouter } from "./src/server/opexReport/route";
 
 const PORT = 3000;
 
 // Configure Vite middleware in development or static asset serving in production
 async function setupServer() {
+  // Executive report PDF (on Vercel this is the separate api/opex-report.ts function).
+  app.use(executiveReportRouter(authenticateToken));
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

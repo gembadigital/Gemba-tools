@@ -13,6 +13,7 @@ import JSZip from "jszip";
 import ExcelJS from "exceljs";
 import fs from "fs";
 import path from "path";
+import { getOpexLevel } from "../utils/opexScoring.js";
 
 const TEMPLATE_PATH =
   process.env.OPEX_EXCEL_TEMPLATE_PATH ||
@@ -123,10 +124,7 @@ function buildTemplateToAppMap(
 }
 
 function getSystemLevelText(score: number): string {
-  if (score < 40) return "İSRAF YOĞUN";
-  if (score < 60) return "GELİŞMEKTE OLAN";
-  if (score < 80) return "SİSTEMATİK UYGULAMA";
-  return "MÜKEMMELLİK (WORLD CLASS)";
+  return getOpexLevel(score).name.toLocaleUpperCase("tr-TR");
 }
 
 function escapeXml(str: string): string {

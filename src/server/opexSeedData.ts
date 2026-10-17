@@ -19,6 +19,8 @@ export interface OpexSeedQuestion {
   weight: number;
   idealState: string;
   rubric: Record<string, string>;
+  // New audits start this item as "Kapsam dışı" (N/A) — e.g. items not in the reference checklist.
+  defaultNotApplicable?: boolean;
 }
 
 export const OPEX_SEED_CATEGORIES: OpexSeedCategory[] = [
@@ -309,7 +311,7 @@ export const OPEX_SEED_QUESTIONS: OpexSeedQuestion[] = [
   },
   {
     id: "E3.1", categoryId: "E", categoryName: "5S",
-    subject: "GELİŞTİRME", subjectId: "E3", weight: 2,
+    subject: "GELİŞTİRME", subjectId: "E3", weight: 2.5,
     idealState: "HÜCRELER VE HATLAR 5S ŞARTLARINA GÖRE KURULMUŞTUR. HAT TANIMLARI, ÜRETİLEN ÜRÜN, MALZEME TANIMI, GÖRSEL TALİMATLAR, STOK SEVİYELERİ MİN-MAX, EL ALETİ DÜZENLERİ VB GİBİ GEREKLİ GÖRSELLEŞTİRME ARAÇLARI HATTIN 5S YAPISINI KORUMAKTADIR.",
     rubric: { "0": "Çalışma Görülmedi", "1": "Hücre ve hat düzeni başlatılmış ancak 5S görselleştirme eksiktir.", "2": "Hatlarda bazı görsel düzenlemeler yapılmış, ancak tüm hücrelerde uygulama birliği sağlanmamıştır.", "3": "5S şartları uygulanıyor, ancak bazı alanlarda görsel standartlar eksik ya da güncel değildir.", "4": "Tüm hatlarda görselleştirme ve düzen oturmuş, sürdürülebilir yapılar kurulmuş, küçük iyileştirmelere açıktır.", "5": "Başarılı Uygulama" }
   },
@@ -327,7 +329,7 @@ export const OPEX_SEED_QUESTIONS: OpexSeedQuestion[] = [
   },
   {
     id: "E3.4", categoryId: "E", categoryName: "5S",
-    subject: "KORUMA VE GELİŞTİRME", subjectId: "E3", weight: 2,
+    subject: "KORUMA VE GELİŞTİRME", subjectId: "E3", weight: 2.5,
     idealState: "KALİTE VE VERİMLİLİK AÇISINDAN İNCELEME : ÜRETİM İÇERİSİNDE ÜRÜNE, EL ALETİNE ULAŞMA ARAMA GİBİ MUDA HAREKETLER 5S İLE OPTİMİZE EDİLMİŞTİR. RAF AKIŞ YÖNLERİ, ALMA BIRAKMA, LİMİT KONTROL NOKTALARI 5 İLE GÖRSELLEŞTİRİLMİŞTİR.STANDART İŞ KONULARI DESTEKLER NİTELİKTEDİR.",
     rubric: { "0": "Çalışma Görülmedi", "1": "Muda hareketlerini azaltmaya yönelik çalışmalar henüz başlamıştır.", "2": "Bazı alanlarda muda azaltımı yapılmış ancak sistematik optimizasyon yoktur.", "3": "5S ile verimlilik artırma uygulamaları mevcut, ancak her hatta uygulanmamaktadır.", "4": "Muda azaltımı, el aleti ve ürün akışı 5S ile optimize edilmiş, süreç sürekli iyileştirme ile geliştirilebilir durumdadır.", "5": "Başarılı Uygulama" }
   },
@@ -381,7 +383,7 @@ export const OPEX_SEED_QUESTIONS: OpexSeedQuestion[] = [
   },
   {
     id: "F2.6", categoryId: "F", categoryName: "GÖRSEL FABRİKA",
-    subject: "GÖRSEL TALİMATLAR", subjectId: "F2", weight: 2,
+    subject: "GÖRSEL TALİMATLAR", subjectId: "F2", weight: 2, defaultNotApplicable: true,
     idealState: "BU MADDE CHECK LİSTTE YOK. PUANI NERDEN ALMIŞ GEREKİRSE SİLEBİLİRİZ.",
     rubric: { "0": "Çalışma Görülmedi", "1": "", "2": "", "3": "", "4": "", "5": "Başarılı Uygulama" }
   },

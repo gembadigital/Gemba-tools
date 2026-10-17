@@ -5,6 +5,8 @@ import jwt from "jsonwebtoken";
 import { generatePtrTemplateExcel, isPtrTemplateAvailable, buildPtrExportFilename, PtrTemplateRecord } from "./ptrExcelTemplate.js";
 import { generateOpexTemplateExcel, isOpexTemplateAvailable, buildOpexExportFilename } from "./opexExcelTemplate.js";
 import { mergeOpexAssessmentSave } from "./opexMerge.js";
+import { loadExecutiveReport } from "./opexReport/load.js";
+import { renderReportHtml } from "./opexReport/render.js";
 import * as XLSX from "xlsx";
 
 // This module only builds and configures the Express app (all /api/* routes) and exports it —
@@ -209,7 +211,7 @@ function resolveFactoryScope(req: express.Request, requestedId?: string): { allo
 }
 
 // SECURE MIDDLEWARE FOR MULTI-TENANCY ISOLATION
-async function authenticateToken(req: express.Request, res: express.Response, next: express.NextFunction) {
+export async function authenticateToken(req: express.Request, res: express.Response, next: express.NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     res.status(401).json({ success: false, error: "Authentication token is missing. Please log in." });
@@ -2942,6 +2944,19 @@ app.get("/api/business/opex-assessments/:id/export-excel", authenticateToken, as
     console.error("Failed to generate OpEx template Excel", e);
     res.status(500).json({ success: false, error: "Excel raporu oluşturulamadı: " + (e.message || "bilinmeyen hata") });
   }
+});
+
+// Executive report print view without Chromium measurement — fallback for when the dedicated PDF
+// function (api/opex-report.ts → /api/opex-report/:id) is unavailable. Same access rules.
+app.get("/api/business/opex-assessments/:id/executive-report.html", authenticateToken, async (req, res) => {
+  const loaded = await loadExecutiveReport((req as any).user, req.params.id);
+  if (loaded.ok === false) {
+    res.status(loaded.status).json({ success: false, error: loaded.error });
+    return;
+  }
+  res.setHeader("X-Report-Warnings", encodeURIComponent(JSON.stringify(loaded.model.warnings)));
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(renderReportHtml(loaded.model, { autoPrint: true }));
 });
 
 // OpEx question bank (categories + questions) — org-wide, not per-factory: it's the assessment
