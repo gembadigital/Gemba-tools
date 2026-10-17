@@ -1,0 +1,119 @@
+# Handoff — Master Plan / PTR / Ticket / Document Vault session
+
+Bu dosya, yeni bir Claude Code konuşmasının "önceki konuşmada ne yapıldı, nereye bağlıyız" sorusunu
+buradan okuyarak cevaplayabilmesi için yazıldı. Kod haritası için `graphify-out/GRAPH_REPORT.md` ve
+`graphify-out/graph.json` (graphify bilgi grafiği) bu dosyayla birlikte okunmalı.
+Altyapı ayrıntısı için ayrıca [DEPLOYMENT.md](DEPLOYMENT.md).
+
+> **Güvenlik notu:** Bu dosyada yalnızca ortam değişkeni *adları* ve URL'ler vardır. Hiçbir secret /
+> bağlantı dizesi / token değeri yazılmamalı; `.env*` dosyaları git'e ve graphify'a dahil edilmez.
+
+## 1. Bağlantı haritası (nereye bağlıyız)
+
+| Katman | Nerede | Not |
+|---|---|---|
+| Kaynak kod | GitHub `gembadigital/Gemba-tools`, branch `main` | Yerel kopya: `/Users/atakanzehir/Claude/5SAudit/gemba-tools`. Push sırasında "repository moved" uyarısı normal (büyük/küçük harf yönlendirmesi). |
+| Hosting | Vercel, team `gemba-digital`, proje `gemba-tools` — https://vercel.com/gemba-digital/gemba-tools | `main`'e push → otomatik deploy. |
+| Canlı URL | **https://gemba-tools.vercel.app** | Production korumasız (Standard Protection yalnızca preview'leri kapatır). `...-1cu79ota8-...vercel.app` belirli bir deployment URL'sidir, paylaşmayın. |
+| Veritabanı | Neon Postgres — https://console.neon.tech/app/projects/wandering-truth-24635321 | Vercel–Neon storage entegrasyonu `DATABASE_URL`'i otomatik enjekte eder; elle yapıştırılmış değil. Tüm veri tek genel `records` tablosunda (`id, collection, organization_id, factory_id, data jsonb, created_at, updated_at`). Şema: `supabase/schema.sql`. |
+| Giden e-posta | Microsoft Graph, OAuth2 client-credentials (app-only) | Env adları: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `MAIL_FROM`. SMTP/nodemailer **yok**, geri eklemeyin. Kod: `sendMail()`/`getGraphAccessToken()` — `src/server/app.ts`. |
+| Cron | Vercel Cron (`vercel.json` → `crons`) | `/api/cron/weekly-consultant-digest`, Pazartesi 05:00 UTC; `CRON_SECRET` gerektirir. |
+| Diğer env adları | `DATABASE_URL`, `JWT_SECRET`, `GEMINI_API_KEY`, `APP_URL`, `PTR_EXCEL_TEMPLATE_PATH`, `CRON_SECRET` | Değerler yalnızca Vercel'de. Yerel `.env`'de `DATABASE_URL` **yok**. |
+| Vercel MCP | Yanlış Vercel hesabına bağlı | `gemba-tools` projesini göremez (404). Deploy durumunu kullanıcıya dashboard'dan baktırın. |
+
+**Yerel doğrulama sınırı:** yerelde `DATABASE_URL` olmadığından uygulamaya giriş yapılamıyor; dev
+sunucu yalnızca login ekranına kadar açılıyor. Bu oturumdaki UI değişiklikleri `tsc --noEmit`,
+`npm run build`, login ekranının hatasız açılması ve bağımsız mantık simülasyonlarıyla doğrulandı —
+**gerçek oturumda uçtan uca denenmedi.** Canlıda kullanıcı doğrulaması gerekir.
+
+## 2. Çalışma kuralları (kullanıcı tercihi)
+
+- Kullanıcı Türkçe konuşur; yanıtlar Türkçe.
+- İstenen her düzeltme/özellik commit edilip **hemen `origin/main`'e push edilir**, onay sorulmaz
+  (destructive git işlemleri hariç).
+- Dummy/demo veri istenmez: yeni müşteri tamamen boş başlamalı (yalnızca müşteri kartı elle girilir).
+- Commit sonuna `Co-Authored-By: Claude ...` satırı eklenir.
+
+## 3. Bu oturumda yapılanlar (commit sırasıyla)
+
+| Commit | Özet |
+|---|---|
+| `21e652b` | Master Plan: Excel import düzeltmesi (`readAsArrayBuffer` + `type:"array"`), Yalın Sınıfı'na Saha Gözlemi/Süreç Analizi/Kick Off/Eğitim eklendi, "Müşteri Sahibi" kaldırıldı, Planlanan Adam-Gün 0 girilebilir, Paralel Faaliyet No, Alt Faaliyet (hiyerarşi, "alt ›"/"‹"), İlişkili Yalın Modül tüm araçları kapsıyor. |
+| `4008392` | Faz No dropdown (F1…; "en yüksek kullanılan + 1", taban F1–F3). Spaghetti (`FlowImprovement.tsx`) sahte varsayılan fabrika yerleşimi silindi; Fiziksel Alan Ölçüleri (Genişlik/Uzunluk) 0 girilebilir. |
+| `9aabcb2` | Excel import "0 satır" hatasının asıl kökü: export dosyasında başlık satırı 1. satırda değil + faaliyet başına 2 satır (PLANLANAN/GERÇEKLEŞEN). Başlık satırı otomatik bulunuyor, GERÇEKLEŞEN satırı atlanıyor, "W24" biçimi okunuyor. |
+| `d335b72` | Timeline/Kanban'a X (sil) butonu; Faaliyet Ekle modalı kaydırılabilir (Kaydet/Vazgeç artık erişilebilir). |
+| `8f0481c` | Satırlar `activityNo`'ya göre sıralanıyor (Yukarı/Aşağı artık satırı gerçekten taşıyor); filtre aktifken yanlış faaliyeti taşıma hatası; alt faaliyetler ebeveynin altında gruplanıyor. |
+| `453cbdb` | Gerçekleşen tarih kaydırması PTR senkronu tarafından geri alınıyordu → `manualActualOverride` bayrağı. |
+| `22833db` | Timeline Plan/Gerçekleşen barlarında sürükle-taşı / kenardan boyutlandır. |
+| `317f6a2` | PTR başlığından "Aksiyon Kütüğü" kaldırıldı; Haftalık OPEX Faaliyet Raporu'na **Danışman Faaliyet Özeti** (danışman başına/hafta not, isimle, kalıcı) eklendi; notlar PTR "Mail Gönder" e-posta gövdesine yazılıyor. |
+| `3e137d9` | **Ticket** sekmesi (Admin+Consultant) + Customer User'ın profil/şifre ile sınırlanması; **Doküman Kasası gerçek dosya depolama** (base64, 3 MB sınır, indirme butonu). |
+
+> Not: `3dd420a`, `f972afa`, `658995a`, `549cc48` (Danışman Faaliyet Özeti zengin metin/arşiv filtresi)
+> ve Kaizen/5S/OpEx commit'leri (`383dabd`, `0898645`, `6426898`, …) başka oturumlarda yapıldı;
+> bu oturumun kapsamı dışında ama güncel `main`'de mevcut.
+
+## 4. Önemli mimari bilgiler
+
+### Roller
+Yalnızca üç sabit rol vardır (DB check constraint): `Admin`, `Consultant`, `Customer User`.
+**"Misafir" adlı bir rol yoktur.** Kullanıcı "Misafir" dediğinde bu oturumda **`Customer User`**
+anlaşıldı (profil modalında yalnızca *Profil Bilgileri* + *Şifre Değiştir*; Dil & Bölge de gizlendi).
+Gerçekten ayrı 4. rol isteniyorsa `supabase/schema.sql` (iki check constraint), `src/server/db.ts`
+tipleri, `PlatformAdminConsole.tsx` ve `App.tsx` menü mantığı değişmeli.
+
+### Yeni / değişen API uçları (`src/server/app.ts`)
+- `GET|POST /api/business/weekly-consultant-notes`, `DELETE /api/business/weekly-consultant-notes/:id`
+  — danışman başına haftalık özet notu (`week`,`year` query/body; `x-factory-id` başlığı).
+- `GET|POST /api/business/tickets`, `DELETE /api/business/tickets/:id` — org geneli, **yalnızca
+  Admin/Consultant** (sunucuda zorlanır).
+- `POST /api/business/ptr-records/send-weekly-report` — gövdeye artık `year` alır ve o haftanın
+  danışman özetlerini e-posta metnine ekler.
+- Mevcut, Master Plan'ın kendisi çektiği uçlar: `/api/business/{smed-projects,vsm-projects,
+  time-studies,yamazumi-studies,opex-assessments,ptr-records,master-plan-state}`.
+
+### Yeni veri koleksiyonları (`records` tablosunda `collection` değeri)
+`weekly_consultant_notes`, `tickets`. (`db.ts`: `getWeeklyConsultantNotes/saveWeeklyConsultantNote/
+getWeeklyConsultantNoteById/deleteWeeklyConsultantNote`, `getTickets/saveTicket/deleteTicket`.)
+Doküman Kasası içeriği `company_workspaces` koleksiyonundaki workspace JSON'unun `documents[].url`
+alanında (base64 data URI) tutulur.
+
+### Önemli dosyalar
+- `src/components/MasterPlanGantt.tsx` — Timeline/Tablo/Kanban, sürükleme (`beginBarDrag`,
+  `onBarDragMove/End`), `manualActualOverride`, Faz No (`availablePhases`), alt faaliyet
+  (`parentActivityId`, `collapsedParents`), paralel faaliyet (`parallelWith`), Excel import/export.
+- `src/components/PtrTimeStudy.tsx` — PTR; Haftalık sekme, `prevWeekNum/prevYear`, Danışman Faaliyet Özeti.
+- `src/components/TicketBoard.tsx`, `src/components/UserProfileModal.tsx` — Ticket sekmesi ve rol kapıları.
+- `src/components/workspace/DocumentVaultTab.tsx` — gerçek dosya yükleme/indirme.
+- `src/components/FlowImprovement.tsx` — Spaghetti; `sc_current`/`sc_future` sabit ID'ler (kaldırılamaz).
+- `src/components/OpexProjectDashboard.tsx` — toplam adam-gün (paralel faaliyet hariç tutulur).
+
+### Master Plan veri alanları (faaliyet nesnesi, sunucuda serbest JSON)
+`activityNo`, `phase`, `parallelWith` (aktivite no; adam-gün toplamına eklenmez), `parentActivityId`,
+`manualActualOverride` (true ise PTR senkronu atlanır), `actualWeeks`, `plannedManDays` (0 geçerli).
+`owner` artık her zaman `responsibleConsultant`'a eşittir (ExecutiveDashboard/OpexProjectDashboard
+`.owner`'ı "danışman" olarak okur).
+
+## 5. Bilinen sınırlar / açık noktalar
+
+1. **Doküman Kasası** dosya başına 3 MB: ayrı blob depolama yok; içerik workspace JSON'unda, Vercel
+   serverless gövde sınırı (~4,5 MB) altında kalmak için. Eski (yalnızca meta veri) belgeler "içerik
+   yok" gösterir. Daha büyük dosya için gerçek nesne depolama (S3/Vercel Blob) gerekir.
+2. **Gerçekleşen bar sürükleme**: PTR'den gelen bitişik olmayan çok-bloklu gerçekleşen haftalarda
+   yalnızca ok butonları var, sürükleme yok.
+3. **Öncüller** alanı yalnızca not; tarih kaydırma/bağımlılık oku yok. "İlişkili Kayıt" otomatik
+   tamamlama senkronu yalnızca 5S / Kaizen / OEE-Kapasite için; SMED, Yamazumi, VSM, Time Study,
+   OpEx için bağlantı yalnızca referanstır.
+4. Filtre aktifken Yukarı/Aşağı yeniden numaralandırma, gizli faaliyetlerle numara çakışması
+   üretebilir (eski davranışın devamı).
+5. Danışman özeti e-posta gövdesine yazılır; ayrıca txt/doc ek yolu **kurulmadı** (gerek kalmadı).
+6. Tekrarlayan hata sınıfı: sayısal form alanlarında **`||` fallback'i gerçek `0`'ı sahte değere
+   çevirir** (adam-gün, fabrika ölçüsü, import). `??` veya `isNaN` kontrolü kullanın; başka yerlerde
+   de olabilir — `grep` ile taranmalı.
+
+## 6. Yeni konuşmada nasıl devam edilir
+
+1. Bu dosyayı ve `docs/DEPLOYMENT.md`'yi okuyun.
+2. Kod sorusu için: `graphify query "<soru>"` (repo kökünde `graphify-out/graph.json` var) ya da
+   `graphify-out/GRAPH_REPORT.md`.
+3. Değişiklikten sonra: `npx tsc --noEmit` ve `npm run build`, ardından commit + `git push origin main`.
+4. Canlı doğrulama yapılamadıysa bunu kullanıcıya açıkça söyleyin.
