@@ -110,6 +110,7 @@ alanında (base64 data URI) tutulur.
 4. Filtre aktifken Yukarı/Aşağı yeniden numaralandırma, gizli faaliyetlerle numara çakışması
    üretebilir (eski davranışın devamı).
 5. Danışman özeti e-posta gövdesine yazılır; ayrıca txt/doc ek yolu **kurulmadı** (gerek kalmadı).
+9. **Sunucu import kuralı:** `src/server/**` ve onun import ettiği dosyalarda göreli importlar **`.js` uzantılı** olmalı (`"../utils/x.js"`). Vercel API'yi native ESM olarak çalıştırır; uzantısız import tüm fonksiyonu çökertir ve giriş dahil her istek "A server error…" (JSON değil) döner (`59347f5`). `npm run build` bunu yakalamaz (esbuild paketler); şüphede sunucuyu dosya-bazlı transpile edip `node -e "import('./api/index.js')"` ile yükleyerek test edin.
 8. OpEx denetçi listesi = giriş yapan kullanıcı + müşterinin birincil/ikincil danışmanları (`/customers/:id/team`). Müşteriye atanmamış danışman listede görünmez. OpEx "AI Yönetici Özeti" çağrısı hâlâ sabit örnek istatistik + sabit danışman adı gönderiyor (`OpexAssessment.tsx` executive-insights).
 7. Eski kayıtlarda `factory_id` boşsa `db.ts`/`app.ts` hâlâ `"arcelik_bolu"` varsayılanına düşüyor (gerçek müşteri id'si değil; kayıt görünmez olur). Zararsız eski kalıntı, temizlenmedi.
 6. Tekrarlayan hata sınıfı: sayısal form alanlarında **`||` fallback'i gerçek `0`'ı sahte değere
