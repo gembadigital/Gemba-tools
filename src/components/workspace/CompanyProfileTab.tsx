@@ -617,10 +617,10 @@ export default function CompanyProfileTab({ workspace, onSave }: CompanyProfileT
                 type="number"
                 disabled={!isEditing}
                 step="0.1"
-                min={1}
+                min={0}
                 max={5}
                 value={editedWorkspace.opex.fivesLevel || ""}
-                onChange={(e) => handleFieldChange("opex", "fivesLevel", parseFloat(e.target.value) || 1)}
+                onChange={(e) => { const v = parseFloat(e.target.value); handleFieldChange("opex", "fivesLevel", isNaN(v) ? 0 : v); }}
                 className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-hidden disabled:bg-gray-50"
               />
             </div>
@@ -663,9 +663,10 @@ export default function CompanyProfileTab({ workspace, onSave }: CompanyProfileT
 
         {/* CONTACTS SUB TAB */}
         {activeSubTab === "contacts" && (() => {
+          // No placeholder people: seed only from the manager names the customer actually entered.
           const execList = editedWorkspace.contacts.executiveContacts || [
-            { id: "exec_1", fullName: editedWorkspace.contacts.generalManager || "Hakan Bulgurlu", departmentTitle: "Genel Müdür", email: "hakan@arcelik.com" },
-            { id: "exec_2", fullName: editedWorkspace.contacts.factoryManager || "Oğuzhan Öztürk", departmentTitle: "Fabrika Müdürü", email: "oguzhan@arcelik.com" }
+            ...(editedWorkspace.contacts.generalManager ? [{ id: "exec_1", fullName: editedWorkspace.contacts.generalManager, departmentTitle: "Genel Müdür", email: "" }] : []),
+            ...(editedWorkspace.contacts.factoryManager ? [{ id: "exec_2", fullName: editedWorkspace.contacts.factoryManager, departmentTitle: "Fabrika Müdürü", email: "" }] : [])
           ];
 
           const handleAddExecutiveContact = () => {

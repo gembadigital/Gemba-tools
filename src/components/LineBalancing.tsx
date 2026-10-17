@@ -44,7 +44,7 @@ const TRANSLATIONS: Record<string, any> = {
     modeUsed: "Mode-based Standard Cycle Time active",
     medianUsed: "Median-based Standard Cycle Time active (Unique values)",
     addEmptyRow: "Insert New Work Element",
-    resetToDemo: "Reset to Production Demo Dataset",
+    resetToDemo: "Clear Table",
     processAnalysis: "Operational Excellence KPI Panel",
     totalCt: "Total Cycle Time",
     vaTime: "Value Added Time",
@@ -124,7 +124,7 @@ const TRANSLATIONS: Record<string, any> = {
     modeUsed: "Mod değerine göre Standart Çevrim Süresi devrede",
     medianUsed: "Medyan değerine göre Standart Çevrim Süresi devrede (Farklı değerler)",
     addEmptyRow: "Yeni İş Elemanı Ekle",
-    resetToDemo: "Örnek Üretim Verilerini Yükle",
+    resetToDemo: "Tabloyu Temizle",
     processAnalysis: "Operasyonel Mükemmellik KPI Paneli",
     totalCt: "Toplam Çevrim Süresi",
     vaTime: "Katma Değerli Zaman (VA)",
@@ -180,89 +180,6 @@ const TRANSLATIONS: Record<string, any> = {
   }
 };
 
-// PRELOADED INDUSTRIAL PRODUCTION DEMO DATASET
-const INITIAL_DEMO_DATA = [
-  {
-    id: "e1",
-    seqNo: 1,
-    processName: "Manuel Montaj",
-    workElement: "Kutuyu Al & Kilidi Aç",
-    workClass: "VA" as "VA" | "NVA" | "W",
-    workType: "T1",
-    cycles: [2.35, 2.40, 2.30, 2.35, 2.45, 2.35, 2.30, 2.40, null, null],
-    standardCycleTime: 2.35
-  },
-  {
-    id: "e2",
-    seqNo: 1,
-    processName: "Manuel Montaj",
-    workElement: "Parçayı Şasiye Yerleştir",
-    workClass: "VA" as "VA" | "NVA" | "W",
-    workType: "T1",
-    cycles: [4.10, 4.05, 4.15, 4.10, 4.10, 4.00, 4.15, 4.10, 4.05, 4.10],
-    standardCycleTime: 4.10
-  },
-  {
-    id: "e3",
-    seqNo: 2,
-    processName: "Vidalama İstasyonu",
-    workElement: "Vidaları Tornavida ile Sık",
-    workClass: "VA" as "VA" | "NVA" | "W",
-    workType: "T1",
-    cycles: [5.20, 5.30, 5.20, 5.15, 5.20, 5.25, 5.20, 5.30, null, null],
-    standardCycleTime: 5.20
-  },
-  {
-    id: "e4",
-    seqNo: 2,
-    processName: "Vidalama İstasyonu",
-    workElement: "Tabanca Ucu Değiştir (5 çevrimde 1)",
-    workClass: "NVA" as "VA" | "NVA" | "W",
-    workType: "T2",
-    cycles: [4.00, 4.10, 4.00, 3.90, 4.00, null, null, null, null, null],
-    standardCycleTime: 4.00
-  },
-  {
-    id: "e5",
-    seqNo: 3,
-    processName: "Lojistik Astar",
-    workElement: "Yeni Kutuyu Raftan Al (Mesafe)",
-    workClass: "NVA" as "VA" | "NVA" | "W",
-    workType: "T1",
-    cycles: [8.40, 8.50, 8.40, 8.60, 8.40, 8.35, 8.45, null, null, null],
-    standardCycleTime: 8.40
-  },
-  {
-    id: "e6",
-    seqNo: 4,
-    processName: "Kalite Kontrol",
-    workElement: "Ürünü Kumpas ile Ölç & Form Doldur",
-    workClass: "VA" as "VA" | "NVA" | "W",
-    workType: "T1",
-    cycles: [6.15, 6.10, 6.20, 6.15, 6.15, null, null, null, null, null],
-    standardCycleTime: 6.15
-  },
-  {
-    id: "e7",
-    seqNo: 1,
-    processName: "Manuel Montaj",
-    workElement: "Etiketi Yazdır & Pakete Yapıştır",
-    workClass: "VA" as "VA" | "NVA" | "W",
-    workType: "T1",
-    cycles: [3.45, 3.50, 3.45, 3.45, 3.55, 3.40, null, null, null, null],
-    standardCycleTime: 3.45
-  },
-  {
-    id: "e8",
-    seqNo: 5,
-    processName: "Hatta Besleme",
-    workElement: "Hatalı Parçayı Ayıkla & Bekle",
-    workClass: "W" as "VA" | "NVA" | "W",
-    workType: "T3",
-    cycles: [7.80, 7.90, 7.80, 7.80, 7.85, 7.75, 7.80, null, null, null],
-    standardCycleTime: 7.80
-  }
-];
 
 interface WorkElementRecord {
   id: string;
@@ -705,10 +622,11 @@ export default function LineBalancing({ selectedCustomer }: LineBalancingProps) 
     saveToStorage(updated);
   };
 
-  // Reset to Demo
+  // Clear the working table — new customers start empty, so this never loads sample data.
   const handleReset = () => {
-    setElements(INITIAL_DEMO_DATA);
-    saveToStorage(INITIAL_DEMO_DATA);
+    if (elements.length > 0 && !window.confirm("Tablodaki tüm iş elemanları silinecek. Emin misiniz?")) return;
+    setElements([]);
+    saveToStorage([]);
     setFilterClass("ALL");
     setFilterType("ALL");
     setFilterProcess("ALL");
@@ -1574,7 +1492,7 @@ export default function LineBalancing({ selectedCustomer }: LineBalancingProps) 
             <span>Müşteriye Özel Veritabanına Kaydet</span>
           </button>
 
-          {/* Reset Demo */}
+          {/* Clear table */}
           <button
             onClick={handleReset}
             className="flex items-center space-x-1 bg-white border border-slate-205 hover:bg-slate-100 text-slate-750 hover:text-slate-900 text-xs px-3 py-2 rounded-xl transition cursor-pointer shadow-xs"
