@@ -101,8 +101,8 @@ export async function renderReportPdf(build: (o: LayoutOptions) => string, opt: 
           const cur = opts.strongCount ?? 3;
           if (cur > 1) { opts.strongCount = cur - 1; changed = true; }
         } else if (o.kind === "summary") {
-          const cur = opts.summaryLimit ?? 100;
-          if (cur > 40) { opts.summaryLimit = cur - 20; changed = true; }
+          const cur = opts.summaryBudget ?? 1;
+          if (cur > 0.3) { opts.summaryBudget = cur * 0.85; changed = true; }
         }
       }
       if (!changed) break;

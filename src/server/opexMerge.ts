@@ -61,7 +61,7 @@ export function mergeOpexAssessmentSave(args: {
   const { existing, payload, user, questions, categories } = args;
   const now = args.now || new Date().toISOString();
   const isAdmin = user.role === "Admin";
-  const { _editedCategories, _recomputeOnly, _reportTextsOnly, ...body } = payload || {};
+  const { _editedCategories, _recomputeOnly, ...body } = payload || {};
 
   // New audit: only the Admin sets one up (and assigns the categories).
   if (!existing) {
@@ -83,16 +83,6 @@ export function mergeOpexAssessmentSave(args: {
     if (!isAdmin) return { ok: false, status: 403, error: "Yetkiniz yok." };
     const { categoryScores, overallScore } = computeOpexScores(questions, categories, existing.answers || {});
     return { ok: true, record: { ...existing, categoryScores, overallScore, updated_at: now } };
-  }
-
-  // Executive-report texts (summary headline, roadmap) are report content, not audit data — the
-  // Admin may write them before or after locking. Nothing else is touched.
-  if (_reportTextsOnly) {
-    if (!isAdmin) return { ok: false, status: 403, error: "Rapor metinlerini yalnızca Admin düzenleyebilir." };
-    const record = { ...existing, updated_at: now };
-    if (typeof body.executiveSummary === "string") record.executiveSummary = body.executiveSummary;
-    if (Array.isArray(body.roadmap)) record.roadmap = body.roadmap;
-    return { ok: true, record };
   }
 
   if (existing.status === "completed") {

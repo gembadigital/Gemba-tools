@@ -3,7 +3,7 @@ import { REPORT_CONFIG } from "./config.js";
 import { REPORT_LOGO_DATA_URI } from "./logo.js";
 import { REPORT_CSS } from "./styles.js";
 import { ReportModel, ReportArea, ReportCriterion } from "./model.js";
-import { esc, fix, sentences, title, firstSentence, num, fmtDate, ordinal } from "./text.js";
+import { esc, fix, sentences, title, num, fmtDate, ordinal } from "./text.js";
 
 // HTML for the executive report — A4 landscape pages, printed to PDF by headless Chromium
 // (pdf.ts) or by the browser's own print dialog. Page order is fixed; page count follows the
@@ -90,7 +90,7 @@ const dots = (score: number) => Array.from({ length: 5 }, (_, i) => `<i class="d
 // pages in Chromium and tightens these for any page that still overflows (see pdf.ts).
 export interface LayoutOptions {
   areaBudget?: Record<string, number>; // per-area scale on the detail-table height budget (1 = default)
-  summaryLimit?: number; // max chars of the area comment shown in the summary table
+  summaryBudget?: number; // scale on the executive-summary table's per-page height budget (1 = default)
   bpPerPage?: number; // best-practice cards per page (4 = 2×2 grid)
   strongCount?: number; // "güçlü noktalar" items on the executive-summary page
 }
@@ -109,9 +109,8 @@ export const DETAIL_BODY_MM = 131; // comment + table body height on an area-det
 
 function splitArea(a: ReportArea, dense: boolean, scale: number): ReportCriterion[][] {
   const budget = DETAIL_BODY_MM * scale;
-  const commentMm = a.comment ? lines(fix(a.comment), 175) * 4.4 + 11 : 0;
   const chunks: ReportCriterion[][] = [[]];
-  let used = commentMm;
+  let used = 0;
   for (const c of a.criteria) {
     const h = detailRowMm(c, dense);
     if (chunks[chunks.length - 1].length > 0 && used + h > budget) {
@@ -336,25 +335,47 @@ function priorityOf(m: ReportModel, score: number): [string, string] {
   return ["Düşük", "#4E9A6A"];
 }
 
+// Executive-summary table: one row per area with the evaluator's full section summary (entered at
+// the end of each section while scoring). Rows flow onto further pages when they don't fit.
+const SUMMARY_BODY_MM = 158;
+function summaryRowMm(a: ReportArea): number {
+  const comment = a.comment ? lines(fix(a.comment), 100) * 3.35 : 3.35;
+  const name = lines(title(a.name), 24) * 3.4;
+  return Math.max(comment, name, 4.2) + 2.3;
+}
+
 function summaryTablePage(p: Pages, m: ReportModel, o: LayoutOptions) {
-  const limit = o.summaryLimit ?? 100;
-  const rows = m.areas.map((a, i) => {
+  const budget = SUMMARY_BODY_MM * (o.summaryBudget ?? 1);
+  const chunks: ReportArea[][] = [[]];
+  let used = 0;
+  m.areas.forEach(a => {
+    const h = summaryRowMm(a);
+    if (chunks[chunks.length - 1].length > 0 && used + h > budget) { chunks.push([]); used = 0; }
+    chunks[chunks.length - 1].push(a);
+    used += h;
+  });
+  const rowOf = (a: ReportArea) => {
+    const i = m.areas.indexOf(a);
     const [pn, pc] = priorityOf(m, a.score);
-    const finding = a.comment ? esc(firstSentence(a.comment, limit)) : `<span class="muted">Değerlendirici görüşü girilmedi</span>`;
+    const summary = a.comment ? esc(fix(a.comment)) : `<span class="muted">Bölüm özeti girilmedi</span>`;
     return `<tr><td class="id">${i + 1}</td><td><b>${esc(title(a.name))}</b></td>` +
       `<td class="r b">${num(a.score)}</td><td>${miniBar(m, a.score, 60)}</td>` +
       `<td><span class="chip" style="--c:${a.level.color}">${esc(a.level.name)}</span></td><td class="r muted">${num(a.score - m.target)}</td>` +
-      `<td class="c">${a.zeroCount}/${a.scoredCount}</td><td class="fnd">${finding}</td>` +
+      `<td class="c">${a.zeroCount}/${a.scoredCount}</td><td class="fnd">${summary}</td>` +
       `<td><span class="prio" style="--c:${pc}">${pn}</span></td></tr>`;
-  }).join("");
+  };
   const tot = `<tr class="tot"><td></td><td><b>Genel skor</b></td><td class="r b">${num(m.overall)}</td><td>${miniBar(m, m.overall, 60)}</td>` +
     `<td><span class="chip" style="--c:${m.level.color}">${esc(m.level.name)}</span></td><td class="r">${num(m.overall - m.target)}</td>` +
     `<td class="c">${m.scoreCounts[0]}/${m.scored.length}</td><td class="fnd">Hedef ${m.target}${m.targetClass ? ` (Seviye ${m.targetClass})` : ""}</td><td></td></tr>`;
-  p.page(`
-<div class="card flush"><table class="tbl sumt"><thead><tr><th>#</th><th>Değerlendirme alanı</th><th class="r">Skor</th><th>Skor / hedef</th><th>Seviye</th><th class="r">Hedefe fark</th><th class="c">Çalışma yok</th><th>Ana bulgu (değerlendirici görüşü)</th><th>Öncelik</th></tr></thead>
-<tbody>${rows}${tot}</tbody></table></div>
-<p class="note">Öncelik: hedefe fark &gt; ${C.priority.highGap} Yüksek · ${C.priority.mediumGap}–${C.priority.highGap} Orta · ≤ ${C.priority.mediumGap} Düşük. “Çalışma yok”: alandaki puanlanan kriterlerden kaçında hiç çalışma görülmediği.</p>`,
-    "Yönetici özet değerlendirme tablosu", "summary");
+  chunks.forEach((chunk, i) => {
+    const last = i === chunks.length - 1;
+    const cont = chunks.length > 1 ? ` (${i + 1}/${chunks.length})` : "";
+    p.page(`
+<div class="card flush"><table class="tbl sumt"><thead><tr><th>#</th><th>Değerlendirme alanı</th><th class="r">Skor</th><th>Skor / hedef</th><th>Seviye</th><th class="r">Hedefe fark</th><th class="c">Çalışma yok</th><th>Bölüm özeti (değerlendirici)</th><th>Öncelik</th></tr></thead>
+<tbody>${chunk.map(rowOf).join("")}${last ? tot : ""}</tbody></table></div>
+${last ? `<p class="note">Öncelik: hedefe fark &gt; ${C.priority.highGap} Yüksek · ${C.priority.mediumGap}–${C.priority.highGap} Orta · ≤ ${C.priority.mediumGap} Düşük. “Çalışma yok”: alandaki puanlanan kriterlerden kaçında hiç çalışma görülmediği.</p>` : ""}`,
+      `Yönetici özet değerlendirme tablosu${cont}`, "summary");
+  });
 }
 
 function bestPracticePages(p: Pages, m: ReportModel, o: LayoutOptions) {
@@ -457,7 +478,6 @@ function areaPages(p: Pages, m: ReportModel, o: LayoutOptions) {
  <div><p class="kicker">Alan ${idx + 1} / ${m.areas.length}${cont}</p><h2 class="h-area">${esc(title(a.name))}</h2></div>
  <div class="pill"><span style="background:${a.level.color}">${num(a.score)}</span>${esc(a.level.name)} · ${gapText} · ${a.zeroCount} / ${a.scoredCount} kriterde çalışma yok</div>
 </div>
-${a.comment && part === 0 ? `<p class="summary"><b>Değerlendirici görüşü:</b> ${esc(fix(a.comment))}</p>` : ""}
 <div class="card flush"><table class="tbl det${dense ? " dense" : ""}"><thead><tr><th>ID</th><th>Kriter</th><th class="c">Puan</th><th>Saha tespiti</th><th>İdeal durum</th></tr></thead><tbody>${chunk.join("")}</tbody></table></div>`,
         `Alan detayı · ${a.id}`, "area", a.id);
     });

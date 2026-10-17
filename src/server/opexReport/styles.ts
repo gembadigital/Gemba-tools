@@ -120,6 +120,7 @@ svg text{font-family:inherit;fill:var(--ink)} .t-xs{font-size:9px} .t-xxs{font-s
 /* gemba-tools additions */
 .empty{font-size:9.5pt;color:var(--muted);background:var(--soft);border-radius:3mm;padding:6mm;text-align:center}
 .na{color:var(--muted);font-style:italic}
+.tbl.sumt td.fnd{width:42%}
 .legend{flex-wrap:wrap;row-gap:1.5mm;column-gap:4mm} .legend .lg{white-space:nowrap;display:inline-flex;align-items:center;gap:1.5mm} .legend .lg i{margin-right:0}
 .warn{font-size:8pt;color:#9A3412;background:#FFF7ED;border-left:3px solid #EA580C;padding:2mm 3mm;margin:0}
 .ask p.free{font-size:10pt;line-height:1.5;margin:0;white-space:pre-line}

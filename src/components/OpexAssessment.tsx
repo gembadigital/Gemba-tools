@@ -724,47 +724,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     }
   };
 
-  // Admin-written report texts; saved separately so they stay editable after the audit is locked.
-  const emptyWaves = (): OpexRoadmapWave[] => [
-    { when: "0–30 gün", title: "", items: [], kpi: "", criteria: [] },
-    { when: "30–60 gün", title: "", items: [], kpi: "", criteria: [] },
-    { when: "60–90 gün", title: "", items: [], kpi: "", criteria: [] },
-  ];
-  const [reportSummaryDraft, setReportSummaryDraft] = useState("");
-  const [roadmapDraft, setRoadmapDraft] = useState<OpexRoadmapWave[]>(emptyWaves());
-  const [reportTextsSaving, setReportTextsSaving] = useState(false);
-  const [reportTextsSaved, setReportTextsSaved] = useState(false);
-  useEffect(() => {
-    setReportSummaryDraft(activeAssessment?.executiveSummary || "");
-    const saved = activeAssessment?.roadmap || [];
-    setRoadmapDraft(emptyWaves().map((w, i) => ({ ...w, ...(saved[i] || {}) })));
-    setReportTextsSaved(false);
-  }, [activeAssessment?.id]);
-  const updateWave = (i: number, patch: Partial<OpexRoadmapWave>) =>
-    setRoadmapDraft(prev => prev.map((w, j) => (j === i ? { ...w, ...patch } : w)));
-  const handleSaveReportTexts = async () => {
-    if (!activeAssessment || !isAdmin) return;
-    setReportTextsSaving(true);
-    setReportTextsSaved(false);
-    const roadmap = roadmapDraft
-      .map(w => ({ ...w, items: w.items.map(x => x.trim()).filter(Boolean), criteria: w.criteria.map(x => x.trim()).filter(Boolean) }))
-      .filter(w => w.title.trim() || w.items.length > 0);
-    try {
-      const res = await fetch("/api/business/opex-assessments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}`, "x-factory-id": selectedCustomer.id },
-        body: JSON.stringify({ id: activeAssessment.id, customerId: activeAssessment.customerId, _reportTextsOnly: true, executiveSummary: reportSummaryDraft.trim(), roadmap })
-      }).then(r => r.json());
-      if (!res.success) throw new Error(res.error || "Kaydedilemedi.");
-      setAssessments(prev => prev.map(a => a.id === res.data.id ? res.data : a));
-      setActiveAssessment(res.data);
-      setReportTextsSaved(true);
-    } catch (e: any) {
-      alert(e.message);
-    } finally {
-      setReportTextsSaving(false);
-    }
-  };
+
   const [excelExportError, setExcelExportError] = useState<string | null>(null);
   // Downloads the .xlsx via the browser's save dialog and returns the filename it was saved
   // under (or null on failure). The Excel workbook is the full report; "PDF Rapor" below is a
@@ -2382,10 +2342,10 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                   <div className="space-y-0.5">
                     <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight flex items-center gap-1.5">
                       <FileText className="w-4 h-4 text-slate-500" />
-                      <span>Genel Bölüm Değerlendirmesi ({selectedCategoryId})</span>
+                      <span>Bölüm Özeti ({selectedCategoryId}) · Yönetici raporuna girer</span>
                     </h4>
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                      Bu bölümle ilgili genel tespitler, güçlü/zayıf noktalar ve iyileştirme tavsiyeleri
+                      Yönetici raporunun özet tablosunda bu bölümün satırına aynen yazılır
                     </p>
                   </div>
                   
@@ -2817,73 +2777,6 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
           {!isAdmin && activeAssessment.status !== "completed" && (
             <div className="bg-slate-50 border border-slate-200 text-slate-500 text-[11px] font-bold rounded-xl px-4 py-2.5">
               Yönetici raporu, Admin denetimi birleştirip kilitledikten sonra indirilebilir.
-            </div>
-          )}
-
-          {/* Executive report texts — Admin only, editable before and after locking */}
-          {isAdmin && (
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                <div>
-                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-tight">Yönetici Raporu İçeriği</h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Boş bırakılan özet veriden otomatik üretilir · yol haritası boşsa raporda gösterilmez</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleSaveReportTexts}
-                  disabled={reportTextsSaving}
-                  className="flex items-center space-x-1.5 bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-black uppercase px-3 py-2 rounded-xl disabled:opacity-50 cursor-pointer shrink-0"
-                >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>{reportTextsSaving ? "Kaydediliyor..." : reportTextsSaved ? "Kaydedildi" : "Kaydet"}</span>
-                </button>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Yönetici özeti (rapor başlığı)</label>
-                <textarea
-                  rows={3}
-                  value={reportSummaryDraft}
-                  onChange={(e) => setReportSummaryDraft(e.target.value)}
-                  placeholder="Örn: Fabrika yalın dönüşümün başlangıç noktasında… (boşsa skorlardan otomatik üretilir)"
-                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 font-semibold text-slate-700 focus:outline-none focus:border-slate-400"
-                />
-              </div>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-                {roadmapDraft.map((w, i) => (
-                  <div key={i} className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
-                    <input
-                      value={w.when}
-                      onChange={(e) => updateWave(i, { when: e.target.value })}
-                      className="w-full text-[11px] font-black uppercase text-rose-700 bg-transparent border-b border-slate-200 focus:outline-none"
-                    />
-                    <input
-                      value={w.title}
-                      onChange={(e) => updateWave(i, { title: e.target.value })}
-                      placeholder="Dalga başlığı (örn: Yönetim altyapısı ve ritim)"
-                      className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none"
-                    />
-                    <textarea
-                      rows={3}
-                      value={w.items.join("\n")}
-                      onChange={(e) => updateWave(i, { items: e.target.value.split("\n") })}
-                      placeholder="Aksiyonlar (her satıra bir tane)"
-                      className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none"
-                    />
-                    <input
-                      value={w.kpi}
-                      onChange={(e) => updateWave(i, { kpi: e.target.value })}
-                      placeholder="Başarı ölçütü"
-                      className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none"
-                    />
-                    <input
-                      value={w.criteria.join(", ")}
-                      onChange={(e) => updateWave(i, { criteria: e.target.value.split(",") })}
-                      placeholder="Kapsanan kriter ID'leri (örn: A3.1, E1.1) — skor etkisi için"
-                      className="w-full text-[11px] font-mono bg-white border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none"
-                    />
-                  </div>
-                ))}
-              </div>
             </div>
           )}
 
