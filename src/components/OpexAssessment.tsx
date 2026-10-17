@@ -276,6 +276,46 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     if (isAdmin) return true;
     return !!currentAssessorId && activeAssessment.assessorAssignments?.[catId] === currentAssessorId;
   };
+  // How many questions are scored / N/A / still blank — shown next to the score, because blank
+  // and N/A questions don't count, which makes a partly filled audit look higher than it is.
+  const answerCoverage = useMemo(() => {
+    const c = { total: questions.length, scored: 0, na: 0, blank: 0 };
+    questions.forEach(q => {
+      const v = activeAssessment?.answers?.[q.id] ?? -1;
+      if (v >= 0) c.scored++; else if (v === -2) c.na++; else c.blank++;
+    });
+    return c;
+  }, [activeAssessment, questions]);
+  const coverageNote = (
+    <span className="text-[10px] font-bold block mt-1.5 leading-snug">
+      {answerCoverage.total} kriter: {answerCoverage.scored} puanlı · {answerCoverage.na} N/A · {answerCoverage.blank} cevapsız
+      {(answerCoverage.blank > 0 || answerCoverage.na > answerCoverage.total * 0.2) && (
+        <span className="block text-rose-700">Cevapsız ve N/A sorular skora katılmaz{answerCoverage.blank > 0 ? "; skor geçicidir" : ""}.</span>
+      )}
+    </span>
+  );
+
+  const handleReopenAudit = async () => {
+    if (!activeAssessment || !isAdmin || activeAssessment.status !== "completed") return;
+    if (!window.confirm("Denetim yeniden taslağa alınacak; denetçiler tekrar puanlayabilecek. Devam edilsin mi?")) return;
+    const naCount = answerCoverage.na;
+    const naToUnanswered = naCount > 0 && window.confirm(
+      `${naCount} soru "Kapsam dışı (N/A)" işaretli. Bunlar daha önceki bir sürümde boş sorulardan otomatik oluşmuş olabilir.\n\nTamam: hepsini "cevapsız" yap (gerçekten kapsam dışı olanları yeniden N/A işaretlersiniz).\nİptal: N/A işaretlerini koru.`
+    );
+    try {
+      const res = await fetch("/api/business/opex-assessments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}`, "x-factory-id": selectedCustomer.id },
+        body: JSON.stringify({ id: activeAssessment.id, customerId: activeAssessment.customerId, _reopen: true, _naToUnanswered: naToUnanswered })
+      }).then(r => r.json());
+      if (!res.success) throw new Error(res.error || "Denetim yeniden açılamadı.");
+      setAssessments(prev => prev.map(a => a.id === res.data.id ? res.data : a));
+      setActiveAssessment(res.data);
+    } catch (e: any) {
+      alert(e.message);
+    }
+  };
+
   // Shown after a lock attempt while questions are still unanswered (list updates live).
   const [showUnanswered, setShowUnanswered] = useState(false);
   const unansweredByCategory = useMemo(() => {
@@ -1835,6 +1875,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                 <span className="text-xs font-bold block mt-1 opacity-80">
                   Genel Olgunluk Oranı
                 </span>
+                {coverageNote}
               </div>
             </div>
 
@@ -1970,6 +2011,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                       Taslak. Tüm sorular 0–5 ya da N/A olarak işaretlendiğinde aşağıdaki butonla bölümler birleştirilip denetim kilitlenir.
                     </p>
                   </div>
+                  <div className="text-slate-600">{coverageNote}</div>
                   {showUnanswered && unansweredByCategory.length > 0 && (
                     <div className="bg-white border border-rose-200 rounded-lg p-2.5 space-y-1.5">
                       <p className="text-[10px] font-black text-rose-700 uppercase">
@@ -2002,9 +2044,21 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                   </button>
                 </div>
               ) : (
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 mt-4 flex items-center space-x-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span className="text-[10px] text-slate-600 font-extrabold uppercase">Bu Denetim Kilitlenmiştir</span>
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 mt-4 space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="text-[10px] text-slate-600 font-extrabold uppercase">Bu Denetim Kilitlenmiştir</span>
+                  </div>
+                  <div className="text-slate-500">{coverageNote}</div>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={handleReopenAudit}
+                      className="w-full bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-[11px] py-1.5 rounded-lg cursor-pointer"
+                    >
+                      Denetimi yeniden aç (Admin)
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -2954,6 +3008,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                       {activeAssessment.overallScore}
                     </span>
                   </div>
+                  <div className="text-slate-500">{coverageNote}</div>
                 </div>
 
               </div>

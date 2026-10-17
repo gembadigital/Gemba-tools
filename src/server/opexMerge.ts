@@ -61,7 +61,7 @@ export function mergeOpexAssessmentSave(args: {
   const { existing, payload, user, questions, categories } = args;
   const now = args.now || new Date().toISOString();
   const isAdmin = user.role === "Admin";
-  const { _editedCategories, _recomputeOnly, ...body } = payload || {};
+  const { _editedCategories, _recomputeOnly, _reopen, _naToUnanswered, ...body } = payload || {};
 
   // New audit: only the Admin sets one up (and assigns the categories).
   if (!existing) {
@@ -83,6 +83,26 @@ export function mergeOpexAssessmentSave(args: {
     if (!isAdmin) return { ok: false, status: 403, error: "Yetkiniz yok." };
     const { categoryScores, overallScore } = computeOpexScores(questions, categories, existing.answers || {});
     return { ok: true, record: { ...existing, categoryScores, overallScore, updated_at: now } };
+  }
+
+  // Admin reopens a locked audit (back to draft). Optionally turns every N/A answer back into
+  // "unanswered" — audits locked by an interim version had their blank questions auto-set to N/A,
+  // which inflated the score. Bank items that start as N/A by default keep their N/A.
+  if (_reopen) {
+    if (!isAdmin) return { ok: false, status: 403, error: "Denetimi yalnızca Admin yeniden açabilir." };
+    const record: any = { ...existing, status: "draft", updated_at: now };
+    delete record.completed_at;
+    delete record.completed_by;
+    if (_naToUnanswered) {
+      const keepNa = new Set(questions.filter((q: any) => q.defaultNotApplicable).map(q => q.id));
+      const answers = { ...(existing.answers || {}) };
+      Object.keys(answers).forEach(id => { if (answers[id] === -2 && !keepNa.has(id)) answers[id] = -1; });
+      record.answers = answers;
+    }
+    const { categoryScores, overallScore } = computeOpexScores(questions, categories, record.answers || {});
+    record.categoryScores = categoryScores;
+    record.overallScore = overallScore;
+    return { ok: true, record };
   }
 
   if (existing.status === "completed") {
