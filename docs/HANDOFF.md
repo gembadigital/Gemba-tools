@@ -21,6 +21,11 @@ Altyapı ayrıntısı için ayrıca [DEPLOYMENT.md](DEPLOYMENT.md).
 | Diğer env adları | `DATABASE_URL`, `JWT_SECRET`, `GEMINI_API_KEY`, `APP_URL`, `PTR_EXCEL_TEMPLATE_PATH`, `CRON_SECRET` | Değerler yalnızca Vercel'de. Yerel `.env`'de `DATABASE_URL` **yok**. |
 | Vercel MCP | Yanlış Vercel hesabına bağlı | `gemba-tools` projesini göremez (404). Deploy durumunu kullanıcıya dashboard'dan baktırın. |
 
+**Güncelleme (2026-10-17):** yerel `.env` artık bir `DATABASE_URL` içeriyor ve canlı Neon veritabanını
+(`…-pooler…us-east-1.aws.neon.tech/neondb`) gösteriyor — yerelden okunan/yazılan her şey **canlı veridir**.
+Canlı veriye yazmadan önce kullanıcı onayı alın ve kaydın yedeğini alın. Supabase'deki "gembadigital's Project"
+bu uygulamanın veritabanı değildir (başka bir CRM). Vercel MCP hâlâ yalnızca `gemba-iq` projesini görür.
+
 **Yerel doğrulama sınırı:** yerelde `DATABASE_URL` olmadığından uygulamaya giriş yapılamıyor; dev
 sunucu yalnızca login ekranına kadar açılıyor. Bu oturumdaki UI değişiklikleri `tsc --noEmit`,
 `npm run build`, login ekranının hatasız açılması ve bağımsız mantık simülasyonlarıyla doğrulandı —
@@ -125,6 +130,7 @@ alanında (base64 data URI) tutulur.
    üretebilir (eski davranışın devamı).
 5. Danışman özeti e-posta gövdesine yazılır; ayrıca txt/doc ek yolu **kurulmadı** (gerek kalmadı).
 10. Yönetici raporu PDF fonksiyonu Vercel'de **canlıda denenmedi** (yerelde Chrome ile test edildi). `@sparticuz/chromium@143` Node ≥ 20.11 ister. Fontlar Google Fonts'tan (Inter) yüklenir; erişilemezse sistem fontuna düşer.
+13. Canlıdaki ACME demo kaydı (`cust_acmedemo1` / denetim `opex_ass_c55amzcmy`) 2026-10-17'de kullanıcı onayıyla test verisiyle yeniden dolduruldu (genel 18,13, 3 best practice, 18 bölüm değerlendirmesi, kilitli). Önceki hali: `~/Claude/fuga-executive-report/gemba-tools-cikti/ACME-canli-kayit-yedek-oncesi.json`.
 12. **Kilitleme kuralı:** OpEx denetimi, tüm sorular 0–5 ya da N/A olarak işaretlenmeden kilitlenemez (sunucu 409 + `unanswered` listesi döner, ekran kalan soruları bölüm bazında listeler). Cevapsız sorular skora katılmadığı için kısmi cevaplanmış taslakta genel skor yüksek görünebilir (örn. 50/165 soru 3 puanla ≈ 60).
 11. Puan formülü değişikliği sonrası Admin OpEx ekranını açınca eski denetimlerin skorları otomatik yeniden hesaplanıp kaydedilir (5S gibi ağırlık toplamı 20 olmayan alanlarda skor değişebilir). Müşteri kartındaki `copexScore` bu yeniden hesaplamada güncellenmez.
 9. **Sunucu import kuralı:** `src/server/**` ve onun import ettiği dosyalarda göreli importlar **`.js` uzantılı** olmalı (`"../utils/x.js"`). Vercel API'yi native ESM olarak çalıştırır; uzantısız import tüm fonksiyonu çökertir ve giriş dahil her istek "A server error…" (JSON değil) döner (`59347f5`). `npm run build` bunu yakalamaz (esbuild paketler); şüphede sunucuyu dosya-bazlı transpile edip `node -e "import('./api/index.js')"` ile yükleyerek test edin.

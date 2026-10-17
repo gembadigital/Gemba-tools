@@ -97,6 +97,8 @@ export async function renderReportPdf(build: (o: LayoutOptions) => string, opt: 
         } else if (o.kind === "bp") {
           const cur = opts.bpPerPage ?? 4;
           if (cur > 1) { opts.bpPerPage = Math.max(1, Math.floor(cur / 2)); changed = true; }
+        } else if (o.kind === "gaps") {
+          if (!opts.gapsCompact) { opts.gapsCompact = true; changed = true; }
         } else if (o.kind === "sections") {
           const cur = opts.sectionsBudget ?? 1;
           if (cur > 0.3) { opts.sectionsBudget = cur * 0.85; changed = true; }

@@ -94,6 +94,7 @@ export interface LayoutOptions {
   bpPerPage?: number; // best-practice cards per page (4 = 2×2 grid)
   strongCount?: number; // "güçlü noktalar" items on the executive-summary page
   sectionsBudget?: number; // scale on the section-evaluation pages' height budget (1 = default)
+  gapsCompact?: boolean; // tighter rows on the critical-gaps page
 }
 
 // Rough row-height model for the area-detail table (mm), from column widths and font sizes in
@@ -410,7 +411,7 @@ function bestPracticePages(p: Pages, m: ReportModel, o: LayoutOptions) {
   }
 }
 
-function criticalGapsPage(p: Pages, m: ReportModel) {
+function criticalGapsPage(p: Pages, m: ReportModel, o: LayoutOptions) {
   const zr = [...m.areas].filter(a => a.zeroCount > 0)
     .sort((a, b) => b.zeroCount / b.scoredCount - a.zeroCount / a.scoredCount || a.id.localeCompare(b.id));
   const zbars = zr.map(a => `<tr><td>${esc(a.short)}</td><td><div class="zb"><i style="width:${((a.zeroCount / a.scoredCount) * 100).toFixed(0)}%"></i></div></td><td class="r"><b>${a.zeroCount}</b> / ${a.scoredCount}</td></tr>`).join("");
@@ -433,13 +434,13 @@ function criticalGapsPage(p: Pages, m: ReportModel) {
     : `En büyük puan kaybı düşük puanlı (0–2) kriterlerden geliyor. Listelenen ${crit.length} kriter 2/5 seviyesinin altında kaldığı ölçüde iyileştirme önceliği taşıyor.`;
   p.page(`
 <h2 class="headline">${head}</h2>
-<div class="grid-2">
+<div class="grid-2${o.gapsCompact ? " compact" : ""}">
  <div class="card"><p class="label">Alan bazında 0 puanlı kriterler</p>
   <p class="note" style="margin:-1mm 0 2mm">Her alanda kaç kriterin 0 puan (“çalışma görülmedi”) aldığını gösterir. Örneğin 5 / 13: alandaki 13 kriterin 5'inde hiç çalışma yok. Çubuk bu oranı gösterir.</p>
   ${zbars ? `<table class="tbl zt"><tbody>${zbars}</tbody></table>` : `<p class="empty">Tüm alanlarda en az bir çalışma görüldü.</p>`}</div>
  <div class="card"><p class="label">${zeroMode ? "Çalışma görülmeyen en yüksek ağırlıklı kriterler (ağırlık ≥ 3)" : "En çok puan kaybettiren kriterler"}</p>
   ${crow ? `<table class="tbl cr"><thead><tr><th>ID</th><th>Kriter</th><th>Alan</th>${zeroMode ? "" : `<th class="c">Puan</th>`}</tr></thead><tbody>${crow}</tbody></table>` : `<p class="empty">Kritik kriter yok.</p>`}</div>
-</div>`, "Kritik boşluklar");
+</div>`, "Kritik boşluklar", "gaps");
 }
 
 function roadmapPage(p: Pages, m: ReportModel) {
@@ -628,7 +629,7 @@ function buildPages(m: ReportModel, opts: LayoutOptions, pageOf: Record<string, 
   radarPage(p, m);
   summaryTablePage(p, m, opts);
   bestPracticePages(p, m, opts);
-  criticalGapsPage(p, m);
+  criticalGapsPage(p, m, opts);
   roadmapPage(p, m);
   detailIndexPage(p, m);
   areaPages(p, m, opts);

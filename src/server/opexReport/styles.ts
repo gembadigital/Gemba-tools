@@ -120,6 +120,8 @@ svg text{font-family:inherit;fill:var(--ink)} .t-xs{font-size:9px} .t-xxs{font-s
 /* gemba-tools additions */
 .empty{font-size:9.5pt;color:var(--muted);background:var(--soft);border-radius:3mm;padding:6mm;text-align:center}
 .na{color:var(--muted);font-style:italic}
+.zt td{padding:1.05mm 2mm}
+.grid-2.compact .zt td,.grid-2.compact .tbl.cr td{padding:.55mm 2mm;font-size:8pt} .grid-2.compact .card{padding:4mm}
 /* contents */
 .toc{list-style:none;margin:0;padding:0;max-width:200mm} .toc li{display:flex;align-items:flex-end;gap:4mm;padding:2.3mm 0;border-bottom:1px solid var(--line)}
 .toc-no{width:9mm;height:9mm;border-radius:50%;background:var(--ink);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:10pt;flex:none}
