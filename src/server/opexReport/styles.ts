@@ -120,7 +120,37 @@ svg text{font-family:inherit;fill:var(--ink)} .t-xs{font-size:9px} .t-xxs{font-s
 /* gemba-tools additions */
 .empty{font-size:9.5pt;color:var(--muted);background:var(--soft);border-radius:3mm;padding:6mm;text-align:center}
 .na{color:var(--muted);font-style:italic}
-.tbl.sumt td.fnd{width:42%}
+/* contents */
+.toc{list-style:none;margin:0;padding:0;max-width:200mm} .toc li{display:flex;align-items:flex-end;gap:4mm;padding:2.3mm 0;border-bottom:1px solid var(--line)}
+.toc-no{width:9mm;height:9mm;border-radius:50%;background:var(--ink);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:10pt;flex:none}
+.toc li>div{display:flex;flex-direction:column} .toc b{font-size:12pt} .toc small{font-size:8.5pt;color:var(--muted);margin-top:.8mm}
+.toc-dots{flex:1;border-bottom:1.5px dotted #B8BEC6;margin-bottom:1.6mm} .toc-pg{font-weight:700;font-size:13pt;min-width:10mm;text-align:right;color:var(--red)}
+/* method */
+.method .card{display:flex;flex-direction:column}
+.tgs{display:grid;grid-template-columns:1fr 1fr;gap:4mm;flex:1}
+.tg{background:#fff;border:1.5px solid var(--line);border-radius:3mm;padding:5mm;display:flex;flex-direction:column;gap:2mm;position:relative}
+.tg.on{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.tg-k{font-size:9pt;font-weight:700;letter-spacing:.12em;color:var(--muted)} .tg-v{font-size:40pt;font-weight:700;line-height:1;color:var(--red)}
+.tg p{margin:0;font-size:9.6pt;line-height:1.45} .tg-sel{margin-top:auto;align-self:flex-start;font-size:7.6pt;font-weight:700;background:var(--ink);color:#fff;border-radius:10mm;padding:1mm 3mm}
+.tg-res{margin:4mm 0 0;font-size:12pt} .tg-res b{color:var(--red);font-size:16pt}
+.scs{display:flex;flex-direction:column;gap:2mm;flex:1}
+.sc{display:grid;grid-template-columns:12mm 22mm 1fr;align-items:center;background:#fff;border-left:5px solid var(--c);border-radius:1.5mm;padding:2.3mm 3mm}
+.sc-n{font-size:16pt;font-weight:700;color:var(--c)} .sc p{margin:0;font-size:9.6pt;font-weight:600}
+.tps{display:grid;grid-template-columns:repeat(3,1fr);gap:2.6mm}
+.tp{display:flex;align-items:center;gap:3mm;background:var(--soft);border-radius:2mm;padding:2.4mm 3mm}
+.tp-k{width:9mm;height:9mm;border-radius:2mm;background:var(--red);color:#fff;font-weight:700;font-size:12pt;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.tp div{display:flex;flex-direction:column;flex:1;min-width:0} .tp b{font-size:9.4pt;line-height:1.2} .tp small{font-size:7.6pt;color:var(--muted);margin-top:.6mm} .tp-i{font-size:8pt;color:var(--muted)}
+.formula{display:flex;align-items:stretch;gap:2.5mm;margin-top:auto;margin-bottom:2mm} .formula>div{flex:1;background:var(--ink);color:#fff;border-radius:2mm;padding:3mm 4mm;display:flex;flex-direction:column;gap:1mm}
+.formula .label{color:#AFB7C2;margin:0} .formula b{font-size:9.4pt;font-weight:600} .formula i{align-self:center;font-style:normal;font-size:14pt;color:var(--muted)}
+/* section evaluations */
+.ses{display:flex;flex-direction:column;gap:2.4mm}
+.se{display:grid;grid-template-columns:62mm 1fr;gap:5mm;border-bottom:1px solid var(--line);padding:1.6mm 0 2.4mm;break-inside:avoid}
+.se-h{display:flex;gap:3mm;align-items:flex-start} .se-h>div{display:flex;flex-direction:column;gap:1.4mm} .se-h b{font-size:10pt;line-height:1.25}
+.se-k{width:8mm;height:8mm;border-radius:1.6mm;background:var(--red);color:#fff;font-weight:700;font-size:11pt;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.se p{margin:0;font-size:9.4pt;line-height:1.5} .se .chip{align-self:flex-start}
+/* detail index */
+.didx{list-style:none;margin:2mm 0 0;padding:0;columns:2;column-gap:12mm} .didx li{display:flex;align-items:center;gap:3mm;padding:2.3mm 0;border-bottom:1px solid var(--line);break-inside:avoid}
+.didx b{font-size:10.5pt;font-weight:600} .didx .toc-pg{font-size:11pt}
 .legend{flex-wrap:wrap;row-gap:1.5mm;column-gap:4mm} .legend .lg{white-space:nowrap;display:inline-flex;align-items:center;gap:1.5mm} .legend .lg i{margin-right:0}
 .warn{font-size:8pt;color:#9A3412;background:#FFF7ED;border-left:3px solid #EA580C;padding:2mm 3mm;margin:0}
 .ask p.free{font-size:10pt;line-height:1.5;margin:0;white-space:pre-line}

@@ -73,13 +73,16 @@ function acme(): ReportInput {
   // Three best practices on criteria the evaluator scored 3 (raise one to 4 for variety).
   const threes = questions.filter(q => a.answers[q.id] === 3).slice(0, 3);
   if (threes.length < 3) throw new Error("ACME: not enough 3-point criteria for best practices");
+  // Two best practices by score (5 points) and one picked by the evaluator at 4 points.
+  a.answers[threes[0].id] = 5;
   a.answers[threes[1].id] = 4;
+  a.answers[threes[2].id] = 5;
   const bpTexts = [
     ["Sahada düzenli takip edilen, sorumluları belli bir uygulama; veriye dayalı karar alınıyor.", "Aynı yapı diğer hatlara ve vardiyalara taşınarak standart hale getirilebilir."],
     ["Uygulama sahiplenilmiş ve görsel olarak sahada izlenebiliyor.", "Pilot hat dışındaki alanlarda aynı görsel yönetim kurgusu kullanılabilir."],
     ["Ekip içinde yerleşmiş bir alışkanlık; aksiyonlar kapatılana kadar takip ediliyor.", "Aksiyon takip mantığı kaizen ve öneri sistemine bağlanarak yaygınlaştırılabilir."],
   ];
-  threes.forEach((q, i) => { a.bestPractices[q.id] = { selected: true, why: bpTexts[i][0], how: bpTexts[i][1] }; });
+  threes.forEach((q, i) => { a.bestPractices[q.id] = { selected: i === 1, why: bpTexts[i][0], how: bpTexts[i][1] }; });
   categories.forEach(c => {
     a.categoryComments[c.id] = "Temel uygulamalar kısmen başlatılmış ancak sistematik değil. Sorumluluklar ve takip mekanizması netleştirilmeli; pilot alanda standart oluşturulup yaygınlaştırılmalı.";
   });

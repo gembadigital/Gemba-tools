@@ -93,6 +93,7 @@ export interface LayoutOptions {
   summaryBudget?: number; // scale on the executive-summary table's per-page height budget (1 = default)
   bpPerPage?: number; // best-practice cards per page (4 = 2×2 grid)
   strongCount?: number; // "güçlü noktalar" items on the executive-summary page
+  sectionsBudget?: number; // scale on the section-evaluation pages' height budget (1 = default)
 }
 
 // Rough row-height model for the area-detail table (mm), from column widths and font sizes in
@@ -139,9 +140,13 @@ function defaultBpPerPage(m: ReportModel): number {
 
 class Pages {
   list: string[] = [];
+  entries: { key: string; page: number }[] = [];
   private no = 1;
-  constructor(private m: ReportModel) {}
+  // pageOf: page numbers from a first rendering pass (for the table of contents / area index).
+  constructor(private m: ReportModel, public pageOf: Record<string, number> = {}) {}
   raw(html: string) { this.list.push(html); }
+  // Records that the next page starts section `key`.
+  entry(key: string) { this.entries.push({ key, page: this.no + 1 }); }
   page(body: string, section: string, kind = "", key = "") {
     this.no += 1;
     this.list.push(`<section class="page" data-kind="${esc(kind)}" data-key="${esc(key)}">
@@ -215,6 +220,7 @@ function coverPage(m: ReportModel): string {
 }
 
 function execSummaryPage(p: Pages, m: ReportModel, o: LayoutOptions) {
+  p.entry("exec");
   const n = m.scored.length;
   const n01 = m.scoreCounts[0] + m.scoreCounts[1];
   const counts = levelCounts(m);
@@ -233,10 +239,11 @@ function execSummaryPage(p: Pages, m: ReportModel, o: LayoutOptions) {
     facts.push(`<li><b>${n45} / ${n}</b> kriter 4–5 puanda: başarılı ve örnek uygulamalar</li>`);
   }
 
-  const strong = [...m.scored].filter(c => (c.score as number) >= 3).sort((a, b) => (b.score as number) - (a.score as number) || b.effWeight - a.effWeight).slice(0, o.strongCount ?? 3);
+  // Strong points = the best practices (5 points or flagged by the evaluator), not merely high scores.
+  const strong = m.bestPractices.slice(0, o.strongCount ?? 3).map(bp => bp.criterion);
   const strongHtml = strong.length
-    ? `<ul class="rank plain">${strong.map(c => `<li><b>${esc(title(c.topic))}</b><span class="muted"> · ${esc(m.areas.find(a => a.id === c.categoryId)?.short || "")}</span></li>`).join("")}</ul>`
-    : `<p class="note">3 ve üzeri puan alan kriter yok.</p>`;
+    ? `<ul class="rank plain">${strong.map(c => `<li><b>${esc(title(c.topic))}</b><span class="muted"> · ${esc(c.id)} · ${esc(m.areas.find(a => a.id === c.categoryId)?.short || "")}</span></li>`).join("")}</ul>${m.bestPractices.length > strong.length ? `<p class="note">+${m.bestPractices.length - strong.length} best practice daha</p>` : ""}`
+    : `<p class="note">Best practice olarak işaretlenen ya da 5 puan alan kriter yok.</p>`;
   const weak = [...m.areas].sort((a, b) => a.score - b.score).slice(0, 3);
   const weakHtml = weak.map(a => `<li><b>${esc(title(a.name))}</b><span>${num(a.score)}</span></li>`).join("");
 
@@ -262,7 +269,7 @@ function execSummaryPage(p: Pages, m: ReportModel, o: LayoutOptions) {
   <ul class="facts">${facts.join("")}</ul>
  </div>
  <div class="card">
-  <p class="label">Üzerine inşa edilecek güçlü noktalar</p>${strongHtml}
+  <p class="label">Üzerine inşa edilecek güçlü noktalar (best practice)</p>${strongHtml}
   <p class="label mt">En kritik alanlar</p><ol class="rank bad">${weakHtml}</ol>
  </div>
  <div class="card ask">
@@ -298,13 +305,15 @@ function processPage(p: Pages, m: ReportModel) {
   p.page(`<h2 class="headline">Değerlendirme süreci ve olgunluk seviyeleri: ${esc(m.firm)} bugün 5 aşamalı yolculuğun <em>${ordinal(cur)} basamağında</em>. ${goal}</h2>` +
     `<div class="flow">${flowHtml}</div><div class="stairs">${steps}</div>` +
     `<div class="tgt-note"><b>Hedef puanın belirlenmesi:</b> ${C.targetRule.text} Bu değerlendirmede hedef <b>${m.target}</b> olarak belirlenmiştir.</div>`,
-    "Değerlendirme süreci");
+    "Değerlendirme metodu · Olgunluk seviyeleri");
 }
 
 function radarPage(p: Pages, m: ReportModel) {
+  p.entry("radar");
   const RMAX = radarMax(m);
   const ranked = [...m.areas].sort((a, b) => b.score - a.score);
-  const rows = ranked.map(a => `<tr><td class="id">${esc(a.id)}</td><td>${esc(title(a.name))}</td><td>${miniBar(m, a.score)}</td><td class="r b">${num(a.score)}</td><td class="r muted">${num(a.score - m.target)}</td></tr>`).join("");
+  // Listed in area order (A, B, C…) so it reads alongside the radar axes.
+  const rows = m.areas.map(a => `<tr><td class="id">${esc(a.id)}</td><td>${esc(title(a.name))}</td><td>${miniBar(m, a.score)}</td><td class="r b">${num(a.score)}</td><td class="r muted">${num(a.score - m.target)}</td></tr>`).join("");
   const below = m.areas.filter(a => a.score < m.target).length;
   const best = ranked[0], worst = ranked[ranked.length - 1];
   const legendLevels = OPEX_LEVELS.filter(l => l.min < RMAX)
@@ -322,7 +331,7 @@ function radarPage(p: Pages, m: ReportModel) {
   <p class="legend"><span class="lg"><i style="background:#D7141A;opacity:.6"></i>Gerçekleşen</span> <span class="lg"><i class="ln"></i>Hedef (${m.target})</span> ${legendLevels}</p>
  </div>
  <div class="card">
-  <p class="label">Alan sıralaması</p>
+  <p class="label">Alan skorları (A–${esc(m.areas[m.areas.length - 1]?.id || "")})</p>
   <table class="tbl rk"><thead><tr><th></th><th>Alan</th><th>Skor / hedef</th><th class="r">Skor</th><th class="r">Fark</th></tr></thead><tbody>${rows}</tbody></table>
  </div>
 </div>`, "Genel skor değerlendirmesi");
@@ -339,12 +348,12 @@ function priorityOf(m: ReportModel, score: number): [string, string] {
 // the end of each section while scoring). Rows flow onto further pages when they don't fit.
 const SUMMARY_BODY_MM = 158;
 function summaryRowMm(a: ReportArea): number {
-  const comment = a.comment ? lines(fix(a.comment), 100) * 3.35 : 3.35;
-  const name = lines(title(a.name), 24) * 3.4;
-  return Math.max(comment, name, 4.2) + 2.3;
+  const name = lines(title(a.name), 40) * 3.4;
+  return Math.max(name, 4.2) + 2.3;
 }
 
 function summaryTablePage(p: Pages, m: ReportModel, o: LayoutOptions) {
+  p.entry("summary");
   const budget = SUMMARY_BODY_MM * (o.summaryBudget ?? 1);
   const chunks: ReportArea[][] = [[]];
   let used = 0;
@@ -357,23 +366,22 @@ function summaryTablePage(p: Pages, m: ReportModel, o: LayoutOptions) {
   const rowOf = (a: ReportArea) => {
     const i = m.areas.indexOf(a);
     const [pn, pc] = priorityOf(m, a.score);
-    const summary = a.comment ? esc(fix(a.comment)) : `<span class="muted">Bölüm özeti girilmedi</span>`;
     return `<tr><td class="id">${i + 1}</td><td><b>${esc(title(a.name))}</b></td>` +
       `<td class="r b">${num(a.score)}</td><td>${miniBar(m, a.score, 60)}</td>` +
       `<td><span class="chip" style="--c:${a.level.color}">${esc(a.level.name)}</span></td><td class="r muted">${num(a.score - m.target)}</td>` +
-      `<td class="c">${a.zeroCount}/${a.scoredCount}</td><td class="fnd">${summary}</td>` +
+      `<td class="c">${a.zeroCount}/${a.scoredCount}</td>` +
       `<td><span class="prio" style="--c:${pc}">${pn}</span></td></tr>`;
   };
   const tot = `<tr class="tot"><td></td><td><b>Genel skor</b></td><td class="r b">${num(m.overall)}</td><td>${miniBar(m, m.overall, 60)}</td>` +
     `<td><span class="chip" style="--c:${m.level.color}">${esc(m.level.name)}</span></td><td class="r">${num(m.overall - m.target)}</td>` +
-    `<td class="c">${m.scoreCounts[0]}/${m.scored.length}</td><td class="fnd">Hedef ${m.target}${m.targetClass ? ` (Seviye ${m.targetClass})` : ""}</td><td></td></tr>`;
+    `<td class="c">${m.scoreCounts[0]}/${m.scored.length}</td><td class="muted">Hedef ${m.target}${m.targetClass ? ` (Seviye ${m.targetClass})` : ""}</td></tr>`;
   chunks.forEach((chunk, i) => {
     const last = i === chunks.length - 1;
     const cont = chunks.length > 1 ? ` (${i + 1}/${chunks.length})` : "";
     p.page(`
-<div class="card flush"><table class="tbl sumt"><thead><tr><th>#</th><th>Değerlendirme alanı</th><th class="r">Skor</th><th>Skor / hedef</th><th>Seviye</th><th class="r">Hedefe fark</th><th class="c">Çalışma yok</th><th>Bölüm özeti (değerlendirici)</th><th>Öncelik</th></tr></thead>
+<div class="card flush"><table class="tbl sumt"><thead><tr><th>#</th><th>Değerlendirme alanı</th><th class="r">Skor</th><th>Skor / hedef</th><th>Seviye</th><th class="r">Hedefe fark</th><th class="c">0 puanlı kriter</th><th>Öncelik</th></tr></thead>
 <tbody>${chunk.map(rowOf).join("")}${last ? tot : ""}</tbody></table></div>
-${last ? `<p class="note">Öncelik: hedefe fark &gt; ${C.priority.highGap} Yüksek · ${C.priority.mediumGap}–${C.priority.highGap} Orta · ≤ ${C.priority.mediumGap} Düşük. “Çalışma yok”: alandaki puanlanan kriterlerden kaçında hiç çalışma görülmediği.</p>` : ""}`,
+${last ? `<p class="note">Öncelik: hedefe fark &gt; ${C.priority.highGap} Yüksek · ${C.priority.mediumGap}–${C.priority.highGap} Orta · ≤ ${C.priority.mediumGap} Düşük. “0 puanlı kriter”: alandaki puanlanan kriterlerden kaçının 0 puan (“çalışma görülmedi”) aldığı. Bölüm değerlendirmelerinin tam metni “Yönetici özeti” bölümündedir.</p>` : ""}`,
       `Yönetici özet değerlendirme tablosu${cont}`, "summary");
   });
 }
@@ -381,6 +389,7 @@ ${last ? `<p class="note">Öncelik: hedefe fark &gt; ${C.priority.highGap} Yüks
 function bestPracticePages(p: Pages, m: ReportModel, o: LayoutOptions) {
   if (m.bestPractices.length === 0) return; // section hidden when nothing qualifies
   const per = o.bpPerPage ?? defaultBpPerPage(m);
+  p.entry("bp");
   for (let i = 0; i < m.bestPractices.length; i += per) {
     const chunk = m.bestPractices.slice(i, i + per);
     const cards = chunk.map(bp => {
@@ -413,6 +422,7 @@ function criticalGapsPage(p: Pages, m: ReportModel) {
   if (!zeroMode) crit = m.scored.filter(c => (c.score as number) <= 2).sort(byLoss);
   crit = crit.slice(0, C.maxCriticalRows);
   if (crit.length === 0 && zr.length === 0) return; // nothing critical to show
+  p.entry("gaps");
 
   const areaShort = (id: string) => m.areas.find(a => a.id === id)?.short || id;
   const crow = crit.map(c => `<tr><td class="id">${esc(c.id)}</td><td><b>${esc(title(c.topic))}</b></td><td class="muted">${esc(areaShort(c.categoryId))}</td>${zeroMode ? "" : `<td class="c">${c.score}</td>`}</tr>`).join("");
@@ -424,7 +434,8 @@ function criticalGapsPage(p: Pages, m: ReportModel) {
   p.page(`
 <h2 class="headline">${head}</h2>
 <div class="grid-2">
- <div class="card"><p class="label">Alan bazında “çalışma görülmedi” oranı</p>
+ <div class="card"><p class="label">Alan bazında 0 puanlı kriterler</p>
+  <p class="note" style="margin:-1mm 0 2mm">Her alanda kaç kriterin 0 puan (“çalışma görülmedi”) aldığını gösterir. Örneğin 5 / 13: alandaki 13 kriterin 5'inde hiç çalışma yok. Çubuk bu oranı gösterir.</p>
   ${zbars ? `<table class="tbl zt"><tbody>${zbars}</tbody></table>` : `<p class="empty">Tüm alanlarda en az bir çalışma görüldü.</p>`}</div>
  <div class="card"><p class="label">${zeroMode ? "Çalışma görülmeyen en yüksek ağırlıklı kriterler (ağırlık ≥ 3)" : "En çok puan kaybettiren kriterler"}</p>
   ${crow ? `<table class="tbl cr"><thead><tr><th>ID</th><th>Kriter</th><th>Alan</th>${zeroMode ? "" : `<th class="c">Puan</th>`}</tr></thead><tbody>${crow}</tbody></table>` : `<p class="empty">Kritik kriter yok.</p>`}</div>
@@ -433,6 +444,7 @@ function criticalGapsPage(p: Pages, m: ReportModel) {
 
 function roadmapPage(p: Pages, m: ReportModel) {
   if (m.roadmap.length === 0) return; // only the evaluator's own plan is printed
+  p.entry("roadmap");
   const qid = new Map(m.scored.map(c => [c.id, c]));
   const gainOf = (ids: string[]) =>
     ids.reduce((s, id) => {
@@ -466,6 +478,7 @@ function findingCell(c: ReportCriterion): string {
 
 function areaPages(p: Pages, m: ReportModel, o: LayoutOptions) {
   m.areas.forEach((a: ReportArea, idx) => {
+    p.entry(`area:${a.id}`);
     const dense = a.criteria.length > C.maxRowsPerDetailPage;
     const rowHtml = (c: ReportCriterion) => `<tr><td class="id">${esc(c.id)}</td><td><b>${esc(title(c.topic))}</b><span class="w">${c.status === "scored" ? `ağırlık ${num(c.effWeight)}` : `ağırlık ${num(c.weight)} · skora katılmadı`}</span></td>` +
       `<td class="c">${c.status === "scored" ? dots(c.score as number) : "—"}</td><td>${findingCell(c)}</td><td class="ideal">${esc(sentences(c.ideal))}</td></tr>`;
@@ -484,21 +497,104 @@ function areaPages(p: Pages, m: ReportModel, o: LayoutOptions) {
   });
 }
 
-function methodPage(p: Pages, m: ReportModel) {
-  const lv = OPEX_LEVELS.map(l => `<div class="lv"><i style="background:${l.color}"></i><b>${l.range}</b><span>${esc(l.name)}</span></div>`).join("");
-  const sc = C.scale.map(s => `<tr><td class="c b">${s.score}</td><td>${esc(s.text)}</td></tr>`).join("");
+// ---------- front matter: contents, method, section evaluations, detail index ----------
+
+const TOC: { key: string; title: string; sub?: string }[] = [
+  { key: "method", title: "Değerlendirme metodu", sub: "Hedef puan · puanlama ölçeği · değerlendirme konuları · olgunluk seviyeleri" },
+  { key: "exec", title: "Yönetici özeti", sub: "Genel skor, tek bakışta bulgular, yönetimden beklenen kararlar" },
+  { key: "sections", title: "Bölüm değerlendirmeleri", sub: "Her bölümün genel değerlendirmesi (denetçi)" },
+  { key: "radar", title: "Genel skor değerlendirmesi", sub: "Olgunluk radarı ve alan skorları" },
+  { key: "summary", title: "Özet değerlendirme tablosu", sub: "Alan skoru, seviye, hedefe fark, öncelik" },
+  { key: "bp", title: "Best practice uygulamalar", sub: "5 puan alan ya da best practice olarak işaretlenen kriterler" },
+  { key: "gaps", title: "Kritik boşluklar" },
+  { key: "roadmap", title: "90 günlük yol haritası" },
+  { key: "detail", title: "Detay rapor / Tespitler", sub: "Alan bazında kriter puanları ve saha tespitleri" },
+];
+
+function tocPage(p: Pages, m: ReportModel) {
+  const known = Object.keys(p.pageOf).length > 0;
+  const rows = TOC.filter(t => !known || p.pageOf[t.key])
+    .map((t, i) => `<li><span class="toc-no">${i + 1}</span><div><b>${esc(t.title)}</b>${t.sub ? `<small>${esc(t.sub)}</small>` : ""}</div><span class="toc-dots"></span><span class="toc-pg">${p.pageOf[t.key] ?? ""}</span></li>`)
+    .join("");
+  p.page(`<h2 class="headline">İçindekiler</h2><ol class="toc">${rows}</ol>`, "İçindekiler", "toc");
+}
+
+function methodTargetPage(p: Pages, m: ReportModel) {
+  p.entry("method");
+  const cls = m.targetClass;
+  const card = (k: "A" | "B", text: string) =>
+    `<div class="tg${cls === k ? " on" : ""}"><span class="tg-k">${k}</span><span class="tg-v">${C.targetRule[k]}</span><p>${esc(text)}</p>${cls === k ? `<span class="tg-sel">Bu denetimde seçilen</span>` : ""}</div>`;
+  const scale = C.scale.map(s => {
+    const col = ["#C8373B", "#E08A3C", "#D9B43B", "#8DB86B", "#4E9A6A", "#2F6FA8"][s.score];
+    return `<div class="sc" style="--c:${col}"><span class="sc-n">${s.score}</span><span class="sc-d">${dots(s.score)}</span><p>${esc(s.text)}</p></div>`;
+  }).join("");
+  p.page(`
+<h2 class="headline">Değerlendirme metodu: her kriter sahada 0–5 arası puanlanır; hedef puan firmanın başlangıç seviyesine göre belirlenir.</h2>
+<div class="grid-2 method">
+ <div class="card"><p class="label">1 · Hedef puan belirleme</p>
+  <div class="tgs">
+   ${card("A", "Sürekli gelişim çalışmaları başlamış, kaizen kültürü sahaya yansımış, vizyon net ve izlenebilir.")}
+   ${card("B", "Sürekli gelişim henüz başlamamış; hedefler ve sonuçlar izlenebilir değil.")}
+  </div>
+  <p class="tg-res">Hedef puan: <b>${m.target}</b>${cls ? ` (Seviye ${cls})` : ""}</p>
+ </div>
+ <div class="card"><p class="label">2 · Puanlama tanımı (kriter başına)</p><div class="scs">${scale}</div>
+  <p class="note">Kapsam dışı (N/A) işaretlenen kriterler skora katılmaz; ağırlıkları aynı bölümdeki puanlanan kriterlere eşit dağıtılır.</p></div>
+</div>`, "Değerlendirme metodu", "method");
+}
+
+function methodTopicsPage(p: Pages, m: ReportModel) {
+  const tiles = m.areas.map((a, i) => {
+    const total = a.criteria.reduce((s, c) => s + c.weight, 0);
+    return `<div class="tp"><span class="tp-k">${esc(a.id)}</span><div><b>${esc(title(a.name))}</b><small>${a.criteria.length} kriter · ağırlık ${num(total)}</small></div><span class="tp-i">${i + 1}</span></div>`;
+  }).join("");
   const weights = m.criteria.map(c => c.weight).filter(w => w > 0);
   const wMin = weights.length ? Math.min(...weights) : 0, wMax = weights.length ? Math.max(...weights) : 0;
   p.page(`
-<h2 class="headline">Ek · Değerlendirme metodu</h2>
-<div class="grid-3">
- <div class="card"><p class="label">Puanlama ölçeği (kriter başına)</p><table class="tbl"><tbody>${sc}</tbody></table></div>
- <div class="card"><p class="label">Olgunluk seviyeleri (alan ve genel skor)</p>${lv}</div>
- <div class="card"><p class="label">Hesaplama</p>
-  <p class="body">${m.areas.length} alan, ${m.scored.length} puanlanan kriter. Her kriter 0–5 arası puanlanır ve ${num(wMin)}–${num(wMax)} arası ağırlıkla çarpılır. Alan skoru = Σ(puan × ağırlık) ÷ (5 × Σ ağırlık) × 100. Genel skor, alan skorlarının aritmetik ortalamasıdır.</p>
-  <p class="body">Kapsam dışı (N/A) kriterler skora katılmaz; ağırlıkları aynı alandaki puanlanan kriterlere eşit dağıtılır.</p>
-  <p class="body">${C.targetRule.text} Bu değerlendirmede hedef <b>${m.target}</b> olarak belirlenmiştir.</p></div>
-</div>`, "Ek");
+<h2 class="headline">Değerlendirme konuları: ${m.areas.length} alan, ${m.criteria.length} kriter. Her alan 0–100 arası skorlanır; genel skor alan skorlarının ortalamasıdır.</h2>
+<div class="tps">${tiles}</div>
+<div class="formula">
+ <div><span class="label">Kriter</span><b>puan (0–5) × ağırlık (${num(wMin)}–${num(wMax)})</b></div><i>→</i>
+ <div><span class="label">Alan skoru</span><b>Σ(puan × ağırlık) ÷ (5 × Σ ağırlık) × 100</b></div><i>→</i>
+ <div><span class="label">Genel skor</span><b>alan skorlarının ortalaması</b></div><i>→</i>
+ <div><span class="label">Seviye</span><b>${OPEX_LEVELS.map(l => esc(l.range)).join(" · ")}</b></div>
+</div>`, "Değerlendirme metodu", "method");
+}
+
+// Section evaluations — the evaluator's "Genel Bölüm Değerlendirmesi" for every area, in full.
+const SECTIONS_BODY_MM = 160;
+function sectionBlockMm(a: ReportArea): number {
+  return Math.max(15, lines(fix(a.comment) || "x", 150) * 4.3 + 7);
+}
+function sectionEvaluationPages(p: Pages, m: ReportModel, o: LayoutOptions) {
+  const budget = SECTIONS_BODY_MM * (o.sectionsBudget ?? 1);
+  const chunks: ReportArea[][] = [[]];
+  let used = 22; // headline on the first page
+  m.areas.forEach(a => {
+    const h = sectionBlockMm(a);
+    if (chunks[chunks.length - 1].length > 0 && used + h > budget) { chunks.push([]); used = 0; }
+    chunks[chunks.length - 1].push(a);
+    used += h;
+  });
+  const missing = m.areas.filter(a => !a.comment).length;
+  p.entry("sections");
+  chunks.forEach((chunk, i) => {
+    const blocks = chunk.map(a => `<div class="se"><div class="se-h"><span class="se-k">${esc(a.id)}</span><div><b>${esc(title(a.name))}</b><span class="chip" style="--c:${a.level.color}">${num(a.score)} · ${esc(a.level.name)}</span></div></div>` +
+      `<p>${a.comment ? esc(fix(a.comment)) : `<span class="muted">Bölüm değerlendirmesi girilmedi.</span>`}</p></div>`).join("");
+    const head = i === 0
+      ? `<h2 class="headline sm">Bölüm değerlendirmeleri: denetçilerin her bölüm sonunda yazdığı genel değerlendirmeler${missing ? ` (${missing} bölümde değerlendirme girilmedi)` : ""}.</h2>`
+      : "";
+    const cont = chunks.length > 1 ? ` (${i + 1}/${chunks.length})` : "";
+    p.page(`${head}<div class="ses">${blocks}</div>`, `Yönetici özeti · Bölüm değerlendirmeleri${cont}`, "sections");
+  });
+}
+
+function detailIndexPage(p: Pages, m: ReportModel) {
+  p.entry("detail");
+  const rows = m.areas.map(a => `<li><span class="se-k">${esc(a.id)}</span><b>${esc(title(a.name))}</b><span class="chip" style="--c:${a.level.color}">${num(a.score)}</span><span class="toc-dots"></span><span class="toc-pg">${p.pageOf[`area:${a.id}`] ?? ""}</span></li>`).join("");
+  p.page(`<h2 class="headline">Detay rapor / Tespitler</h2>
+<p class="note">Her alan için kriter puanları, saha tespitleri ve ideal durum. Alanlar A'dan ${esc(m.areas[m.areas.length - 1]?.id || "")}'ye sıralıdır.</p>
+<ol class="didx">${rows}</ol>`, "Detay rapor / Tespitler", "detail");
 }
 
 function backCover(): string {
@@ -520,19 +616,33 @@ function backCover(): string {
 </section>`;
 }
 
-export function renderReportHtml(m: ReportModel, opts: LayoutOptions & { autoPrint?: boolean } = {}): string {
-  const p = new Pages(m);
+function buildPages(m: ReportModel, opts: LayoutOptions, pageOf: Record<string, number>): Pages {
+  const p = new Pages(m, pageOf);
   p.raw(coverPage(m));
-  execSummaryPage(p, m, opts);
+  tocPage(p, m);
+  methodTargetPage(p, m);
+  methodTopicsPage(p, m);
   processPage(p, m);
+  execSummaryPage(p, m, opts);
+  sectionEvaluationPages(p, m, opts);
   radarPage(p, m);
   summaryTablePage(p, m, opts);
   bestPracticePages(p, m, opts);
   criticalGapsPage(p, m);
   roadmapPage(p, m);
+  detailIndexPage(p, m);
   areaPages(p, m, opts);
-  methodPage(p, m);
   p.raw(backCover());
+  return p;
+}
+
+export function renderReportHtml(m: ReportModel, opts: LayoutOptions & { autoPrint?: boolean } = {}): string {
+  // Pass 1 finds where each section starts; pass 2 prints those page numbers in the contents and
+  // the detail index (both are single pages, so numbering is identical across passes).
+  const first = buildPages(m, opts, {});
+  const pageOf: Record<string, number> = {};
+  first.entries.forEach(e => { if (!(e.key in pageOf)) pageOf[e.key] = e.page; });
+  const p = buildPages(m, opts, pageOf);
   const print = opts.autoPrint ? `<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),400));</script>` : "";
   return `<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>${esc(m.firm)} · ${esc(C.report.kicker)} · ${esc(m.reportNo)}</title>` +
     `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>` +
