@@ -2876,7 +2876,7 @@ app.post("/api/business/opex-assessments", authenticateToken, async (req, res) =
   ]);
   const merged = mergeOpexAssessmentSave({ existing, payload, user, questions, categories });
   if (merged.ok === false) {
-    res.status(merged.status).json({ success: false, error: merged.error });
+    res.status(merged.status).json({ success: false, error: merged.error, unanswered: merged.unanswered });
     return;
   }
   const saved = await db.saveOpexAssessment(user.organization_id, merged.record, user.id);

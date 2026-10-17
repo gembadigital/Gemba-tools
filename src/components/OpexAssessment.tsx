@@ -276,6 +276,17 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     if (isAdmin) return true;
     return !!currentAssessorId && activeAssessment.assessorAssignments?.[catId] === currentAssessorId;
   };
+  // Shown after a lock attempt while questions are still unanswered (list updates live).
+  const [showUnanswered, setShowUnanswered] = useState(false);
+  const unansweredByCategory = useMemo(() => {
+    if (!activeAssessment) return [] as { catId: string; ids: string[] }[];
+    const groups: Record<string, string[]> = {};
+    questions.forEach(q => {
+      if ((activeAssessment.answers?.[q.id] ?? -1) === -1) (groups[q.categoryId] = groups[q.categoryId] || []).push(q.id);
+    });
+    return categories.filter(c => groups[c.id]).map(c => ({ catId: c.id, ids: groups[c.id] }));
+  }, [activeAssessment, questions, categories]);
+
   const categoryOfQuestion = (questionId: string): string =>
     questions.find(q => q.id === questionId)?.categoryId || "";
   // Categories touched since the last save — the server only takes per-question values for these,
@@ -949,13 +960,15 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
   const handleCompleteAudit = async () => {
     if (!activeAssessment || !isAdmin) return;
 
-    const unassigned = categories.filter(c => !activeAssessment.assessorAssignments?.[c.id]).length;
-    const unansweredCount = questions.filter(q => (activeAssessment.answers[q.id] ?? -1) === -1).length;
-    const warnings = [
-      unansweredCount > 0 ? `${unansweredCount} soru cevaplanmamış ("Kapsam dışı" sayılacak, skora katılmayacak).` : "",
-      unassigned > 0 ? `${unassigned} bölüme denetçi atanmamış.` : "",
-    ].filter(Boolean).join("\n");
-    if (!window.confirm(`${warnings ? warnings + "\n\n" : ""}Tüm denetçilerin bölümleri birleştirilip denetim kilitlenecek. Kilitlendikten sonra değişiklik yapılamaz. Devam edilsin mi?`)) {
+    // Every question needs an explicit answer (0-5 or N/A) before locking; the server enforces
+    // the same rule against the latest merged record (other assessors may have saved since).
+    const unanswered = questions.filter(q => (activeAssessment.answers[q.id] ?? -1) === -1);
+    if (unanswered.length > 0) {
+      setShowUnanswered(true);
+      return;
+    }
+    setShowUnanswered(false);
+    if (!window.confirm("Tüm denetçilerin bölümleri birleştirilip denetim kilitlenecek. Kilitlendikten sonra değişiklik yapılamaz. Devam edilsin mi?")) {
       return;
     }
 
@@ -1000,6 +1013,10 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
         }
 
         alert(`Tebrikler! ${res.data.auditName} başarıyla kilitlendi. Genel OpEx puanı ${overallScore} olarak güncellendi.`);
+      } else if (Array.isArray(res.unanswered) && res.unanswered.length > 0) {
+        // Another assessor's state differs from this screen — reload and show what is left.
+        await fetchAssessments();
+        setShowUnanswered(true);
       } else {
         alert(res.error || "Denetim kilitlenemedi.");
       }
@@ -1950,9 +1967,32 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                   <div className="flex items-start space-x-2">
                     <AlertTriangle className="w-4 h-4 text-orange-600 shrink-0 mt-0.5" />
                     <p className="text-[10px] text-orange-700 font-bold leading-normal">
-                      Taslak. Denetçiler kendi bölümlerini tamamladığında aşağıdaki butonla tüm bölümler birleştirilip denetim kilitlenir.
+                      Taslak. Tüm sorular 0–5 ya da N/A olarak işaretlendiğinde aşağıdaki butonla bölümler birleştirilip denetim kilitlenir.
                     </p>
                   </div>
+                  {showUnanswered && unansweredByCategory.length > 0 && (
+                    <div className="bg-white border border-rose-200 rounded-lg p-2.5 space-y-1.5">
+                      <p className="text-[10px] font-black text-rose-700 uppercase">
+                        {unansweredByCategory.reduce((s, g) => s + g.ids.length, 0)} soru cevaplanmadı — 0–5 ya da N/A işaretleyin
+                      </p>
+                      <div className="max-h-48 overflow-y-auto space-y-1">
+                        {unansweredByCategory.map(g => (
+                          <button
+                            key={g.catId}
+                            type="button"
+                            onClick={() => { setFilterAssignedOnly(false); setSelectedCategoryId(g.catId); }}
+                            className="w-full text-left text-[10px] font-bold text-slate-700 hover:bg-rose-50 rounded px-1.5 py-1 cursor-pointer"
+                            title="Bu bölüme git"
+                          >
+                            <span className="font-black text-rose-700">{g.catId} ({g.ids.length}):</span> {g.ids.join(", ")}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {showUnanswered && unansweredByCategory.length === 0 && (
+                    <p className="text-[10px] font-bold text-emerald-700">Tüm sorular cevaplandı, denetim kilitlenebilir.</p>
+                  )}
                   <button
                     onClick={handleCompleteAudit}
                     className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] py-2 rounded-lg flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-sm"

@@ -17,7 +17,7 @@ type User = { id: string; role: string };
 
 export type OpexMergeResult =
   | { ok: true; record: any }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string; unanswered?: { id: string; categoryId: string }[] };
 
 const ADMIN_FIELDS = [
   "auditName",
@@ -146,12 +146,20 @@ export function mergeOpexAssessmentSave(args: {
   }
 
   if (wantsComplete) {
-    // Merge step: every question in the bank gets a final value; unanswered ones become
-    // "Kapsam dışı" (N/A, -2) — excluded from scoring with their weight redistributed — instead
-    // of silently counting as 0.
-    questions.forEach(q => {
-      if (record.answers[q.id] === undefined || record.answers[q.id] === -1) record.answers[q.id] = -2;
-    });
+    // Lock only when every question has an explicit answer: a score 0-5 or N/A ("Kapsam dışı").
+    // Unanswered questions would otherwise silently drop out of the score (e.g. 50/165 answered
+    // with 3s reads as 60 instead of ~17), so the Admin gets the remaining list instead.
+    const unanswered = questions
+      .filter(q => record.answers[q.id] === undefined || record.answers[q.id] === -1)
+      .map(q => ({ id: q.id, categoryId: q.categoryId }));
+    if (unanswered.length > 0) {
+      return {
+        ok: false,
+        status: 409,
+        error: `${unanswered.length} soru cevaplanmadı. Denetim, tüm sorular 0–5 ya da N/A olarak işaretlenmeden kilitlenemez.`,
+        unanswered,
+      };
+    }
     record.status = "completed";
     record.completed_at = now;
     record.completed_by = user.id;
