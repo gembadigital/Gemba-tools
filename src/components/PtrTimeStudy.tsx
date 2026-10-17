@@ -2357,7 +2357,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
               <button
                 onClick={() => {
                   setIsAddingNew(true);
-                  window.scrollTo({ top: 400, behavior: "smooth" });
+                  (document.getElementById("app-main-scroll") ?? window).scrollTo({ top: 400, behavior: "smooth" });
                 }}
                 className="p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-slate-100 rounded-md cursor-pointer transition-all"
                 title="Yeni Aksiyon Satırı Ekle (Dosya İkonu)"

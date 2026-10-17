@@ -582,7 +582,7 @@ export default function App() {
       currentLanguage={currentLang}
       setCurrentLanguage={(lang) => changeLanguage(lang as "tr" | "en" | "de")}
     >
-      <div className="min-h-screen bg-[#fafafa] text-gray-800 flex flex-col font-sans select-none antialiased">
+      <div className="h-screen overflow-hidden bg-[#f1f3f5] text-gray-800 flex flex-col font-sans select-none antialiased">
       
       {/* PROFESSIONAL LOGO HEADER */}
       <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-2.5 shrink-0 flex items-center justify-between shadow-xs">
@@ -673,8 +673,9 @@ export default function App() {
         </div>
       </header>
  
-      {/* CORE FRAMEWORK SIDEBAR GRID */}
-      <div className="flex flex-1 overflow-hidden relative">
+      {/* CORE FRAMEWORK SIDEBAR GRID — the shell is pinned to the viewport (h-screen), so the left
+          menu never scrolls away; only the framed page area on the right scrolls. */}
+      <div className="flex flex-1 min-h-0 overflow-hidden relative">
 
         {/* Mobile nav backdrop — tap to close the drawer */}
         {isMobileNavOpen && (
@@ -686,7 +687,7 @@ export default function App() {
         )}
 
         {/* Left menu sidebar */}
-        <aside className={`bg-white border-r border-gray-200 p-4 shrink-0 flex flex-col justify-between shadow-xs transition-all duration-300 z-40
+        <aside className={`bg-white border-r border-gray-200 p-4 shrink-0 flex flex-col justify-between shadow-xs transition-all duration-300 z-40 overflow-y-auto overscroll-contain
             absolute inset-y-0 left-0 w-72 ${isMobileNavOpen ? "translate-x-0" : "-translate-x-full"}
             md:static md:translate-x-0 md:inset-auto ${effectivelyCollapsed ? "md:w-16 md:px-2" : "md:w-60"}`}>
           <button
@@ -984,7 +985,12 @@ export default function App() {
         </aside>
 
         {/* Inner dashboard panels */}
-        <main className="flex-1 overflow-y-auto p-6 space-y-6">
+        <main className="flex-1 min-w-0 min-h-0 p-2 sm:p-3 md:p-4 flex flex-col">
+          {/* Page frame: visually separates the active page from the menu and owns the scroll. */}
+          <div
+            id="app-main-scroll"
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-[#fafafa] border border-gray-200 rounded-2xl shadow-sm p-3 sm:p-4 md:p-6"
+          >
 
           {/* Render target layouts */}
           <div className="transition-all duration-200">
@@ -1124,6 +1130,7 @@ export default function App() {
                 />
               </div>
             )}
+          </div>
           </div>
 
         </main>
