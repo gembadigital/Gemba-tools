@@ -48,6 +48,9 @@ sunucu yalnızca login ekranına kadar açılıyor. Bu oturumdaki UI değişikli
 | `317f6a2` | PTR başlığından "Aksiyon Kütüğü" kaldırıldı; Haftalık OPEX Faaliyet Raporu'na **Danışman Faaliyet Özeti** (danışman başına/hafta not, isimle, kalıcı) eklendi; notlar PTR "Mail Gönder" e-posta gövdesine yazılıyor. |
 | `3e137d9` | **Ticket** sekmesi (Admin+Consultant) + Customer User'ın profil/şifre ile sınırlanması; **Doküman Kasası gerçek dosya depolama** (base64, 3 MB sınır, indirme butonu). |
 
+| `7dab826` | Kontrol turu: Yamazumi'deki "Örnek Üretim Verilerini Yükle" (sabit demo veri seti) → "Tabloyu Temizle"; Şirket Profili kişi listesindeki sabit Arçelik yönetici isim/e-posta fallback'i kaldırıldı; 5S seviyesi 0 girilebilir. |
+| `14404e7` | Uygulama kabuğu `h-screen`: sol menü sabit (yalnızca ekran kısaysa kendi içinde kayar), sayfa içeriği çerçeveli (`#app-main-scroll`) alanda kendi kaydırmasıyla. Pencereyi kaydıran kod artık `#app-main-scroll`'u kaydırmalı. |
+
 > Not: `3dd420a`, `f972afa`, `658995a`, `549cc48` (Danışman Faaliyet Özeti zengin metin/arşiv filtresi)
 > ve Kaizen/5S/OpEx commit'leri (`383dabd`, `0898645`, `6426898`, …) başka oturumlarda yapıldı;
 > bu oturumun kapsamı dışında ama güncel `main`'de mevcut.
@@ -106,6 +109,7 @@ alanında (base64 data URI) tutulur.
 4. Filtre aktifken Yukarı/Aşağı yeniden numaralandırma, gizli faaliyetlerle numara çakışması
    üretebilir (eski davranışın devamı).
 5. Danışman özeti e-posta gövdesine yazılır; ayrıca txt/doc ek yolu **kurulmadı** (gerek kalmadı).
+7. Eski kayıtlarda `factory_id` boşsa `db.ts`/`app.ts` hâlâ `"arcelik_bolu"` varsayılanına düşüyor (gerçek müşteri id'si değil; kayıt görünmez olur). Zararsız eski kalıntı, temizlenmedi.
 6. Tekrarlayan hata sınıfı: sayısal form alanlarında **`||` fallback'i gerçek `0`'ı sahte değere
    çevirir** (adam-gün, fabrika ölçüsü, import). `??` veya `isNaN` kontrolü kullanın; başka yerlerde
    de olabilir — `grep` ile taranmalı.
