@@ -4,6 +4,7 @@ import { db, hashPassword, verifyPassword, needsRehash, User } from "./db.js";
 import jwt from "jsonwebtoken";
 import { generatePtrTemplateExcel, isPtrTemplateAvailable, buildPtrExportFilename, PtrTemplateRecord } from "./ptrExcelTemplate.js";
 import { generateOpexTemplateExcel, isOpexTemplateAvailable, buildOpexExportFilename } from "./opexExcelTemplate.js";
+import { mergeOpexAssessmentSave } from "./opexMerge.js";
 import * as XLSX from "xlsx";
 
 // This module only builds and configures the Express app (all /api/* routes) and exports it —
@@ -2856,12 +2857,36 @@ app.post("/api/business/opex-assessments", authenticateToken, async (req, res) =
   if (scope.factoryId && !payload.customerId) {
     payload.customerId = scope.factoryId;
   }
-  const saved = await db.saveOpexAssessment(user.organization_id, payload, user.id);
+  const allowedCustomerIds = (req as any).allowedCustomerIds as string[] | null;
+  const existing = payload.id ? await db.getOpexAssessmentById(user.organization_id, payload.id) : null;
+  if (payload.id && !existing) {
+    res.status(404).json({ success: false, error: "Denetim bulunamadı." });
+    return;
+  }
+  if (existing && allowedCustomerIds !== null && !allowedCustomerIds.includes(existing.customerId)) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  // Multi-assessor merge + role rules (Admin sets up/locks, assessors edit only their categories).
+  const [categories, questions] = await Promise.all([
+    db.getOpexCategories(user.organization_id),
+    db.getOpexQuestions(user.organization_id),
+  ]);
+  const merged = mergeOpexAssessmentSave({ existing, payload, user, questions, categories });
+  if (merged.ok === false) {
+    res.status(merged.status).json({ success: false, error: merged.error });
+    return;
+  }
+  const saved = await db.saveOpexAssessment(user.organization_id, merged.record, user.id);
   res.json({ success: true, data: saved });
 });
 
 app.delete("/api/business/opex-assessments/:id", authenticateToken, async (req, res) => {
   const user = (req as any).user;
+  if (user.role !== "Admin") {
+    res.status(403).json({ success: false, error: "Denetimi yalnızca Admin silebilir." });
+    return;
+  }
   const allowedCustomerIds = (req as any).allowedCustomerIds as string[] | null;
   if (allowedCustomerIds !== null) {
     const existing = (await db.getOpexAssessments(user.organization_id)).find((r: any) => r.id === req.params.id);
@@ -2879,6 +2904,10 @@ app.delete("/api/business/opex-assessments/:id", authenticateToken, async (req, 
 // download is the actual client-facing report, not a from-scratch approximation.
 app.get("/api/business/opex-assessments/:id/export-excel", authenticateToken, async (req, res) => {
   const user = (req as any).user;
+  if (user.role !== "Admin") {
+    res.status(403).json({ success: false, error: "Raporu yalnızca Admin indirebilir." });
+    return;
+  }
   const allowedCustomerIds = (req as any).allowedCustomerIds as string[] | null;
   const assessment = await db.getOpexAssessmentById(user.organization_id, req.params.id);
   if (!assessment) {

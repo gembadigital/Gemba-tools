@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useFactory } from "../context/FactoryContext";
 import {
   Award, TrendingUp, Shield, Sparkles, BookOpen, AlertCircle, FileText,
@@ -11,10 +11,8 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, BarChart, Bar, Cell
 } from "recharts";
 import Markdown from "react-markdown";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
-import { domToCanvas } from "modern-screenshot";
 import gembaGIcon from "../assets/images/gemba_g_icon.png";
+import { computeOpexScores } from "../utils/opexScoring";
 
 interface OpexCategory {
   id: string;
@@ -98,53 +96,6 @@ const getAssessmentTargetPct = (a: { targetScores?: Record<string, number>; targ
   }
   return getPreAssessmentMetrics(a.targetPreAnswers || []).targetPct;
 };
-
-// Scoring engine — verified against the original Power Apps "Denetimi Bitir" formula (decoded
-// from the .msapp source) and the real question bank, where every category's question weights
-// sum to ~20 by design. Because of that, "Σ (soru puanı × soru ağırlığı)" for a category lands
-// naturally in 0-100 — it's already a net score, not a fraction that needs a % sign.
-//
-// -1 = not yet answered (excluded, doesn't donate/receive weight). -2 = N/A (excluded from
-// scoring, but its weight is redistributed equally across the category's *answered* questions —
-// same rule the Power Apps formula applies — so marking something N/A doesn't silently shrink
-// the category's achievable score).
-function computeOpexScores(
-  questions: OpexQuestion[],
-  categories: OpexCategory[],
-  answers: Record<string, number>
-): { categoryScores: Record<string, number>; overallScore: number } {
-  const categoryScores: Record<string, number> = {};
-  const touchedCategoryIds: string[] = [];
-
-  categories.forEach(cat => {
-    const catQuestions = questions.filter(q => q.categoryId === cat.id);
-    const touched = catQuestions.filter(q => {
-      const v = answers[q.id];
-      return v !== undefined && v !== -1;
-    });
-    if (touched.length > 0) touchedCategoryIds.push(cat.id);
-
-    const naQuestions = touched.filter(q => answers[q.id] === -2);
-    const scoredQuestions = touched.filter(q => (answers[q.id] ?? -1) >= 0);
-    const naWeightSum = naQuestions.reduce((s, q) => s + q.weight, 0);
-    const extraPerSurvivor = scoredQuestions.length > 0
-      ? Math.round((naWeightSum / scoredQuestions.length) * 100) / 100
-      : 0;
-
-    const categoryTotal = scoredQuestions.reduce((sum, q) => {
-      const effectiveWeight = Math.round((q.weight + extraPerSurvivor) * 100) / 100;
-      return sum + answers[q.id] * effectiveWeight;
-    }, 0);
-    categoryScores[cat.id] = Math.round(categoryTotal * 100) / 100;
-  });
-
-  const touchedScores = touchedCategoryIds.map(id => categoryScores[id]);
-  const overallScore = touchedScores.length > 0
-    ? Math.round((touchedScores.reduce((s, v) => s + v, 0) / touchedScores.length) * 100) / 100
-    : 0;
-
-  return { categoryScores, overallScore };
-}
 
 interface OpexAssessmentProps {
   selectedCustomer: any;
@@ -264,14 +215,16 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
       .catch(err => console.error("Failed to load real assessor roster in OpexAssessment", err));
   }, [selectedCustomer?.id, token]);
 
-  const [currentAssessorId, setCurrentAssessorId] = useState<string>(currentUser?.id || "");
+  // The real logged-in user — there is no "simulate another assessor" switch any more; the server
+  // enforces the same rule (see src/server/opexMerge.ts).
+  const currentAssessorId: string = currentUser?.id || "";
   const [filterAssignedOnly, setFilterAssignedOnly] = useState<boolean>(true);
 
   const displayedCategories = useMemo(() => {
     if (!activeAssessment) return categories;
     if (!filterAssignedOnly) return categories;
     const filtered = categories.filter(cat => {
-      const assigned = activeAssessment.assessorAssignments?.[cat.id] || currentUser?.id || "";
+      const assigned = activeAssessment.assessorAssignments?.[cat.id] || "";
       return assigned === currentAssessorId;
     });
     // If no categories are assigned to this assessor, fallback to showing all
@@ -294,6 +247,20 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     return { bg: "bg-emerald-50", text: "text-emerald-700" };
   };
 
+  // Multi-assessor flow: Admin edits every category; an assessor edits only categories the Admin
+  // assigned to them; nothing is editable once the Admin has merged/locked the audit.
+  const canEditCategory = (catId: string): boolean => {
+    if (!activeAssessment || activeAssessment.status === "completed") return false;
+    if (isAdmin) return true;
+    return !!currentAssessorId && activeAssessment.assessorAssignments?.[catId] === currentAssessorId;
+  };
+  const categoryOfQuestion = (questionId: string): string =>
+    questions.find(q => q.id === questionId)?.categoryId || "";
+  // Categories touched since the last save — the server only takes per-question values for these,
+  // so a save never overwrites another assessor's categories with this client's stale copy.
+  const editedCategoriesRef = useRef<Set<string>>(new Set());
+  const markEdited = (catId: string) => { if (catId) editedCategoriesRef.current.add(catId); };
+
   // AI State
   const [aiReport, setAiReport] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -313,9 +280,9 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
 
       if (res.success && res.data.length > 0) {
         setAssessments(res.data);
-        // Default to latest assessment
+        // Keep the audit the user is on (refresh after other assessors' saves); otherwise latest.
         const sorted = [...res.data].sort((a, b) => new Date(b.auditDate).getTime() - new Date(a.auditDate).getTime());
-        setActiveAssessment(sorted[0]);
+        setActiveAssessment(prev => (prev && res.data.find((a: Assessment) => a.id === prev.id)) || sorted[0]);
       } else {
         // No real audits for this customer yet — honest empty state, not fabricated history.
         setAssessments([]);
@@ -331,6 +298,11 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     setAiReport(null);
     setAiError(null);
   }, [selectedCustomer?.id]);
+
+  // Other assessors fill their categories in parallel — pull the merged record when switching tabs.
+  useEffect(() => {
+    if (activeTab !== "summary") fetchAssessments();
+  }, [activeTab]);
 
   // One-time self-heal: computeOpexScores() was rebuilt (see comment above the function) to fix
   // category scores that used to be stored as an unweighted 0-5 average while overallScore was a
@@ -353,8 +325,8 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
 
     (async () => {
       for (const assessment of stale) {
-        const { categoryScores, overallScore } = computeOpexScores(questions, categories, assessment.answers || {});
-        const corrected: Assessment = { ...assessment, categoryScores, overallScore, updated_at: new Date().toISOString() };
+        // Server recomputes from its own stored answers (also allowed on locked audits).
+        const corrected = { ...assessment, _recomputeOnly: true };
         try {
           const res = await fetch("/api/business/opex-assessments", {
             method: "POST",
@@ -388,7 +360,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
 
   // NEW INTERACTIVE HANDLERS FOR AUDIT TARGETS & COLLABORATION
   const handleTargetScoreChange = (catId: string, val: number) => {
-    if (!activeAssessment || activeAssessment.status === "completed") return;
+    if (!isAdmin || !activeAssessment || activeAssessment.status === "completed") return;
     const newTargets = { ...(activeAssessment.targetScores || {}), [catId]: val };
     setActiveAssessment(prev => prev ? { ...prev, targetScores: newTargets } : null);
     setTimeout(() => {
@@ -397,7 +369,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
   };
 
   const handleTargetPriorityChange = (catId: string, val: boolean) => {
-    if (!activeAssessment || activeAssessment.status === "completed") return;
+    if (!isAdmin || !activeAssessment || activeAssessment.status === "completed") return;
     const newPriorities = { ...(activeAssessment.targetPriorities || {}), [catId]: val };
     setActiveAssessment(prev => prev ? { ...prev, targetPriorities: newPriorities } : null);
     setTimeout(() => {
@@ -406,19 +378,20 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
   };
 
   const handleTargetNoteChange = (catId: string, val: string) => {
-    if (!activeAssessment || activeAssessment.status === "completed") return;
+    if (!isAdmin || !activeAssessment || activeAssessment.status === "completed") return;
     const newNotes = { ...(activeAssessment.targetNotes || {}), [catId]: val };
     setActiveAssessment(prev => prev ? { ...prev, targetNotes: newNotes } : null);
   };
 
   const handleCustomRubricChange = (questionId: string, score: number, val: string) => {
-    if (!activeAssessment || activeAssessment.status === "completed") return;
+    if (!canEditCategory(categoryOfQuestion(questionId))) return;
+    markEdited(categoryOfQuestion(questionId));
     const newRubrics = { ...(activeAssessment.customRubrics || {}), [`${questionId}_${score}`]: val };
     setActiveAssessment(prev => prev ? { ...prev, customRubrics: newRubrics } : null);
   };
 
   const handleAssessorAssignmentChange = (catId: string, assessorId: string) => {
-    if (!activeAssessment || activeAssessment.status === "completed") return;
+    if (!isAdmin || !activeAssessment || activeAssessment.status === "completed") return;
     const newAssignments = { ...(activeAssessment.assessorAssignments || {}), [catId]: assessorId };
     setActiveAssessment(prev => prev ? { ...prev, assessorAssignments: newAssignments } : null);
     setTimeout(() => {
@@ -454,7 +427,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
       defaultTargetNotes[c.id] = `Hedef: ${creationTargetScore}`;
 
       // Load selected assignments configured during creation
-      defaultAssessorAssignments[c.id] = creationAssignments[c.id] || currentUser?.id || "";
+      defaultAssessorAssignments[c.id] = creationAssignments[c.id] || "";
     });
 
     const calculatedAuditNo = assessments.filter(a => a.customerId === selectedCustomer.id).length + 1;
@@ -470,8 +443,8 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
       categoryComments: {},
       status: "draft",
       auditNo: calculatedAuditNo,
-      assessorParticipants: newAssessorParticipants || "Atakan Zehir (Baş Denetçi)",
-      customerParticipants: newCustomerParticipants || "Saha Ekibi",
+      assessorParticipants: newAssessorParticipants,
+      customerParticipants: newCustomerParticipants,
       targetScores: defaultTargetScores,
       targetPriorities: defaultTargetPriorities,
       targetNotes: defaultTargetNotes,
@@ -531,6 +504,9 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
       updated_at: new Date().toISOString()
     };
 
+    const editedCategories = Array.from(editedCategoriesRef.current);
+    editedCategoriesRef.current = new Set();
+
     try {
       const res = await fetch("/api/business/opex-assessments", {
         method: "POST",
@@ -539,28 +515,35 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
           "Authorization": `Bearer ${token}`,
           "x-factory-id": selectedCustomer.id
         },
-        body: JSON.stringify(updatedAssessment)
+        body: JSON.stringify({ ...updatedAssessment, _editedCategories: editedCategories })
       }).then(r => r.json());
 
       if (res.success) {
+        // Server returns the merged record, so other assessors' latest answers show up here too.
         setAssessments(prev => prev.map(a => a.id === res.data.id ? res.data : a));
         setActiveAssessment(res.data);
+      } else {
+        editedCategories.forEach(markEdited);
+        alert(res.error || "Kayıt yapılamadı.");
       }
     } catch (e) {
+      editedCategories.forEach(markEdited);
       console.error("Failed to save opex draft", e);
     }
   };
 
   // Select score for a question
   const handleScoreSelect = (questionId: string, score: number) => {
-    if (!activeAssessment || activeAssessment.status === "completed") return;
+    if (!canEditCategory(categoryOfQuestion(questionId))) return;
+    markEdited(categoryOfQuestion(questionId));
     const newAnswers = { ...activeAssessment.answers, [questionId]: score };
     handleSaveDraft(newAnswers, undefined, undefined);
   };
 
   // Change comment for a question
   const handleCommentChange = (questionId: string, comment: string) => {
-    if (!activeAssessment || activeAssessment.status === "completed") return;
+    if (!canEditCategory(categoryOfQuestion(questionId))) return;
+    markEdited(categoryOfQuestion(questionId));
     const newComments = { ...activeAssessment.comments, [questionId]: comment };
     // Just update active state to prevent laggy typing, then we can save draft
     setActiveAssessment(prev => prev ? { ...prev, comments: newComments } : null);
@@ -568,14 +551,15 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
 
   // Change category level comment
   const handleCategoryCommentChange = (categoryId: string, comment: string) => {
-    if (!activeAssessment || activeAssessment.status === "completed") return;
+    if (!canEditCategory(categoryId)) return;
+    markEdited(categoryId);
     const newCategoryComments = { ...(activeAssessment.categoryComments || {}), [categoryId]: comment };
     setActiveAssessment(prev => prev ? { ...prev, categoryComments: newCategoryComments } : null);
   };
 
   // AI Category Analysis invocation
   const handleAnalyzeCategory = async (catId: string) => {
-    if (!activeAssessment || !token) return;
+    if (!activeAssessment || !token || !canEditCategory(catId)) return;
     setAiCategoryLoading(catId);
 
     const cat = categories.find(c => c.id === catId);
@@ -613,6 +597,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
       const res = await resp.json();
       if (res.success && res.analysis) {
         const newCategoryComments = { ...(activeAssessment.categoryComments || {}), [catId]: res.analysis };
+        markEdited(catId);
         handleSaveDraft(undefined, undefined, newCategoryComments);
       } else {
         alert(res.error || "Bölüm değerlendirmesi üretilemedi.");
@@ -630,9 +615,8 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [excelExportError, setExcelExportError] = useState<string | null>(null);
   // Downloads the .xlsx via the browser's save dialog and returns the filename it was saved
-  // under (or null on failure) — shared by the Excel button and the PDF button below, since a
-  // PDF export of THIS report means "the same Excel workbook, saved as PDF from Excel/Print",
-  // not a separate document.
+  // under (or null on failure). The Excel workbook is the only report format: a PDF that matches
+  // it page-for-page would need server-side Excel→PDF conversion, which this host doesn't have.
   const downloadOpexExcel = async (): Promise<string | null> => {
     if (!activeAssessment || !token) return null;
     try {
@@ -672,217 +656,22 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     setIsExportingExcel(false);
   };
 
-  // jsPDF's built-in standard fonts (Helvetica etc.) only support WinAnsi/Latin-1 — İ, ı, Ş, ş,
-  // Ğ, ğ aren't in that set and render as garbled digits/symbols (Ç/ç/Ö/ö/Ü/ü are fine, they're
-  // valid Latin-1). Transliterate just those five letters rather than embedding a Unicode font
-  // just for this export — same fix OpexProjectDashboard.tsx's PDF export already uses.
-  const pdfSafe = (s: string): string => String(s)
-    .replace(/İ/g, "I").replace(/ı/g, "i")
-    .replace(/Ş/g, "S").replace(/ş/g, "s")
-    .replace(/Ğ/g, "G").replace(/ğ/g, "g");
-
-  const captureChartImage = async (elementId: string): Promise<{ dataUrl: string; aspectRatio: number } | null> => {
-    const el = document.getElementById(elementId);
-    if (!el) return null;
-    try {
-      const canvas = await domToCanvas(el, { scale: 2, backgroundColor: "#ffffff" });
-      if (canvas.width === 0 || canvas.height === 0) return null;
-      return { dataUrl: canvas.toDataURL("image/png", 1.0), aspectRatio: canvas.width / canvas.height };
-    } catch (e) {
-      console.error(`Failed to capture chart ${elementId} for PDF export`, e);
-      return null;
-    }
-  };
-
-  const loadImageAsDataUrl = async (url: string): Promise<string | null> => {
-    try {
-      const res = await fetch(url);
-      const blob = await res.blob();
-      return await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    } catch {
-      return null;
-    }
-  };
-
-  // A real, self-contained single-page PDF (A4 landscape) — not the .xlsx or a print of the live
-  // page. Captures the actual on-screen radar/bar chart DOM (via domToCanvas, same technique
-  // OpexProjectDashboard.tsx's PDF export uses) and lays the category table, comparison table,
-  // KPI cards and both charts out on one page with jsPDF/autoTable, mirroring the reference
-  // one-page summary report layout.
-  const [isExportingPdf, setIsExportingPdf] = useState(false);
-  const handleExportPdf = async () => {
-    if (!activeAssessment) return;
-    setIsExportingPdf(true);
-    setExcelExportError(null);
-    try {
-      const [radarImg, barImg, logoDataUrl] = await Promise.all([
-        captureChartImage("opex-pdf-radar-chart"),
-        captureChartImage("opex-pdf-bar-chart"),
-        loadImageAsDataUrl(gembaGIcon)
-      ]);
-
-      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const marginX = 10;
-      const customerName = selectedCustomer?.companyName || "Müşteri";
-      const reportNo = `${new Date().getFullYear().toString().slice(-2)}${String(new Date().getMonth() + 1).padStart(2, "0")}${String(activeAssessment.auditNo || 1).padStart(2, "0")}`;
-
-      // Header banner
-      doc.setFillColor(47, 85, 151); // #2f5597
-      doc.rect(0, 0, pageWidth, 22, "F");
-      if (logoDataUrl) {
-        try { doc.addImage(logoDataUrl, "PNG", marginX, 4, 14, 14); } catch { /* non-fatal */ }
-      }
-      const titleX = logoDataUrl ? marginX + 18 : marginX;
-      doc.setTextColor(255, 255, 255);
-      doc.setFont("Helvetica", "bold");
-      doc.setFontSize(15);
-      doc.text(pdfSafe("OPEX ASSESSMENT"), titleX, 10);
-      doc.setFont("Helvetica", "normal");
-      doc.setFontSize(9);
-      doc.text(pdfSafe(`${customerName} — Assessment Sonuçları`), titleX, 17);
-      doc.setFontSize(8);
-      doc.text(pdfSafe(`Rapor Tarihi/No: ${new Date().toLocaleDateString("tr-TR")} / ${reportNo}`), pageWidth - marginX, 10, { align: "right" });
-      doc.text(pdfSafe(`Denetim No: ${activeAssessment.auditNo || 1}`), pageWidth - marginX, 17, { align: "right" });
-      doc.setTextColor(15, 23, 42);
-
-      const startY = 28;
-      const colGap = 8;
-      const leftW = (pageWidth - marginX * 2 - colGap) * 0.42;
-      const rightX = marginX + leftW + colGap;
-      const rightW = pageWidth - marginX * 2 - leftW - colGap;
-
-      // LEFT: category table (Kategori / Kategori Adı / Hedef / Sonuç)
-      const tableRows = categories.map(cat => {
-        const scorePct = Math.round(activeAssessment.categoryScores[cat.id] || 0);
-        const targetPct = Math.round(activeAssessment.targetScores?.[cat.id] ?? getPreAssessmentMetrics(activeAssessment.targetPreAnswers || []).targetPct);
-        return [cat.id, pdfSafe(cat.name), String(targetPct), String(scorePct)];
-      });
-      autoTable(doc, {
-        startY,
-        margin: { left: marginX },
-        tableWidth: leftW,
-        head: [[pdfSafe("Kategori"), pdfSafe("Kategori Adı"), pdfSafe("Hedef"), pdfSafe("Sonuç")]],
-        body: tableRows,
-        styles: { fontSize: 6.8, cellPadding: 1.3, textColor: [51, 65, 85] },
-        headStyles: { fillColor: [47, 85, 151], textColor: [255, 255, 255], fontStyle: "bold" },
-        columnStyles: {
-          0: { cellWidth: leftW * 0.12, halign: "center", fontStyle: "bold" },
-          1: { cellWidth: leftW * 0.58 },
-          2: { cellWidth: leftW * 0.15, halign: "center" },
-          3: { cellWidth: leftW * 0.15, halign: "center", fontStyle: "bold" }
-        },
-        didParseCell: (data) => {
-          if (data.section === "body" && data.column.index === 3) {
-            const target = Number(data.row.raw[2]);
-            const result = Number(data.row.raw[3]);
-            data.cell.styles.textColor = result >= target ? [4, 120, 87] : result >= target - 15 ? [180, 83, 9] : [190, 18, 60];
-          }
-        }
-      });
-
-      // Below the category table: the bar chart image
-      const afterTableY = (doc as any).lastAutoTable.finalY + 6;
-      if (barImg) {
-        const barH = Math.min(pageHeight - marginX - afterTableY, leftW / barImg.aspectRatio);
-        doc.addImage(barImg.dataUrl, "PNG", marginX, afterTableY, barH * barImg.aspectRatio, barH);
-      }
-
-      // RIGHT, top: Denetleme No / Hedef / Sonuç mini table
-      autoTable(doc, {
-        startY,
-        margin: { left: rightX },
-        tableWidth: rightW * 0.42,
-        head: [[pdfSafe("Denetleme"), pdfSafe("Hedef"), pdfSafe("Sonuç")]],
-        body: overallComparisonData.map(d => [d.name, String(d.Hedef), String(d.Sonuç)]),
-        styles: { fontSize: 7, cellPadding: 1.5, halign: "center", textColor: [51, 65, 85] },
-        headStyles: { fillColor: [47, 85, 151], textColor: [255, 255, 255], fontStyle: "bold" }
-      });
-
-      // RIGHT, top-right: Sistem Seviyesi + Denetim Puanı KPI cards, next to the mini table
-      const cardsX = rightX + rightW * 0.42 + 6;
-      const cardsW = rightW - rightW * 0.42 - 6;
-      const cardH = 18;
-      doc.setFillColor(47, 85, 151);
-      doc.roundedRect(cardsX, startY, cardsW, cardH, 2, 2, "F");
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(7);
-      doc.setFont("Helvetica", "bold");
-      doc.text(pdfSafe("SİSTEM SEVİYESİ"), cardsX + 3, startY + 6);
-      doc.setFontSize(11);
-      doc.text(pdfSafe(getSystemLevelText(activeAssessment.overallScore)), cardsX + 3, startY + 14, { maxWidth: cardsW - 6 });
-
-      doc.setFillColor(47, 85, 151);
-      doc.roundedRect(cardsX, startY + cardH + 4, cardsW, cardH, 2, 2, "F");
-      doc.setFontSize(7);
-      doc.text(pdfSafe("DENETİM PUANI"), cardsX + 3, startY + cardH + 4 + 6);
-      doc.setFontSize(16);
-      doc.text(String(Math.round(activeAssessment.overallScore)), cardsX + 3, startY + cardH + 4 + 15);
-      doc.setTextColor(15, 23, 42);
-
-      // RIGHT, bottom: the radar chart image, filling the remaining space
-      const radarTop = startY + Math.max((doc as any).lastAutoTable.finalY - startY, cardH * 2 + 4) + 6;
-      if (radarImg) {
-        const availH = pageHeight - marginX - radarTop;
-        const availW = rightW;
-        let h = Math.min(availH, availW / radarImg.aspectRatio);
-        let w = h * radarImg.aspectRatio;
-        if (w > availW) { w = availW; h = w / radarImg.aspectRatio; }
-        doc.addImage(radarImg.dataUrl, "PNG", rightX + (availW - w) / 2, radarTop, w, h);
-      }
-
-      doc.save(`${(customerName.split(/\s+/)[0] || customerName)}-${reportNo}.pdf`);
-    } catch (e: any) {
-      console.error("Failed to generate OpEx PDF summary", e);
-      setExcelExportError(e.message || "PDF raporu oluşturulamadı.");
-    } finally {
-      setIsExportingPdf(false);
-    }
-  };
-
-  // Complete and Lock the Audit
+  // Merge & lock (Admin only): the server takes every assessor's latest saved answers, fills
+  // unanswered questions with 0, recomputes the scores and locks the audit.
   const handleCompleteAudit = async () => {
-    if (!activeAssessment) return;
-    
-    // Check if any question is still unanswered (score === -1)
-    const unansweredCount = Object.values(activeAssessment.answers).filter(v => v === -1).length;
-    if (unansweredCount > 0) {
-      if (!window.confirm(`Dikkat: Hala cevaplanmamış ${unansweredCount} soru bulunmaktadır. Bu soruları 0 olarak kabul edip denetimi tamamlamak ve kilitlemek istediğinize emin misiniz?`)) {
-        return;
-      }
-    } else {
-      if (!window.confirm("Denetimi tamamlayıp kilitlemek istediğinize emin misiniz? Kilitlendikten sonra cevaplar üzerinde değişiklik yapılamayacaktır.")) {
-        return;
-      }
+    if (!activeAssessment || !isAdmin) return;
+
+    const unassigned = categories.filter(c => !activeAssessment.assessorAssignments?.[c.id]).length;
+    const unansweredCount = questions.filter(q => (activeAssessment.answers[q.id] ?? -1) === -1).length;
+    const warnings = [
+      unansweredCount > 0 ? `${unansweredCount} soru cevaplanmamış (0 kabul edilecek).` : "",
+      unassigned > 0 ? `${unassigned} bölüme denetçi atanmamış.` : "",
+    ].filter(Boolean).join("\n");
+    if (!window.confirm(`${warnings ? warnings + "\n\n" : ""}Tüm denetçilerin bölümleri birleştirilip denetim kilitlenecek. Kilitlendikten sonra değişiklik yapılamaz. Devam edilsin mi?`)) {
+      return;
     }
 
-    // Replace all -1 answers with 0 for locking
-    const finalAnswers = { ...activeAssessment.answers };
-    Object.keys(finalAnswers).forEach(k => {
-      if (finalAnswers[k] === -1) {
-        finalAnswers[k] = 0;
-      }
-    });
-
-    const { categoryScores, overallScore } = computeOpexScores(questions, categories, finalAnswers);
-
-    const lockedAssessment: Assessment = {
-      ...activeAssessment,
-      answers: finalAnswers,
-      categoryScores,
-      overallScore,
-      status: "completed",
-      updated_at: new Date().toISOString()
-    };
-
     try {
-      // 1. Save locked assessment in DB
       const res = await fetch("/api/business/opex-assessments", {
         method: "POST",
         headers: {
@@ -890,8 +679,10 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
           "Authorization": `Bearer ${token}`,
           "x-factory-id": selectedCustomer.id
         },
-        body: JSON.stringify(lockedAssessment)
+        body: JSON.stringify({ ...activeAssessment, status: "completed", _editedCategories: Array.from(editedCategoriesRef.current) })
       }).then(r => r.json());
+      editedCategoriesRef.current = new Set();
+      const overallScore = res.data?.overallScore ?? 0;
 
       if (res.success) {
         setAssessments(prev => prev.map(a => a.id === res.data.id ? res.data : a));
@@ -921,6 +712,8 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
         }
 
         alert(`Tebrikler! ${res.data.auditName} başarıyla kilitlendi. Genel OpEx puanı ${overallScore} olarak güncellendi.`);
+      } else {
+        alert(res.error || "Denetim kilitlenemedi.");
       }
     } catch (e) {
       console.error("Failed to complete opex assessment", e);
@@ -1195,8 +988,8 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     }
   };
 
-  const assignedAssessorId = activeAssessment?.assessorAssignments?.[selectedCategoryId] || currentUser?.id || "";
-  const hasPermission = activeAssessment ? (currentAssessorId === assignedAssessorId || activeAssessment.status === "completed") : true;
+  const assignedAssessorId = activeAssessment?.assessorAssignments?.[selectedCategoryId] || "";
+  const hasPermission = activeAssessment ? (canEditCategory(selectedCategoryId) || activeAssessment.status === "completed") : true;
 
   return (
     <div className="space-y-6">
@@ -1248,7 +1041,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
             </button>
           )}
 
-          {!isCreating ? (
+          {!isAdmin ? null : !isCreating ? (
             <button
               onClick={() => setIsCreating(true)}
               className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-xs flex items-center space-x-1.5 transition-all cursor-pointer"
@@ -1439,7 +1232,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
                   {categories.map((cat) => {
-                    const assignedAssessorId = creationAssignments[cat.id] || currentUser?.id || "";
+                    const assignedAssessorId = creationAssignments[cat.id] || "";
                     const assignedName = assessorsList.find(a => a.id === assignedAssessorId)?.name || "Atanmadı";
                     return (
                       <tr key={cat.id} className="hover:bg-slate-50/50">
@@ -1454,6 +1247,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                             }}
                             className="text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none cursor-pointer w-full"
                           >
+                            <option value="">Atanmadı</option>
                             {assessorsList.map(a => (
                               <option key={a.id} value={a.id}>{a.name}</option>
                             ))}
@@ -1647,6 +1441,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
               {selectedCustomer?.companyName} için henüz kayıtlı OpEx değerlendirme denetimi bulunmuyor. Üstteki panelden hemen yeni bir denetim başlatarak ilk değerlendirmeyi tamamlayabilirsiniz.
             </p>
           </div>
+          {isAdmin ? (
           <button
             onClick={() => setIsCreating(true)}
             className="bg-slate-950 hover:bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer inline-flex items-center space-x-1.5"
@@ -1654,6 +1449,9 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
             <Plus className="w-4 h-4" />
             <span>İlk Denetimi Başlat</span>
           </button>
+          ) : (
+            <p className="text-[11px] text-slate-400 font-bold">Denetimi Admin başlatır ve bölümleri denetçilere atar.</p>
+          )}
         </div>
       )}
 
@@ -1769,7 +1567,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                 </div>
                 <div className="flex justify-between items-center py-1 border-b border-slate-100">
                   <span className="font-bold text-slate-500">Uygulayıcı Ekip:</span>
-                  <span className="font-semibold text-slate-800 text-right max-w-[180px] truncate">{activeAssessment.assessorParticipants || "Atakan Zehir"}</span>
+                  <span className="font-semibold text-slate-800 text-right max-w-[180px] truncate">{activeAssessment.assessorParticipants || "—"}</span>
                 </div>
                 <div className="flex justify-between items-center py-1 border-b border-slate-100">
                   <span className="font-bold text-slate-500">Fabrika Karşılayıcı Ekip:</span>
@@ -1852,12 +1650,19 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
               </div>
 
               {/* Assessment Lock Card */}
-              {activeAssessment.status === "draft" ? (
+              {activeAssessment.status === "draft" && !isAdmin ? (
+                <div className="bg-sky-50 border border-sky-200 rounded-xl p-3.5 mt-4 flex items-start space-x-2">
+                  <AlertCircle className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+                  <p className="text-[10px] text-sky-800 font-bold leading-normal">
+                    Size atanan bölümleri puanlayın; her değişiklik otomatik kaydedilir. Tüm bölümler bitince Admin denetimi birleştirip kilitler ve raporu indirir.
+                  </p>
+                </div>
+              ) : activeAssessment.status === "draft" ? (
                 <div className="bg-orange-50 border border-orange-200 rounded-xl p-3.5 space-y-2.5 mt-4">
                   <div className="flex items-start space-x-2">
                     <AlertTriangle className="w-4 h-4 text-orange-600 shrink-0 mt-0.5" />
                     <p className="text-[10px] text-orange-700 font-bold leading-normal">
-                      Bu değerlendirme şu anda taslak durumundadır. Cevapları doldurduktan sonra aşağıdaki butona tıklayarak denetimi sonlandırabilirsiniz.
+                      Taslak. Denetçiler kendi bölümlerini tamamladığında aşağıdaki butonla tüm bölümler birleştirilip denetim kilitlenir.
                     </p>
                   </div>
                   <button
@@ -1865,7 +1670,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                     className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] py-2 rounded-lg flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-sm"
                   >
                     <Lock className="w-3.5 h-3.5" />
-                    <span>Denetimi Bitir ve Kilitle</span>
+                    <span>Bölümleri Birleştir ve Kilitle</span>
                   </button>
                 </div>
               ) : (
@@ -1921,22 +1726,17 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                 </div>
               </div>
 
-              {/* MULTI-ASSESSOR COLLABORATION & USER SIMULATOR */}
+              {/* MULTI-ASSESSOR COLLABORATION — real logged-in user, no impersonation */}
               <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="space-y-2">
-                  <span className="text-[10px] font-black text-slate-400 block uppercase">Denetçi İş Birliği Paneli (Simülasyon)</span>
+                  <span className="text-[10px] font-black text-slate-400 block uppercase">Denetçi İş Birliği Paneli</span>
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="flex items-center space-x-2">
-                      <span className="text-xs font-bold text-slate-700">Mevcut Çalışan Denetçi:</span>
-                      <select
-                        value={currentAssessorId}
-                        onChange={(e) => setCurrentAssessorId(e.target.value)}
-                        className="text-xs font-black text-slate-900 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 focus:outline-none cursor-pointer"
-                      >
-                        {assessorsList.map(a => (
-                          <option key={a.id} value={a.id}>{a.name}</option>
-                        ))}
-                      </select>
+                      <span className="text-xs font-bold text-slate-700">Denetçi:</span>
+                      <span className="text-xs font-black text-slate-900">{currentUser?.full_name || "—"}</span>
+                      {isAdmin && (
+                        <span className="text-[10px] font-black uppercase text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Admin · tüm bölümler</span>
+                      )}
                     </div>
 
                     <label className="flex items-center space-x-1.5 cursor-pointer select-none">
@@ -1955,14 +1755,15 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                   <span className="text-[10px] font-black text-slate-400 block uppercase">Bölüm Sorumlusu</span>
                   <div className="flex items-center space-x-2 justify-start md:justify-end">
                     <span className="text-xs font-extrabold text-purple-700">
-                      {assessorsList.find(a => a.id === assignedAssessorId)?.name || "Atanamadı"}
+                      {assessorsList.find(a => a.id === assignedAssessorId)?.name || "Atanmadı"}
                     </span>
-                    {activeAssessment.status !== "completed" && (
+                    {isAdmin && activeAssessment.status !== "completed" && (
                       <select
                         value={assignedAssessorId}
                         onChange={(e) => handleAssessorAssignmentChange(selectedCategoryId, e.target.value)}
                         className="text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200 rounded-md px-1.5 py-0.5 focus:outline-none cursor-pointer"
                       >
+                        <option value="">Sorumlu Ata: —</option>
                         {assessorsList.map(a => (
                           <option key={a.id} value={a.id}>Sorumlu Ata: {a.name.split(" ")[0]}</option>
                         ))}
@@ -2022,7 +1823,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                                   min={0}
                                   max={100}
                                   step={5}
-                                  disabled={activeAssessment.status === "completed"}
+                                  disabled={!isAdmin || activeAssessment.status === "completed"}
                                   value={targetScore ?? ""}
                                   placeholder="Belirlenmedi"
                                   onChange={(e) => handleTargetScoreChange(cat.id, e.target.value === "" ? 0 : Number(e.target.value))}
@@ -2032,7 +1833,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                               <td className="py-2 text-center">
                                 <input
                                   type="checkbox"
-                                  disabled={activeAssessment.status === "completed"}
+                                  disabled={!isAdmin || activeAssessment.status === "completed"}
                                   checked={isPriority}
                                   onChange={(e) => handleTargetPriorityChange(cat.id, e.target.checked)}
                                   className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 border-slate-200 cursor-pointer"
@@ -2041,7 +1842,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                               <td className="py-2">
                                 <input
                                   type="text"
-                                  disabled={activeAssessment.status === "completed"}
+                                  disabled={!isAdmin || activeAssessment.status === "completed"}
                                   placeholder="Örn: Yalın standartların takibi ve eğitimi"
                                   value={note}
                                   onChange={(e) => handleTargetNoteChange(cat.id, e.target.value)}
@@ -2065,8 +1866,8 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                   <div className="space-y-1">
                     <span className="font-extrabold uppercase text-[10px] text-rose-900 block tracking-wider">Salt Okunur Mod (Erişim Kısıtlı)</span>
                     <p className="leading-relaxed font-semibold">
-                      Bu bölüm ({selectedCategoryId} - {categories.find(c => c.id === selectedCategoryId)?.name}), <strong>{assessorsList.find(a => a.id === assignedAssessorId)?.name}</strong> denetçisine atanmıştır.
-                      Şu an simüle edilen kullanıcı <strong>{assessorsList.find(a => a.id === currentAssessorId)?.name}</strong> olduğundan puanlama yapamazsınız. Sağ üstteki panelden aktif denetçiyi değiştirebilirsiniz.
+                      Bu bölüm ({selectedCategoryId} - {categories.find(c => c.id === selectedCategoryId)?.name}), <strong>{assessorsList.find(a => a.id === assignedAssessorId)?.name || "başka bir"}</strong> denetçisine atanmıştır.
+                      Yalnızca size atanmış bölümleri puanlayabilirsiniz; atamayı Admin yapar.
                     </p>
                   </div>
                 </div>
@@ -2092,7 +1893,8 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
             <div className="space-y-4">
               {currentCategoryQuestions.map((q, idx) => {
                 const currentScore = activeAssessment.answers[q.id] !== undefined ? activeAssessment.answers[q.id] : -1;
-                const isCompleted = activeAssessment.status === "completed";
+                // Read-only when locked or when this category belongs to another assessor.
+                const isCompleted = activeAssessment.status === "completed" || !canEditCategory(selectedCategoryId);
 
                 return (
                   <div 
@@ -2229,7 +2031,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
 
                 <div className="space-y-1.5">
                   <textarea
-                    disabled={activeAssessment.status === "completed"}
+                    disabled={!canEditCategory(selectedCategoryId)}
                     rows={4}
                     className="w-full text-xs bg-white border border-slate-200 focus:outline-none focus:border-slate-400 rounded-xl p-3 placeholder-slate-400 font-semibold text-slate-700 leading-relaxed shadow-xs"
                     placeholder="Bölüme dair genel tespitlerinizi buraya yazın veya üstteki AI butonuna basarak anket puanlarına göre otomatik 3 cümlelik klinik değerlendirme raporu oluşturun..."
@@ -2485,7 +2287,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
               <tbody className="divide-y divide-slate-200 font-semibold text-slate-700">
                 {categories.map((cat) => {
                   const stats = categoryProgress[cat.id] || { answered: 0, total: 0, average: 0 };
-                  const assignedAssessorId = activeAssessment.assessorAssignments?.[cat.id] || currentUser?.id || "";
+                  const assignedAssessorId = activeAssessment.assessorAssignments?.[cat.id] || "";
                   const assignedName = assessorsList.find(a => a.id === assignedAssessorId)?.name || "Atanmadı";
                   const isMyAssignment = assignedAssessorId === currentAssessorId;
 
@@ -2509,11 +2311,12 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                       </td>
                       <td className="p-4 w-52 border-r border-slate-100">
                         <select
-                          disabled={activeAssessment.status === "completed"}
+                          disabled={!isAdmin || activeAssessment.status === "completed"}
                           value={assignedAssessorId}
                           onChange={(e) => handleAssessorAssignmentChange(cat.id, e.target.value)}
-                          className="text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer w-full focus:border-slate-400"
+                          className="text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer w-full focus:border-slate-400 disabled:cursor-not-allowed disabled:bg-slate-50"
                         >
+                          <option value="">Atanmadı</option>
                           {assessorsList.map(a => (
                             <option key={a.id} value={a.id}>{a.name}</option>
                           ))}
@@ -2573,20 +2376,11 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
             </div>
             <div className="flex items-center gap-4">
               <div className="text-right text-xs text-slate-500 font-bold font-mono">
-                <span>Denetçi: <strong className="text-slate-800 uppercase">{activeAssessment.assessorParticipants || "Atakan Zehir"}</strong></span>
+                <span>Denetçi: <strong className="text-slate-800 uppercase">{activeAssessment.assessorParticipants || "—"}</strong></span>
                 <span className="mx-2">|</span>
                 <span>Tarih: <strong className="text-slate-800">{new Date(activeAssessment.auditDate).toLocaleDateString("tr-TR")}</strong></span>
               </div>
-              <button
-                type="button"
-                onClick={handleExportPdf}
-                disabled={isExportingPdf}
-                title="Tek sayfalık A4 özet raporu PDF olarak indir"
-                className="flex items-center space-x-1.5 bg-rose-700 hover:bg-rose-600 text-white text-[11px] font-black uppercase px-3 py-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-wait cursor-pointer shrink-0"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>{isExportingPdf ? "Hazırlanıyor..." : "PDF'e Aktar"}</span>
-              </button>
+              {isAdmin && (
               <button
                 type="button"
                 onClick={handleExportExcel}
@@ -2597,6 +2391,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                 <FileSpreadsheet className="w-3.5 h-3.5" />
                 <span>{isExportingExcel ? "Hazırlanıyor..." : "Excel'e Aktar"}</span>
               </button>
+              )}
             </div>
           </div>
           {excelExportError && (
