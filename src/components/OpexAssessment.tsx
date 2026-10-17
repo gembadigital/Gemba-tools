@@ -11,6 +11,9 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, BarChart, Bar, Cell
 } from "recharts";
 import Markdown from "react-markdown";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+import { domToCanvas } from "modern-screenshot";
 import gembaGIcon from "../assets/images/gemba_g_icon.png";
 import { computeOpexScores } from "../utils/opexScoring";
 
@@ -615,8 +618,9 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [excelExportError, setExcelExportError] = useState<string | null>(null);
   // Downloads the .xlsx via the browser's save dialog and returns the filename it was saved
-  // under (or null on failure). The Excel workbook is the only report format: a PDF that matches
-  // it page-for-page would need server-side Excel→PDF conversion, which this host doesn't have.
+  // under (or null on failure). The Excel workbook is the full report; "PDF Rapor" below is a
+  // separate one-page summary (a page-for-page PDF of the workbook would need server-side
+  // Excel→PDF conversion, which this host doesn't have).
   const downloadOpexExcel = async (): Promise<string | null> => {
     if (!activeAssessment || !token) return null;
     try {
@@ -655,6 +659,181 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     await downloadOpexExcel();
     setIsExportingExcel(false);
   };
+
+  // jsPDF's built-in standard fonts (Helvetica etc.) only support WinAnsi/Latin-1 — İ, ı, Ş, ş,
+  // Ğ, ğ aren't in that set and render as garbled digits/symbols (Ç/ç/Ö/ö/Ü/ü are fine, they're
+  // valid Latin-1). Transliterate just those five letters rather than embedding a Unicode font
+  // just for this export — same fix OpexProjectDashboard.tsx's PDF export already uses.
+  const pdfSafe = (s: string): string => String(s)
+    .replace(/İ/g, "I").replace(/ı/g, "i")
+    .replace(/Ş/g, "S").replace(/ş/g, "s")
+    .replace(/Ğ/g, "G").replace(/ğ/g, "g");
+
+  const captureChartImage = async (elementId: string): Promise<{ dataUrl: string; aspectRatio: number } | null> => {
+    const el = document.getElementById(elementId);
+    if (!el) return null;
+    try {
+      const canvas = await domToCanvas(el, { scale: 2, backgroundColor: "#ffffff" });
+      if (canvas.width === 0 || canvas.height === 0) return null;
+      return { dataUrl: canvas.toDataURL("image/png", 1.0), aspectRatio: canvas.width / canvas.height };
+    } catch (e) {
+      console.error(`Failed to capture chart ${elementId} for PDF export`, e);
+      return null;
+    }
+  };
+
+  const loadImageAsDataUrl = async (url: string): Promise<string | null> => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  // A real, self-contained single-page PDF (A4 landscape) — not the .xlsx or a print of the live
+  // page. Captures the actual on-screen radar/bar chart DOM (via domToCanvas, same technique
+  // OpexProjectDashboard.tsx's PDF export uses) and lays the category table, comparison table,
+  // KPI cards and both charts out on one page with jsPDF/autoTable, mirroring the reference
+  // one-page summary report layout.
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const handleExportPdf = async () => {
+    if (!activeAssessment) return;
+    setIsExportingPdf(true);
+    setExcelExportError(null);
+    try {
+      const [radarImg, barImg, logoDataUrl] = await Promise.all([
+        captureChartImage("opex-pdf-radar-chart"),
+        captureChartImage("opex-pdf-bar-chart"),
+        loadImageAsDataUrl(gembaGIcon)
+      ]);
+
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const marginX = 10;
+      const customerName = selectedCustomer?.companyName || "Müşteri";
+      const reportNo = `${new Date().getFullYear().toString().slice(-2)}${String(new Date().getMonth() + 1).padStart(2, "0")}${String(activeAssessment.auditNo || 1).padStart(2, "0")}`;
+
+      // Header banner
+      doc.setFillColor(47, 85, 151); // #2f5597
+      doc.rect(0, 0, pageWidth, 22, "F");
+      if (logoDataUrl) {
+        try { doc.addImage(logoDataUrl, "PNG", marginX, 4, 14, 14); } catch { /* non-fatal */ }
+      }
+      const titleX = logoDataUrl ? marginX + 18 : marginX;
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("Helvetica", "bold");
+      doc.setFontSize(15);
+      doc.text(pdfSafe("OPEX ASSESSMENT"), titleX, 10);
+      doc.setFont("Helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text(pdfSafe(`${customerName} — Assessment Sonuçları`), titleX, 17);
+      doc.setFontSize(8);
+      doc.text(pdfSafe(`Rapor Tarihi/No: ${new Date().toLocaleDateString("tr-TR")} / ${reportNo}`), pageWidth - marginX, 10, { align: "right" });
+      doc.text(pdfSafe(`Denetim No: ${activeAssessment.auditNo || 1}`), pageWidth - marginX, 17, { align: "right" });
+      doc.setTextColor(15, 23, 42);
+
+      const startY = 28;
+      const colGap = 8;
+      const leftW = (pageWidth - marginX * 2 - colGap) * 0.42;
+      const rightX = marginX + leftW + colGap;
+      const rightW = pageWidth - marginX * 2 - leftW - colGap;
+
+      // LEFT: category table (Kategori / Kategori Adı / Hedef / Sonuç)
+      const tableRows = categories.map(cat => {
+        const scorePct = Math.round(activeAssessment.categoryScores[cat.id] || 0);
+        const targetPct = Math.round(activeAssessment.targetScores?.[cat.id] ?? getPreAssessmentMetrics(activeAssessment.targetPreAnswers || []).targetPct);
+        return [cat.id, pdfSafe(cat.name), String(targetPct), String(scorePct)];
+      });
+      autoTable(doc, {
+        startY,
+        margin: { left: marginX },
+        tableWidth: leftW,
+        head: [[pdfSafe("Kategori"), pdfSafe("Kategori Adı"), pdfSafe("Hedef"), pdfSafe("Sonuç")]],
+        body: tableRows,
+        styles: { fontSize: 6.8, cellPadding: 1.3, textColor: [51, 65, 85] },
+        headStyles: { fillColor: [47, 85, 151], textColor: [255, 255, 255], fontStyle: "bold" },
+        columnStyles: {
+          0: { cellWidth: leftW * 0.12, halign: "center", fontStyle: "bold" },
+          1: { cellWidth: leftW * 0.58 },
+          2: { cellWidth: leftW * 0.15, halign: "center" },
+          3: { cellWidth: leftW * 0.15, halign: "center", fontStyle: "bold" }
+        },
+        didParseCell: (data) => {
+          if (data.section === "body" && data.column.index === 3) {
+            const target = Number(data.row.raw[2]);
+            const result = Number(data.row.raw[3]);
+            data.cell.styles.textColor = result >= target ? [4, 120, 87] : result >= target - 15 ? [180, 83, 9] : [190, 18, 60];
+          }
+        }
+      });
+
+      // Below the category table: the bar chart image
+      const afterTableY = (doc as any).lastAutoTable.finalY + 6;
+      if (barImg) {
+        const barH = Math.min(pageHeight - marginX - afterTableY, leftW / barImg.aspectRatio);
+        doc.addImage(barImg.dataUrl, "PNG", marginX, afterTableY, barH * barImg.aspectRatio, barH);
+      }
+
+      // RIGHT, top: Denetleme No / Hedef / Sonuç mini table
+      autoTable(doc, {
+        startY,
+        margin: { left: rightX },
+        tableWidth: rightW * 0.42,
+        head: [[pdfSafe("Denetleme"), pdfSafe("Hedef"), pdfSafe("Sonuç")]],
+        body: overallComparisonData.map(d => [d.name, String(d.Hedef), String(d.Sonuç)]),
+        styles: { fontSize: 7, cellPadding: 1.5, halign: "center", textColor: [51, 65, 85] },
+        headStyles: { fillColor: [47, 85, 151], textColor: [255, 255, 255], fontStyle: "bold" }
+      });
+
+      // RIGHT, top-right: Sistem Seviyesi + Denetim Puanı KPI cards, next to the mini table
+      const cardsX = rightX + rightW * 0.42 + 6;
+      const cardsW = rightW - rightW * 0.42 - 6;
+      const cardH = 18;
+      doc.setFillColor(47, 85, 151);
+      doc.roundedRect(cardsX, startY, cardsW, cardH, 2, 2, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(7);
+      doc.setFont("Helvetica", "bold");
+      doc.text(pdfSafe("SİSTEM SEVİYESİ"), cardsX + 3, startY + 6);
+      doc.setFontSize(11);
+      doc.text(pdfSafe(getSystemLevelText(activeAssessment.overallScore)), cardsX + 3, startY + 14, { maxWidth: cardsW - 6 });
+
+      doc.setFillColor(47, 85, 151);
+      doc.roundedRect(cardsX, startY + cardH + 4, cardsW, cardH, 2, 2, "F");
+      doc.setFontSize(7);
+      doc.text(pdfSafe("DENETİM PUANI"), cardsX + 3, startY + cardH + 4 + 6);
+      doc.setFontSize(16);
+      doc.text(String(Math.round(activeAssessment.overallScore)), cardsX + 3, startY + cardH + 4 + 15);
+      doc.setTextColor(15, 23, 42);
+
+      // RIGHT, bottom: the radar chart image, filling the remaining space
+      const radarTop = startY + Math.max((doc as any).lastAutoTable.finalY - startY, cardH * 2 + 4) + 6;
+      if (radarImg) {
+        const availH = pageHeight - marginX - radarTop;
+        const availW = rightW;
+        let h = Math.min(availH, availW / radarImg.aspectRatio);
+        let w = h * radarImg.aspectRatio;
+        if (w > availW) { w = availW; h = w / radarImg.aspectRatio; }
+        doc.addImage(radarImg.dataUrl, "PNG", rightX + (availW - w) / 2, radarTop, w, h);
+      }
+
+      doc.save(`${(customerName.split(/\s+/)[0] || customerName)}-${reportNo}.pdf`);
+    } catch (e: any) {
+      console.error("Failed to generate OpEx PDF summary", e);
+      setExcelExportError(e.message || "PDF raporu oluşturulamadı.");
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
 
   // Merge & lock (Admin only): the server takes every assessor's latest saved answers, fills
   // unanswered questions with 0, recomputes the scores and locks the audit.
@@ -2380,6 +2559,18 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                 <span className="mx-2">|</span>
                 <span>Tarih: <strong className="text-slate-800">{new Date(activeAssessment.auditDate).toLocaleDateString("tr-TR")}</strong></span>
               </div>
+              {isAdmin && (
+              <button
+                type="button"
+                onClick={handleExportPdf}
+                disabled={isExportingPdf}
+                title="Tek sayfalık A4 özet rapor (PDF). Tam rapor için Excel'e Aktar."
+                className="flex items-center space-x-1.5 bg-rose-700 hover:bg-rose-600 text-white text-[11px] font-black uppercase px-3 py-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-wait cursor-pointer shrink-0"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>{isExportingPdf ? "Hazırlanıyor..." : "PDF Rapor"}</span>
+              </button>
+              )}
               {isAdmin && (
               <button
                 type="button"
