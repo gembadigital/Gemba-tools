@@ -1,4 +1,6 @@
-import { computeOpexScores, OpexScoringCategory, OpexScoringQuestion } from "../utils/opexScoring";
+// ".js" required: Vercel runs this server as native ESM (see api/index.ts).
+import { computeOpexScores } from "../utils/opexScoring.js";
+import type { OpexScoringCategory, OpexScoringQuestion } from "../utils/opexScoring.js";
 
 // OpEx Assessment is filled in by several assessors at once: the Admin splits the 18 categories
 // between people (e.g. A-D → one consultant, E-G → another), each assessor scores only their own
