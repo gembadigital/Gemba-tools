@@ -50,6 +50,7 @@ sunucu yalnızca login ekranına kadar açılıyor. Bu oturumdaki UI değişikli
 
 | `7dab826` | Kontrol turu: Yamazumi'deki "Örnek Üretim Verilerini Yükle" (sabit demo veri seti) → "Tabloyu Temizle"; Şirket Profili kişi listesindeki sabit Arçelik yönetici isim/e-posta fallback'i kaldırıldı; 5S seviyesi 0 girilebilir. |
 | `14404e7` | Uygulama kabuğu `h-screen`: sol menü sabit (yalnızca ekran kısaysa kendi içinde kayar), sayfa içeriği çerçeveli (`#app-main-scroll`) alanda kendi kaydırmasıyla. Pencereyi kaydıran kod artık `#app-main-scroll`'u kaydırmalı. |
+| `8c1686d` | **OpEx Assessment çok denetçili akış:** Admin denetimi açar ve bölümleri (A-D → X, E-G → Y) atar; denetçi yalnızca kendi bölümlerini puanlar/yorumlar; Admin "Bölümleri Birleştir ve Kilitle" + Excel indirir. Sunucu kaydı bölüm bazında birleştirir (`src/server/opexMerge.ts`, istemci `_editedCategories` gönderir), skorları kendisi hesaplar (`src/utils/opexScoring.ts`). Simülasyon seçicisi ve özet-PDF kaldırıldı; rapor yalnızca Excel. |
 
 > Not: `3dd420a`, `f972afa`, `658995a`, `549cc48` (Danışman Faaliyet Özeti zengin metin/arşiv filtresi)
 > ve Kaizen/5S/OpEx commit'leri (`383dabd`, `0898645`, `6426898`, …) başka oturumlarda yapıldı;
@@ -109,6 +110,7 @@ alanında (base64 data URI) tutulur.
 4. Filtre aktifken Yukarı/Aşağı yeniden numaralandırma, gizli faaliyetlerle numara çakışması
    üretebilir (eski davranışın devamı).
 5. Danışman özeti e-posta gövdesine yazılır; ayrıca txt/doc ek yolu **kurulmadı** (gerek kalmadı).
+8. OpEx denetçi listesi = giriş yapan kullanıcı + müşterinin birincil/ikincil danışmanları (`/customers/:id/team`). Müşteriye atanmamış danışman listede görünmez. OpEx "AI Yönetici Özeti" çağrısı hâlâ sabit örnek istatistik + sabit danışman adı gönderiyor (`OpexAssessment.tsx` executive-insights).
 7. Eski kayıtlarda `factory_id` boşsa `db.ts`/`app.ts` hâlâ `"arcelik_bolu"` varsayılanına düşüyor (gerçek müşteri id'si değil; kayıt görünmez olur). Zararsız eski kalıntı, temizlenmedi.
 6. Tekrarlayan hata sınıfı: sayısal form alanlarında **`||` fallback'i gerçek `0`'ı sahte değere
    çevirir** (adam-gün, fabrika ölçüsü, import). `??` veya `isNaN` kontrolü kullanın; başka yerlerde
