@@ -2451,7 +2451,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                       className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-xs flex items-center space-x-1.5 transition-all cursor-pointer disabled:opacity-50 shrink-0"
                     >
                       <Brain className="w-3.5 h-3.5" />
-                      <span>{aiCategoryLoading === selectedCategoryId ? "Analiz Ediliyor..." : "AI Değerlendirmesi Üret (3 Cümle)"}</span>
+                      <span>{aiCategoryLoading === selectedCategoryId ? "Analiz Ediliyor..." : "AI Değerlendirmesi Üret"}</span>
                     </button>
                   )}
                 </div>
@@ -2461,7 +2461,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                     disabled={!canEditCategory(selectedCategoryId)}
                     rows={4}
                     className="w-full text-xs bg-white border border-slate-200 focus:outline-none focus:border-slate-400 rounded-xl p-3 placeholder-slate-400 font-semibold text-slate-700 leading-relaxed shadow-xs"
-                    placeholder="Bölüme dair genel tespitlerinizi buraya yazın veya üstteki AI butonuna basarak anket puanlarına göre otomatik 3 cümlelik klinik değerlendirme raporu oluşturun..."
+                    placeholder="Bölüme dair genel tespitlerinizi buraya yazın veya üstteki AI butonuyla verdiğiniz puanlara göre bir değerlendirme taslağı oluşturun..."
                     value={(activeAssessment.categoryComments && activeAssessment.categoryComments[selectedCategoryId]) || ""}
                     onChange={(e) => handleCategoryCommentChange(selectedCategoryId, e.target.value)}
                     onBlur={() => handleSaveDraft(undefined, undefined, activeAssessment.categoryComments)}
@@ -2470,7 +2470,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                   {/* AI Info Tip */}
                   <div className="flex items-center space-x-1.5 text-[10px] text-slate-400 font-bold uppercase">
                     <Sparkles className="w-3.5 h-3.5 text-purple-500" />
-                    <span>Yapay zeka asistanı, bu kategorideki her soruya verdiğiniz puanları ve saha notlarını analiz ederek 3 cümlelik teknik yorum üretir.</span>
+                    <span>Yapay zeka asistanı, bu bölümdeki puanları ve saha tespitlerini analiz ederek bir değerlendirme taslağı hazırlar; metni dilediğiniz gibi düzenleyebilirsiniz.</span>
                   </div>
                 </div>
               </div>
