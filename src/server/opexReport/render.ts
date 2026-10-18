@@ -552,12 +552,12 @@ function methodTopicsPage(p: Pages, m: ReportModel) {
   const weights = m.criteria.map(c => c.weight).filter(w => w > 0);
   const wMin = weights.length ? Math.min(...weights) : 0, wMax = weights.length ? Math.max(...weights) : 0;
   p.page(`
-<h2 class="headline">Değerlendirme konuları: ${m.areas.length} alan, ${m.criteria.length} kriter. Her alan 0–100 arası skorlanır; genel skor alan skorlarının ortalamasıdır.</h2>
+<h2 class="headline">Değerlendirme konuları: ${m.areas.length} alan, ${m.criteria.length} kriter. Her alan 0–100 arası skorlanır; genel skor ${m.areas.length} alan skorunun toplamının ${m.areas.length}'e bölünmesiyle bulunur.</h2>
 <div class="tps">${tiles}</div>
 <div class="formula">
  <div><span class="label">Kriter</span><b>puan (0–5) × ağırlık (${num(wMin)}–${num(wMax)})</b></div><i>→</i>
  <div><span class="label">Alan skoru</span><b>Σ(puan × ağırlık) ÷ (5 × Σ ağırlık) × 100</b></div><i>→</i>
- <div><span class="label">Genel skor</span><b>alan skorlarının ortalaması</b></div><i>→</i>
+ <div><span class="label">Genel skor</span><b>Σ alan skorları ÷ ${m.areas.length}</b></div><i>→</i>
  <div><span class="label">Seviye</span><b>${OPEX_LEVELS.map(l => esc(l.range)).join(" · ")}</b></div>
 </div>`, "Değerlendirme metodu", "method");
 }

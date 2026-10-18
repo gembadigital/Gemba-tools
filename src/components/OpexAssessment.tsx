@@ -1821,7 +1821,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                   const targetScore = activeAssessment.targetScores?.[cat.id];
                   const hasTarget = targetScore !== undefined;
                   const targetPct = hasTarget ? Math.round(targetScore) : 0;
-                  const resultPct = Math.round(activeAssessment.categoryScores[cat.id] || 0);
+                  const resultPct = Math.round((activeAssessment.categoryScores[cat.id] || 0) * 10) / 10;
 
                   // Status check
                   let statusText = "";
@@ -2899,7 +2899,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                     </thead>
                     <tbody className="divide-y divide-slate-150 font-bold text-slate-700">
                       {categories.map((cat, idx) => {
-                        const scorePct = Math.round(activeAssessment.categoryScores[cat.id] || 0);
+                        const scorePct = Math.round((activeAssessment.categoryScores[cat.id] || 0) * 10) / 10;
                         // A category with no explicit targetScores entry falls back to the same
                         // quiz-derived default the Hedef Puan Belirleme tab itself shows, so the
                         // two never disagree.
@@ -3112,8 +3112,8 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                             </thead>
                             <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
                               {categories.map((cat) => {
-                                const prevPct = Math.round(previousAssessment.categoryScores[cat.id] || 0);
-                                const currPct = Math.round(activeAssessment.categoryScores[cat.id] || 0);
+                                const prevPct = Math.round((previousAssessment.categoryScores[cat.id] || 0) * 10) / 10;
+                                const currPct = Math.round((activeAssessment.categoryScores[cat.id] || 0) * 10) / 10;
                                 const diff = currPct - prevPct;
 
                                 return (

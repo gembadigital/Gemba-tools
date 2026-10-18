@@ -24,14 +24,17 @@ export const OPEX_NOT_APPLICABLE = -2;
 // reaches 100 at "all 5" regardless of whether its bank weights happen to sum to exactly 20.
 // Unanswered (-1) questions are left out entirely — they neither score nor donate weight.
 //
-// Overall score = arithmetic mean of the categories that have at least one scored question.
+// Overall score = Σ category scores ÷ number of categories (e.g. 18): a category with nothing
+// scored yet counts as 0, so a partly filled audit shows a correspondingly low provisional score
+// (only A done at 40.5 → 40.5 ÷ 18 = 2.25). A category whose questions are all N/A is out of
+// scope and left out of the count.
 export function computeOpexScores(
   questions: OpexScoringQuestion[],
   categories: OpexScoringCategory[],
   answers: Record<string, number>
 ): { categoryScores: Record<string, number>; overallScore: number } {
   const categoryScores: Record<string, number> = {};
-  const scoredCategoryIds: string[] = [];
+  const countedCategoryIds: string[] = [];
 
   categories.forEach(cat => {
     const catQuestions = questions.filter(q => q.categoryId === cat.id);
@@ -40,11 +43,12 @@ export function computeOpexScores(
       .filter(q => answers[q.id] === OPEX_NOT_APPLICABLE)
       .reduce((s, q) => s + (Number(q.weight) || 0), 0);
 
+    const allNotApplicable = catQuestions.length > 0 && catQuestions.every(q => answers[q.id] === OPEX_NOT_APPLICABLE);
+    if (!allNotApplicable) countedCategoryIds.push(cat.id);
     if (scored.length === 0) {
       categoryScores[cat.id] = 0;
       return;
     }
-    scoredCategoryIds.push(cat.id);
 
     const share = naWeight / scored.length;
     let points = 0;
@@ -57,8 +61,8 @@ export function computeOpexScores(
     categoryScores[cat.id] = maxPoints > 0 ? Math.round((points / maxPoints) * 100 * 100) / 100 : 0;
   });
 
-  const overallScore = scoredCategoryIds.length > 0
-    ? Math.round((scoredCategoryIds.reduce((s, id) => s + categoryScores[id], 0) / scoredCategoryIds.length) * 100) / 100
+  const overallScore = countedCategoryIds.length > 0
+    ? Math.round((countedCategoryIds.reduce((s, id) => s + categoryScores[id], 0) / countedCategoryIds.length) * 100) / 100
     : 0;
 
   return { categoryScores, overallScore };

@@ -112,7 +112,7 @@ alanında (base64 data URI) tutulur.
   ya da bu denetimde denetçiyse; Customer User asla.
 - **Sabit içerik (logo, unvan, adres, telefon, gizlilik, ölçek, hedef kuralı, yönetim kararları, kısa alan adları):**
   `src/server/opexReport/config.ts`, logo `logo.ts` (base64), stil `styles.ts`. Seviye adları/renkleri: `src/utils/opexScoring.ts` (`OPEX_LEVELS`).
-- **Puan:** `computeOpexScores` (`src/utils/opexScoring.ts`) — alan = Σpuan×w' ÷ (5×Σw') ×100, w' = ağırlık + alanın N/A ağırlığının eşit payı; genel = puanlanan alanların ortalaması. İstemci, sunucu, Excel ve rapor aynı fonksiyonu kullanır.
+- **Puan:** `computeOpexScores` (`src/utils/opexScoring.ts`) — alan = Σpuan×w' ÷ (5×Σw') ×100, w' = ağırlık + alanın N/A ağırlığının eşit payı; genel = Σ alan skorları ÷ alan sayısı (18); puanlanmamış alan 0 sayılır, tamamı N/A olan alan sayıya katılmaz. İstemci, sunucu, Excel ve rapor aynı fonksiyonu kullanır.
 - **Sayfalama:** satır yükseklik tahmini (`render.ts` `detailRowMm`, `DETAIL_BODY_MM`) + Chromium ölçüm döngüsü (`pdf.ts` `renderReportPdf`) taşan sayfayı bölüp yeniden üretir. Sayfa sınırı yok.
 - **Test:** `scripts/opex-report-test.ts` (FUGA fixture `scripts/fixtures/opex-report-fuga.json`, ACME ≈22, yüksek skor). Çalıştırma komutu dosya başında; yerel Chrome gerekir.
 
