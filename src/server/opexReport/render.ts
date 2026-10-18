@@ -503,9 +503,9 @@ function areaPages(p: Pages, m: ReportModel, o: LayoutOptions) {
 const TOC: { key: string; title: string; sub?: string }[] = [
   { key: "method", title: "Değerlendirme metodu", sub: "Hedef puan · puanlama ölçeği · değerlendirme konuları · olgunluk seviyeleri" },
   { key: "exec", title: "Yönetici özeti", sub: "Genel skor, tek bakışta bulgular, yönetimden beklenen kararlar" },
-  { key: "sections", title: "Bölüm değerlendirmeleri", sub: "Her bölümün genel değerlendirmesi (denetçi)" },
   { key: "radar", title: "Genel skor değerlendirmesi", sub: "Olgunluk radarı ve alan skorları" },
   { key: "summary", title: "Özet değerlendirme tablosu", sub: "Alan skoru, seviye, hedefe fark, öncelik" },
+  { key: "sections", title: "Bölüm değerlendirmeleri", sub: "Her bölümün genel değerlendirmesi (denetçi)" },
   { key: "bp", title: "Best practice uygulamalar", sub: "5 puan alan ya da best practice olarak işaretlenen kriterler" },
   { key: "gaps", title: "Kritik boşluklar" },
   { key: "roadmap", title: "90 günlük yol haritası" },
@@ -625,9 +625,9 @@ function buildPages(m: ReportModel, opts: LayoutOptions, pageOf: Record<string, 
   methodTopicsPage(p, m);
   processPage(p, m);
   execSummaryPage(p, m, opts);
-  sectionEvaluationPages(p, m, opts);
   radarPage(p, m);
   summaryTablePage(p, m, opts);
+  sectionEvaluationPages(p, m, opts);
   bestPracticePages(p, m, opts);
   criticalGapsPage(p, m, opts);
   roadmapPage(p, m);
