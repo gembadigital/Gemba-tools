@@ -7,6 +7,7 @@ import { generateOpexTemplateExcel, isOpexTemplateAvailable, buildOpexExportFile
 import { mergeOpexAssessmentSave } from "./opexMerge.js";
 import { loadExecutiveReport } from "./opexReport/load.js";
 import { analyzePtrRecords } from "./ptrDigest.js";
+import { buildFacts, generateConsultantBrief } from "./opexReport/consultantBrief.js";
 import { renderReportHtml } from "./opexReport/render.js";
 import * as XLSX from "xlsx";
 
@@ -2997,6 +2998,40 @@ app.get("/api/business/opex-assessments/:id/export-excel", authenticateToken, as
   } catch (e: any) {
     console.error("Failed to generate OpEx template Excel", e);
     res.status(500).json({ success: false, error: "Excel raporu oluşturulamadı: " + (e.message || "bilinmeyen hata") });
+  }
+});
+
+// "Danışman Özet Sunumu": AI brief built from THIS audit only (scores, evaluator comments, field
+// findings, best practices, roadmap, the previous audit) — what the OpEx screen's AI button calls.
+// Same access rules as the executive report, except a team consultant may also preview an audit
+// that is still open (the brief then says how many criteria are unanswered). The brief is stored on
+// the assessment, and its quick wins also become the report's "Hızlı Kazanım" page, so the screen
+// and the PDF never show two different lists.
+app.post("/api/business/opex-assessments/:id/ai-brief", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const loaded = await loadExecutiveReport(user, req.params.id, { skipQuickWins: true, allowDraft: true });
+  if (loaded.ok === false) {
+    res.status(loaded.status).json({ success: false, error: loaded.error });
+    return;
+  }
+  try {
+    const assessment = await db.getOpexAssessmentById(user.organization_id, req.params.id);
+    const siblings = (await db.getOpexAssessments(user.organization_id))
+      .filter((a: any) => a.customerId === assessment.customerId && a.id !== assessment.id && a.status === "completed" && new Date(a.created_at).getTime() < new Date(assessment.created_at).getTime())
+      .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const prev = siblings[0];
+    const previous = prev ? { name: prev.auditName || "Önceki denetim", date: prev.auditDate || "", overall: Math.round((prev.overallScore || 0) * 10) / 10 } : null;
+    const facts = buildFacts(loaded.model, previous, assessment.status === "completed");
+    const brief = await generateConsultantBrief(loaded.model, facts);
+    await db.saveOpexAssessment(user.organization_id, {
+      id: assessment.id,
+      aiBrief: brief,
+      quickWins: { items: brief.quickWins, generatedAt: brief.generatedAt, source: "ai" },
+    }, user.id);
+    res.json({ success: true, data: brief });
+  } catch (e: any) {
+    console.error("OpEx AI brief failed", e);
+    res.status(500).json({ success: false, error: `Danışman özet sunumu oluşturulamadı: ${e?.message || "bilinmeyen hata"}` });
   }
 });
 

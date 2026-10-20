@@ -75,6 +75,7 @@ export interface ReportModel {
   firm: string;
   reportNo: string;
   reportDate: string;
+  auditName: string;
   auditDate: string;
   assessors: string;
   participants: string;
@@ -193,6 +194,7 @@ export function buildReportModel(input: ReportInput): ReportModel {
     firm: input.customerName,
     reportNo: input.reportNo,
     reportDate: input.reportDate,
+    auditName: pick(a?.auditName),
     auditDate,
     assessors: pick(a?.assessorParticipants),
     participants: pick(a?.customerParticipants),

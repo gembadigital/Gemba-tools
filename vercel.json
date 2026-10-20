@@ -17,7 +17,8 @@
   ],
   "functions": {
     "api/index.ts": {
-      "includeFiles": "assets/**"
+      "includeFiles": "assets/**",
+      "maxDuration": 60
     },
     "api/opex-report.ts": {
       "maxDuration": 60,

@@ -62,6 +62,7 @@ interface Assessment {
   // Executive report inputs
   bestPractices?: Record<string, OpexBestPractice>; // questionId -> evaluator's best-practice pick
   executiveSummary?: string; // optional headline; generated from data when empty
+  aiBrief?: any; // last AI "Danışman Özet Sunumu" (server-stored, see consultantBrief.ts)
   roadmap?: OpexRoadmapWave[]; // evaluator-written 90-day plan; section hidden when empty
   completed_at?: string;
 }
@@ -335,7 +336,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
   const markEdited = (catId: string) => { if (catId) editedCategoriesRef.current.add(catId); };
 
   // AI State
-  const [aiReport, setAiReport] = useState<string | null>(null);
+  const [aiBrief, setAiBrief] = useState<any | null>(null); // Danışman Özet Sunumu generated this session (saved one lives on the assessment)
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiCategoryLoading, setAiCategoryLoading] = useState<string | null>(null);
@@ -368,7 +369,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
 
   useEffect(() => {
     fetchAssessments();
-    setAiReport(null);
+    setAiBrief(null);
     setAiError(null);
   }, [selectedCustomer?.id]);
 
@@ -426,7 +427,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     const selected = assessments.find(a => a.id === id);
     if (selected) {
       setActiveAssessment(selected);
-      setAiReport(null);
+      setAiBrief(null);
       setAiError(null);
     }
   };
@@ -1241,94 +1242,27 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     });
   }, [customerAssessments]);
 
-  // AI Insights with Gemini
+  // Danışman Özet Sunumu — the server builds it from this audit only (scores, evaluator comments,
+  // field findings, best practices, roadmap, previous audit). The previous version posted a prompt
+  // to the portfolio-level executive-insights endpoint, which ignored it and wrote a generic
+  // summary from hard-coded placeholder numbers — so the output had nothing to do with the audit.
   const handleTriggerAiInsight = async () => {
     if (!activeAssessment || !token) return;
     setIsAiLoading(true);
     setAiError(null);
-    setAiReport(null);
-
-    // Compute strong & weak areas
-    const scores = Object.entries(activeAssessment.categoryScores).map(([id, val]) => {
-      const cat = categories.find(c => c.id === id);
-      return { id, score: val, name: cat?.name || "" };
-    });
-
-    const sortedScores = [...scores].sort((a,b) => b.score - a.score);
-    const strengths = sortedScores.slice(0, 3);
-    const weaknesses = sortedScores.slice(-3).reverse();
-
-    const prompt = `
-      Sen 15+ yıllık saha tecrübesine sahip seçkin bir Kıdemli Operasyonel Mükemmellik (OpEx) ve Yalın Üretim Danışmanısın.
-      Aşağıdaki fabrikanın OpEx Değerlendirme Sonuçlarını detaylı olarak analiz et:
-      
-      FABRİKA BİLGİLERİ:
-      - Firma Adı: ${selectedCustomer?.companyName}
-      - Sektör: ${selectedCustomer?.industry}
-      - Üretim Tipi: ${selectedCustomer?.productionType}
-      - Çalışan Sayısı: ${selectedCustomer?.employeeCount}
-      
-      DENETİM DETAYLARI:
-      - Denetim Adı: ${activeAssessment.auditName}
-      - Genel OpEx Olgunluk Puanı: ${activeAssessment.overallScore} / 100
-      - En Güçlü 3 Alan:
-        ${strengths.map(s => `  * ${s.id} - ${s.name}: ${s.score} / 100`).join("\n")}
-      - En Fazla Gelişime Açık (Zayıf) 3 Alan:
-        ${weaknesses.map(w => `  * ${w.id} - ${w.name}: ${w.score} / 100`).join("\n")}
-
-      Tüm Kategori Puanları (100 üzerinden):
-      ${scores.map(s => `* ${s.id} - ${s.name}: ${s.score}`).join("\n")}
-      
-      Lütfen bu verilere dayanarak, tesis yöneticisine hitaben son derece klinik, net, saha gerçeklerine uygun ve heyecan verici olmayan teknik bir OpEx İyileştirme Yol Haritası hazırla. Rapor tamamen Türkçe olmalı ve şu markdown başlıklarını içermelidir:
-      
-      ### 1. Genel Olgunluk Seviyesi ve Yalın Durum Değerlendirmesi
-      - Genel olgunluk puanı ${activeAssessment.overallScore} (100 üzerinden) olan bu tesisi sektör kriterlerine göre nerede konumlandırıyoruz? Bu olgunluğun saha kültürüne yansıması nasıldır?
-      
-      ### 2. Kritik Güçlü Alanlar ve Sürdürülebilirlik Stratejisi
-      - En güçlü 3 alanın (${strengths.map(s => s.name).join(", ")}) getirilerini yorumla. Bu başarıların tesiste standart hale gelmesi için ne yapılmalı?
-      
-      ### 3. Zayıf Alanlar ve Acil Müdahale Gerektiren Muda (Kayıp) Odakları
-      - En zayıf 3 alanı (${weaknesses.map(w => w.name).join(", ")}) derinlemesine analiz et. Bu alanlardaki düşük skorların fabrikadaki verimsizliklere ve finansal kayıplara etkisi nedir?
-      
-      ### 4. 6 Aylık Öncelikli İyileştirme Yol Haritası ve Beklenen Kazançlar
-      - Gelecek 6 ayda atılması gereken somut, mekanik, saha bazlı (Kaizen, 5S, SMED, Standart İş, Otonom Bakım, Görsel Yönetim vb.) 3-4 kritik iyileştirme adımını planla.
-      
-      Giriş veya sonuçta yapay zeka jargonu (örn. "Harika bir gün dilerim", "Analizi sizin için derledim") veya gereksiz pazarlama süslemeleri kullanma. Doğrudan profesyonel bulgulara odaklan.
-    `;
-
     try {
-      const resp = await fetch("/api/gemini/executive-insights", {
+      const resp = await fetch(`/api/business/opex-assessments/${activeAssessment.id}/ai-brief`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          year: "2026",
-          consultant: "Atakan Zehir",
-          stats: {
-            activeCustomers: 1,
-            ongoingProjects: 2,
-            completedProjects: 1,
-            totalCiProjects: 3,
-            totalKaizens: 15,
-            expectedSavings: 2000000,
-            realizedSavings: 1500000,
-            avgSuccessRate: activeAssessment.overallScore
-          },
-          consultantPerformance: [],
-          capacityData: [],
-          riskDistribution: { healthy: 1, risky: 0, critical: 0 },
-          portfolioData: [],
-          customPrompt: prompt // Sending prompt to customize executive insights output
-        })
+        headers: { "Authorization": `Bearer ${token}` }
       });
-
-      const res = await resp.json();
+      const res = await resp.json().catch(() => ({ success: false, error: "Sunucu yanıtı okunamadı." }));
       if (res.success) {
-        setAiReport(res.report);
+        setAiBrief(res.data);
+        const patch = (a: Assessment): Assessment => a.id === activeAssessment.id ? { ...a, aiBrief: res.data, quickWins: { items: res.data.quickWins } } as any : a;
+        setAssessments(prev => prev.map(patch));
+        setActiveAssessment(prev => prev ? patch(prev) : prev);
       } else {
-        setAiError(res.error || "Yapay zeka analizi oluşturulamadı. Lütfen sunucu bağlantısını doğrulayın.");
+        setAiError(res.error || "Danışman özet sunumu oluşturulamadı.");
       }
     } catch (err: any) {
       setAiError(err.message || "Bilinmeyen sunucu bağlantı hatası.");
@@ -1336,6 +1270,19 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
       setIsAiLoading(false);
     }
   };
+
+  const briefToText = (b: any): string => {
+    const cr = (c: string[]) => (c?.length ? ` [${c.join(", ")}]` : "");
+    const lines: string[] = [`${b.facts.firm} — Yalın Olgunluk Değerlendirmesi: Danışman Özeti`, "", b.headline, ""];
+    if (b.strengths?.length) lines.push("ÜZERİNE İNŞA EDİLECEK GÜÇLÜ YÖNLER", ...b.strengths.map((p: any) => `- ${p.title}: ${p.detail}${cr(p.criteria)}`), "");
+    if (b.gaps?.length) lines.push("KRİTİK BOŞLUKLAR", ...b.gaps.map((p: any) => `- ${p.title}: ${p.detail}${cr(p.criteria)}`), "");
+    if (b.quickWins?.length) lines.push("HIZLI KAZANIMLAR (en fazla 4 hafta)", ...b.quickWins.map((q: any, i: number) => `${i + 1}. ${q.title} — ${q.action}${q.impact ? ` Etki: ${q.impact}` : ""}${q.duration ? ` (${q.duration})` : ""}${cr(q.criteria)}`), "");
+    if (b.next90?.length) lines.push("90 GÜNLÜK ÖNCELİKLER", ...b.next90.flatMap((w: any) => [`${w.when} · ${w.title}`, ...w.items.map((i: string) => `  - ${i}`)]), "");
+    if (b.decisions?.length) lines.push("YÖNETİMDEN BEKLENEN KARARLAR", ...b.decisions.map((d: string) => `- ${d}`), "");
+    if (b.kpis?.length) lines.push("BAŞARI ÖLÇÜTLERİ", ...b.kpis.map((k: string) => `- ${k}`));
+    return lines.join("\n");
+  };
+  const [briefCopied, setBriefCopied] = useState(false);
 
   const assignedAssessorId = activeAssessment?.assessorAssignments?.[selectedCategoryId] || "";
   const hasPermission = activeAssessment ? (canEditCategory(selectedCategoryId) || activeAssessment.status === "completed") : true;
@@ -3161,55 +3108,178 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
 
           </div>
 
-          {/* AI CONSULTANT FEEDBACK (POWERED BY GEMINI) */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-              <div>
-                <h3 className="text-sm font-black text-slate-950 uppercase tracking-tight flex items-center gap-2">
-                  <Brain className="w-5 h-5 text-indigo-600 animate-pulse shrink-0" />
-                  <span>Yapay Zeka OpEx Analiz Raporu (Senior Lean Consultant Engine)</span>
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Fabrika olgunluk verileri analiz edilerek Gemini tarafından üretilen stratejik yol haritası
-                </p>
+          {/* DANIŞMAN ÖZET SUNUMU (AI) — built from this audit only */}
+          {(() => {
+            const brief: any = aiBrief || (activeAssessment as any)?.aiBrief || null;
+            const f = brief?.facts;
+            const Chips = ({ ids }: { ids?: string[] }) => ids && ids.length ? (
+              <span className="inline-flex flex-wrap gap-1 ml-1">{ids.map(i => <span key={i} className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-[10px] font-mono font-bold text-slate-600">{i}</span>)}</span>
+            ) : null;
+            const Section = ({ title, tone, children }: { title: string; tone: string; children: React.ReactNode }) => (
+              <div className={`rounded-2xl border p-5 space-y-3 ${tone}`}>
+                <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-700">{title}</h4>
+                {children}
               </div>
-              <button
-                disabled={isAiLoading}
-                onClick={handleTriggerAiInsight}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-all flex items-center justify-center space-x-2 shrink-0 cursor-pointer"
-              >
-                <Sparkles className="w-4 h-4 shrink-0 animate-spin-slow" />
-                <span>{isAiLoading ? "Analiz Ediliyor..." : "AI Olgunluk Analizi Üret"}</span>
-              </button>
-            </div>
+            );
+            return (
+              <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-slate-100 pb-4">
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-black text-slate-950 uppercase tracking-tight flex items-center gap-2">
+                      <Brain className="w-5 h-5 text-indigo-600 shrink-0" />
+                      <span>Danışman Özet Sunumu (Yapay Zeka Destekli)</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 max-w-2xl leading-relaxed">
+                      Yalnızca bu denetimin skorlarından, bölüm değerlendirmelerinden, saha tespitlerinden ve best practice kayıtlarından üretilir. Her madde dayandığı kriter numaralarını gösterir; raporun “Hızlı Kazanım” sayfası da buradaki listeyi kullanır.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {brief && (
+                      <button
+                        onClick={() => { navigator.clipboard?.writeText(briefToText(brief)); setBriefCopied(true); setTimeout(() => setBriefCopied(false), 2000); }}
+                        className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-bold text-xs px-3 py-2.5 rounded-xl transition-all cursor-pointer"
+                      >
+                        {briefCopied ? "Kopyalandı" : "Metni Kopyala"}
+                      </button>
+                    )}
+                    <button
+                      disabled={isAiLoading || !token}
+                      onClick={handleTriggerAiInsight}
+                      className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-all flex items-center justify-center space-x-2 cursor-pointer"
+                    >
+                      <Sparkles className="w-4 h-4 shrink-0" />
+                      <span>{isAiLoading ? "Hazırlanıyor…" : brief ? "Sunumu Yeniden Üret" : "Danışman Özet Sunumunu Üret"}</span>
+                    </button>
+                  </div>
+                </div>
 
-            {/* AI Output renderer */}
-            {isAiLoading && (
-              <div className="p-8 text-center space-y-3">
-                <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-                <p className="text-xs text-slate-500 font-bold uppercase animate-pulse">Gemba Verileri ve Rubrik Tanımları Yapay Zeka Tarafından Analiz Ediliyor...</p>
-              </div>
-            )}
+                {isAiLoading && (
+                  <div className="p-8 text-center space-y-3">
+                    <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                    <p className="text-xs text-slate-500 font-bold animate-pulse">Denetim sonuçları okunuyor, sunum hazırlanıyor (20–40 sn sürebilir)…</p>
+                  </div>
+                )}
 
-            {aiError && (
-              <div className="bg-red-50 border border-red-200 text-red-800 text-xs p-4 rounded-xl flex items-center space-x-2 font-semibold">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{aiError}</span>
-              </div>
-            )}
+                {aiError && (
+                  <div className="bg-red-50 border border-red-200 text-red-800 text-xs p-4 rounded-xl flex items-center space-x-2 font-semibold">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{aiError}</span>
+                  </div>
+                )}
 
-            {aiReport && !isAiLoading && (
-              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-6 prose max-w-none text-slate-800">
-                <Markdown>{aiReport}</Markdown>
-              </div>
-            )}
+                {brief && f && !isAiLoading && (
+                  <div className="space-y-4">
+                    <p className="text-[11px] text-slate-500">
+                      <b className="text-slate-700">Dayanak:</b> {f.auditName || "Denetim"}{f.auditDate ? ` · ${f.auditDate}` : ""} · {f.criteriaScored}/{f.criteriaTotal} kriter puanlandı · {f.areaCount} alan
+                      {f.previous ? ` · Önceki denetim: ${f.previous.name} (${f.previous.overall})` : ""}
+                      {brief.generatedAt ? ` · Üretim: ${new Date(brief.generatedAt).toLocaleString("tr-TR")}` : ""}
+                    </p>
+                    {!f.complete && (
+                      <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs p-3 rounded-xl font-semibold">
+                        Denetim henüz tamamlanmadı{f.unanswered ? ` (${f.unanswered} kriter değerlendirilmemiş)` : ""}; bu sunum ön değerlendirmedir, denetim kilitlendikten sonra yeniden üretin.
+                      </div>
+                    )}
 
-            {!aiReport && !isAiLoading && (
-              <div className="p-6 text-center text-slate-400 text-xs">
-                Sahanın güçlü/zayıf yanlarını ve 6 aylık öncelikli iyileştirme adımlarını içeren yapay zeka danışmanlık raporunu yukarıdaki butona tıklayarak oluşturabilirsiniz.
+                    <div className="rounded-2xl bg-slate-900 text-white p-5">
+                      <p className="text-base font-bold leading-snug">{brief.headline}</p>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4 text-center">
+                        {[
+                          ["Genel skor", `${f.overall} / 100`],
+                          ["Seviye", f.level],
+                          ["Hedef", `${f.target}`],
+                          [f.gap > 0 ? "Hedefe uzaklık" : "Hedefin üzerinde", `${Math.abs(f.gap)} puan`],
+                          ["0–1 puanlı kriter", `${f.lowCount} / ${f.criteriaScored}`],
+                        ].map(([k, v]) => (
+                          <div key={k} className="bg-white/10 rounded-xl py-2.5 px-2">
+                            <div className="text-[10px] uppercase tracking-wider text-slate-300 font-semibold">{k}</div>
+                            <div className="text-sm font-black mt-0.5">{v}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {brief.quickWins?.length > 0 && (
+                      <Section title={`Hızlı Kazanımlar — ${brief.quickWins.length} aksiyon, en fazla 4 hafta, ek yatırım yok`} tone="border-red-200 bg-red-50/40">
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                          {brief.quickWins.map((q: any, i: number) => (
+                            <div key={i} className="bg-white border border-slate-200 rounded-xl p-4 space-y-2 border-t-2 border-t-red-500">
+                              <div className="flex items-start gap-2">
+                                <span className="w-5 h-5 rounded bg-red-600 text-white text-[11px] font-black flex items-center justify-center shrink-0">{i + 1}</span>
+                                <p className="text-xs font-extrabold text-slate-900 leading-snug">{q.title}</p>
+                              </div>
+                              <p className="text-[11.5px] text-slate-700 leading-relaxed">{q.action}</p>
+                              {q.impact && <p className="text-[11px] text-slate-600"><b className="text-red-600">Beklenen etki:</b> {q.impact}</p>}
+                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                {q.duration && <span className="px-2 py-0.5 rounded-full bg-slate-900 text-white text-[10px] font-bold">{q.duration}</span>}
+                                {q.area && <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-semibold">{q.area}</span>}
+                                <Chips ids={q.criteria} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </Section>
+                    )}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {brief.gaps?.length > 0 && (
+                        <Section title="En çok canımızı yakan boşluklar" tone="border-slate-200 bg-slate-50/60">
+                          <ul className="space-y-3">
+                            {brief.gaps.map((p: any, i: number) => (
+                              <li key={i} className="text-xs leading-relaxed"><b className="text-slate-900">{p.title}</b><Chips ids={p.criteria} /><br /><span className="text-slate-600">{p.detail}</span></li>
+                            ))}
+                          </ul>
+                        </Section>
+                      )}
+                      {brief.strengths?.length > 0 && (
+                        <Section title="Üzerine inşa edeceğimiz güçlü yönler" tone="border-emerald-200 bg-emerald-50/40">
+                          <ul className="space-y-3">
+                            {brief.strengths.map((p: any, i: number) => (
+                              <li key={i} className="text-xs leading-relaxed"><b className="text-slate-900">{p.title}</b><Chips ids={p.criteria} /><br /><span className="text-slate-600">{p.detail}</span></li>
+                            ))}
+                          </ul>
+                        </Section>
+                      )}
+                    </div>
+
+                    {brief.next90?.length > 0 && (
+                      <Section title="90 günlük öncelikler" tone="border-slate-200 bg-white">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          {brief.next90.map((w: any, i: number) => (
+                            <div key={i} className="rounded-xl bg-slate-50 border border-slate-200 p-4">
+                              <p className="text-[10px] font-black uppercase tracking-wider text-red-600">{w.when}</p>
+                              <p className="text-xs font-extrabold text-slate-900 mt-0.5">{w.title}</p>
+                              <ul className="mt-2 list-disc pl-4 space-y-1 text-[11.5px] text-slate-700 leading-relaxed">{w.items.map((it: string, j: number) => <li key={j}>{it}</li>)}</ul>
+                            </div>
+                          ))}
+                        </div>
+                      </Section>
+                    )}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {brief.decisions?.length > 0 && (
+                        <Section title="Yönetimden beklenen kararlar" tone="border-slate-200 bg-slate-50/60">
+                          <ol className="list-decimal pl-4 space-y-1.5 text-xs text-slate-700 leading-relaxed">{brief.decisions.map((d: string, i: number) => <li key={i}>{d}</li>)}</ol>
+                        </Section>
+                      )}
+                      {brief.kpis?.length > 0 && (
+                        <Section title="Nasıl ölçeceğiz (başarı ölçütleri)" tone="border-slate-200 bg-slate-50/60">
+                          <ul className="list-disc pl-4 space-y-1.5 text-xs text-slate-700 leading-relaxed">{brief.kpis.map((k: string, i: number) => <li key={i}>{k}</li>)}</ul>
+                        </Section>
+                      )}
+                    </div>
+
+                    <p className="text-[10.5px] text-slate-400">Yapay zeka taslağıdır; müşteriye sunmadan önce danışman tarafından gözden geçirilmelidir.</p>
+                  </div>
+                )}
+
+                {!brief && !isAiLoading && !aiError && (
+                  <div className="p-6 text-center text-slate-400 text-xs leading-relaxed">
+                    Düğmeye bastığınızda bu denetimin sonuçlarından; durum özeti, güçlü yönler, kritik boşluklar, hızlı kazanımlar, 90 günlük öncelikler, yönetimden beklenen kararlar ve başarı ölçütlerini içeren, yönetime sunulabilir bir danışman özeti hazırlanır.
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            );
+          })()}
 
         </div>
       )}

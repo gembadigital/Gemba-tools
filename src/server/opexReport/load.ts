@@ -13,7 +13,7 @@ export type ReportLoad =
   | { ok: true; model: ReportModel; fileBase: string }
   | { ok: false; status: number; error: string };
 
-export async function loadExecutiveReport(user: any, assessmentId: string, opts: { refreshQuickWins?: boolean } = {}): Promise<ReportLoad> {
+export async function loadExecutiveReport(user: any, assessmentId: string, opts: { refreshQuickWins?: boolean; skipQuickWins?: boolean; allowDraft?: boolean } = {}): Promise<ReportLoad> {
   const orgId = user.organization_id;
   const assessment = await db.getOpexAssessmentById(orgId, assessmentId);
   if (!assessment) return { ok: false, status: 404, error: "Denetim bulunamadı." };
@@ -26,7 +26,7 @@ export async function loadExecutiveReport(user: any, assessmentId: string, opts:
     if (!isTeam) {
       return { ok: false, status: 403, error: "Yönetici raporunu yalnızca Admin ile müşteri kartındaki danışmanlar ve bu denetimin denetçileri indirebilir." };
     }
-    if (assessment.status !== "completed") {
+    if (assessment.status !== "completed" && !opts.allowDraft) {
       return { ok: false, status: 403, error: "Yönetici raporu denetim tamamlanıp kilitlendikten sonra indirilebilir." };
     }
   }
@@ -58,7 +58,7 @@ export async function loadExecutiveReport(user: any, assessmentId: string, opts:
   // (or when an Admin asks for a refresh), then stored on the assessment so every later download
   // prints the same page. A failure never blocks the report — the page is just left out and the
   // reason is added to the report warnings.
-  if (model.quickWins.length === 0 || (opts.refreshQuickWins && user.role === "Admin")) {
+  if (!opts.skipQuickWins && (model.quickWins.length === 0 || (opts.refreshQuickWins && user.role === "Admin"))) {
     try {
       const items = await generateQuickWins(model);
       model.quickWins = items;

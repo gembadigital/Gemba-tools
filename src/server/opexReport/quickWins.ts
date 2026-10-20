@@ -17,9 +17,9 @@ export interface ReportQuickWin {
 }
 
 export const MAX_QUICK_WINS = 6;
-const LIMITS = { title: 60, action: 170, impact: 110, duration: 24, area: 32 };
+export const LIMITS = { title: 60, action: 170, impact: 110, duration: 24, area: 32 };
 
-const clip = (v: unknown, max: number): string => {
+export const clip = (v: unknown, max: number): string => {
   const s = typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "";
   return s.length <= max ? s : s.slice(0, max).replace(/\s+\S*$/, "").replace(/[,;:\s]+$/, "") + "…";
 };
@@ -84,13 +84,14 @@ KURALLAR:
 
 let client: GoogleGenAI | null = null;
 
-export async function generateQuickWins(m: ReportModel, timeoutMs = 18000): Promise<ReportQuickWin[]> {
+// One Gemini call that must return JSON; shared by the Quick Win page and the consultant brief.
+export async function geminiJson(prompt: string, timeoutMs: number): Promise<unknown> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY tanımlı değil");
   client = client || new GoogleGenAI({ apiKey });
   const call = client.models.generateContent({
     model: "gemini-3.5-flash",
-    contents: buildPrompt(m),
+    contents: prompt,
     config: { responseMimeType: "application/json" },
   });
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -98,10 +99,15 @@ export async function generateQuickWins(m: ReportModel, timeoutMs = 18000): Prom
   try {
     const resp = await Promise.race([call, timeout]);
     const text = (resp.text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-    const items = normalizeQuickWins(JSON.parse(text), new Set(m.criteria.map(c => c.id)));
-    if (items.length === 0) throw new Error("yapay zeka kullanılabilir bir liste döndürmedi");
-    return items;
+    return JSON.parse(text);
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+export async function generateQuickWins(m: ReportModel, timeoutMs = 18000): Promise<ReportQuickWin[]> {
+  const raw = await geminiJson(buildPrompt(m), timeoutMs);
+  const items = normalizeQuickWins(raw, new Set(m.criteria.map(c => c.id)));
+  if (items.length === 0) throw new Error("yapay zeka kullanılabilir bir liste döndürmedi");
+  return items;
 }
