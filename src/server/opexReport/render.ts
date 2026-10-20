@@ -3,7 +3,7 @@ import { REPORT_CONFIG } from "./config.js";
 import { REPORT_LOGO_DATA_URI } from "./logo.js";
 import { REPORT_CSS } from "./styles.js";
 import { ReportModel, ReportArea, ReportCriterion } from "./model.js";
-import { esc, fix, sentences, title, num, fmtDate, ordinal } from "./text.js";
+import { esc, fix, sentences, idealText, title, num, fmtDate, ordinal } from "./text.js";
 
 // HTML for the executive report — A4 landscape pages, printed to PDF by headless Chromium
 // (pdf.ts) or by the browser's own print dialog. Page order is fixed; page count follows the
@@ -95,6 +95,7 @@ export interface LayoutOptions {
   strongCount?: number; // "güçlü noktalar" items on the executive-summary page
   sectionsBudget?: number; // scale on the section-evaluation pages' height budget (1 = default)
   gapsCompact?: boolean; // tighter rows on the critical-gaps page
+  qwCompact?: boolean; // smaller type on the Quick Win page
 }
 
 // Rough row-height model for the area-detail table (mm), from column widths and font sizes in
@@ -104,7 +105,7 @@ export function detailRowMm(c: ReportCriterion, dense: boolean): number {
   const lh = dense ? 3.2 : 3.45;
   const topic = lines(title(c.topic), dense ? 30 : 28) * lh + 3.0;
   const finding = lines(fix(c.finding) || "Çalışma görülmedi", dense ? 66 : 60) * lh;
-  const ideal = lines(sentences(c.ideal), dense ? 80 : 74) * (dense ? 2.85 : 3.05);
+  const ideal = lines(idealText(c.ideal), dense ? 80 : 74) * (dense ? 2.85 : 3.05);
   return Math.max(topic, finding, ideal, 5) + (dense ? 2.4 : 3.4);
 }
 export const DETAIL_BODY_MM = 131; // comment + table body height on an area-detail page (measured ≈ 130 mm)
@@ -293,7 +294,7 @@ function processPage(p: Pages, m: ReportModel) {
   const flow: [string, string][] = [
     ["Saha denetimi", `${fmtDate(m.auditDate)} · yerinde gözlem ve görüşme`],
     ["Kriter puanlama", `${m.scored.length} kriter · 0–5 ölçek`],
-    ["Ağırlıklı alan skoru", `${m.areas.length} alan · 0–100`],
+    ["Alan skoru", `${m.areas.length} alan · 0–100`],
     ["Genel skor ve seviye", "Alan skorlarının ortalaması"],
     ["Yol haritası", "Öncelikler ve 90 günlük plan"],
   ];
@@ -400,7 +401,7 @@ function bestPracticePages(p: Pages, m: ReportModel, o: LayoutOptions) {
  ${c.finding ? `<div class="bp-row"><p class="label">Saha tespiti</p><p>${esc(fix(c.finding))}</p></div>` : ""}
  ${bp.why ? `<div class="bp-row"><p class="label">Neden örnek uygulama</p><p>${esc(fix(bp.why))}</p></div>` : ""}
  ${bp.how ? `<div class="bp-row hl"><p class="label">Yaygınlaştırma fırsatı</p><p>${esc(fix(bp.how))}</p></div>` : ""}
- <div class="bp-row"><p class="label">İdeal durum</p><p class="muted">${esc(sentences(c.ideal))}</p></div>
+ <div class="bp-row"><p class="label">İdeal durum</p><p class="muted">${esc(idealText(c.ideal))}</p></div>
 </div>`;
     }).join("");
     const lowOverall = m.level.index <= 1;
@@ -430,7 +431,7 @@ function criticalGapsPage(p: Pages, m: ReportModel, o: LayoutOptions) {
   // Expected gain if each listed criterion reached 2/5: per-area points ÷ number of areas.
   const gain = crit.reduce((s, c) => s + Math.max(0, 2 - (c.score as number)) * (c.lost / Math.max(0.0001, 5 - (c.score as number))), 0) / m.areas.length;
   const head = zeroMode
-    ? `En büyük puan kaybı, hiç başlanmamış konulardan geliyor. En yüksek ağırlıklı ${crit.length} kriterde çalışma yok; bunların her biri 2/5 seviyesine geldiğinde genel skor yaklaşık <em>+${num(gain)} puan</em> artar.`
+    ? `En büyük puan kaybı, hiç başlanmamış konulardan geliyor. ${crit.length} kritik kriterde çalışma yok; bunların her biri 2/5 seviyesine geldiğinde genel skor yaklaşık <em>+${num(gain)} puan</em> artar.`
     : `En büyük puan kaybı düşük puanlı (0–2) kriterlerden geliyor. Listelenen ${crit.length} kriter 2/5 seviyesinin altında kaldığı ölçüde iyileştirme önceliği taşıyor.`;
   p.page(`
 <h2 class="headline">${head}</h2>
@@ -438,7 +439,7 @@ function criticalGapsPage(p: Pages, m: ReportModel, o: LayoutOptions) {
  <div class="card"><p class="label">Alan bazında 0 puanlı kriterler</p>
   <p class="note" style="margin:-1mm 0 2mm">Her alanda kaç kriterin 0 puan (“çalışma görülmedi”) aldığını gösterir. Örneğin 5 / 13: alandaki 13 kriterin 5'inde hiç çalışma yok. Çubuk bu oranı gösterir.</p>
   ${zbars ? `<table class="tbl zt"><tbody>${zbars}</tbody></table>` : `<p class="empty">Tüm alanlarda en az bir çalışma görüldü.</p>`}</div>
- <div class="card"><p class="label">${zeroMode ? "Çalışma görülmeyen en yüksek ağırlıklı kriterler (ağırlık ≥ 3)" : "En çok puan kaybettiren kriterler"}</p>
+ <div class="card"><p class="label">${zeroMode ? "Çalışma görülmeyen kritik kriterler" : "En çok puan kaybettiren kriterler"}</p>
   ${crow ? `<table class="tbl cr"><thead><tr><th>ID</th><th>Kriter</th><th>Alan</th>${zeroMode ? "" : `<th class="c">Puan</th>`}</tr></thead><tbody>${crow}</tbody></table>` : `<p class="empty">Kritik kriter yok.</p>`}</div>
 </div>`, "Kritik boşluklar", "gaps");
 }
@@ -468,6 +469,24 @@ ${imp ? `<table class="tbl imp"><thead><tr><th>Dalga</th><th>Kapsanan kriterler<
     "Yol haritası");
 }
 
+// "Hızlı Kazanım – Quick Win": ONE page for the consultant's shortlist of fast, cheap actions
+// (AI-drafted from the whole audit — see quickWins.ts). Hidden when there are none.
+function quickWinPage(p: Pages, m: ReportModel, o: LayoutOptions) {
+  if (m.quickWins.length === 0) return;
+  p.entry("quickwin");
+  const cards = m.quickWins.map((q, i) => `<div class="qw">
+ <div class="qw-h"><span class="qw-n">${i + 1}</span><h3>${esc(q.title)}</h3></div>
+ <p class="qw-a">${esc(q.action)}</p>
+ ${q.impact ? `<p class="qw-i"><b>Beklenen etki:</b> ${esc(q.impact)}</p>` : ""}
+ <div class="qw-f">${q.duration ? `<span class="qw-t">${esc(q.duration)}</span>` : ""}${q.area ? `<span class="qw-ar">${esc(q.area)}</span>` : ""}${q.criteria.length ? `<span class="qw-c">${q.criteria.map(esc).join(" · ")}</span>` : ""}</div>
+</div>`).join("");
+  p.page(`
+<h2 class="headline sm">Hızlı kazanımlar (Quick Win): ${m.quickWins.length} aksiyon, en fazla 4 hafta içinde ve ek yatırım gerektirmeden hayata geçirilebilir; genel değerlendirme sonuçlarından çıkarılmıştır.</h2>
+<div class="qws${o.qwCompact ? " compact" : ""}">${cards}</div>
+<p class="note">Hızlı kazanımlar bu denetimin skorları, bölüm değerlendirmeleri, yönetici özeti ve saha tespitlerinden yapay zeka ile derlenmiştir; uygulama öncesi danışman tarafından gözden geçirilmelidir.</p>`,
+    "Hızlı Kazanım – Quick Win", "quickwin");
+}
+
 function findingCell(c: ReportCriterion): string {
   if (c.status === "na") return `<span class="na">Kapsam dışı</span>`;
   if (c.status === "unanswered") return `<span class="na">Değerlendirilmedi</span>`;
@@ -481,8 +500,8 @@ function areaPages(p: Pages, m: ReportModel, o: LayoutOptions) {
   m.areas.forEach((a: ReportArea, idx) => {
     p.entry(`area:${a.id}`);
     const dense = a.criteria.length > C.maxRowsPerDetailPage;
-    const rowHtml = (c: ReportCriterion) => `<tr><td class="id">${esc(c.id)}</td><td><b>${esc(title(c.topic))}</b><span class="w">${c.status === "scored" ? `ağırlık ${num(c.effWeight)}` : `ağırlık ${num(c.weight)} · skora katılmadı`}</span></td>` +
-      `<td class="c">${c.status === "scored" ? dots(c.score as number) : "—"}</td><td>${findingCell(c)}</td><td class="ideal">${esc(sentences(c.ideal))}</td></tr>`;
+    const rowHtml = (c: ReportCriterion) => `<tr><td class="id">${esc(c.id)}</td><td><b>${esc(title(c.topic))}</b>${c.status === "scored" ? "" : `<span class="w">skora katılmadı</span>`}</td>` +
+      `<td class="c">${c.status === "scored" ? dots(c.score as number) : "—"}</td><td>${findingCell(c)}</td><td class="ideal">${esc(idealText(c.ideal))}</td></tr>`;
     const chunks = splitArea(a, dense, o.areaBudget?.[a.id] ?? 1).map(ch => ch.map(rowHtml));
     const gapText = a.score < m.target ? `hedefin ${num(m.target - a.score)} puan altında` : `hedefin ${num(a.score - m.target)} puan üzerinde`;
     chunks.forEach((chunk, part) => {
@@ -509,6 +528,7 @@ const TOC: { key: string; title: string; sub?: string }[] = [
   { key: "bp", title: "Best practice uygulamalar", sub: "5 puan alan ya da best practice olarak işaretlenen kriterler" },
   { key: "gaps", title: "Kritik boşluklar" },
   { key: "roadmap", title: "90 günlük yol haritası" },
+  { key: "quickwin", title: "Hızlı Kazanım – Quick Win", sub: "Danışman değerlendirmesi: 4 hafta içinde uygulanabilir aksiyonlar" },
   { key: "detail", title: "Detay rapor / Tespitler", sub: "Alan bazında kriter puanları ve saha tespitleri" },
 ];
 
@@ -540,23 +560,20 @@ function methodTargetPage(p: Pages, m: ReportModel) {
   <p class="tg-res">Hedef puan: <b>${m.target}</b>${cls ? ` (Seviye ${cls})` : ""}</p>
  </div>
  <div class="card"><p class="label">2 · Puanlama tanımı (kriter başına)</p><div class="scs">${scale}</div>
-  <p class="note">Kapsam dışı (N/A) işaretlenen kriterler skora katılmaz; ağırlıkları aynı bölümdeki puanlanan kriterlere eşit dağıtılır.</p></div>
+  <p class="note">Kapsam dışı (N/A) işaretlenen kriterler skora katılmaz; bölüm skoru puanlanan kriterler üzerinden hesaplanır.</p></div>
 </div>`, "Değerlendirme metodu", "method");
 }
 
 function methodTopicsPage(p: Pages, m: ReportModel) {
   const tiles = m.areas.map((a, i) => {
-    const total = a.criteria.reduce((s, c) => s + c.weight, 0);
-    return `<div class="tp"><span class="tp-k">${esc(a.id)}</span><div><b>${esc(title(a.name))}</b><small>${a.criteria.length} kriter · ağırlık ${num(total)}</small></div><span class="tp-i">${i + 1}</span></div>`;
+    return `<div class="tp"><span class="tp-k">${esc(a.id)}</span><div><b>${esc(title(a.name))}</b><small>${a.criteria.length} kriter</small></div><span class="tp-i">${i + 1}</span></div>`;
   }).join("");
-  const weights = m.criteria.map(c => c.weight).filter(w => w > 0);
-  const wMin = weights.length ? Math.min(...weights) : 0, wMax = weights.length ? Math.max(...weights) : 0;
   p.page(`
 <h2 class="headline">Değerlendirme konuları: ${m.areas.length} alan, ${m.criteria.length} kriter. Her alan 0–100 arası skorlanır; genel skor ${m.areas.length} alan skorunun toplamının ${m.areas.length}'e bölünmesiyle bulunur.</h2>
 <div class="tps">${tiles}</div>
 <div class="formula">
- <div><span class="label">Kriter</span><b>puan (0–5) × ağırlık (${num(wMin)}–${num(wMax)})</b></div><i>→</i>
- <div><span class="label">Alan skoru</span><b>Σ(puan × ağırlık) ÷ (5 × Σ ağırlık) × 100</b></div><i>→</i>
+ <div><span class="label">Kriter</span><b>puan (0–5)</b></div><i>→</i>
+ <div><span class="label">Alan skoru</span><b>Kriter puanlarından 0–100 arası alan skoru</b></div><i>→</i>
  <div><span class="label">Genel skor</span><b>Σ alan skorları ÷ ${m.areas.length}</b></div><i>→</i>
  <div><span class="label">Seviye</span><b>${OPEX_LEVELS.map(l => esc(l.range)).join(" · ")}</b></div>
 </div>`, "Değerlendirme metodu", "method");
@@ -631,6 +648,7 @@ function buildPages(m: ReportModel, opts: LayoutOptions, pageOf: Record<string, 
   bestPracticePages(p, m, opts);
   criticalGapsPage(p, m, opts);
   roadmapPage(p, m);
+  quickWinPage(p, m, opts);
   detailIndexPage(p, m);
   areaPages(p, m, opts);
   p.raw(backCover());

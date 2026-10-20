@@ -423,6 +423,10 @@ export default function PlatformAdminConsole({
   const [cleanupBusy, setCleanupBusy] = useState(false);
   const [cleanupResult, setCleanupResult] = useState<{ collection: string; count: number }[] | null>(null);
   const [cleanupError, setCleanupError] = useState<string | null>(null);
+  // Weekly reminder e-mail diagnostics (dry run — sends nothing).
+  const [digestBusy, setDigestBusy] = useState(false);
+  const [digestError, setDigestError] = useState<string | null>(null);
+  const [digestData, setDigestData] = useState<any | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -537,6 +541,21 @@ export default function PlatformAdminConsole({
       showToast(e.message || t.nameChangeError);
     } finally {
       setNameSaveBusyId(null);
+    }
+  };
+
+  const handleDigestDiagnostics = async () => {
+    setDigestBusy(true);
+    setDigestError(null);
+    try {
+      const res = await fetch("/api/admin/weekly-digest-diagnostics", { headers: { "Authorization": `Bearer ${token}` } });
+      const data = await res.json();
+      if (!data.success) { setDigestError(data.error || "Teşhis çalıştırılamadı."); return; }
+      setDigestData(data.data);
+    } catch (e: any) {
+      setDigestError(e.message || "Teşhis çalıştırılamadı.");
+    } finally {
+      setDigestBusy(false);
     }
   };
 
@@ -1401,6 +1420,66 @@ export default function PlatformAdminConsole({
                       {cleanupResult.length === 0
                         ? t.maintNoneFound
                         : `${t.maintSuccessPrefix} ${cleanupResult.map(r => `${r.collection} (${r.count})`).join(", ")}`}
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-4 shadow-xs text-xs">
+                  <div className="space-y-2">
+                    <div className="font-bold text-slate-700">Haftalık hatırlatma e-postası teşhisi</div>
+                    <p className="text-slate-500 leading-relaxed">
+                      Kural: her Pazartesi 08:00 (TR), müşteri kartında atanmış ve e-postası @gembapartner.com olan her danışmana, o müşterinin PTR kayıtlarında
+                      (1) 30+ gündür açık/devam eden, (2) termini geçmiş ve kapanmamış ya da (3) kırmızı bayraklı kritik madde varsa bir özet e-posta gider; hiçbiri yoksa e-posta gitmez.
+                      Bu düğme e-posta göndermez; her müşteri için kuralın ne bulduğunu ve gönderilmiyorsa hangi koşulun engellediğini gösterir.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleDigestDiagnostics}
+                    disabled={digestBusy}
+                    className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white font-bold rounded-xl text-xs transition-all cursor-pointer"
+                  >
+                    {digestBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                    <span>{digestBusy ? "Kontrol ediliyor…" : "Teşhisi Çalıştır"}</span>
+                  </button>
+                  {digestError && <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 font-semibold">{digestError}</div>}
+                  {digestData && (
+                    <div className="space-y-3">
+                      <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                        <table className="w-full text-left text-[11px]">
+                          <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider">
+                            <tr><th className="p-2">Müşteri</th><th className="p-2">Alıcı danışman</th><th className="p-2 text-center">PTR kaydı</th><th className="p-2 text-center">30+ gün</th><th className="p-2 text-center">Termin geçmiş</th><th className="p-2 text-center">Kritik</th><th className="p-2">Sonuç</th></tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {digestData.customers.map((c: any) => (
+                              <tr key={c.customerId} className="align-top">
+                                <td className="p-2 font-bold text-slate-800">{c.customerName}</td>
+                                <td className="p-2 text-slate-600">
+                                  {c.recipients.length === 0 ? "—" : c.recipients.map((r: any) => (
+                                    <div key={r.id} className={r.eligible ? "" : "text-rose-600"}>{r.name}{r.email ? ` (${r.email})` : ""}{r.reason ? ` — ${r.reason}` : ""}</div>
+                                  ))}
+                                </td>
+                                <td className="p-2 text-center font-mono">{c.recordCount}</td>
+                                <td className="p-2 text-center font-mono">{c.overdue30}</td>
+                                <td className="p-2 text-center font-mono">{c.missedTermin}</td>
+                                <td className="p-2 text-center font-mono">{c.critical}</td>
+                                <td className="p-2">
+                                  {c.wouldSend
+                                    ? <span className="font-bold text-emerald-700">Gönderilir</span>
+                                    : <span className="font-bold text-amber-700">{c.blockedBy}</span>}
+                                  {(c.unparsableDueDates + c.unparsableWorkDates > 0) && (
+                                    <div className="text-rose-600 mt-1">Okunamayan tarih: {c.unparsableDueDates} termin, {c.unparsableWorkDates} çalışma tarihi{c.badDateSamples.length ? ` — örn. “${c.badDateSamples.join("”, “")}”` : ""}</div>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {digestData.orphanRecords.length > 0 && (
+                        <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 font-semibold">
+                          Hiçbir müşteriyle eşleşmeyen PTR kaydı var: {digestData.orphanRecords.map((o: any) => `${o.factoryId} (${o.count})`).join(", ")}. Bir müşterinin kayıtları buraya düşmüşse hatırlatma e-postası gitmez.
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

@@ -466,10 +466,14 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
   const handleAssessorAssignmentChange = (catId: string, assessorId: string) => {
     if (!isAdmin || !activeAssessment || activeAssessment.status === "completed") return;
     const newAssignments = { ...(activeAssessment.assessorAssignments || {}), [catId]: assessorId };
-    setActiveAssessment(prev => prev ? { ...prev, assessorAssignments: newAssignments } : null);
-    setTimeout(() => {
-      handleSaveDraft(undefined, undefined, undefined);
-    }, 50);
+    const updated = { ...activeAssessment, assessorAssignments: newAssignments };
+    setActiveAssessment(updated);
+    // The updated assessment is passed in explicitly. This used to fire handleSaveDraft() from a
+    // setTimeout with no argument, but that closure still held the *previous* render's
+    // activeAssessment, so it posted the OLD assignments; the server echoed them back and
+    // setActiveAssessment(res.data) silently reverted the dropdown — a started audit's
+    // consultant-to-section assignments could never actually be changed.
+    handleSaveDraft(undefined, undefined, undefined, updated);
   };
 
   // Add a new Assessment (e.g. Audit-1, Audit-2 etc)

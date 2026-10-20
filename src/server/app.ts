@@ -6,6 +6,7 @@ import { generatePtrTemplateExcel, isPtrTemplateAvailable, buildPtrExportFilenam
 import { generateOpexTemplateExcel, isOpexTemplateAvailable, buildOpexExportFilename } from "./opexExcelTemplate.js";
 import { mergeOpexAssessmentSave } from "./opexMerge.js";
 import { loadExecutiveReport } from "./opexReport/load.js";
+import { analyzePtrRecords } from "./ptrDigest.js";
 import { renderReportHtml } from "./opexReport/render.js";
 import * as XLSX from "xlsx";
 
@@ -1949,17 +1950,19 @@ app.post("/api/business/ptr-records/send-weekly-report", authenticateToken, asyn
 // collapsed into one aggregate email per consultant. Customers with nothing to report are
 // skipped entirely — no empty "all clear" emails. Sent from proje@gembapartner.com (sendMail's
 // own default, matching the existing "Mail Gönder" PTR export).
-const PTR_EXCLUDED_STATUSES = ["İptal"];
+// The rules themselves (and the tolerant date/status reading) live in ptrDigest.ts so this job and
+// the admin diagnostics endpoint below can never disagree.
 
-function parseTrDate(dateStr: string): Date | null {
-  if (!dateStr) return null;
-  const parts = dateStr.trim().split(".");
-  if (parts.length !== 3) return null;
-  const day = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10) - 1;
-  const year = parseInt(parts[2], 10);
-  const d = new Date(year, month, day);
-  return isNaN(d.getTime()) ? null : d;
+// Consultants of a customer that the digest will actually mail: the real assignment (primary +
+// secondary), restricted to @gembapartner.com addresses.
+function digestRecipients(customer: any, allUsers: User[]) {
+  const ids: string[] = [...(customer.primaryConsultantId ? [customer.primaryConsultantId] : []), ...(customer.consultantIds || [])];
+  return ids.map(id => {
+    const u = allUsers.find(x => x.id === id);
+    if (!u) return { id, name: "(kullanıcı bulunamadı)", email: "", eligible: false, reason: "Atanmış danışman kullanıcı kaydı yok" };
+    const ok = u.email.toLowerCase().endsWith("@gembapartner.com");
+    return { id, name: u.full_name, email: u.email, eligible: ok, reason: ok ? "" : "E-posta @gembapartner.com değil" };
+  });
 }
 
 app.get("/api/cron/weekly-consultant-digest", async (req, res) => {
@@ -1979,74 +1982,125 @@ app.get("/api/cron/weekly-consultant-digest", async (req, res) => {
     today.setHours(0, 0, 0, 0);
 
     const results: { consultant: string; customer: string; success: boolean; error?: string }[] = [];
+    const skipped: { customer: string; reason: string }[] = [];
     const formatItem = (r: any) => `   - ${r.workDone || r.improvementSubject || "(açıklama yok)"} — Sorumlu: ${r.responsible || "—"}, Termin: ${r.dueDate || "belirtilmemiş"}`;
 
     const organizations = await db.getOrganizations();
     for (const org of organizations) {
       const customers = await db.getCustomers(org.id);
       for (const customer of customers) {
-        const consultantIds: string[] = [
-          ...(customer.primaryConsultantId ? [customer.primaryConsultantId] : []),
-          ...(customer.consultantIds || [])
-        ];
-        if (consultantIds.length === 0) continue;
-
-        const consultants = consultantIds
-          .map(id => allUsers.find(u => u.id === id))
-          .filter((u): u is User => !!u && u.email.toLowerCase().endsWith("@gembapartner.com"));
-        if (consultants.length === 0) continue;
-
-        const records = await db.getPtrRecords(org.id, customer.id);
-        const overdue = records.filter(r => {
-          if (r.status !== "Açık" && r.status !== "Devam Ediyor") return false;
-          const workD = parseTrDate(r.workDate);
-          if (!workD) return false;
-          const diffDays = Math.floor((today.getTime() - workD.getTime()) / (1000 * 60 * 60 * 24));
-          return diffDays >= 30;
-        });
-        const missedTermin = records.filter(r => {
-          if (r.status === "Kapalı" || PTR_EXCLUDED_STATUSES.includes(r.status)) return false;
-          const due = parseTrDate(r.dueDate);
-          return !!due && due.getTime() < today.getTime();
-        });
-        const critical = records.filter(r =>
-          r.flagged && r.status !== "Kapalı" && !PTR_EXCLUDED_STATUSES.includes(r.status)
-        );
-
-        if (overdue.length === 0 && missedTermin.length === 0 && critical.length === 0) continue;
-
         const customerName = customer.companyName || "Müşteri";
-        // "Çelikel Tarım Ekipmanları San. Tic. A.Ş." -> "Çelikel", "Mazsan Makina San Tic A.Ş" ->
-        // "Mazsan" — same first-word rule used by the "Mail Gönder" report subject.
-        const shortName = customerName.trim().split(/\s+/)[0] || customerName;
+        // One customer's bad data or failure must never stop the customers after it — previously a
+        // single record with an unreadable date threw out of the whole loop and every later
+        // customer silently got nothing.
+        try {
+          const recipients = digestRecipients(customer, allUsers);
+          if (recipients.length === 0) { skipped.push({ customer: customerName, reason: "Müşteriye atanmış danışman yok" }); continue; }
+          const consultants = recipients.filter(r => r.eligible).map(r => allUsers.find(u => u.id === r.id)!) as User[];
+          if (consultants.length === 0) { skipped.push({ customer: customerName, reason: "Atanmış danışmanların hiçbiri @gembapartner.com e-postalı değil" }); continue; }
 
-        const parts: string[] = [];
-        if (overdue.length > 0) {
-          parts.push(`🔴 30+ Gündür Kapanmayan Aksiyonlar (${overdue.length}):`, ...overdue.map(formatItem));
-        }
-        if (missedTermin.length > 0) {
-          parts.push(`⏰ Termini Geçmiş İyileştirme Projeleri (${missedTermin.length}):`, ...missedTermin.map(formatItem));
-        }
-        if (critical.length > 0) {
-          parts.push(`🚩 Kritik Öneme Sahip Açık Maddeler (${critical.length}):`, ...critical.map(formatItem));
-        }
+          const records = await db.getPtrRecords(org.id, customer.id);
+          const { overdue, missedTermin, critical } = analyzePtrRecords(records, today);
+          if (overdue.length === 0 && missedTermin.length === 0 && critical.length === 0) {
+            skipped.push({ customer: customerName, reason: records.length === 0 ? "Bu müşteriye bağlı PTR kaydı yok" : "Kurala uyan madde yok" });
+            continue;
+          }
 
-        for (const consultant of consultants) {
-          const body = `Sayın ${consultant.full_name},\n\n${customerName} için takip gerektiren maddeler bulunmaktadır:\n\n${parts.join("\n")}\n\nBu otomatik haftalık hatırlatma Proje Takip Raporu modülünden gönderilmiştir.`;
-          const result = await sendMail({
-            to: consultant.email,
-            subject: `[${shortName}- ] Haftalık Özet`,
-            text: body
-          });
-          results.push({ consultant: consultant.email, customer: customerName, success: result.success, error: result.error });
+          // "Çelikel Tarım Ekipmanları San. Tic. A.Ş." -> "Çelikel", "Mazsan Makina San Tic A.Ş" ->
+          // "Mazsan" — same first-word rule used by the "Mail Gönder" report subject.
+          const shortName = customerName.trim().split(/\s+/)[0] || customerName;
+
+          const parts: string[] = [];
+          if (overdue.length > 0) {
+            parts.push(`🔴 30+ Gündür Kapanmayan Aksiyonlar (${overdue.length}):`, ...overdue.map(formatItem));
+          }
+          if (missedTermin.length > 0) {
+            parts.push(`⏰ Termini Geçmiş İyileştirme Projeleri (${missedTermin.length}):`, ...missedTermin.map(formatItem));
+          }
+          if (critical.length > 0) {
+            parts.push(`🚩 Kritik Öneme Sahip Açık Maddeler (${critical.length}):`, ...critical.map(formatItem));
+          }
+
+          for (const consultant of consultants) {
+            const body = `Sayın ${consultant.full_name},\n\n${customerName} için takip gerektiren maddeler bulunmaktadır:\n\n${parts.join("\n")}\n\nBu otomatik haftalık hatırlatma Proje Takip Raporu modülünden gönderilmiştir.`;
+            const result = await sendMail({
+              to: consultant.email,
+              subject: `[${shortName}- ] Haftalık Özet`,
+              text: body
+            });
+            results.push({ consultant: consultant.email, customer: customerName, success: result.success, error: result.error });
+          }
+        } catch (e: any) {
+          console.error(`Weekly digest failed for customer "${customerName}"`, e);
+          results.push({ consultant: "-", customer: customerName, success: false, error: e?.message || "bilinmeyen hata" });
         }
       }
     }
 
-    res.json({ success: true, sent: results.filter(r => r.success).length, results });
+    res.json({ success: true, sent: results.filter(r => r.success).length, results, skipped });
   } catch (e: any) {
     console.error("Failed to run weekly consultant digest", e);
     res.status(500).json({ success: false, error: e.message || "Haftalık hatırlatma çalıştırılamadı." });
+  }
+});
+
+// Admin-only dry run of the digest: for every customer of the organization, shows who would be
+// mailed, what the rules found, and — when nothing would be sent — exactly which gate stopped it
+// (no consultant / not @gembapartner.com / no PTR records under this customer / no matching item /
+// dates the reader could not understand). Sends nothing.
+app.get("/api/admin/weekly-digest-diagnostics", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  if (user.role !== "Admin") {
+    res.status(403).json({ success: false, error: "Yalnızca Admin görüntüleyebilir." });
+    return;
+  }
+  try {
+    const [allUsers, customers, allRecords] = await Promise.all([db.getUsers(), db.getCustomers(user.organization_id), db.getPtrRecords(user.organization_id)]);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const customerIds = new Set(customers.map((c: any) => c.id));
+
+    const rows = customers.map((customer: any) => {
+      const recipients = digestRecipients(customer, allUsers);
+      const records = allRecords.filter((r: any) => r.factory_id === customer.id);
+      const a = analyzePtrRecords(records, today);
+      const eligible = recipients.filter(r => r.eligible);
+      let blockedBy: string | null = null;
+      if (recipients.length === 0) blockedBy = "Müşteri kartında atanmış danışman yok";
+      else if (eligible.length === 0) blockedBy = "Atanmış danışmanların hiçbiri @gembapartner.com e-postalı değil";
+      else if (records.length === 0) blockedBy = "Bu müşteri koduna bağlı PTR kaydı yok (kayıtlar başka bir kod altında olabilir — aşağıdaki sahipsiz kayıtlara bakın)";
+      else if (a.overdue.length + a.missedTermin.length + a.critical.length === 0) {
+        blockedBy = a.unparsableDueDates + a.unparsableWorkDates > 0
+          ? "Kurala uyan madde bulunamadı, ancak bazı tarihler okunamadı (aşağıdaki örneklere bakın)"
+          : "Kurala uyan madde yok";
+      }
+      return {
+        customerId: customer.id,
+        customerName: customer.companyName || "Müşteri",
+        recipients,
+        recordCount: records.length,
+        statusCounts: a.statusCounts,
+        overdue30: a.overdue.length,
+        missedTermin: a.missedTermin.length,
+        critical: a.critical.length,
+        unparsableWorkDates: a.unparsableWorkDates,
+        unparsableDueDates: a.unparsableDueDates,
+        badDateSamples: a.badDateSamples,
+        wouldSend: blockedBy === null,
+        blockedBy,
+      };
+    });
+
+    const orphans: Record<string, number> = {};
+    allRecords.filter((r: any) => !customerIds.has(r.factory_id)).forEach((r: any) => {
+      const k = String(r.factory_id ?? "(boş)");
+      orphans[k] = (orphans[k] || 0) + 1;
+    });
+
+    res.json({ success: true, data: { customers: rows, orphanRecords: Object.entries(orphans).map(([factoryId, count]) => ({ factoryId, count })) } });
+  } catch (e: any) {
+    console.error("Weekly digest diagnostics failed", e);
+    res.status(500).json({ success: false, error: e.message || "Teşhis çalıştırılamadı." });
   }
 });
 
@@ -2949,7 +3003,7 @@ app.get("/api/business/opex-assessments/:id/export-excel", authenticateToken, as
 // Executive report print view without Chromium measurement — fallback for when the dedicated PDF
 // function (api/opex-report.ts → /api/opex-report/:id) is unavailable. Same access rules.
 app.get("/api/business/opex-assessments/:id/executive-report.html", authenticateToken, async (req, res) => {
-  const loaded = await loadExecutiveReport((req as any).user, req.params.id);
+  const loaded = await loadExecutiveReport((req as any).user, req.params.id, { refreshQuickWins: req.query.quickWins === "refresh" });
   if (loaded.ok === false) {
     res.status(loaded.status).json({ success: false, error: loaded.error });
     return;

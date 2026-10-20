@@ -1093,9 +1093,14 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
   const excelCellToDateString = (val: any): string => {
     if (val === undefined || val === null || val === "") return "";
     if (val instanceof Date) {
-      const dd = String(val.getDate()).padStart(2, "0");
-      const mm = String(val.getMonth() + 1).padStart(2, "0");
-      return `${dd}.${mm}.${val.getFullYear()}`;
+      // SheetJS builds date cells as local Dates that land a few seconds BEFORE midnight in time
+      // zones whose historic offset differs from today's (e.g. Istanbul): the plain date then reads
+      // as the previous day — a Termin of 22.06 was stored as 21.06. These cells are date-only, so
+      // shifting by 12 h lands safely inside the intended day.
+      const d = new Date(val.getTime() + 12 * 60 * 60 * 1000);
+      const dd = String(d.getDate()).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      return `${dd}.${mm}.${d.getFullYear()}`;
     }
     return String(val).trim();
   };

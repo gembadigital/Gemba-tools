@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { GanttActivity } from "../types";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
+import { parseMasterPlanWorkbook, explainEmptyImport } from "../utils/masterPlanImport";
 import { 
   Calendar, List, KanbanSquare, Clock, Plus, Trash2, Edit3, 
   CheckCircle2, AlertTriangle, Play, HelpCircle, ArrowRight, User,
@@ -1436,127 +1437,79 @@ export default function MasterPlanGantt({
     URL.revokeObjectURL(url);
   };
 
-  // Excel Activities Import Parser
+  // Excel Activities Import — see src/utils/masterPlanImport.ts. Reads every sheet, finds the header
+  // row wherever it is, recognises columns by meaning (not exact spelling) and converts date columns
+  // to weeks. It used to report "0 faaliyet aktarıldı" as a success for any file that wasn't in the
+  // app's own export format; now an unreadable file gets an explicit explanation instead.
   const handleImportXlsx = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const input = e.target;
+    const file = input.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
         const data = evt.target?.result;
+        // No `cellDates`: SheetJS turns date cells into JS Dates that can land a few seconds before
+        // midnight (→ the previous day, sometimes the previous ISO week). Raw Excel serial numbers
+        // are exact, and the parser converts them itself.
         const workbook = XLSX.read(data, { type: "array" });
-        const sheetName = workbook.SheetNames[0];
-        const ws = workbook.Sheets[sheetName];
+        const sheets = workbook.SheetNames.map(name => ({
+          name,
+          grid: XLSX.utils.sheet_to_json<any[]>(workbook.Sheets[name], { header: 1, raw: true, defval: "" }) as any[][],
+        }));
+        const { activities: parsed, report } = parseMasterPlanWorkbook(sheets);
 
-        // The Gantt export (and any hand-made template with a title/notes block above the table)
-        // doesn't have its real column headers on row 1 — sheet_to_json defaults to treating row 1
-        // as the header, so every row silently failed to match any known column and "0 faaliyet
-        // aktarıldı" was shown even for a well-formed file. Scan the first 20 rows for the one that
-        // actually contains a recognizable "activity name" header, and parse from there.
-        const rawRows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
-        const nameHeaderCandidates = ["Yalın Faaliyet / Proje Adı", "Aktivite Adı", "Faaliyet Adı", "Aktivite", "Faaliyet", "Name", "Activity"];
-        let headerRowIndex = rawRows.findIndex((r, i) => i < 20 && Array.isArray(r) && r.some(cell => nameHeaderCandidates.includes(String(cell ?? "").trim())));
-        if (headerRowIndex === -1) headerRowIndex = 0;
-
-        const rows = XLSX.utils.sheet_to_json<any>(ws, { range: headerRowIndex });
-
-        if (rows.length === 0) {
-          alert("Excel dosyasında faaliyet bulunamadı.");
+        if (parsed.length === 0) {
+          alert(explainEmptyImport(report));
           return;
         }
 
-        // Helper: pulls a week number out of either a plain number or the exported "W24" text format.
-        const parseWeek = (v: any): number | undefined => {
-          if (v === undefined || v === null || v === "") return undefined;
-          const m = /(\d+)/.exec(String(v));
-          return m ? parseInt(m[1], 10) : undefined;
-        };
-
-        let importedCount = 0;
-        rows.forEach((row) => {
-          // The Gantt export writes two rows per activity (Plan + Actual, marked by "Tür") — only
-          // the Plan row carries the full activity data, so the Actual row must be skipped, not
-          // imported as a second (empty) activity.
-          if (row["Tür"] === "GERÇEKLEŞEN") return;
-
-          // Check Turkish/English column aliases
-          const name = row["Yalın Faaliyet / Proje Adı"] || row["Aktivite Adı"] || row["Faaliyet Adı"] || row["Aktivite"] || row["Faaliyet"] || row["Name"] || row["Activity"];
-          if (!name) return; // Skip invalid rows
-
-          const category = row["Kategori"] || row["Yalın Sınıfı"] || row["Yalın Modül"] || row["Category"] || "Kaizen";
-          const phase = row["Faz No"] || row["Faz"] || row["Phase"] || "";
-          const consultant = row["Sorumlu Danışman"] || row["Danışman"] || row["Sorumlu"] || row["Consultant"] || "Atanmadı";
-          const priority = row["Öncelik"] || row["Priority"] || "Medium";
-
-          let progressPercent = 0;
-          const progVal = row["İlerleme"] || row["Progress"] || row["Tamamlanma Oranı"] || row["Tamamlanma"];
-          if (progVal !== undefined) {
-            if (typeof progVal === "string") {
-              progressPercent = parseInt(progVal.replace("%", ""), 10) || 0;
-            } else if (typeof progVal === "number") {
-              progressPercent = progVal <= 1 ? Math.round(progVal * 100) : progVal;
-            }
-          }
-
-          // `??` (not `||`) so an intentionally-entered 0 (e.g. Adam-Gün) survives the import.
-          const rawManDays = row["Planlanan Adam-Gün"] ?? row["Planlanan Gün"] ?? row["Adam-Gün"] ?? row["Man Days"] ?? row["Planned Man Days"];
-          const plannedManDays = rawManDays === undefined || rawManDays === "" ? 5 : Number(rawManDays);
-          const plannedStartWeek = parseWeek(row["Plan Başlangıç (Hafta)"] ?? row["Planlanan Başlangıç"] ?? row["Başlangıç Haftası"] ?? row["Start Week"] ?? row["Planned Start Week"] ?? row["Plan Başlangıç"]) ?? 24;
-          const plannedFinishWeek = parseWeek(row["Plan Bitiş (Hafta)"] ?? row["Planlanan Bitiş"] ?? row["Bitiş Haftası"] ?? row["Finish Week"] ?? row["Planned Finish Week"] ?? row["Plan Bitiş"]) ?? 28;
-
-          const actualStartWeek = parseWeek(row["Gerçekleşen Başlangıç (Hafta)"] ?? row["Gerçekleşen Başlangıç"] ?? row["Actual Start Week"] ?? row["Actual Start"]) ?? plannedStartWeek;
-          const actualFinishWeek = parseWeek(row["Gerçekleşen Bitiş (Hafta)"] ?? row["Gerçekleşen Bitiş"] ?? row["Actual Finish Week"] ?? row["Actual Finish"]) ?? plannedFinishWeek;
-
-          const statusVal = row["Durum"] || row["Status"];
-          let status = "Planned";
-          if (statusVal) {
-            status = statusVal;
-          } else {
-            status = progressPercent === 100 ? "Completed" : progressPercent > 0 ? "In Progress" : "Planned";
-          }
-
-          const notes = row["Notlar"] || row["Açıklama"] || row["Notes"] || "";
-
-          const newAct: any = {
+        const firstNo = currentActivities.length;
+        parsed.forEach((p, i) => {
+          onAddActivityLocal({
             id: "act_" + Math.random().toString(36).substring(2, 9),
-            name,
-            owner: consultant,
+            name: p.name,
+            owner: p.consultant,
             startDate: "2026-06",
             endDate: "2026-08",
-            progressPercent,
-            priority,
-            status,
-            notes,
-            activityNo: String(activities.length + importedCount + 1).padStart(2, "0"),
-            category,
-            plannedStartWeek,
-            plannedFinishWeek,
-            actualStartWeek,
-            actualFinishWeek,
-            plannedManDays,
+            progressPercent: p.progressPercent,
+            priority: p.priority,
+            status: p.status,
+            notes: p.notes,
+            activityNo: String(firstNo + i + 1).padStart(2, "0"),
+            category: p.category,
+            plannedStartWeek: p.plannedStartWeek,
+            plannedFinishWeek: p.plannedFinishWeek,
+            actualStartWeek: p.actualStartWeek,
+            actualFinishWeek: p.actualFinishWeek,
+            plannedManDays: p.plannedManDays,
             consumedManDays: 0,
-            responsibleConsultant: consultant,
+            responsibleConsultant: p.consultant,
             milestone: false,
             dependencies: [],
             relatedModule: "",
             linkedItemId: "",
             parallelWith: "",
             parentActivityId: "",
-            phase
-          };
-
-          onAddActivityLocal(newAct);
-          importedCount++;
+            phase: p.phase
+          });
         });
 
-        alert(`${importedCount} adet faaliyet başarıyla içe aktarıldı!`);
+        const notes: string[] = [];
+        if (report.weeksFromDates) notes.push("Başlangıç/bitiş tarihleri hafta numarasına çevrildi.");
+        if (report.defaultedWeeks) notes.push("Dosyada hafta/tarih sütunu bulunamadığı için tüm faaliyetler varsayılan 24–28. hafta aralığına yerleştirildi; barları sürükleyerek ayarlayabilirsiniz.");
+        if (report.headerGuessed) notes.push("Faaliyet adı sütunu başlıktan tanınamadı; en çok metin içeren sütun faaliyet adı olarak alındı, lütfen kontrol edin.");
+        if (report.skippedRows > 0) notes.push(`${report.skippedRows} satır faaliyet adı olmadığı için atlandı.`);
+        alert(`${parsed.length} adet faaliyet "${report.sheetName}" sayfasından içe aktarıldı.${notes.length ? "\n\n" + notes.join("\n") : ""}`);
       } catch (err: any) {
         console.error("Excel import failed:", err);
         alert(`Excel dosyası ayrıştırılırken bir hata oluştu: ${err?.message || err}`);
+      } finally {
+        input.value = ""; // allow picking the same file again after fixing it
       }
     };
-    reader.onerror = () => alert("Excel dosyası okunamadı (dosya bozuk olabilir).");
+    reader.onerror = () => { alert("Excel dosyası okunamadı (dosya bozuk olabilir)."); input.value = ""; };
     reader.readAsArrayBuffer(file);
   };
 

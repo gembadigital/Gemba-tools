@@ -10,7 +10,7 @@ import { renderReportPdf } from "./pdf.js";
 export function executiveReportRouter(authenticate: express.RequestHandler): express.Router {
   const router = express.Router();
   router.get("/api/opex-report/:id", authenticate, async (req, res) => {
-    const loaded = await loadExecutiveReport((req as any).user, req.params.id);
+    const loaded = await loadExecutiveReport((req as any).user, req.params.id, { refreshQuickWins: req.query.quickWins === "refresh" });
     if (loaded.ok === false) {
       res.status(loaded.status).json({ success: false, error: loaded.error });
       return;

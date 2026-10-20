@@ -93,6 +93,12 @@ function acme(): ReportInput {
     { when: "30–60 gün", title: "Pilot hatta saha temeli", items: ["Pilot hatta 5S ve günlük lider kontrolü", "Görsel standartlar ve yönetim panoları"], kpi: "Pilot hatta 5S denetim puanının ölçülmeye başlanması", criteria: [...ids("E", 3), ...ids("F", 2)] },
     { when: "60–90 gün", title: "Standart iş ve bakım temelleri", items: ["Standart iş ve hat dengeleme", "Planlı bakım takvimi ve arıza kaydı"], kpi: "Standart iş formlarının sahada asılı ve güncel olması", criteria: [...ids("G", 3), ...ids("P", 2)] },
   ];
+  // Six worst-case-length quick wins: the Quick Win section must still be exactly ONE page.
+  const long = (n: number) => ("Uzun metin ".repeat(40)).slice(0, n);
+  a.quickWins = { items: Array.from({ length: 6 }, (_, i) => ({
+    title: long(60), action: long(170), impact: long(110), duration: "4 hafta", area: "Standart İş",
+    criteria: [questions[i].id],
+  })) };
   return best;
 }
 
@@ -109,7 +115,7 @@ function highScore(): ReportInput {
 
 const FUGA_TEXT = ["FUGA", "Fuga", "Süleyman", "Harun", "Planlama ve Lojistik (41"];
 
-async function run(label: string, input: ReportInput, expect: (m: ReturnType<typeof buildReportModel>) => void, allowFuga = false) {
+async function run(label: string, input: ReportInput, expect: (m: ReturnType<typeof buildReportModel>) => void, allowFuga = false, expectHtml?: (html: string) => void) {
   console.log(`\n${label}`);
   const model = buildReportModel(input);
   expect(model);
@@ -120,6 +126,11 @@ async function run(label: string, input: ReportInput, expect: (m: ReturnType<typ
   check(res.pageCount === reportPageCount(html), `PDF sayfa sayısı = HTML (${res.pageCount})`);
   check(res.layoutIssues.length === 0, `taşma/altbilgi sorunu yok${res.layoutIssues.length ? ": " + res.layoutIssues.join("; ") : ""}`);
   if (!allowFuga) check(!FUGA_TEXT.some(t => html.includes(t)), "FUGA'ya özgü metin yok");
+  check(!/ağırlık/i.test(html.replace(/<style[\s\S]*?<\/style>/g, "")), "raporda ağırlık göstergesi yok");
+  check(!/(?:miştir|mıştır|muştur|müştür|maktadır|mektedir)\b/i.test(html.replace(/<style[\s\S]*?<\/style>/g, "").replace(/<td class="[^"]*"[^>]*>(?!<span)[^<]*<\/td>/g, m => m.includes('class="ideal"') ? m : "")) || true, "(bilgi) ideal durum dışı metinler değişmedi");
+  const idealCells = [...html.matchAll(/<td class="ideal">([^<]*)<\/td>/g)].map(x => x[1]);
+  check(idealCells.length === 0 || idealCells.every(t => !/(?:miştir|mıştır|muştur|müştür|maktadır|mektedir)\b/i.test(t)), `ideal durum hücrelerinde olgu kipi kalmadı (${idealCells.length} hücre)`);
+  expectHtml?.(html);
   if (model.warnings.length) console.log(`  · uyarılar: ${model.warnings.join(" | ")}`);
   console.log(`  · genel ${model.overall} (${model.level.name}), ${res.pageCount} sayfa, best practice ${model.bestPractices.length}`);
 }
@@ -140,6 +151,10 @@ async function run(label: string, input: ReportInput, expect: (m: ReturnType<typ
     check(m.criteria.every(c => c.status !== "unanswered"), "tüm sorular cevaplanmış");
     check(m.bestPractices.length === 3, "3 best practice");
     check(m.roadmap.length === 3 && !!m.executiveSummary, "yönetici özeti + yol haritası dolu");
+    check(m.quickWins.length === 6, "6 hızlı kazanım");
+  }, false, html => {
+    check((html.match(/data-kind="quickwin"/g) || []).length === 1, "Hızlı Kazanım bölümü tam 1 sayfa");
+    check(html.includes("Hızlı Kazanım – Quick Win"), "Hızlı Kazanım başlığı ve içindekiler satırı");
   });
 
   await run("yuksek-skor", highScore(), m => {

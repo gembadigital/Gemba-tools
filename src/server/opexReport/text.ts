@@ -47,6 +47,115 @@ export function sentences(s: string | undefined | null): string {
     .join(" ");
 }
 
+// ---------- "ideal durum" → gereklilik kipi ----------
+//
+// The question bank states each ideal state as a finished fact ("… görselleştirilmiştir."), which
+// is how the auditor reads it on site. In the report it is the target to reach, so it must read as
+// a requirement ("… görselleştirilmelidir."). Done with Turkish verb-suffix rules rather than an
+// AI rewrite so the output is deterministic and costs nothing. Only finite predicates are changed;
+// anything not recognised is left exactly as written.
+
+const VOWELS = "aeıioöuü";
+const BACK_VOWELS = "aıou";
+const lastVowelIsBack = (s: string): boolean => {
+  for (let i = s.length - 1; i >= 0; i--) {
+    const ch = lowerTr(s[i]);
+    if (VOWELS.includes(ch)) return BACK_VOWELS.includes(ch);
+  }
+  return true;
+};
+const mal = (stem: string, plural = "", copula = true) => {
+  const back = lastVowelIsBack(stem);
+  const base = stem + (back ? "malı" : "meli") + (copula ? (back ? "dır" : "dir") : "");
+  return plural && copula ? base + (back ? "lar" : "ler") : base;
+};
+
+// Bare-root aorist verbs ("sağlar", "verir", "eder" …) cannot be told apart from plural nouns
+// ("saatler") by suffix alone, so they are matched from a list instead.
+const AORIST_ROOTS: Record<string, string> = {
+  alır: "al", verir: "ver", girer: "gir", eder: "et", sağlar: "sağla", kılar: "kıl", tutar: "tut",
+  izler: "izle", uygular: "uygula", gösterir: "göster", dağıtır: "dağıt", sokar: "sok", yapar: "yap",
+  getirir: "getir", sunar: "sun", kullanır: "kullan", bulunur: "bulun", olur: "ol", içerir: "içer",
+  destekler: "destekle", sağlarlar: "sağla", ederler: "et", kılarlar: "kıl", yaparlar: "yap",
+  alırlar: "al", verirler: "ver", uygularlar: "uygula", gösterirler: "göster",
+};
+// -yor forms whose stem loses its final vowel before the suffix ("destekliyor" ← destekle-).
+const YOR_IRREGULAR: Record<string, string> = { destekliyor: "destekle", bekliyor: "bekle", izliyor: "izle" };
+// Passive / reflexive / causative stems that take the aorist (-ır/-ir/-ur/-ür): "sağlanır", "alınır".
+const PASSIVE_STEM = /(?:lan|len|[ıiuü]l|[ıiuü]n|d[ıiuü]r|t[ıiuü]r)$/;
+
+type Pos = "last" | "clause" | "mid"; // sentence-final word / word before a comma / anywhere else
+function shouldWord(core: string, pos: Pos): string | null {
+  const lw = lowerTr(core);
+  if (lw.length < 4) return null;
+  if (/m[ae]l[ıi]d[ıi]r(l[ae]r)?$/.test(lw)) return null; // already a requirement
+
+  let m: RegExpMatchArray | null;
+  // -maktadır / -mektedir (+ the typos "-mektdir", "-metekdir") — unambiguous, any position.
+  if ((m = lw.match(/^(.{2,}?)(?:m[ae]kt[ae]|m[ae]kt|m[ae]tek)(?:d[ıiuü]r|t[ıiuü]r)?(l[ae]r)?$/))) {
+    return mal(core.slice(0, m[1].length), m[2] || "");
+  }
+  // -mıştır / -miştir / -muştur / -müştür (+ "-mışlardır") — unambiguous, any position.
+  if ((m = lw.match(/^(.{2,}?)m[ıiuü]ş(?:l[ae]r)?(?:d[ıiuü]r|t[ıiuü]r)(l[ae]r)?$/))) {
+    return mal(core.slice(0, m[1].length), m[2] || (/m[ıiuü]ş(l[ae]r)d/.test(lw) ? lw.match(/m[ıiuü]ş(l[ae]r)d/)![1] : ""));
+  }
+  // Words before a comma ("kurulmuş, dağıtılmış, … yapılmaktadır") are clauses of a list: they take
+  // the bare requirement stem ("kurulmalı, dağıtılmalı, … yapılmalıdır") — only the unambiguous
+  // participle/continuous endings are touched there.
+  if (pos === "clause") {
+    if ((m = lw.match(/^(.{2,}?)m[ıiuü]ş$/))) return mal(core.slice(0, m[1].length), "", false);
+    if (YOR_IRREGULAR[lw]) return mal(YOR_IRREGULAR[lw], "", false);
+    if ((m = lw.match(/^(.{2,}?)(?:[ıiuü]yor)$/))) return mal(core.slice(0, m[1].length), "", false);
+    return null;
+  }
+  if (pos !== "last") return null; // everything below is only safe on the sentence's final word
+
+  if (/^vardır$/.test(lw)) return "bulunmalıdır";
+  if (/^yoktur$/.test(lw)) return "bulunmamalıdır";
+  // bare "-mış"/"-miş" with no copula: "… belirlenmiş."
+  if ((m = lw.match(/^(.{2,}?)m[ıiuü]ş$/))) return mal(core.slice(0, m[1].length));
+  // truncated "… yapılmakta."
+  if ((m = lw.match(/^(.{2,}?)m[ae]kt[ae]$/))) return mal(core.slice(0, m[1].length));
+  if (YOR_IRREGULAR[lw]) return mal(YOR_IRREGULAR[lw]);
+  if ((m = lw.match(/^(.{2,}?)(?:[ıiuü]yor)$/))) return mal(core.slice(0, m[1].length));
+  if (AORIST_ROOTS[lw]) {
+    const plural = /l[ae]r$/.test(lw) && !/^(izler|destekler)$/.test(lw) ? (lastVowelIsBack(AORIST_ROOTS[lw]) ? "lar" : "ler") : "";
+    return mal(AORIST_ROOTS[lw], plural);
+  }
+  // "sağlanır", "alınır", "görselleştirilir", "seviyelendirir"
+  if ((m = lw.match(/^(.{3,}?)([ıiuü]r)$/)) && PASSIVE_STEM.test(m[1])) return mal(core.slice(0, m[1].length));
+  // negative aorist: "görülmez"
+  if ((m = lw.match(/^(.{3,}?)m[ae]z$/)) && PASSIVE_STEM.test(m[1])) return core.slice(0, m[1].length) + (lastVowelIsBack(m[1]) ? "mamalıdır" : "memelidir");
+  // copular statements: "mevcuttur" → "mevcut olmalıdır", "sahiptir" → "sahip olmalıdır"
+  if ((m = lw.match(/^(.{2,}?)(?:d[ıiuü]r|t[ıiuü]r)(l[ae]r)?$/))) {
+    // "olmalıdır" ends in a back vowel, so the plural is always "-lar" (not the stem's harmony).
+    return `${core.slice(0, m[1].length)} olmalıdır${m[2] ? "lar" : ""}`;
+  }
+  return null;
+}
+
+// Rewrites every finite predicate of a (sentence-cased) ideal-state text into its requirement form.
+export function shouldForm(text: string | undefined | null): string {
+  const t = String(text ?? "");
+  return t.split(/(?<=[.!?])\s+/).map(sentence => {
+    const parts = sentence.split(/(\s+)/);
+    // index of the last real word (skip whitespace, and tokens that are pure punctuation)
+    let lastIdx = -1;
+    parts.forEach((p, i) => { if (/[A-Za-zÇĞİÖŞÜçğıöşü]/.test(p)) lastIdx = i; });
+    return parts.map((p, i) => {
+      const m = p.match(/^([("'“]*)(.*?)([)"'”.,;:!?]*)$/);
+      if (!m || !m[2]) return p;
+      const nextWord = (parts.slice(i + 1).find(x => /\S/.test(x)) || "").toLocaleLowerCase("tr-TR");
+      const pos: Pos = i === lastIdx ? "last" : (/^[,;]/.test(m[3]) || nextWord === "ve" || nextWord === "veya") ? "clause" : "mid";
+      const out = shouldWord(m[2], pos);
+      return out === null ? p : m[1] + out + m[3];
+    }).join("");
+  }).join(" ");
+}
+
+// Ideal-state text as printed in the report: sentence case + requirement form.
+export const idealText = (s: string | undefined | null): string => shouldForm(sentences(s));
+
 // Short headings (area / criterion names): Title Case, "ve" lower, abbreviations kept.
 export function title(s: string | undefined | null): string {
   const t = applyTypos(String(s ?? "")).replace(/\s*-\s*/g, " – ").replace(/\s+/g, " ").trim();

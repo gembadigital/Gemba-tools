@@ -1,5 +1,6 @@
 import { db } from "../db.js";
 import { buildReportModel, ReportModel } from "./model.js";
+import { generateQuickWins } from "./quickWins.js";
 
 // Loads one assessment as a report model, enforcing who may download the executive report:
 //  - Admin: any time (also drafts, as a preview);
@@ -12,7 +13,7 @@ export type ReportLoad =
   | { ok: true; model: ReportModel; fileBase: string }
   | { ok: false; status: number; error: string };
 
-export async function loadExecutiveReport(user: any, assessmentId: string): Promise<ReportLoad> {
+export async function loadExecutiveReport(user: any, assessmentId: string, opts: { refreshQuickWins?: boolean } = {}): Promise<ReportLoad> {
   const orgId = user.organization_id;
   const assessment = await db.getOpexAssessmentById(orgId, assessmentId);
   if (!assessment) return { ok: false, status: 404, error: "Denetim bulunamadı." };
@@ -52,6 +53,21 @@ export async function loadExecutiveReport(user: any, assessmentId: string): Prom
     reportNo,
     reportDate,
   });
+
+  // "Hızlı Kazanım" page: drafted by AI from the whole audit the first time the report is built
+  // (or when an Admin asks for a refresh), then stored on the assessment so every later download
+  // prints the same page. A failure never blocks the report — the page is just left out and the
+  // reason is added to the report warnings.
+  if (model.quickWins.length === 0 || (opts.refreshQuickWins && user.role === "Admin")) {
+    try {
+      const items = await generateQuickWins(model);
+      model.quickWins = items;
+      // Only the new field is written (upsert merges onto the stored record), so a concurrent assessor save is not clobbered.
+      await db.saveOpexAssessment(orgId, { id: assessment.id, quickWins: { items, generatedAt: new Date().toISOString(), source: "ai" } }, user.id);
+    } catch (e: any) {
+      model.warnings.push(`Hızlı Kazanım sayfası oluşturulamadı (${e?.message || "bilinmeyen hata"}); rapordan çıkarıldı.`);
+    }
+  }
   const shortName = customerName.trim().split(/\s+/)[0] || "Musteri";
   return { ok: true, model, fileBase: `${shortName}-${reportNo}-Yonetici-Raporu` };
 }

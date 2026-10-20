@@ -54,7 +54,7 @@ const LAYOUT_CHECK = `(() => {
       // Nothing may reach into the footer band, and boxes must not overflow their own frame.
       const flag = (why) => { issues.push("Sayfa " + n + ": " + why); overflow.push({ kind: p.dataset.kind || "", key: p.dataset.key || "" }); };
       let hit = false;
-      p.querySelectorAll(".card, .bp, .wave, .step, .tgt-note, table, h2").forEach(el => {
+      p.querySelectorAll(".card, .bp, .wave, .qw, .step, .tgt-note, table, h2").forEach(el => {
         if (hit || f.contains(el)) return;
         const r = el.getBoundingClientRect();
         if (r.height > 0 && r.bottom > fr.top + 1) { hit = true; flag("içerik altbilgiye biniyor"); }
@@ -99,6 +99,8 @@ export async function renderReportPdf(build: (o: LayoutOptions) => string, opt: 
           if (cur > 1) { opts.bpPerPage = Math.max(1, Math.floor(cur / 2)); changed = true; }
         } else if (o.kind === "gaps") {
           if (!opts.gapsCompact) { opts.gapsCompact = true; changed = true; }
+        } else if (o.kind === "quickwin") {
+          if (!opts.qwCompact) { opts.qwCompact = true; changed = true; }
         } else if (o.kind === "sections") {
           const cur = opts.sectionsBudget ?? 1;
           if (cur > 0.3) { opts.sectionsBudget = cur * 0.85; changed = true; }
