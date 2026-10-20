@@ -382,12 +382,6 @@ export const OPEX_SEED_QUESTIONS: OpexSeedQuestion[] = [
     rubric: { "0": "Çalışma Görülmedi", "1": "Görsel talimatlar yetersiz veya operatörün erişimine uygun değildir.", "2": "Bazı hatlarda görsel talimatlar mevcut ancak standart ve kolay anlaşılır değildir.", "3": "Görsel talimatlar büyük ölçüde kullanılmakta, bazı iyileştirme fırsatları vardır.", "4": "Tüm hatlarda operatör dostu, açık, renk kodlu, resimli talimatlar standarttır ve etkilidir.", "5": "Başarılı Uygulama" }
   },
   {
-    id: "F2.6", categoryId: "F", categoryName: "GÖRSEL FABRİKA",
-    subject: "GÖRSEL TALİMATLAR", subjectId: "F2", weight: 2, defaultNotApplicable: true,
-    idealState: "BU MADDE CHECK LİSTTE YOK. PUANI NERDEN ALMIŞ GEREKİRSE SİLEBİLİRİZ.",
-    rubric: { "0": "Çalışma Görülmedi", "1": "", "2": "", "3": "", "4": "", "5": "Başarılı Uygulama" }
-  },
-  {
     id: "G1.1", categoryId: "G", categoryName: "STANDART İŞ",
     subject: "STANDART İŞ", subjectId: "G1", weight: 3,
     idealState: "HATLARDA HER BİR ÜRÜN GRUBU İÇİN STANDART İŞ KARTLARI HAZIRLANMIŞ, HAT AKIŞ VE LAYOUT YAPISININ STANDARDI BELİRLENMİŞ. PROSES SÜRELERİ ÖLÇÜLMÜŞ VE STANDARD OLARAK KABUL EDİLMİŞTİR. DEĞİŞİKLİKLERDE REVİZE EDİLDİĞİNİ GÖSTREREN REVİZYON NOLARI MEVCUTTUR",

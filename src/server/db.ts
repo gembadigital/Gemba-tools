@@ -1621,10 +1621,16 @@ export class GeminiDb {
       // 5S category summed to 19 — aligned with the reference checklist so it totals 20.
       { id: "E3.1", field: "weight", from: 2, to: 2.5 },
       { id: "E3.4", field: "weight", from: 2, to: 2.5 },
-      // Not in the reference checklist: new audits start it as "Kapsam dışı" (N/A).
-      { id: "F2.6", field: "defaultNotApplicable", from: undefined, to: true },
     ];
-    const out = [...list];
+
+    // F2.6 "GÖRSEL TALİMATLAR" was never in the reference checklist (empty rubric, placeholder
+    // text) and has been removed from the seed. Orgs seeded before that still hold it, so retire
+    // it here too — but only while it is still the untouched placeholder, so a question an Admin
+    // deliberately re-created/edited under that id in the Soru Bankası is never deleted.
+    const retired = list.find(q => q.id === "F2.6" && q.subject === "GÖRSEL TALİMATLAR" && String(q.idealState || "").startsWith("BU MADDE CHECK LİSTTE YOK"));
+    if (retired) await this.removeOne("opex_questions", orgId, retired.id);
+
+    const out = list.filter(q => q !== retired);
     for (const r of revisions) {
       const i = out.findIndex(q => q.id === r.id);
       if (i < 0 || out[i][r.field] !== r.from) continue;
