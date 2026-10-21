@@ -1,5 +1,5 @@
 import type { ReportModel } from "./model.js";
-import { LIMITS, clip, geminiJson, normalizeQuickWins, MAX_QUICK_WINS } from "./quickWins.js";
+import { LIMITS, clip, geminiJson, normalizeQuickWins, findingsBlock, MAX_QUICK_WINS } from "./quickWins.js";
 import type { ReportQuickWin } from "./quickWins.js";
 
 // "Danışman Özet Sunumu" — the AI analysis shown on the OpEx Assessment report tab. It replaces an
@@ -31,12 +31,15 @@ export interface BriefFacts {
   previous: { name: string; date: string; overall: number } | null;
   complete: boolean; // false → audit still open / criteria unanswered
   unanswered: number;
+  findingAuthors: string[]; // consultants whose comments the brief is based on (empty → scores only)
 }
 
 export interface ConsultantBrief {
   generatedAt: string;
   facts: BriefFacts;
   headline: string;
+  focus: BriefPoint[]; // major problems named by the consultants themselves
+  deprioritized: { topic: string; reason: string }[]; // low-scoring topics the consultants deliberately do not prioritise
   strengths: BriefPoint[];
   gaps: BriefPoint[];
   quickWins: ReportQuickWin[];
@@ -65,6 +68,7 @@ export function buildFacts(m: ReportModel, previous: BriefFacts["previous"], com
     previous,
     complete: complete && m.criteria.every(c => c.status !== "unanswered"),
     unanswered: m.criteria.filter(c => c.status === "unanswered").length,
+    findingAuthors: m.consultantFindings.map(f => f.name),
   };
 }
 
@@ -83,7 +87,7 @@ DENETİM: ${f.auditName || "—"}${f.auditDate ? ` (${f.auditDate})` : ""}
 GENEL SKOR: ${n1(f.overall)} / 100 (${f.level}); HEDEF: ${f.target}; HEDEFE UZAKLIK: ${n1(f.gap)} puan
 KRİTER DURUMU: ${f.criteriaScored} kriter puanlandı, ${f.lowCount} tanesi 0–1 puanda${f.unanswered ? `; ${f.unanswered} kriter henüz değerlendirilmedi (analiz ön değerlendirmedir)` : ""}
 ${f.previous ? `ÖNCEKİ DENETİM: ${f.previous.name} (${f.previous.date}) genel skor ${n1(f.previous.overall)} → şimdi ${n1(f.overall)}\n` : ""}${m.executiveSummary ? `DENETÇİNİN YÖNETİCİ ÖZETİ: ${m.executiveSummary}\n` : ""}
-ALAN SKORLARI VE DENETÇİ BÖLÜM DEĞERLENDİRMELERİ:
+${findingsBlock(m)}ALAN SKORLARI VE DENETÇİ BÖLÜM DEĞERLENDİRMELERİ:
 ${areas}
 
 EN ZAYIF KRİTERLER (puan ≤ 2) VE SAHA TESPİTLERİ:
@@ -103,12 +107,15 @@ KURALLAR:
 - Hızlı kazanım = en fazla 4 hafta, yok denecek yatırım, mevcut kaynakla, görünür etki. En etkili ve en kolay olan başta.
 - Sadece JSON döndür, şu yapıda:
 {"headline":"en çok 220 karakter: ${f.firm} için tek-iki cümlelik yönetici hükmü (skor, seviye, hedefe uzaklık, en büyük sorun)",
+ "focus":[{"title":"en çok 70 kr: danışmanın ana problem dediği konu","detail":"en çok 220 kr: danışman yorumuna ve kanıta dayalı gerekçe","criteria":["G1.1"]}],
+ "deprioritized":[{"topic":"en çok 70 kr: skoru düşük ama öncelik sayılmayan konu","reason":"en çok 160 kr: danışmanın yorumundaki gerekçe"}],
  "strengths":[{"title":"en çok 70 kr","detail":"en çok 200 kr: neden güçlü, nasıl yaygınlaştırılır","criteria":["E1.1"]}],
  "gaps":[{"title":"en çok 70 kr","detail":"en çok 220 kr: sahadaki kanıtla birlikte neden kritik","criteria":["G1.1"]}],
  "quickWins":[{"title":"en çok ${LIMITS.title} kr","action":"en çok ${LIMITS.action} kr: ne, nerede, kim yapar","impact":"en çok ${LIMITS.impact} kr","duration":"örn. 2 hafta","area":"alan adı","criteria":["E2.1"]}],
  "next90":[{"when":"0–30 gün","title":"en çok 60 kr","items":["en çok 120 kr"]},{"when":"30–60 gün","title":"","items":[""]},{"when":"60–90 gün","title":"","items":[""]}],
  "decisions":["en çok 140 kr: yönetimden beklenen karar"],
  "kpis":["en çok 140 kr: ölçülebilir başarı ölçütü (veride olan bir göstergeye bağlı)"]}
+- Danışman yorumu varsa "focus" 2–5 madde (danışmanların ana problem konuları; kendi cümleleriyle uyumlu) ve gerekçesi yazılı olanlar için "deprioritized"; yorum yoksa ikisi de boş liste ve sunum yalnızca skorlara dayanır. "gaps" skor kaynaklı boşlukları, "focus" danışman kaynaklı önceliği gösterir; aynı konuyu ikisinde tekrarlama.
 - Adet: strengths 2–4, gaps 3–5, quickWins 4–${MAX_QUICK_WINS}, next90 tam 3 dalga (her birinde 2–4 madde), decisions 3–4, kpis 3–4.`;
 }
 
@@ -130,6 +137,8 @@ export function normalizeBrief(raw: any, m: ReportModel, facts: BriefFacts): Con
     generatedAt: new Date().toISOString(),
     facts,
     headline: clip(raw?.headline, 240),
+    focus: points(raw?.focus, ok, 5),
+    deprioritized: (Array.isArray(raw?.deprioritized) ? raw.deprioritized : []).map((d: any) => ({ topic: clip(d?.topic, 70), reason: clip(d?.reason, 170) })).filter((d: { topic: string; reason: string }) => d.topic && d.reason).slice(0, 4),
     strengths: points(raw?.strengths, ok, 4),
     gaps: points(raw?.gaps, ok, 5),
     quickWins: normalizeQuickWins(raw?.quickWins, ok),

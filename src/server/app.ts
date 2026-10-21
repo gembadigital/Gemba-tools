@@ -8,6 +8,7 @@ import { mergeOpexAssessmentSave } from "./opexMerge.js";
 import { loadExecutiveReport } from "./opexReport/load.js";
 import { analyzePtrRecords } from "./ptrDigest.js";
 import { buildFacts, generateConsultantBrief } from "./opexReport/consultantBrief.js";
+import { applyFinding, canWriteFinding } from "./opexFindings.js";
 import { renderReportHtml } from "./opexReport/render.js";
 import * as XLSX from "xlsx";
 
@@ -2900,7 +2901,9 @@ app.get("/api/business/opex-assessments", authenticateToken, async (req, res) =>
     res.status(403).json({ success: false, error: "Access Denied." });
     return;
   }
-  res.json({ success: true, data: await db.getOpexAssessments(user.organization_id, scope.factoryId) });
+  const list = await db.getOpexAssessments(user.organization_id, scope.factoryId);
+  // Consultant comments and the AI brief are internal working material — never sent to a Customer User.
+  res.json({ success: true, data: user.role === "Customer User" ? list.map((a: any) => { const { consultantFindings, aiBrief, ...rest } = a; return rest; }) : list });
 });
 
 app.post("/api/business/opex-assessments", authenticateToken, async (req, res) => {
@@ -2999,6 +3002,29 @@ app.get("/api/business/opex-assessments/:id/export-excel", authenticateToken, as
     console.error("Failed to generate OpEx template Excel", e);
     res.status(500).json({ success: false, error: "Excel raporu oluşturulamadı: " + (e.message || "bilinmeyen hata") });
   }
+});
+
+// Danışman Yorumları: each consultant/auditor writes their own major-problem topics and on-site
+// context; the AI brief treats them as the primary reference. Only the caller's own entry changes
+// (empty text deletes it). Allowed on a locked audit too — a comment changes no score.
+app.put("/api/business/opex-assessments/:id/consultant-findings", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const assessment = await db.getOpexAssessmentById(user.organization_id, req.params.id);
+  if (!assessment) { res.status(404).json({ success: false, error: "Denetim bulunamadı." }); return; }
+  const allowedCustomerIds = (req as any).allowedCustomerIds as string[] | null;
+  if (allowedCustomerIds !== null && !allowedCustomerIds.includes(assessment.customerId)) {
+    res.status(403).json({ success: false, error: "Access Denied." });
+    return;
+  }
+  const customer = (await db.getCustomers(user.organization_id)).find((c: any) => c.id === assessment.customerId);
+  if (!canWriteFinding(user, assessment, customer)) {
+    res.status(403).json({ success: false, error: "Yorum yalnızca Admin ile bu müşterinin danışmanları ve bu denetimin denetçileri tarafından girilebilir." });
+    return;
+  }
+  const text = typeof req.body?.text === "string" ? req.body.text : "";
+  const consultantFindings = applyFinding(assessment.consultantFindings, user, text);
+  await db.saveOpexAssessment(user.organization_id, { id: assessment.id, consultantFindings }, user.id);
+  res.json({ success: true, data: consultantFindings });
 });
 
 // "Danışman Özet Sunumu": AI brief built from THIS audit only (scores, evaluator comments, field

@@ -46,6 +46,19 @@ export function normalizeQuickWins(raw: unknown, validCriterionIds: Set<string>)
   return out;
 }
 
+// Consultant/auditor comments, shared by every AI prompt of the report. They outrank the scores:
+// the consultants saw the plant, the scores only say how each question was rated.
+export function findingsBlock(m: ReportModel): string {
+  if (m.consultantFindings.length === 0) return "";
+  const list = m.consultantFindings.map(f => `[${f.name}] ${f.text}`).join("\n\n");
+  return `DANIŞMAN / DENETÇİ YORUMLARI (EN ÖNCELİKLİ REFERANS — skorlardan önce bunları esas al):
+${list}
+
+Bu yorumlar, denetimi yapan danışmanların sahada gördüğü ana problem konuları ve bağlamıdır. Öncelikleri bunlar belirler: danışmanın ana problem dediği konulara öncelik ver; danışmanın bağlam gerekçesiyle öncelik saymadığı konuları (ör. ekipman azlığı nedeniyle SMED, ya da müşteri uygulamıyor ama öncelikli değil) skoru düşük olsa bile hızlı kazanım ve ilk 90 günlük planın içine KOYMA. Birden fazla danışman yazdıysa hepsini birleştir; çelişki varsa uydurma bir uzlaşma yazma, çelişkiyi açıkça belirt.
+
+`;
+}
+
 function buildPrompt(m: ReportModel): string {
   const areas = m.areas.map(a => `- ${a.id} ${a.name}: ${a.score.toFixed(1)}/100 (${a.level.name})${a.comment ? ` — Denetçi değerlendirmesi: ${a.comment}` : ""}`).join("\n");
   const weakest = [...m.scored]
@@ -62,7 +75,7 @@ Hızlı kazanım = en fazla 4 hafta içinde, yok denecek yatırımla, mevcut kay
 
 FİRMA: ${m.firm}
 GENEL SKOR: ${m.overall} / 100 (${m.level.name}); HEDEF: ${m.target}
-${m.executiveSummary ? `YÖNETİCİ ÖZETİ: ${m.executiveSummary}\n` : ""}
+${findingsBlock(m)}${m.executiveSummary ? `YÖNETİCİ ÖZETİ: ${m.executiveSummary}\n` : ""}
 ALAN SKORLARI VE DENETÇİ BÖLÜM DEĞERLENDİRMELERİ:
 ${areas}
 

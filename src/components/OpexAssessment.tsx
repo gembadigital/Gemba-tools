@@ -62,6 +62,7 @@ interface Assessment {
   // Executive report inputs
   bestPractices?: Record<string, OpexBestPractice>; // questionId -> evaluator's best-practice pick
   executiveSummary?: string; // optional headline; generated from data when empty
+  consultantFindings?: Record<string, { userId: string; name: string; text: string; updatedAt: string }>; // per-consultant major-problem comments
   aiBrief?: any; // last AI "Danışman Özet Sunumu" (server-stored, see consultantBrief.ts)
   roadmap?: OpexRoadmapWave[]; // evaluator-written 90-day plan; section hidden when empty
   completed_at?: string;
@@ -427,6 +428,8 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     const selected = assessments.find(a => a.id === id);
     if (selected) {
       setActiveAssessment(selected);
+      setFindingDraft(null);
+      setFindingMsg(null);
       setAiBrief(null);
       setAiError(null);
     }
@@ -1242,6 +1245,45 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     });
   }, [customerAssessments]);
 
+  // ---- Danışman Yorumları: each consultant's own major-problem topics / on-site context ----
+  // The AI brief treats them as its primary reference (scores alone cannot know that e.g. SMED is
+  // irrelevant because the plant has hardly any dies). One entry per author; the server only ever
+  // changes the caller's own entry, so several consultants can write at the same time.
+  const canWriteFinding = !!activeAssessment && (isAdmin || (
+    currentUser?.role === "Consultant" && (
+      [selectedCustomer?.primaryConsultantId, ...(selectedCustomer?.consultantIds || [])].includes(currentUser?.id) ||
+      Object.values(activeAssessment.assessorAssignments || {}).includes(currentUser?.id)
+    )
+  ));
+  const findings = Object.values(activeAssessment?.consultantFindings || {}).filter(f => f?.text?.trim());
+  const myFinding = activeAssessment?.consultantFindings?.[currentUser?.id || ""]?.text || "";
+  const [findingDraft, setFindingDraft] = useState<string | null>(null); // null → show the saved text
+  const [findingBusy, setFindingBusy] = useState(false);
+  const [findingMsg, setFindingMsg] = useState<string | null>(null);
+  const handleSaveFinding = async () => {
+    if (!activeAssessment || !token || findingDraft === null) return;
+    setFindingBusy(true);
+    setFindingMsg(null);
+    try {
+      const resp = await fetch(`/api/business/opex-assessments/${activeAssessment.id}/consultant-findings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ text: findingDraft })
+      });
+      const res = await resp.json().catch(() => ({ success: false, error: "Sunucu yanıtı okunamadı." }));
+      if (!res.success) { setFindingMsg(res.error || "Yorum kaydedilemedi."); return; }
+      const patch = (a: Assessment): Assessment => a.id === activeAssessment.id ? { ...a, consultantFindings: res.data } : a;
+      setAssessments(prev => prev.map(patch));
+      setActiveAssessment(prev => prev ? patch(prev) : prev);
+      setFindingDraft(null);
+      setFindingMsg("Yorumunuz kaydedildi. Danışman Özet Sunumu'nu yeniden üretirseniz bu yorumları esas alır.");
+    } catch (e: any) {
+      setFindingMsg(e.message || "Yorum kaydedilemedi.");
+    } finally {
+      setFindingBusy(false);
+    }
+  };
+
   // Danışman Özet Sunumu — the server builds it from this audit only (scores, evaluator comments,
   // field findings, best practices, roadmap, previous audit). The previous version posted a prompt
   // to the portfolio-level executive-insights endpoint, which ignored it and wrote a generic
@@ -1274,6 +1316,8 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
   const briefToText = (b: any): string => {
     const cr = (c: string[]) => (c?.length ? ` [${c.join(", ")}]` : "");
     const lines: string[] = [`${b.facts.firm} — Yalın Olgunluk Değerlendirmesi: Danışman Özeti`, "", b.headline, ""];
+    if (b.focus?.length) lines.push("DANIŞMANLARIN ANA PROBLEM KONULARI", ...b.focus.map((p: any) => `- ${p.title}: ${p.detail}${cr(p.criteria)}`), "");
+    if (b.deprioritized?.length) lines.push("PUANI DÜŞÜK AMA BİLİNÇLİ OLARAK ÖNCELİK VERİLMEYENLER", ...b.deprioritized.map((d: any) => `- ${d.topic}: ${d.reason}`), "");
     if (b.strengths?.length) lines.push("ÜZERİNE İNŞA EDİLECEK GÜÇLÜ YÖNLER", ...b.strengths.map((p: any) => `- ${p.title}: ${p.detail}${cr(p.criteria)}`), "");
     if (b.gaps?.length) lines.push("KRİTİK BOŞLUKLAR", ...b.gaps.map((p: any) => `- ${p.title}: ${p.detail}${cr(p.criteria)}`), "");
     if (b.quickWins?.length) lines.push("HIZLI KAZANIMLAR (en fazla 4 hafta)", ...b.quickWins.map((q: any, i: number) => `${i + 1}. ${q.title} — ${q.action}${q.impact ? ` Etki: ${q.impact}` : ""}${q.duration ? ` (${q.duration})` : ""}${cr(q.criteria)}`), "");
@@ -3108,6 +3152,52 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
 
           </div>
 
+          {/* DANIŞMAN YORUMLARI — major problems & context, the AI brief's primary reference */}
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs space-y-4">
+            <div className="border-b border-slate-100 pb-3 space-y-1">
+              <h3 className="text-sm font-black text-slate-950 uppercase tracking-tight">Danışman Yorumları — Major Problem Konuları</h3>
+              <p className="text-xs text-slate-500 max-w-3xl leading-relaxed">
+                Sahada tespit ettiğiniz ana problem konularını ve puanlara yansımayan bağlamı yazın (örn. “SMED puanı düşük ama müşteride ekipman çok az, öncelik değil”; “Henkaten uygulanmıyor ama şu an öncelikli olmamalı”).
+                Denetimi birden fazla danışman yapıyorsa her biri kendi yorumunu girer; yapay zeka özet sunumunu hazırlarken hepsini birleştirir ve puanlardan önce bunları esas alır.
+              </p>
+            </div>
+
+            {findings.length === 0 && (
+              <p className="text-xs text-slate-400">Henüz danışman yorumu girilmedi. Yorum girilmezse yapay zeka sunumu yalnızca puanlara göre hazırlanır.</p>
+            )}
+            {findings.filter(f => f.userId !== currentUser?.id).map(f => (
+              <div key={f.userId} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                <p className="text-[11px] font-black text-slate-700">{f.name} <span className="font-medium text-slate-400">· {new Date(f.updatedAt).toLocaleDateString("tr-TR")}</span></p>
+                <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed mt-1">{f.text}</p>
+              </div>
+            ))}
+
+            {canWriteFinding ? (
+              <div className="space-y-2">
+                <label className="text-[11px] font-black text-slate-600 uppercase tracking-wider">{currentUser?.full_name || "Danışman"} — Yorumunuz</label>
+                <textarea
+                  rows={5}
+                  value={findingDraft ?? myFinding}
+                  onChange={(e) => setFindingDraft(e.target.value)}
+                  placeholder={"Ana problem konuları (madde madde):\n1) …\n2) …\n\nPuanı düşük görünen ama öncelik olmayan konular ve nedeni:\n- …"}
+                  className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button
+                    onClick={handleSaveFinding}
+                    disabled={findingBusy || findingDraft === null || findingDraft === myFinding}
+                    className="bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white font-bold text-xs px-4 py-2 rounded-xl cursor-pointer transition-all"
+                  >
+                    {findingBusy ? "Kaydediliyor…" : "Yorumu Kaydet"}
+                  </button>
+                  {findingMsg && <span className="text-[11px] text-slate-500">{findingMsg}</span>}
+                </div>
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-400">Yorum girebilmek için müşteri kartındaki danışmanlardan biri ya da bu denetimin denetçisi olmanız gerekir.</p>
+            )}
+          </div>
+
           {/* DANIŞMAN ÖZET SUNUMU (AI) — built from this audit only */}
           {(() => {
             const brief: any = aiBrief || (activeAssessment as any)?.aiBrief || null;
@@ -3173,7 +3263,18 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                       <b className="text-slate-700">Dayanak:</b> {f.auditName || "Denetim"}{f.auditDate ? ` · ${f.auditDate}` : ""} · {f.criteriaScored}/{f.criteriaTotal} kriter puanlandı · {f.areaCount} alan
                       {f.previous ? ` · Önceki denetim: ${f.previous.name} (${f.previous.overall})` : ""}
                       {brief.generatedAt ? ` · Üretim: ${new Date(brief.generatedAt).toLocaleString("tr-TR")}` : ""}
+                      {f.findingAuthors?.length ? ` · Danışman yorumları: ${f.findingAuthors.join(", ")}` : ""}
                     </p>
+                    {!(f.findingAuthors?.length) && (
+                      <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs p-3 rounded-xl font-semibold">
+                        Bu sunum danışman yorumu olmadan, yalnızca puanlara göre hazırlandı. Yukarıdaki “Danışman Yorumları” alanına major problem konularını girip sunumu yeniden üretin.
+                      </div>
+                    )}
+                    {findings.some(x => brief.generatedAt && x.updatedAt > brief.generatedAt) && (
+                      <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs p-3 rounded-xl font-semibold">
+                        Sunumdan sonra danışman yorumu eklendi/güncellendi; güncel yorumların yansıması için sunumu yeniden üretin.
+                      </div>
+                    )}
                     {!f.complete && (
                       <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs p-3 rounded-xl font-semibold">
                         Denetim henüz tamamlanmadı{f.unanswered ? ` (${f.unanswered} kriter değerlendirilmemiş)` : ""}; bu sunum ön değerlendirmedir, denetim kilitlendikten sonra yeniden üretin.
@@ -3197,6 +3298,29 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                         ))}
                       </div>
                     </div>
+
+                    {(brief.focus?.length > 0 || brief.deprioritized?.length > 0) && (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {brief.focus?.length > 0 && (
+                          <Section title="Danışmanların ana problem konuları (öncelik)" tone="border-indigo-200 bg-indigo-50/40">
+                            <ul className="space-y-3">
+                              {brief.focus.map((p: any, i: number) => (
+                                <li key={i} className="text-xs leading-relaxed"><b className="text-slate-900">{p.title}</b><Chips ids={p.criteria} /><br /><span className="text-slate-600">{p.detail}</span></li>
+                              ))}
+                            </ul>
+                          </Section>
+                        )}
+                        {brief.deprioritized?.length > 0 && (
+                          <Section title="Puanı düşük ama bilinçli olarak öncelik verilmeyenler" tone="border-slate-200 bg-slate-50/60">
+                            <ul className="space-y-3">
+                              {brief.deprioritized.map((d: any, i: number) => (
+                                <li key={i} className="text-xs leading-relaxed"><b className="text-slate-900">{d.topic}</b><br /><span className="text-slate-600">{d.reason}</span></li>
+                              ))}
+                            </ul>
+                          </Section>
+                        )}
+                      </div>
+                    )}
 
                     {brief.quickWins?.length > 0 && (
                       <Section title={`Hızlı Kazanımlar — ${brief.quickWins.length} aksiyon, en fazla 4 hafta, ek yatırım yok`} tone="border-red-200 bg-red-50/40">

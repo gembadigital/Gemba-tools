@@ -1,6 +1,7 @@
 import { computeOpexScores, getOpexLevel, OpexLevel, OPEX_LEVELS, OPEX_NOT_APPLICABLE } from "../../utils/opexScoring.js";
 import { REPORT_CONFIG } from "./config.js";
 import type { ReportQuickWin } from "./quickWins.js";
+import { listFindings } from "../opexFindings.js";
 
 // Turns one stored OpEx assessment (+ question bank) into the plain data the report pages need.
 // Pure function: no DB, no I/O — the same input always yields the same report.
@@ -91,6 +92,7 @@ export interface ReportModel {
   bestPractices: ReportBestPractice[];
   roadmap: ReportRoadmapWave[];
   quickWins: ReportQuickWin[];
+  consultantFindings: { name: string; text: string; updatedAt: string }[]; // consultants' own major-problem comments
   executiveSummary: string;
   warnings: string[];
 }
@@ -211,6 +213,7 @@ export function buildReportModel(input: ReportInput): ReportModel {
     roadmap,
     // Stored by load.ts (AI-drafted once, then reused); empty until generated.
     quickWins: Array.isArray(a?.quickWins?.items) ? a.quickWins.items : [],
+    consultantFindings: listFindings(a).map(f => ({ name: f.name, text: f.text.trim(), updatedAt: f.updatedAt })),
     executiveSummary: pick(a?.executiveSummary),
     warnings,
   };
