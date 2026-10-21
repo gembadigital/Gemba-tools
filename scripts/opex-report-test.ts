@@ -130,6 +130,9 @@ async function run(label: string, input: ReportInput, expect: (m: ReturnType<typ
   check(!/(?:miştir|mıştır|muştur|müştür|maktadır|mektedir)\b/i.test(html.replace(/<style[\s\S]*?<\/style>/g, "").replace(/<td class="[^"]*"[^>]*>(?!<span)[^<]*<\/td>/g, m => m.includes('class="ideal"') ? m : "")) || true, "(bilgi) ideal durum dışı metinler değişmedi");
   const idealCells = [...html.matchAll(/<td class="ideal">([^<]*)<\/td>/g)].map(x => x[1]);
   check(idealCells.length === 0 || idealCells.every(t => !/(?:miştir|mıştır|muştur|müştür|maktadır|mektedir)\b/i.test(t)), `ideal durum hücrelerinde olgu kipi kalmadı (${idealCells.length} hücre)`);
+  // The report makes no promises: no time horizon for the target, no calendar buckets, no score-gain claims.
+  const body = html.replace(/<style[\s\S]*?<\/style>/g, "");
+  check(!/\b12 ay|aylık hedef|6\. ay|ay içinde|0–30 gün|30–60 gün|60–90 gün|skor etkisi|\+\d+,\d puan|en fazla 4 hafta/i.test(body), "raporda süre/skor vaadi yok");
   expectHtml?.(html);
   if (model.warnings.length) console.log(`  · uyarılar: ${model.warnings.join(" | ")}`);
   console.log(`  · genel ${model.overall} (${model.level.name}), ${res.pageCount} sayfa, best practice ${model.bestPractices.length}`);

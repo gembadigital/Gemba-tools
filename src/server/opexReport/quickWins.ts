@@ -71,7 +71,7 @@ function buildPrompt(m: ReportModel): string {
   const road = m.roadmap.map(w => `- ${w.when} ${w.title}: ${w.items.join("; ")}`).join("\n");
   return `Sen kıdemli bir Operasyonel Mükemmellik (OpEx / Yalın) danışmanısın. Aşağıdaki Yalın Olgunluk Değerlendirmesi sonuçlarından, danışmanın müşteri yönetimine sunacağı TEK SAYFALIK "Hızlı Kazanım (Quick Win)" listesini çıkar.
 
-Hızlı kazanım = en fazla 4 hafta içinde, yok denecek yatırımla, mevcut kaynaklarla uygulanabilen ve skoru ya da sahayı görünür biçimde iyileştiren aksiyon. Uzun vadeli, yatırım gerektiren ya da genel geçer (ör. "eğitim verin") öneriler verme. Her aksiyon aşağıdaki verilere dayanmalı ve somut olmalı (ne, nerede, kim yapar).
+Hızlı kazanım = yok denecek yatırımla, mevcut kaynaklarla hızla başlatılabilen ve sahayı görünür biçimde iyileştiren aksiyon. Uzun vadeli, yatırım gerektiren ya da genel geçer (ör. "eğitim verin") öneriler verme. Her aksiyon aşağıdaki verilere dayanmalı ve somut olmalı (ne, nerede, kim yapar).
 
 FİRMA: ${m.firm}
 GENEL SKOR: ${m.overall} / 100 (${m.level.name}); HEDEF: ${m.target}
@@ -89,10 +89,11 @@ DENETÇİNİN YOL HARİTASI:
 ${road || "(girilmemiş)"}
 
 KURALLAR:
+- Hiçbir VAAT verme: belirli bir sürede hedef puana ya da skor artışına ulaşılacağını, tasarruf/kazanç/sonuç getireceğini yazma; süre taahhüdü ve sayısal skor sözü yok. Etkiyi yalnızca niteliksel anlat ("sahada görünürlük artar" gibi), "12 ayda 70 puan" türü ifadeler kesinlikle yasak.
 - 4 ile ${MAX_QUICK_WINS} arasında hızlı kazanım üret; en etkili ve en kolay olan başta olsun.
 - Türkçe yaz, "yapılmalıdır" tonunda, kısa ve net cümleler kullan. Pazarlama dili ve genel laflar kullanma.
 - Yalnızca yukarıdaki verilerde geçen kriter ID'lerini kullan; veride olmayan bir şey uydurma.
-- Sadece JSON döndür: {"quickWins":[{"title":"en çok ${LIMITS.title} karakter","action":"en çok ${LIMITS.action} karakter: ne yapılacak","impact":"en çok ${LIMITS.impact} karakter: beklenen etki","duration":"örn. 1 hafta, 2 hafta, 4 hafta","area":"ilgili alan adı","criteria":["E1.1","E2.3"]}]}`;
+- Sadece JSON döndür: {"quickWins":[{"title":"en çok ${LIMITS.title} karakter","action":"en çok ${LIMITS.action} karakter: ne yapılacak","impact":"en çok ${LIMITS.impact} karakter: beklenen etki","area":"ilgili alan adı","criteria":["E1.1","E2.3"]}]}`;
 }
 
 let client: GoogleGenAI | null = null;

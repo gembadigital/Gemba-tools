@@ -1320,7 +1320,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     if (b.deprioritized?.length) lines.push("PUANI DÜŞÜK AMA BİLİNÇLİ OLARAK ÖNCELİK VERİLMEYENLER", ...b.deprioritized.map((d: any) => `- ${d.topic}: ${d.reason}`), "");
     if (b.strengths?.length) lines.push("ÜZERİNE İNŞA EDİLECEK GÜÇLÜ YÖNLER", ...b.strengths.map((p: any) => `- ${p.title}: ${p.detail}${cr(p.criteria)}`), "");
     if (b.gaps?.length) lines.push("KRİTİK BOŞLUKLAR", ...b.gaps.map((p: any) => `- ${p.title}: ${p.detail}${cr(p.criteria)}`), "");
-    if (b.quickWins?.length) lines.push("HIZLI KAZANIMLAR (en fazla 4 hafta)", ...b.quickWins.map((q: any, i: number) => `${i + 1}. ${q.title} — ${q.action}${q.impact ? ` Etki: ${q.impact}` : ""}${q.duration ? ` (${q.duration})` : ""}${cr(q.criteria)}`), "");
+    if (b.quickWins?.length) lines.push("HIZLI KAZANIMLAR", ...b.quickWins.map((q: any, i: number) => `${i + 1}. ${q.title} — ${q.action}${q.impact ? ` Fayda: ${q.impact}` : ""}${cr(q.criteria)}`), "");
     const pri = b.priorities?.length ? b.priorities : (b.next90 || []).map((w: any) => ({ title: w.title, why: "", items: w.items }));
     if (pri.length) lines.push("ÖNCELİK SIRASI", ...pri.flatMap((w: any, i: number) => [`Öncelik ${i + 1} · ${w.title}${w.why ? ` (${w.why})` : ""}`, ...w.items.map((it: string) => `  - ${it}`)]), "");
     if (b.decisions?.length) lines.push("YÖNETİMDEN BEKLENEN KARARLAR", ...b.decisions.map((d: string) => `- ${d}`), "");
@@ -3324,7 +3324,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                     )}
 
                     {brief.quickWins?.length > 0 && (
-                      <Section title={`Hızlı Kazanımlar — ${brief.quickWins.length} aksiyon, en fazla 4 hafta, ek yatırım yok`} tone="border-red-200 bg-red-50/40">
+                      <Section title={`Hızlı Kazanımlar — ${brief.quickWins.length} aksiyon, düşük maliyetli ve hızla başlatılabilir`} tone="border-red-200 bg-red-50/40">
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                           {brief.quickWins.map((q: any, i: number) => (
                             <div key={i} className="bg-white border border-slate-200 rounded-xl p-4 space-y-2 border-t-2 border-t-red-500">
@@ -3333,9 +3333,8 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                                 <p className="text-xs font-extrabold text-slate-900 leading-snug">{q.title}</p>
                               </div>
                               <p className="text-[11.5px] text-slate-700 leading-relaxed">{q.action}</p>
-                              {q.impact && <p className="text-[11px] text-slate-600"><b className="text-red-600">Beklenen etki:</b> {q.impact}</p>}
+                              {q.impact && <p className="text-[11px] text-slate-600"><b className="text-red-600">Fayda:</b> {q.impact}</p>}
                               <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                                {q.duration && <span className="px-2 py-0.5 rounded-full bg-slate-900 text-white text-[10px] font-bold">{q.duration}</span>}
                                 {q.area && <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-semibold">{q.area}</span>}
                                 <Chips ids={q.criteria} />
                               </div>

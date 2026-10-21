@@ -101,22 +101,23 @@ DENETÇİNİN KENDİ YOL HARİTASI:
 ${road || "(girilmemiş)"}
 
 KURALLAR:
+- Hiçbir VAAT verme: belirli bir sürede hedef puana ya da skor artışına ulaşılacağını, tasarruf/kazanç/sonuç getireceğini yazma; süre taahhüdü ve sayısal skor sözü yok. Etkiyi yalnızca niteliksel anlat ("sahada görünürlük artar" gibi), "12 ayda 70 puan" türü ifadeler kesinlikle yasak.
 - Yalnızca yukarıdaki verilere dayan; veride olmayan sayı, kişi, yatırım tutarı ya da sonuç UYDURMA. Finansal kazanç tahmini verme.
 - Her madde, dayandığı kriter ID'lerini ("criteria") listelemeli; yalnızca yukarıda geçen ID'leri kullan.
 - Türkçe, kısa, net, sahaya yakın. "Yapılmalıdır" tonu. Pazarlama dili ve genel geçer öneriler (ör. "eğitim verin") yok. Türkçe karşılığı olan sözcükleri Türkçe yaz (Daily → Günlük, Lean → Yalın). Sayıları Türkçe biçimde, en çok bir ondalıkla yaz (20,4; asla 20.44).
 - Güçlü yönler: best practice kaydı yoksa, en yüksek skorlu alanları ve 3+ puanlı kriterleri "görece güçlü" diye göster; yine de liste boş kalmasın (hiç 3+ puanlı kriter yoksa boş bırak).
 - Öncelikleri takvim aralığına (ay/hafta/gün) bağlama; sadece önem ve bağımlılık sırasına göre 1-2-3 diye sırala, "why" alanında sıranın gerekçesini yaz.
-- Hızlı kazanım = en fazla 4 hafta, yok denecek yatırım, mevcut kaynakla, görünür etki. En etkili ve en kolay olan başta.
+- Hızlı kazanım = yok denecek yatırım, mevcut kaynakla, hızla başlatılabilen, görünür etki; süre tahmini yazma. En etkili ve en kolay olan başta.
 - Sadece JSON döndür, şu yapıda:
 {"headline":"en çok 220 karakter: ${f.firm} için tek-iki cümlelik yönetici hükmü (skor, seviye, hedefe uzaklık, en büyük sorun)",
  "focus":[{"title":"en çok 70 kr: danışmanın ana problem dediği konu","detail":"en çok 220 kr: danışman yorumuna ve kanıta dayalı gerekçe","criteria":["G1.1"]}],
  "deprioritized":[{"topic":"en çok 70 kr: skoru düşük ama öncelik sayılmayan konu","reason":"en çok 160 kr: danışmanın yorumundaki gerekçe"}],
  "strengths":[{"title":"en çok 70 kr","detail":"en çok 200 kr: neden güçlü, nasıl yaygınlaştırılır","criteria":["E1.1"]}],
  "gaps":[{"title":"en çok 70 kr","detail":"en çok 220 kr: sahadaki kanıtla birlikte neden kritik","criteria":["G1.1"]}],
- "quickWins":[{"title":"en çok ${LIMITS.title} kr","action":"en çok ${LIMITS.action} kr: ne, nerede, kim yapar","impact":"en çok ${LIMITS.impact} kr","duration":"örn. 2 hafta","area":"alan adı","criteria":["E2.1"]}],
+ "quickWins":[{"title":"en çok ${LIMITS.title} kr","action":"en çok ${LIMITS.action} kr: ne, nerede, kim yapar","impact":"en çok ${LIMITS.impact} kr","area":"alan adı","criteria":["E2.1"]}],
  "priorities":[{"title":"en çok 60 kr: tek bir ana iş paketi","why":"en çok 120 kr: neden bu sırada (bağımlılık / etki)","items":["en çok 120 kr"]}],
  "decisions":["en çok 140 kr: yönetimden beklenen karar"],
- "kpis":["en çok 140 kr: ölçülebilir başarı ölçütü (veride olan bir göstergeye bağlı)"]}
+ "kpis":["en çok 140 kr: süreç/izleme göstergesi (örn. “günlük 5S turunun yapılma oranı”); skor ya da süre hedefi YAZMA"]}
 - Danışman yorumu varsa "focus" 2–5 madde (danışmanların ana problem konuları; kendi cümleleriyle uyumlu) ve gerekçesi yazılı olanlar için "deprioritized"; yorum yoksa ikisi de boş liste ve sunum yalnızca skorlara dayanır. "gaps" skor kaynaklı boşlukları, "focus" danışman kaynaklı önceliği gösterir; aynı konuyu ikisinde tekrarlama.
 - Adet: strengths 2–4, gaps 3–5, quickWins 4–${MAX_QUICK_WINS}, priorities tam 3 öncelik (önem sırasıyla; 1 = önce başlanacak ve diğerlerinin önkoşulu; her birinde 2–4 madde), decisions 3–4, kpis 3–4.`;
 }

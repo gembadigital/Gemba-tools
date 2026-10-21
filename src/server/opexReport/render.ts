@@ -175,10 +175,10 @@ function execHeadline(m: ReportModel): string {
   switch (m.level.index) {
     case 0:
       return z > 0
-        ? `Fabrika yalın dönüşümün başlangıç noktasında: ${n} kriterin <em>${z} tanesinde hiç çalışma yok</em>. ${m.target} hedefi için önce saha temeli ve bir iyileştirme sistemi kurulmalı.`
-        : `Fabrika yalın dönüşümün başlangıç noktasında: genel skor <em>${num(m.overall)}</em>. ${m.target} hedefi için önce saha temeli ve bir iyileştirme sistemi kurulmalı.`;
+        ? `Fabrika yalın dönüşümün başlangıç noktasında: ${n} kriterin <em>${z} tanesinde hiç çalışma yok</em>. ${m.target} puanlık referans hedefe yaklaşmak için önce saha temeli ve bir iyileştirme sistemi kurulmalı.`
+        : `Fabrika yalın dönüşümün başlangıç noktasında: genel skor <em>${num(m.overall)}</em>. ${m.target} puanlık referans hedefe yaklaşmak için önce saha temeli ve bir iyileştirme sistemi kurulmalı.`;
     case 1:
-      return `Temel altyapı kurulmuş, genel skor <em>${num(m.overall)}</em>. ${m.target} hedefi için en zayıf alanlarda (${worst}) sistematik çalışma gerekiyor.`;
+      return `Temel altyapı kurulmuş, genel skor <em>${num(m.overall)}</em>. ${m.target} puanlık referans hedefe yaklaşmak için en zayıf alanlarda (${worst}) sistematik çalışma gerekiyor.`;
     case 2:
       return `Dönüşüm görünür düzeyde, genel skor <em>${num(m.overall)}</em>. Kazanımları standartlaştırmak ve ${worst} alanlarını güçlendirmek bir sonraki adım.`;
     default:
@@ -251,7 +251,6 @@ function execSummaryPage(p: Pages, m: ReportModel, o: LayoutOptions) {
 
   const decisions = C.managementDecisions.map(d =>
     `<li>${d
-      .replace("{months}", String(C.report.horizonMonths))
       .replace("{target}", String(m.target))
       .replace("{targetClass}", m.targetClass ? `Seviye ${m.targetClass}, ` : "")
       .replace("{targetLevel}", esc(m.targetLevel.name.toLocaleLowerCase("tr-TR")))}</li>`
@@ -286,7 +285,7 @@ function processPage(p: Pages, m: ReportModel) {
   const steps = OPEX_LEVELS.map((lv, i) => {
     let tag = "";
     if (i === cur) tag += `<span class="st-tag now">Bugün · ${num(m.overall)}</span>`;
-    if (i === tgt) tag += `<span class="st-tag goal">${C.report.horizonMonths} ay hedefi · ${m.target}</span>`;
+    if (i === tgt) tag += `<span class="st-tag goal">Referans hedef · ${m.target}</span>`;
     const cls = i === cur ? " cur" : i === tgt ? " tgt" : "";
     return `<div class="step${cls}" style="--c:${lv.color};--h:${48 + i * 11}%"><div class="st-tags">${tag}</div>` +
       `<div class="st-bar"><span class="st-no">${i + 1}</span><span class="st-rg">${lv.range}</span><b>${esc(lv.name)}</b></div><p>${esc(lv.description)}</p></div>`;
@@ -299,14 +298,15 @@ function processPage(p: Pages, m: ReportModel) {
     ["Yol haritası", "Öncelik sırası ve aksiyonlar"],
   ];
   const flowHtml = flow.map(([t, d], i) => `<div class="fl"><span>${i + 1}</span><b>${esc(t)}</b><small>${esc(d)}</small></div>`).join("");
+  // The target is a reference line, never a promise: no time frame is stated for reaching it.
   const goal = tgt === cur
-    ? `${C.report.horizonMonths} aylık hedef, bu basamakta ${m.target} puana ulaşmak.`
+    ? `Referans hedef, bu basamakta ${m.target} puandır.`
     : tgt > cur
-      ? `${C.report.horizonMonths} aylık hedef, ${ordinal(tgt)} basamak olan ${LEVEL_DATIVE[tgt]} çıkmak.`
+      ? `Referans hedef, ${ordinal(tgt)} basamak olan ${LEVEL_DATIVE[tgt]} çıkmaktır; ulaşma süresi uygulama temposuna bağlıdır ve taahhüt edilmez.`
       : `Hedef ${m.target} puan aşılmış durumda; odak bu seviyeyi sürdürmek.`;
   p.page(`<h2 class="headline">Değerlendirme süreci ve olgunluk seviyeleri: ${esc(m.firm)} bugün 5 aşamalı yolculuğun <em>${ordinal(cur)} basamağında</em>. ${goal}</h2>` +
     `<div class="flow">${flowHtml}</div><div class="stairs">${steps}</div>` +
-    `<div class="tgt-note"><b>Hedef puanın belirlenmesi:</b> ${C.targetRule.text} Bu değerlendirmede hedef <b>${m.target}</b> olarak belirlenmiştir.</div>`,
+    `<div class="tgt-note"><b>Hedef puanın belirlenmesi:</b> ${C.targetRule.text} Bu değerlendirmede referans hedef <b>${m.target}</b> olarak alınmıştır; bir süre veya sonuç taahhüdü değildir.</div>`,
     "Değerlendirme metodu · Olgunluk seviyeleri");
 }
 
@@ -428,10 +428,8 @@ function criticalGapsPage(p: Pages, m: ReportModel, o: LayoutOptions) {
 
   const areaShort = (id: string) => m.areas.find(a => a.id === id)?.short || id;
   const crow = crit.map(c => `<tr><td class="id">${esc(c.id)}</td><td><b>${esc(title(c.topic))}</b></td><td class="muted">${esc(areaShort(c.categoryId))}</td>${zeroMode ? "" : `<td class="c">${c.score}</td>`}</tr>`).join("");
-  // Expected gain if each listed criterion reached 2/5: per-area points ÷ number of areas.
-  const gain = crit.reduce((s, c) => s + Math.max(0, 2 - (c.score as number)) * (c.lost / Math.max(0.0001, 5 - (c.score as number))), 0) / m.areas.length;
   const head = zeroMode
-    ? `En büyük puan kaybı, hiç başlanmamış konulardan geliyor. ${crit.length} kritik kriterde çalışma yok; bunların her biri 2/5 seviyesine geldiğinde genel skor yaklaşık <em>+${num(gain)} puan</em> artar.`
+    ? `En büyük puan kaybı, hiç başlanmamış konulardan geliyor. ${crit.length} kritik kriterde çalışma yok; bunlar öncelikli olarak ele alınmalıdır.`
     : `En büyük puan kaybı düşük puanlı (0–2) kriterlerden geliyor. Listelenen ${crit.length} kriter 2/5 seviyesinin altında kaldığı ölçüde iyileştirme önceliği taşıyor.`;
   p.page(`
 <h2 class="headline">${head}</h2>
@@ -447,25 +445,17 @@ function criticalGapsPage(p: Pages, m: ReportModel, o: LayoutOptions) {
 function roadmapPage(p: Pages, m: ReportModel) {
   if (m.roadmap.length === 0) return; // only the evaluator's own plan is printed
   p.entry("roadmap");
-  const qid = new Map(m.scored.map(c => [c.id, c]));
-  const gainOf = (ids: string[]) =>
-    ids.reduce((s, id) => {
-      const c = qid.get(id);
-      if (!c || (c.score as number) >= 2) return s;
-      return s + (2 - (c.score as number)) * (c.lost / (5 - (c.score as number)));
-    }, 0) / m.areas.length;
-  const waves = m.roadmap.map(w => `<div class="wave"><p class="when">${esc(w.when)}</p><h3>${esc(w.title)}</h3><ul>${w.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul>${w.kpi ? `<p class="kpi-line"><b>Başarı ölçütü:</b> ${esc(w.kpi)}</p>` : ""}</div>`).join("");
-  const withCriteria = m.roadmap.filter(w => w.criteria.length > 0);
-  const total = withCriteria.reduce((s, w) => s + gainOf(w.criteria), 0);
-  const imp = withCriteria.map(w => `<tr><td class="b">${esc(w.when || w.title)}</td><td>${esc(w.criteria.join(", "))}</td><td class="r b">+${num(gainOf(w.criteria))}</td><td class="muted">—</td><td class="muted">—</td><td><span class="tag">Planlandı</span></td></tr>`).join("");
-  const head = withCriteria.length
-    ? `Öncelikli yol haritası: ${m.roadmap.map(w => esc((w.title || "").toLocaleLowerCase("tr-TR"))).filter(Boolean).join(", ")}. Planlanan işlerin beklenen etkisi <em>+${num(total)} puan</em>.`
-    : `Öncelikli yol haritası: ${m.roadmap.map(w => esc((w.title || "").toLocaleLowerCase("tr-TR"))).filter(Boolean).join(", ")}.`;
+  // Waves are ranked 1-2-3 in the order the evaluator entered them; calendar labels ("0–30 gün")
+  // and score-gain estimates are deliberately not printed — the report makes no timing or result promise.
+  const waves = m.roadmap.map((w, i) => `<div class="wave"><p class="when">Öncelik ${i + 1}</p><h3>${esc(w.title)}</h3><ul>${w.items.map(it => `<li>${esc(it)}</li>`).join("")}</ul>${w.kpi ? `<p class="kpi-line"><b>İzleme ölçütü:</b> ${esc(w.kpi)}</p>` : ""}</div>`).join("");
+  const withCriteria = m.roadmap.map((w, i) => ({ w, i })).filter(x => x.w.criteria.length > 0);
+  const imp = withCriteria.map(({ w, i }) => `<tr><td class="b">Öncelik ${i + 1}</td><td>${esc(w.criteria.join(", "))}</td><td class="muted">—</td><td class="muted">—</td><td><span class="tag">Planlandı</span></td></tr>`).join("");
+  const head = `Öncelikli yol haritası: ${m.roadmap.map(w => esc((w.title || "").toLocaleLowerCase("tr-TR"))).filter(Boolean).join(", ")}.`;
   p.page(`
 <h2 class="headline">${head}</h2>
 <div class="waves">${waves}</div>
-${imp ? `<table class="tbl imp"><thead><tr><th>Dalga</th><th>Kapsanan kriterler</th><th class="r">Beklenen skor etkisi*</th><th>Sponsor</th><th>Bütçe</th><th>Durum</th></tr></thead><tbody>${imp}</tbody></table>
-<p class="note">* İlgili kriterlerin 2/5 seviyesine (“çalışma var, henüz etkin değil”) çıktığı varsayımıyla. Sponsor ve bütçe yönetim toplantısında belirlenecektir.</p>` : ""}`,
+${imp ? `<table class="tbl imp"><thead><tr><th>Öncelik</th><th>Kapsanan kriterler</th><th>Sponsor</th><th>Bütçe</th><th>Durum</th></tr></thead><tbody>${imp}</tbody></table>
+<p class="note">Sponsor ve bütçe yönetim toplantısında belirlenecektir. Öncelik sırası uygulama sırasını gösterir; süre ya da puan artışı taahhüdü içermez.</p>` : ""}`,
     "Yol haritası");
 }
 
@@ -477,11 +467,11 @@ function quickWinPage(p: Pages, m: ReportModel, o: LayoutOptions) {
   const cards = m.quickWins.map((q, i) => `<div class="qw">
  <div class="qw-h"><span class="qw-n">${i + 1}</span><h3>${esc(q.title)}</h3></div>
  <p class="qw-a">${esc(q.action)}</p>
- ${q.impact ? `<p class="qw-i"><b>Beklenen etki:</b> ${esc(q.impact)}</p>` : ""}
- <div class="qw-f">${q.duration ? `<span class="qw-t">${esc(q.duration)}</span>` : ""}${q.area ? `<span class="qw-ar">${esc(q.area)}</span>` : ""}${q.criteria.length ? `<span class="qw-c">${q.criteria.map(esc).join(" · ")}</span>` : ""}</div>
+ ${q.impact ? `<p class="qw-i"><b>Fayda:</b> ${esc(q.impact)}</p>` : ""}
+ <div class="qw-f">${q.area ? `<span class="qw-ar">${esc(q.area)}</span>` : ""}${q.criteria.length ? `<span class="qw-c">${q.criteria.map(esc).join(" · ")}</span>` : ""}</div>
 </div>`).join("");
   p.page(`
-<h2 class="headline sm">Hızlı kazanımlar (Quick Win): ${m.quickWins.length} aksiyon, en fazla 4 hafta içinde ve ek yatırım gerektirmeden hayata geçirilebilir; genel değerlendirme sonuçlarından çıkarılmıştır.</h2>
+<h2 class="headline sm">Hızlı kazanımlar (Quick Win): ${m.quickWins.length} aksiyon; düşük maliyetli ve hızla başlatılabilecek, genel değerlendirme sonuçlarından çıkarılmış işlerdir.</h2>
 <div class="qws${o.qwCompact ? " compact" : ""}">${cards}</div>
 <p class="note">Hızlı kazanımlar bu denetimin skorları, bölüm değerlendirmeleri, yönetici özeti ve saha tespitlerinden yapay zeka ile derlenmiştir; uygulama öncesi danışman tarafından gözden geçirilmelidir.</p>`,
     "Hızlı Kazanım – Quick Win", "quickwin");
@@ -528,7 +518,7 @@ const TOC: { key: string; title: string; sub?: string }[] = [
   { key: "bp", title: "Best practice uygulamalar", sub: "5 puan alan ya da best practice olarak işaretlenen kriterler" },
   { key: "gaps", title: "Kritik boşluklar" },
   { key: "roadmap", title: "Öncelikli yol haritası" },
-  { key: "quickwin", title: "Hızlı Kazanım – Quick Win", sub: "Danışman değerlendirmesi: 4 hafta içinde uygulanabilir aksiyonlar" },
+  { key: "quickwin", title: "Hızlı Kazanım – Quick Win", sub: "Danışman değerlendirmesi: düşük maliyetli, hızla başlatılabilecek aksiyonlar" },
   { key: "detail", title: "Detay rapor / Tespitler", sub: "Alan bazında kriter puanları ve saha tespitleri" },
 ];
 

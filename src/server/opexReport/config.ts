@@ -20,7 +20,6 @@ export const REPORT_CONFIG = {
     footerConfidential: "GİZLİ — Yalnızca yönetim kullanımı içindir",
     // {firma} is replaced with the customer name.
     confidentialityNote: "<b>GİZLİ</b> — Yalnızca {firma} yönetimi ile paylaşılmak üzere hazırlanmıştır.",
-    horizonMonths: 12,
   },
   // Criterion scoring scale (0-5).
   scale: [
@@ -41,13 +40,13 @@ export const REPORT_CONFIG = {
   },
   // Summary-table priority from the gap to target (target − area score).
   priority: { highGap: 30, mediumGap: 20 },
-  // Decisions asked of management on the executive-summary page. {target}, {targetClass},
-  // {targetLevel} and {months} are filled in from the data.
+  // Decisions asked of management on the executive-summary page. {target}, {targetClass}
+  // and {targetLevel} are filled in from the data.
   managementDecisions: [
-    "<b>Hedefin onayı:</b> {months} ay içinde {target} puan ({targetClass}{targetLevel})",
+    "<b>Referans hedef:</b> {target} puan ({targetClass}{targetLevel}) izleme çizgisidir; süre ya da sonuç taahhüdü değildir",
     "<b>Yalın organizasyon:</b> Tam zamanlı bir yalın koordinatör ve her alan için bir sorumlu atanması",
     "<b>Pilot hat:</b> Tüm temel uygulamaların önce tek bir hatta kurulup sonra yaygınlaştırılması",
-    "<b>Yönetim ritmi:</b> Aylık yönetim gözden geçirmesi ve bu değerlendirmenin 6. ayda tekrarı",
+    "<b>Yönetim ritmi:</b> Düzenli bir yönetim gözden geçirmesi ve bu değerlendirmenin uygun aralıklarla tekrarı",
   ],
   // Short area names for the radar / compact tables (by category id); unknown ids fall back to
   // the category's own name.
