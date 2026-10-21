@@ -54,7 +54,7 @@ export function findingsBlock(m: ReportModel): string {
   return `DANIŞMAN / DENETÇİ YORUMLARI (EN ÖNCELİKLİ REFERANS — skorlardan önce bunları esas al):
 ${list}
 
-Bu yorumlar, denetimi yapan danışmanların sahada gördüğü ana problem konuları ve bağlamıdır. Öncelikleri bunlar belirler: danışmanın ana problem dediği konulara öncelik ver; danışmanın bağlam gerekçesiyle öncelik saymadığı konuları (ör. ekipman azlığı nedeniyle SMED, ya da müşteri uygulamıyor ama öncelikli değil) skoru düşük olsa bile hızlı kazanım ve ilk 90 günlük planın içine KOYMA. Birden fazla danışman yazdıysa hepsini birleştir; çelişki varsa uydurma bir uzlaşma yazma, çelişkiyi açıkça belirt.
+Bu yorumlar, denetimi yapan danışmanların sahada gördüğü ana problem konuları ve bağlamıdır. Öncelikleri bunlar belirler: danışmanın ana problem dediği konulara öncelik ver; danışmanın bağlam gerekçesiyle öncelik saymadığı konuları (ör. ekipman azlığı nedeniyle SMED, ya da müşteri uygulamıyor ama öncelikli değil) skoru düşük olsa bile hızlı kazanım ve öncelik listesinin içine KOYMA. Birden fazla danışman yazdıysa hepsini birleştir; çelişki varsa uydurma bir uzlaşma yazma, çelişkiyi açıkça belirt.
 
 `;
 }

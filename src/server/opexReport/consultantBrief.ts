@@ -12,7 +12,7 @@ import type { ReportQuickWin } from "./quickWins.js";
 // point cites criterion IDs so it can be traced back to the audit.
 
 export interface BriefPoint { title: string; detail: string; criteria: string[] }
-export interface BriefWave { when: string; title: string; items: string[] }
+export interface BriefPriority { title: string; why: string; items: string[] } // rank = array position (1, 2, 3)
 
 export interface BriefFacts {
   firm: string;
@@ -43,7 +43,8 @@ export interface ConsultantBrief {
   strengths: BriefPoint[];
   gaps: BriefPoint[];
   quickWins: ReportQuickWin[];
-  next90: BriefWave[];
+  priorities: BriefPriority[]; // ranked 1-2-3, deliberately NOT tied to calendar windows
+  next90?: { when: string; title: string; items: string[] }[]; // legacy field of briefs stored before the priorities rewrite
   decisions: string[];
   kpis: string[];
 }
@@ -80,7 +81,7 @@ function buildPrompt(m: ReportModel, f: BriefFacts): string {
     .map(c => `- ${c.id} ${c.topic} (${c.score}/5)${c.finding ? ` — Saha tespiti: ${c.finding}` : ""}`).join("\n");
   const best = m.bestPractices.slice(0, 8).map(b => `- ${b.criterion.id} ${b.criterion.topic}${b.why ? ` — ${b.why}` : ""}`).join("\n");
   const road = m.roadmap.map(w => `- ${w.when} ${w.title}: ${w.items.join("; ")}`).join("\n");
-  return `Sen kıdemli bir Operasyonel Mükemmellik (OpEx / Yalın) danışmanısın. Aşağıdaki Yalın Olgunluk Değerlendirmesi sonuçlarını, fabrikanın üst yönetimine yapacağın kısa bir DANIŞMAN SUNUMU olarak özetle. Sunum akışı: neredeyiz → neyin üzerine inşa edeceğiz → en çok canımızı ne yakıyor → hızlı kazanımlar → 90 günlük öncelikler → yönetimden beklenen kararlar → nasıl ölçeceğiz.
+  return `Sen kıdemli bir Operasyonel Mükemmellik (OpEx / Yalın) danışmanısın. Aşağıdaki Yalın Olgunluk Değerlendirmesi sonuçlarını, fabrikanın üst yönetimine yapacağın kısa bir DANIŞMAN SUNUMU olarak özetle. Sunum akışı: neredeyiz → neyin üzerine inşa edeceğiz → en çok canımızı ne yakıyor → hızlı kazanımlar → öncelik sırası (1-2-3) → yönetimden beklenen kararlar → nasıl ölçeceğiz.
 
 FİRMA: ${f.firm}
 DENETİM: ${f.auditName || "—"}${f.auditDate ? ` (${f.auditDate})` : ""}
@@ -104,6 +105,7 @@ KURALLAR:
 - Her madde, dayandığı kriter ID'lerini ("criteria") listelemeli; yalnızca yukarıda geçen ID'leri kullan.
 - Türkçe, kısa, net, sahaya yakın. "Yapılmalıdır" tonu. Pazarlama dili ve genel geçer öneriler (ör. "eğitim verin") yok. Türkçe karşılığı olan sözcükleri Türkçe yaz (Daily → Günlük, Lean → Yalın). Sayıları Türkçe biçimde, en çok bir ondalıkla yaz (20,4; asla 20.44).
 - Güçlü yönler: best practice kaydı yoksa, en yüksek skorlu alanları ve 3+ puanlı kriterleri "görece güçlü" diye göster; yine de liste boş kalmasın (hiç 3+ puanlı kriter yoksa boş bırak).
+- Öncelikleri takvim aralığına (ay/hafta/gün) bağlama; sadece önem ve bağımlılık sırasına göre 1-2-3 diye sırala, "why" alanında sıranın gerekçesini yaz.
 - Hızlı kazanım = en fazla 4 hafta, yok denecek yatırım, mevcut kaynakla, görünür etki. En etkili ve en kolay olan başta.
 - Sadece JSON döndür, şu yapıda:
 {"headline":"en çok 220 karakter: ${f.firm} için tek-iki cümlelik yönetici hükmü (skor, seviye, hedefe uzaklık, en büyük sorun)",
@@ -112,11 +114,11 @@ KURALLAR:
  "strengths":[{"title":"en çok 70 kr","detail":"en çok 200 kr: neden güçlü, nasıl yaygınlaştırılır","criteria":["E1.1"]}],
  "gaps":[{"title":"en çok 70 kr","detail":"en çok 220 kr: sahadaki kanıtla birlikte neden kritik","criteria":["G1.1"]}],
  "quickWins":[{"title":"en çok ${LIMITS.title} kr","action":"en çok ${LIMITS.action} kr: ne, nerede, kim yapar","impact":"en çok ${LIMITS.impact} kr","duration":"örn. 2 hafta","area":"alan adı","criteria":["E2.1"]}],
- "next90":[{"when":"0–30 gün","title":"en çok 60 kr","items":["en çok 120 kr"]},{"when":"30–60 gün","title":"","items":[""]},{"when":"60–90 gün","title":"","items":[""]}],
+ "priorities":[{"title":"en çok 60 kr: tek bir ana iş paketi","why":"en çok 120 kr: neden bu sırada (bağımlılık / etki)","items":["en çok 120 kr"]}],
  "decisions":["en çok 140 kr: yönetimden beklenen karar"],
  "kpis":["en çok 140 kr: ölçülebilir başarı ölçütü (veride olan bir göstergeye bağlı)"]}
 - Danışman yorumu varsa "focus" 2–5 madde (danışmanların ana problem konuları; kendi cümleleriyle uyumlu) ve gerekçesi yazılı olanlar için "deprioritized"; yorum yoksa ikisi de boş liste ve sunum yalnızca skorlara dayanır. "gaps" skor kaynaklı boşlukları, "focus" danışman kaynaklı önceliği gösterir; aynı konuyu ikisinde tekrarlama.
-- Adet: strengths 2–4, gaps 3–5, quickWins 4–${MAX_QUICK_WINS}, next90 tam 3 dalga (her birinde 2–4 madde), decisions 3–4, kpis 3–4.`;
+- Adet: strengths 2–4, gaps 3–5, quickWins 4–${MAX_QUICK_WINS}, priorities tam 3 öncelik (önem sırasıyla; 1 = önce başlanacak ve diğerlerinin önkoşulu; her birinde 2–4 madde), decisions 3–4, kpis 3–4.`;
 }
 
 const validIds = (m: ReportModel) => new Set(m.criteria.map(c => c.id));
@@ -127,11 +129,11 @@ const points = (v: unknown, ok: Set<string>, max: number): BriefPoint[] =>
 
 export function normalizeBrief(raw: any, m: ReportModel, facts: BriefFacts): ConsultantBrief {
   const ok = validIds(m);
-  const next90: BriefWave[] = (Array.isArray(raw?.next90) ? raw.next90 : []).map((w: any) => ({
-    when: clip(w?.when, 20),
+  const priorities: BriefPriority[] = (Array.isArray(raw?.priorities) ? raw.priorities : []).map((w: any) => ({
     title: clip(w?.title, 60),
+    why: clip(w?.why, 130),
     items: (Array.isArray(w?.items) ? w.items : []).map((i: unknown) => clip(i, 130)).filter(Boolean).slice(0, 4),
-  })).filter((w: BriefWave) => w.title || w.items.length).slice(0, 3);
+  })).filter((w: BriefPriority) => w.title || w.items.length).slice(0, 3);
   const strs = (v: unknown, n: number) => (Array.isArray(v) ? v : []).map(x => clip(x, 150)).filter(Boolean).slice(0, n);
   const brief: ConsultantBrief = {
     generatedAt: new Date().toISOString(),
@@ -142,7 +144,7 @@ export function normalizeBrief(raw: any, m: ReportModel, facts: BriefFacts): Con
     strengths: points(raw?.strengths, ok, 4),
     gaps: points(raw?.gaps, ok, 5),
     quickWins: normalizeQuickWins(raw?.quickWins, ok),
-    next90,
+    priorities,
     decisions: strs(raw?.decisions, 4),
     kpis: strs(raw?.kpis, 4),
   };

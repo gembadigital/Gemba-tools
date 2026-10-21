@@ -1321,7 +1321,8 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     if (b.strengths?.length) lines.push("ÜZERİNE İNŞA EDİLECEK GÜÇLÜ YÖNLER", ...b.strengths.map((p: any) => `- ${p.title}: ${p.detail}${cr(p.criteria)}`), "");
     if (b.gaps?.length) lines.push("KRİTİK BOŞLUKLAR", ...b.gaps.map((p: any) => `- ${p.title}: ${p.detail}${cr(p.criteria)}`), "");
     if (b.quickWins?.length) lines.push("HIZLI KAZANIMLAR (en fazla 4 hafta)", ...b.quickWins.map((q: any, i: number) => `${i + 1}. ${q.title} — ${q.action}${q.impact ? ` Etki: ${q.impact}` : ""}${q.duration ? ` (${q.duration})` : ""}${cr(q.criteria)}`), "");
-    if (b.next90?.length) lines.push("90 GÜNLÜK ÖNCELİKLER", ...b.next90.flatMap((w: any) => [`${w.when} · ${w.title}`, ...w.items.map((i: string) => `  - ${i}`)]), "");
+    const pri = b.priorities?.length ? b.priorities : (b.next90 || []).map((w: any) => ({ title: w.title, why: "", items: w.items }));
+    if (pri.length) lines.push("ÖNCELİK SIRASI", ...pri.flatMap((w: any, i: number) => [`Öncelik ${i + 1} · ${w.title}${w.why ? ` (${w.why})` : ""}`, ...w.items.map((it: string) => `  - ${it}`)]), "");
     if (b.decisions?.length) lines.push("YÖNETİMDEN BEKLENEN KARARLAR", ...b.decisions.map((d: string) => `- ${d}`), "");
     if (b.kpis?.length) lines.push("BAŞARI ÖLÇÜTLERİ", ...b.kpis.map((k: string) => `- ${k}`));
     return lines.join("\n");
@@ -3365,13 +3366,14 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
                       )}
                     </div>
 
-                    {brief.next90?.length > 0 && (
-                      <Section title="90 günlük öncelikler" tone="border-slate-200 bg-white">
+                    {(brief.priorities?.length > 0 || brief.next90?.length > 0) && (
+                      <Section title="Öncelik sırası — hangi işten başlıyoruz" tone="border-slate-200 bg-white">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                          {brief.next90.map((w: any, i: number) => (
+                          {(brief.priorities?.length ? brief.priorities : brief.next90.map((w: any) => ({ title: w.title, why: "", items: w.items }))).map((w: any, i: number) => (
                             <div key={i} className="rounded-xl bg-slate-50 border border-slate-200 p-4">
-                              <p className="text-[10px] font-black uppercase tracking-wider text-red-600">{w.when}</p>
+                              <p className="text-[10px] font-black uppercase tracking-wider text-red-600">Öncelik {i + 1}</p>
                               <p className="text-xs font-extrabold text-slate-900 mt-0.5">{w.title}</p>
+                              {w.why && <p className="text-[11px] text-slate-500 italic mt-1 leading-snug">{w.why}</p>}
                               <ul className="mt-2 list-disc pl-4 space-y-1 text-[11.5px] text-slate-700 leading-relaxed">{w.items.map((it: string, j: number) => <li key={j}>{it}</li>)}</ul>
                             </div>
                           ))}
@@ -3398,7 +3400,7 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
 
                 {!brief && !isAiLoading && !aiError && (
                   <div className="p-6 text-center text-slate-400 text-xs leading-relaxed">
-                    Düğmeye bastığınızda bu denetimin sonuçlarından; durum özeti, güçlü yönler, kritik boşluklar, hızlı kazanımlar, 90 günlük öncelikler, yönetimden beklenen kararlar ve başarı ölçütlerini içeren, yönetime sunulabilir bir danışman özeti hazırlanır.
+                    Düğmeye bastığınızda bu denetimin sonuçlarından; durum özeti, güçlü yönler, kritik boşluklar, hızlı kazanımlar, öncelik sırası (1-2-3), yönetimden beklenen kararlar ve başarı ölçütlerini içeren, yönetime sunulabilir bir danışman özeti hazırlanır.
                   </div>
                 )}
               </div>

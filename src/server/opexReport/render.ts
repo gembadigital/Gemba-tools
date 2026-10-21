@@ -296,7 +296,7 @@ function processPage(p: Pages, m: ReportModel) {
     ["Kriter puanlama", `${m.scored.length} kriter · 0–5 ölçek`],
     ["Alan skoru", `${m.areas.length} alan · 0–100`],
     ["Genel skor ve seviye", "Alan skorlarının ortalaması"],
-    ["Yol haritası", "Öncelikler ve 90 günlük plan"],
+    ["Yol haritası", "Öncelik sırası ve aksiyonlar"],
   ];
   const flowHtml = flow.map(([t, d], i) => `<div class="fl"><span>${i + 1}</span><b>${esc(t)}</b><small>${esc(d)}</small></div>`).join("");
   const goal = tgt === cur
@@ -459,8 +459,8 @@ function roadmapPage(p: Pages, m: ReportModel) {
   const total = withCriteria.reduce((s, w) => s + gainOf(w.criteria), 0);
   const imp = withCriteria.map(w => `<tr><td class="b">${esc(w.when || w.title)}</td><td>${esc(w.criteria.join(", "))}</td><td class="r b">+${num(gainOf(w.criteria))}</td><td class="muted">—</td><td class="muted">—</td><td><span class="tag">Planlandı</span></td></tr>`).join("");
   const head = withCriteria.length
-    ? `90 günlük yol haritası: ${m.roadmap.map(w => esc((w.title || "").toLocaleLowerCase("tr-TR"))).filter(Boolean).join(", ")}. İlk 90 günün beklenen etkisi <em>+${num(total)} puan</em>.`
-    : `90 günlük yol haritası: ${m.roadmap.map(w => esc((w.title || "").toLocaleLowerCase("tr-TR"))).filter(Boolean).join(", ")}.`;
+    ? `Öncelikli yol haritası: ${m.roadmap.map(w => esc((w.title || "").toLocaleLowerCase("tr-TR"))).filter(Boolean).join(", ")}. Planlanan işlerin beklenen etkisi <em>+${num(total)} puan</em>.`
+    : `Öncelikli yol haritası: ${m.roadmap.map(w => esc((w.title || "").toLocaleLowerCase("tr-TR"))).filter(Boolean).join(", ")}.`;
   p.page(`
 <h2 class="headline">${head}</h2>
 <div class="waves">${waves}</div>
@@ -527,7 +527,7 @@ const TOC: { key: string; title: string; sub?: string }[] = [
   { key: "sections", title: "Bölüm değerlendirmeleri", sub: "Her bölümün genel değerlendirmesi (denetçi)" },
   { key: "bp", title: "Best practice uygulamalar", sub: "5 puan alan ya da best practice olarak işaretlenen kriterler" },
   { key: "gaps", title: "Kritik boşluklar" },
-  { key: "roadmap", title: "90 günlük yol haritası" },
+  { key: "roadmap", title: "Öncelikli yol haritası" },
   { key: "quickwin", title: "Hızlı Kazanım – Quick Win", sub: "Danışman değerlendirmesi: 4 hafta içinde uygulanabilir aksiyonlar" },
   { key: "detail", title: "Detay rapor / Tespitler", sub: "Alan bazında kriter puanları ve saha tespitleri" },
 ];
