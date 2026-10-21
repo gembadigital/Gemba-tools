@@ -756,28 +756,49 @@ export default function OpexAssessment({ selectedCustomer, customers, onUpdateCu
     }
   };
 
+  // Prints the report HTML from a hidden same-page iframe — used when the browser blocks the new
+  // tab (pop-up blocker, embedded/in-app browser). Before this, a blocked pop-up made the Yazdır
+  // button do nothing at all: no tab, no dialog, no message.
+  const printHtmlInIframe = (html: string) => {
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText = "position:fixed;left:-10000px;top:0;width:1123px;height:794px;border:0;visibility:hidden";
+    iframe.srcdoc = html;
+    iframe.onload = () => {
+      const w = iframe.contentWindow as any;
+      Promise.resolve(w?.document?.fonts?.ready).catch(() => undefined).then(() => {
+        setTimeout(() => { w?.focus(); w?.print(); }, 300);
+      });
+      setTimeout(() => iframe.remove(), 5 * 60 * 1000);
+    };
+    document.body.appendChild(iframe);
+  };
+
   // Opens the report in a new tab with the print dialog ("PDF olarak kaydet"). Uses the
-  // Chromium-checked layout; falls back to the main API's print view if that function fails.
+  // Chromium-checked layout; falls back to the main API's print view if that function fails, and to
+  // an in-page iframe if the browser blocks the new tab.
   const handleExecReportPrint = async () => {
     if (!activeAssessment || !token) return;
     const win = window.open("", "_blank");
+    const viaIframe = !win; // pop-up blocked → no tab to write into
     if (win) win.document.write("<p style='font-family:sans-serif;padding:24px'>Rapor hazırlanıyor…</p>");
     setExecReportBusy("print");
     setExcelExportError(null);
     try {
       const auth = { headers: { "Authorization": `Bearer ${token}` } };
-      let res = await fetch(`/api/opex-report/${activeAssessment.id}?format=html`, auth);
-      if (!res.ok && res.status >= 500) res = await fetch(`/api/business/opex-assessments/${activeAssessment.id}/executive-report.html`, auth);
+      const q = viaIframe ? "&autoprint=0" : ""; // the iframe path triggers print() itself
+      let res = await fetch(`/api/opex-report/${activeAssessment.id}?format=html${q}`, auth);
+      if (!res.ok && res.status >= 500) res = await fetch(`/api/business/opex-assessments/${activeAssessment.id}/executive-report.html?${q.slice(1)}`, auth);
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Rapor açılamadı." }));
+        const err = await res.json().catch(() => ({ error: `Rapor açılamadı (HTTP ${res.status}).` }));
         throw new Error(err.error || "Rapor açılamadı.");
       }
       setExecReportNotes(readReportWarnings(res));
       const html = await res.text();
-      if (win) { win.document.open(); win.document.write(html); win.document.close(); }
+      if (win && !win.closed) { win.document.open(); win.document.write(html); win.document.close(); }
+      else printHtmlInIframe(html); // tab was blocked or closed while the report was being prepared
     } catch (e: any) {
       if (win) win.close();
-      setExcelExportError(e.message);
+      setExcelExportError(e.message || "Rapor yazdırılamadı.");
     } finally {
       setExecReportBusy(null);
     }

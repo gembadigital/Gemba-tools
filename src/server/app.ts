@@ -3071,7 +3071,7 @@ app.get("/api/business/opex-assessments/:id/executive-report.html", authenticate
   }
   res.setHeader("X-Report-Warnings", encodeURIComponent(JSON.stringify(loaded.model.warnings)));
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.send(renderReportHtml(loaded.model, { autoPrint: true }));
+  res.send(renderReportHtml(loaded.model, { autoPrint: req.query.autoprint !== "0" }));
 });
 
 // OpEx question bank (categories + questions) — org-wide, not per-factory: it's the assessment

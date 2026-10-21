@@ -17,7 +17,7 @@ export function executiveReportRouter(authenticate: express.RequestHandler): exp
     }
     const asHtml = req.query.format === "html";
     try {
-      const out = await renderReportPdf(o => renderReportHtml(loaded.model, { ...o, autoPrint: asHtml }), { pdf: !asHtml });
+      const out = await renderReportPdf(o => renderReportHtml(loaded.model, { ...o, autoPrint: asHtml && req.query.autoprint !== "0" }), { pdf: !asHtml });
       const warnings = [...loaded.model.warnings, ...out.layoutIssues];
       res.setHeader("X-Report-Warnings", encodeURIComponent(JSON.stringify(warnings)));
       res.setHeader("X-Report-Pages", String(out.pageCount));
