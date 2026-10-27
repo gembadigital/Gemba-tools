@@ -146,3 +146,38 @@ export function Avatar({ name, size = "md", className = "" }: { name?: string; s
   const dim = { sm: "w-8 h-8 text-xs rounded-lg", md: "w-10 h-10 text-sm rounded-xl", lg: "w-16 h-16 text-xl rounded-2xl" }[size];
   return <span className={`${dim} bg-gradient-to-br from-slate-800 to-slate-950 text-white font-bold flex items-center justify-center shrink-0 ${className}`}>{initials}</span>;
 }
+
+// ---- Form controls (shared by every Kaizen form) ----
+export const inputCls = "w-full h-12 px-4 rounded-xl bg-slate-50/80 ring-1 ring-inset ring-slate-200 text-sm text-slate-900 placeholder:text-slate-400 transition-all focus:outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600/40 disabled:opacity-60";
+export const areaCls = "w-full px-4 py-3.5 rounded-xl bg-slate-50/80 ring-1 ring-inset ring-slate-200 text-sm leading-relaxed text-slate-900 placeholder:text-slate-400 transition-all focus:outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600/40";
+export const errCls = "!ring-red-300 !bg-red-50/40";
+
+export function FormField({ label, required, error, hint, children, aside }: { label: string; required?: boolean; error?: string; hint?: string; children: React.ReactNode; aside?: React.ReactNode }) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3 mb-2">
+        <label className="text-sm font-semibold text-slate-800">{label}{required && <span className="text-red-500"> *</span>}</label>
+        {aside}
+      </div>
+      {children}
+      {hint && !error && <p className="text-xs text-slate-500 mt-1.5">{hint}</p>}
+      {error && <p className="text-xs font-medium text-red-600 mt-1.5">{error}</p>}
+    </div>
+  );
+}
+
+// Selectable chip / card toggle used for multi-choice fields.
+export function ChoiceChip({ on, onClick, icon: Icon, children }: { on: boolean; onClick: () => void; icon?: any; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 h-11 px-4 rounded-xl text-sm font-semibold cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/40 ${
+        on ? "bg-emerald-600 text-white shadow-sm shadow-emerald-900/20" : "bg-white text-slate-700 ring-1 ring-inset ring-slate-200 hover:ring-slate-300 hover:bg-slate-50"
+      }`}
+    >
+      {Icon && <Icon className="w-4 h-4" />}{children}
+    </button>
+  );
+}

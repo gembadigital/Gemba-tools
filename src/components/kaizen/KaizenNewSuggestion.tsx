@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, ChevronRight, Save, Camera, X, Check, User, FileText, Lightbulb, Coins, Eye } from "lucide-react";
+import {
+  ChevronLeft, ChevronRight, Send, Camera, X, Check, User, FileText, Lightbulb, Coins, Eye, PencilLine,
+  ShieldAlert, Leaf, Smile, Tag, Gauge, BadgeCheck, Zap, Sparkles, Wrench, PiggyBank, CircleCheckBig, ListChecks, Plus
+} from "lucide-react";
 import { KaizenPersonnel, KaizenSuggestion, KaizenSuggestionPhoto } from "./kaizenTypes";
-import { KaizenSettings, currencyChoices, optionChoices } from "../../utils/kaizenSettings";
+import { KaizenSettings, currencyChoices, optionChoices, requiredStagesFor } from "../../utils/kaizenSettings";
 import { KaizenApi } from "./KaizenSuggestionSystem";
-import { Card, Button } from "./kaizenUi";
+import { readAndShrink } from "./kaizenImage";
+import { Card, Button, FormField, ChoiceChip, inputCls, areaCls, errCls } from "./kaizenUi";
 
 interface Props {
   currentUser: any;
@@ -11,7 +15,8 @@ interface Props {
   editingSuggestion: KaizenSuggestion | null;
   api: KaizenApi;
   showToast: (msg: string) => void;
-  onSaved: (s: KaizenSuggestion) => void;
+  // stay=true: the user chose "Yeni öneri ver" on the success screen (stay in the wizard).
+  onSaved: (s: KaizenSuggestion, stay?: boolean) => void;
   settings: KaizenSettings;
 }
 
@@ -42,53 +47,26 @@ const blank: FormState = {
 };
 
 const STEPS = [
-  { label: "Personel", icon: User },
-  { label: "Mevcut Durum", icon: FileText },
-  { label: "Öneri", icon: Lightbulb },
-  { label: "Kazanç", icon: Coins },
-  { label: "Önizleme", icon: Eye }
+  { label: "Konu", icon: User, title: "Öneriniz ne hakkında?", hint: "Kimin adına olduğunu, sınıfını ve kısa bir başlık seçin." },
+  { label: "Mevcut durum", icon: FileText, title: "Şu an ne oluyor?", hint: "Problemi gördüğünüz gibi anlatın; bir fotoğraf bin kelimeye bedel." },
+  { label: "Öneri", icon: Lightbulb, title: "Nasıl iyileştirirdiniz?", hint: "Ne değişecek, nasıl uygulanacak, sonuç ne olacak?" },
+  { label: "Kazanç", icon: Coins, title: "Kazanç ve etki", hint: "Tahmin yeterli; Kurul değerlendirmede netleştirir." },
+  { label: "Gönder", icon: Eye, title: "Son kontrol", hint: "Her şey doğruysa gönderin." }
 ];
 
-// Photos are stored inline as data URLs, so downscale before upload: a raw phone photo is
-// 3–8 MB; 1600px / JPEG 0.8 is ~200–400 KB and plenty for a Kaizen before/after picture.
-function readAndShrink(file: File, maxEdge = 1600, quality = 0.8): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error);
-    reader.onload = () => {
-      const original = reader.result as string;
-      const img = new Image();
-      img.onerror = () => resolve(original);
-      img.onload = () => {
-        const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
-        if (scale === 1 && file.size < 400_000) { resolve(original); return; }
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { resolve(original); return; }
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", quality));
-      };
-      img.src = original;
-    };
-    reader.readAsDataURL(file);
-  });
-}
+// Known Öneri Sınıfı values get an icon; customer-defined ones fall back to a tag.
+const TYPE_ICONS: Record<string, any> = {
+  "Maliyet Azaltma": PiggyBank, "Kalite": BadgeCheck, "ISG": ShieldAlert, "5S": Sparkles, "Verimlilik": Gauge, "Enerji": Zap
+};
 
-const inputCls = "w-full h-11 px-3.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400";
-const areaCls = "w-full px-3.5 py-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400";
-const errCls = "!border-red-400 !ring-red-100";
+const PROMPTS: Record<number, string[]> = {
+  2: ["Ne oluyor?", "Nerede?", "Ne sıklıkla?", "Kimi etkiliyor?"],
+  3: ["Ne değişecek?", "Nasıl uygulanır?", "Ne gerekir?", "Beklenen sonuç?"]
+};
 
-function Field({ label, required, error, hint, children }: { label: string; required?: boolean; error?: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="block text-sm font-semibold text-slate-700 mb-1.5">{label}{required && <span className="text-red-500"> *</span>}</label>
-      {children}
-      {hint && !error && <p className="text-xs text-slate-500 mt-1.5">{hint}</p>}
-      {error && <p className="text-xs text-red-500 mt-1.5">{error}</p>}
-    </div>
-  );
+function CharCount({ value, min = 30 }: { value: string; min?: number }) {
+  const n = value.trim().length;
+  return <span className={`text-xs tabular-nums ${n === 0 ? "text-slate-400" : n < min ? "text-amber-600" : "text-emerald-600"}`}>{n < min && n > 0 ? `${n} karakter — biraz daha ayrıntı iyi olur` : `${n} karakter`}</span>;
 }
 
 export default function KaizenNewSuggestion({ currentUser, personnel, editingSuggestion, api, showToast, onSaved, settings }: Props) {
@@ -99,10 +77,12 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
   const [saving, setSaving] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const [form, setForm] = useState<FormState>(blankForm);
+  const [submitted, setSubmitted] = useState<KaizenSuggestion | null>(null);
 
   useEffect(() => {
     setStep(1);
     setAttempted(false);
+    setSubmitted(null);
     if (editingSuggestion) {
       setForm({
         onBehalfOfId: "",
@@ -161,13 +141,14 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
     true
   ];
 
+  const goTo = (n: number) => { setStep(n); document.getElementById("app-main-scroll")?.scrollTo({ top: 0, behavior: "smooth" }); };
   const next = () => {
     setAttempted(true);
     if (!valid[step - 1]) return;
     setAttempted(false);
-    setStep(s => s + 1);
+    goTo(step + 1);
   };
-  const back = () => setStep(s => Math.max(1, s - 1));
+  const back = () => goTo(Math.max(1, step - 1));
 
   const addPhotos = async (which: "photosCurrent" | "photosPropose", files: FileList | null) => {
     if (!files) return;
@@ -211,8 +192,8 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
       : await api.post("suggestions", payload);
     setSaving(false);
     if (res.success) {
-      showToast(isEdit ? "Öneri başarıyla düzenlendi." : "Öneri başarıyla oluşturuldu.");
-      onSaved(res.data);
+      setSubmitted(res.data);
+      document.getElementById("app-main-scroll")?.scrollTo({ top: 0, behavior: "smooth" });
     } else {
       showToast(`Hata: ${res.error || "Kaydedilemedi."}`);
     }
@@ -230,220 +211,302 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
   const sameCurrency = form.estimatedSavingCurrency === form.estimatedCostCurrency && form.estimatedSavingCurrency !== "Eş Değer Ürün";
   const net = savingNum - costNum;
 
+  // Who decides next — the same rule the server applies at submit (Faz 2-B.3).
+  const route = requiredStagesFor(savingNum, form.estimatedSavingCurrency, settings);
+  const nextStop = route.includes("Manager")
+    ? `Amirinize${resolvedPersonnel.teamLeaderName ? ` (${resolvedPersonnel.teamLeaderName})` : ""} onaya gider${route.includes("Board") ? ", ardından Kaizen Kurulu değerlendirir" : "; amir onayı son karardır"}.`
+    : "Doğrudan Kaizen Kurulu'na değerlendirmeye gider.";
+
+  if (submitted) {
+    return (
+      <Card className="max-w-2xl mx-auto text-center !py-10 sm:!py-14 relative overflow-hidden">
+        <div aria-hidden className="pointer-events-none absolute -top-20 left-1/2 -translate-x-1/2 w-96 h-64 rounded-full bg-emerald-200/40 blur-3xl" />
+        <div className="relative">
+          <span className="mx-auto w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white flex items-center justify-center shadow-lg shadow-emerald-900/25"><CircleCheckBig className="w-8 h-8" /></span>
+          <h2 className="text-2xl font-bold text-slate-900 mt-5">{isEdit ? "Öneriniz yeniden gönderildi" : "Teşekkürler, öneriniz alındı!"}</h2>
+          <p className="text-slate-600 mt-2 max-w-md mx-auto">"{submitted.subject}"</p>
+          <div className="mt-6 mx-auto max-w-md rounded-2xl bg-slate-50 ring-1 ring-slate-200/70 p-4 text-left text-sm text-slate-700 flex gap-3">
+            <Send className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+            <span>{submitted.approvalStatus === "First Approval" ? "Doğrudan Kaizen Kurulu'na değerlendirmeye gitti." : nextStop} Durumunu <b>Önerilerim</b> ekranından takip edebilirsiniz.</span>
+          </div>
+          <div className="mt-7 flex flex-col sm:flex-row gap-3 justify-center">
+            <Button variant="brand" className="h-12 px-6" onClick={() => onSaved(submitted)}><ListChecks className="w-4 h-4" />Önerilerime git</Button>
+            <Button variant="outline" className="h-12 px-6" onClick={() => { onSaved(submitted, true); setSubmitted(null); setForm(blankForm); setStep(1); }}><Plus className="w-4 h-4" />Yeni öneri ver</Button>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  const current = STEPS[step - 1];
+  const progress = ((step - 1) / (STEPS.length - 1)) * 100;
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
       {/* Form column */}
       <Card padded={false} className="xl:col-span-2 overflow-hidden">
-        {/* Stepper */}
-        <ol className="flex items-center px-6 pt-6 pb-5 border-b border-slate-100 overflow-x-auto gap-2">
-          {STEPS.map((s, i) => {
-            const n = i + 1;
-            const done = step > n;
-            const active = step === n;
-            const Icon = s.icon;
-            return (
-              <React.Fragment key={s.label}>
-                <li
-                  onClick={() => { if (n < step) setStep(n); }}
-                  className={`flex items-center gap-2.5 shrink-0 ${n < step ? "cursor-pointer" : ""}`}
-                >
-                  <span className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold ${done ? "bg-emerald-600 text-white" : active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-400"}`}>
-                    {done ? <Check className="w-4 h-4" /> : <Icon className="w-4 h-4" />}
-                  </span>
-                  <span className={`text-sm font-semibold hidden sm:inline ${active ? "text-slate-900" : done ? "text-slate-700" : "text-slate-400"}`}>{s.label}</span>
+        {/* Header + stepper */}
+        <div className="px-5 sm:px-7 pt-6 pb-5 border-b border-slate-100">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">{isEdit ? "Öneriyi düzenle" : "Yeni Kaizen önerisi"}</p>
+            <p className="text-xs font-semibold text-slate-500 tabular-nums">Adım {step} / {STEPS.length}</p>
+          </div>
+          <div className="mt-3 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+            <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500" style={{ width: `${Math.max(progress, 4)}%` }} />
+          </div>
+          <ol className="mt-4 hidden sm:flex items-center justify-between gap-2">
+            {STEPS.map((s, i) => {
+              const n = i + 1;
+              const done = step > n;
+              const active = step === n;
+              const Icon = s.icon;
+              return (
+                <li key={s.label}>
+                  <button
+                    type="button"
+                    disabled={n > step}
+                    onClick={() => goTo(n)}
+                    aria-current={active ? "step" : undefined}
+                    className={`flex items-center gap-2 rounded-xl px-2 py-1.5 -mx-2 text-sm font-semibold transition-colors ${n < step ? "cursor-pointer hover:bg-slate-50" : "cursor-default"} ${active ? "text-slate-900" : done ? "text-emerald-700" : "text-slate-400"}`}
+                  >
+                    <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${done ? "bg-emerald-100 text-emerald-700" : active ? "bg-slate-900 text-white" : "bg-slate-100"}`}>
+                      {done ? <Check className="w-3.5 h-3.5" /> : <Icon className="w-3.5 h-3.5" />}
+                    </span>
+                    {s.label}
+                  </button>
                 </li>
-                {i < STEPS.length - 1 && <span className={`flex-1 h-0.5 min-w-4 rounded ${step > n ? "bg-emerald-600" : "bg-slate-100"}`} />}
-              </React.Fragment>
-            );
-          })}
-        </ol>
+              );
+            })}
+          </ol>
+        </div>
 
-        <div className="p-6 min-h-[420px] space-y-5">
-          {isEdit && (
-            <p className="text-sm bg-amber-50 text-amber-800 rounded-xl px-4 py-3">Reddedilen öneriyi düzenliyorsunuz. Kaydettiğinizde öneri yeniden Amir onayına gönderilir.</p>
+        <div className="px-5 sm:px-7 py-6 min-h-[440px] space-y-6">
+          <div>
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">{current.title}</h2>
+            <p className="text-sm text-slate-500 mt-1">{current.hint}</p>
+          </div>
+
+          {isEdit && step === 1 && (
+            <p className="text-sm bg-amber-50 text-amber-800 ring-1 ring-amber-200/70 rounded-xl px-4 py-3 flex gap-2.5"><PencilLine className="w-4 h-4 shrink-0 mt-0.5" />Reddedilen öneriyi düzenliyorsunuz. Gönderdiğinizde öneri baştan değerlendirmeye girer.</p>
           )}
 
           {step === 1 && (
-            <div className="space-y-5">
-              <h3 className="text-lg font-black text-slate-900">Personel Bilgileri</h3>
-              {!isEdit && selectablePersonnel.length > 0 && (
-                <Field label="Kimin adına?" hint="Boş bırakırsanız öneri kendi adınıza oluşturulur.">
-                  <select value={form.onBehalfOfId} onChange={e => setForm(f => ({ ...f, onBehalfOfId: e.target.value }))} className={inputCls}>
-                    <option value="">Kendi adıma ({currentUser?.full_name})</option>
-                    {selectablePersonnel.map(p => <option key={p.id} value={p.id}>{p.name} — {p.department}</option>)}
-                  </select>
-                </Field>
-              )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 bg-slate-50 rounded-2xl p-5">
-                {[["Ad Soyad", resolvedPersonnel.name], ["Bölüm", resolvedPersonnel.department], ["Görev", resolvedPersonnel.jobTitle], ["Vardiya", resolvedPersonnel.shift], ["Amir", resolvedPersonnel.teamLeaderName], ["Makine Lideri", resolvedPersonnel.machineLeaderName]].map(([l, v]) => (
-                  <div key={l}><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{l}</p><p className="text-sm font-semibold text-slate-900 mt-1">{v || "—"}</p></div>
-                ))}
+            <div className="space-y-6">
+              <div className="rounded-2xl bg-gradient-to-br from-slate-50 to-emerald-50/40 ring-1 ring-slate-200/70 p-4 sm:p-5">
+                {!isEdit && selectablePersonnel.length > 0 ? (
+                  <FormField label="Kimin adına?" hint="Boş bırakırsanız öneri kendi adınıza oluşturulur.">
+                    <select value={form.onBehalfOfId} onChange={e => setForm(f => ({ ...f, onBehalfOfId: e.target.value }))} className={`${inputCls} !bg-white`}>
+                      <option value="">Kendi adıma ({currentUser?.full_name})</option>
+                      {selectablePersonnel.map(p => <option key={p.id} value={p.id}>{p.name} — {p.department}</option>)}
+                    </select>
+                  </FormField>
+                ) : null}
+                <div className={`flex flex-wrap gap-x-6 gap-y-2 text-sm ${!isEdit && selectablePersonnel.length > 0 ? "mt-4" : ""}`}>
+                  {[["Öneren", resolvedPersonnel.name], ["Bölüm", resolvedPersonnel.department], ["Görev", resolvedPersonnel.jobTitle], ["Vardiya", resolvedPersonnel.shift], ["Amir", resolvedPersonnel.teamLeaderName]].map(([l, v]) => (
+                    <span key={l}><span className="text-slate-500">{l}: </span><span className="font-semibold text-slate-900">{v || "—"}</span></span>
+                  ))}
+                </div>
               </div>
               {!isEdit && settings.managerStageEnabled && !resolvedPersonnel.teamLeaderEmail && (
-                <p className="text-sm bg-amber-50 text-amber-800 rounded-xl px-4 py-3">Amir bilgisi bulunamadı: öneri onay için bir amire atanmayacak. Kurulum &gt; Personel Listesi'nde kaydınızı tamamlatın.</p>
+                <p className="text-sm bg-amber-50 text-amber-800 ring-1 ring-amber-200/70 rounded-xl px-4 py-3">Amir bilgisi bulunamadı: öneri bir amire atanmayacak. Kurulum &gt; Personel Listesi'nde kaydınızı tamamlatın.</p>
               )}
 
-              <Field label="Öneri Sınıfı" required error={attempted && form.suggestionTypes.length === 0 ? "En az bir sınıf seçiniz." : undefined}>
+              <FormField label="Öneri sınıfı" required hint="Birden fazla seçebilirsiniz." error={attempted && form.suggestionTypes.length === 0 ? "En az bir sınıf seçiniz." : undefined}>
                 <div className="flex flex-wrap gap-2">
-                  {optionChoices(settings.suggestionTypes, editingSuggestion?.suggestionTypes).map(t => {
-                    const on = form.suggestionTypes.includes(t);
-                    return (
-                      <button key={t} type="button" onClick={() => toggleType(t)} className={`h-10 px-4 rounded-full text-sm font-semibold cursor-pointer transition-colors ${on ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
-                        {on && <Check className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" />}{t}
-                      </button>
-                    );
-                  })}
+                  {optionChoices(settings.suggestionTypes, editingSuggestion?.suggestionTypes).map(t => (
+                    <ChoiceChip key={t} on={form.suggestionTypes.includes(t)} onClick={() => toggleType(t)} icon={TYPE_ICONS[t] || Tag}>{t}</ChoiceChip>
+                  ))}
                 </div>
-              </Field>
-              <Field label="Öneri Konusu" required error={attempted && !form.subject.trim() ? "Öneri konusunu yazınız." : undefined}>
-                <input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} className={`${inputCls} ${attempted && !form.subject.trim() ? errCls : ""}`} placeholder="Önerinizi tek cümleyle özetleyin" />
-              </Field>
+              </FormField>
+              <FormField label="Öneri konusu" required error={attempted && !form.subject.trim() ? "Öneri konusunu yazınız." : undefined} aside={<span className="text-xs text-slate-400 tabular-nums">{form.subject.length}/200</span>}>
+                <input value={form.subject} maxLength={200} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} className={`${inputCls} ${attempted && !form.subject.trim() ? errCls : ""}`} placeholder="Örn. Montaj hattında vida besleme aparatı" />
+              </FormField>
             </div>
           )}
 
-          {step === 2 && (
-            <div className="space-y-5">
-              <h3 className="text-lg font-black text-slate-900">Mevcut Durum</h3>
-              <Field label="Mevcut durum / problem" required error={attempted && !form.currentState.trim() ? "Mevcut durumu yazınız." : undefined} hint="Problem nedir, nerede ve ne sıklıkla yaşanıyor?">
-                <textarea value={form.currentState} onChange={e => setForm(f => ({ ...f, currentState: e.target.value }))} rows={7} className={`${areaCls} ${attempted && !form.currentState.trim() ? errCls : ""}`} placeholder="Mevcut durumu açıklayın" />
-              </Field>
-              <PhotoUploader label="Mevcut durum görselleri" photos={form.photosCurrent} onAdd={f => addPhotos("photosCurrent", f)} onRemove={i => removePhoto("photosCurrent", i)} />
-            </div>
-          )}
-
-          {step === 3 && (
-            <div className="space-y-5">
-              <h3 className="text-lg font-black text-slate-900">Önerilen İyileştirme</h3>
-              <Field label="İyileştirme önerisi" required error={attempted && !form.improvementSuggestion.trim() ? "Önerinizi yazınız." : undefined} hint="Ne değişecek, nasıl uygulanacak, beklenen sonuç ne?">
-                <textarea value={form.improvementSuggestion} onChange={e => setForm(f => ({ ...f, improvementSuggestion: e.target.value }))} rows={7} className={`${areaCls} ${attempted && !form.improvementSuggestion.trim() ? errCls : ""}`} placeholder="Önerdiğiniz iyileştirmeyi açıklayın" />
-              </Field>
-              <PhotoUploader label="Öneri görselleri" photos={form.photosPropose} onAdd={f => addPhotos("photosPropose", f)} onRemove={i => removePhoto("photosPropose", i)} />
-            </div>
-          )}
+          {(step === 2 || step === 3) && (() => {
+            const key = step === 2 ? "currentState" : "improvementSuggestion";
+            const photoKey = step === 2 ? "photosCurrent" : "photosPropose";
+            const value = form[key];
+            return (
+              <div className="space-y-6">
+                <FormField
+                  label={step === 2 ? "Mevcut durum / problem" : "İyileştirme önerisi"}
+                  required
+                  error={attempted && !value.trim() ? (step === 2 ? "Mevcut durumu yazınız." : "Önerinizi yazınız.") : undefined}
+                  aside={<CharCount value={value} />}
+                >
+                  <div className="flex flex-wrap gap-1.5 mb-2.5">
+                    {PROMPTS[step].map(p => <span key={p} className="text-xs font-medium text-slate-600 bg-slate-100 rounded-full px-2.5 py-1">{p}</span>)}
+                  </div>
+                  <textarea
+                    value={value}
+                    onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                    rows={8}
+                    className={`${areaCls} ${attempted && !value.trim() ? errCls : ""}`}
+                    placeholder={step === 2 ? "Örn. Vidalar kutudan elle alınıyor; her üründe ~8 sn arama kaybı, düşen vidalar hatta kalıyor." : "Örn. Titreşimli vida besleyici takılsın; operatör vidayı tek hamlede alır, düşme biter."}
+                  />
+                </FormField>
+                <PhotoUploader
+                  label={step === 2 ? "Mevcut durum fotoğrafları" : "Öneri / çizim fotoğrafları"}
+                  photos={form[photoKey]}
+                  onAdd={f => addPhotos(photoKey, f)}
+                  onRemove={i => removePhoto(photoKey, i)}
+                />
+              </div>
+            );
+          })()}
 
           {step === 4 && (
-            <div className="space-y-5">
-              <h3 className="text-lg font-black text-slate-900">Kazanç ve Etki</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Öneri Aşaması (PDCA)" required error={attempted && !form.stage ? "Seçiniz." : undefined}>
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <MoneyField label="Tahmini kazanç" icon={PiggyBank} value={form.estimatedSaving} currency={form.estimatedSavingCurrency} currencies={currencyChoices(settings, form.estimatedSavingCurrency)}
+                  onValue={v => setForm(f => ({ ...f, estimatedSaving: v }))} onCurrency={c => setForm(f => ({ ...f, estimatedSavingCurrency: c }))} />
+                <MoneyField label="Tahmini maliyet / yatırım" icon={Wrench} value={form.estimatedCost} currency={form.estimatedCostCurrency} currencies={currencyChoices(settings, form.estimatedCostCurrency)}
+                  onValue={v => setForm(f => ({ ...f, estimatedCost: v }))} onCurrency={c => setForm(f => ({ ...f, estimatedCostCurrency: c }))} />
+                <FormField label="Kazanç ne sıklıkla oluşuyor?" required error={attempted && !form.paybackPeriod ? "Seçiniz." : undefined}>
+                  <div className="flex flex-wrap gap-2">
+                    {optionChoices(settings.paybackPeriods, editingSuggestion?.paybackPeriod).map(p => (
+                      <ChoiceChip key={p} on={form.paybackPeriod === p} onClick={() => setForm(f => ({ ...f, paybackPeriod: p }))}>{p}</ChoiceChip>
+                    ))}
+                  </div>
+                </FormField>
+                <FormField label="Öneri aşaması (PDCA)" required error={attempted && !form.stage ? "Seçiniz." : undefined}>
                   <select value={form.stage} onChange={e => setForm(f => ({ ...f, stage: e.target.value }))} className={`${inputCls} ${attempted && !form.stage ? errCls : ""}`}>
                     <option value="">Seçiniz…</option>
                     {optionChoices(settings.stages, editingSuggestion?.stage).map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
-                </Field>
-                <Field label="Kazanç Süresi" required hint="Kazanç ne sıklıkla oluşuyor?" error={attempted && !form.paybackPeriod ? "Seçiniz." : undefined}>
-                  <select value={form.paybackPeriod} onChange={e => setForm(f => ({ ...f, paybackPeriod: e.target.value }))} className={`${inputCls} ${attempted && !form.paybackPeriod ? errCls : ""}`}>
-                    <option value="">Seçiniz…</option>
-                    {optionChoices(settings.paybackPeriods, editingSuggestion?.paybackPeriod).map(p => <option key={p} value={p}>{p}</option>)}
-                  </select>
-                </Field>
-                <Field label="Tahmini Kazanç">
-                  <div className="flex gap-2">
-                    <input type="number" min={0} value={form.estimatedSaving} onChange={e => setForm(f => ({ ...f, estimatedSaving: e.target.value }))} placeholder="0" className={inputCls} />
-                    <select value={form.estimatedSavingCurrency} onChange={e => setForm(f => ({ ...f, estimatedSavingCurrency: e.target.value }))} className={`${inputCls} !w-36`}>
-                      {currencyChoices(settings, form.estimatedSavingCurrency).map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                </Field>
-                <Field label="Tahmini Maliyet">
-                  <div className="flex gap-2">
-                    <input type="number" min={0} value={form.estimatedCost} onChange={e => setForm(f => ({ ...f, estimatedCost: e.target.value }))} placeholder="0" className={inputCls} />
-                    <select value={form.estimatedCostCurrency} onChange={e => setForm(f => ({ ...f, estimatedCostCurrency: e.target.value }))} className={`${inputCls} !w-36`}>
-                      {currencyChoices(settings, form.estimatedCostCurrency).map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                </Field>
+                </FormField>
               </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-700 mb-2">Ek etkiler</p>
-                <div className="flex flex-wrap gap-3">
-                  {([["isg", "İş Sağlığı ve Güvenliği"], ["cevre", "Çevre"], ["motivasyon", "Motivasyon"]] as const).map(([key, label]) => (
-                    <label key={key} className={`h-11 px-4 rounded-xl border flex items-center gap-2.5 text-sm font-semibold cursor-pointer transition-colors ${form[key] ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
-                      <input type="checkbox" className="w-4 h-4 accent-emerald-700" checked={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.checked }))} />
-                      {label}
-                    </label>
+              <FormField label="Ek etkiler" hint="Parasal olmayan faydaları da işaretleyin.">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {([["isg", "İş sağlığı ve güvenliği", ShieldAlert, "text-red-600 bg-red-50"], ["cevre", "Çevre", Leaf, "text-emerald-600 bg-emerald-50"], ["motivasyon", "Motivasyon", Smile, "text-amber-600 bg-amber-50"]] as const).map(([key, label, Icon, tint]) => (
+                    <button key={key} type="button" aria-pressed={form[key]} onClick={() => setForm(f => ({ ...f, [key]: !f[key] }))}
+                      className={`flex items-center gap-3 rounded-xl p-3.5 text-left text-sm font-semibold cursor-pointer transition-all ${form[key] ? "ring-2 ring-emerald-600 bg-emerald-50/60 text-slate-900" : "ring-1 ring-slate-200 text-slate-700 hover:ring-slate-300"}`}>
+                      <span className={`w-9 h-9 rounded-lg flex items-center justify-center ${tint}`}><Icon className="w-4 h-4" /></span>
+                      <span className="flex-1">{label}</span>
+                      <span className={`w-5 h-5 rounded-md flex items-center justify-center ${form[key] ? "bg-emerald-600 text-white" : "ring-1 ring-slate-300"}`}>{form[key] && <Check className="w-3.5 h-3.5" />}</span>
+                    </button>
                   ))}
                 </div>
-              </div>
+              </FormField>
             </div>
           )}
 
           {step === 5 && (
             <div className="space-y-4">
-              <h3 className="text-lg font-black text-slate-900">Göndermeden önce kontrol edin</h3>
-              <p className="text-sm text-slate-500">Sağdaki özet kartında tüm alanları görebilirsiniz. Değiştirmek için ilgili adıma dönün; Kaydet'e bastığınızda öneri amirinize onaya gider.</p>
-              <div className="flex flex-wrap gap-2">
-                {STEPS.slice(0, 4).map((s, i) => (
-                  <button key={s.label} onClick={() => setStep(i + 1)} className="h-9 px-3.5 rounded-full bg-slate-100 hover:bg-slate-200 text-sm font-semibold text-slate-700 cursor-pointer">{s.label} adımını düzenle</button>
-                ))}
+              {[
+                { n: 1, title: "Konu", body: <><p className="font-semibold text-slate-900">{form.subject}</p><p className="text-slate-500 mt-0.5">{form.suggestionTypes.join(", ")} · {resolvedPersonnel.name}</p></> },
+                { n: 2, title: "Mevcut durum", body: <p className="text-slate-700 whitespace-pre-wrap line-clamp-4">{form.currentState}</p>, photos: form.photosCurrent.length },
+                { n: 3, title: "Öneri", body: <p className="text-slate-700 whitespace-pre-wrap line-clamp-4">{form.improvementSuggestion}</p>, photos: form.photosPropose.length },
+                { n: 4, title: "Kazanç", body: <p className="text-slate-700">{savingNum.toLocaleString("tr-TR")} {form.estimatedSavingCurrency} kazanç · {costNum.toLocaleString("tr-TR")} {form.estimatedCostCurrency} maliyet · {form.paybackPeriod} · {form.stage}</p> }
+              ].map(sec => (
+                <div key={sec.n} className="rounded-2xl ring-1 ring-slate-200/80 p-4 text-sm flex gap-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">{sec.title}{sec.photos ? <span className="normal-case tracking-normal font-medium"> · {sec.photos} fotoğraf</span> : null}</p>
+                    {sec.body}
+                  </div>
+                  <button onClick={() => goTo(sec.n)} className="self-start shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800 cursor-pointer"><PencilLine className="w-3.5 h-3.5" />Düzenle</button>
+                </div>
+              ))}
+              <div className="rounded-2xl bg-emerald-50 ring-1 ring-emerald-200/70 p-4 text-sm text-emerald-900 flex gap-3">
+                <Send className="w-5 h-5 shrink-0 mt-0.5 text-emerald-600" />
+                <span><b>Gönderince:</b> {nextStop}</span>
               </div>
             </div>
           )}
         </div>
 
-        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/60">
-          <Button variant="ghost" onClick={back} disabled={step === 1}><ChevronLeft className="w-4 h-4" />Geri</Button>
-          {step < 5 ? (
-            <Button variant="primary" onClick={next}>İleri<ChevronRight className="w-4 h-4" /></Button>
+        {/* Action bar — sticks to the bottom of the screen on phones */}
+        <div className="sticky bottom-0 z-10 flex items-center justify-between gap-3 px-5 sm:px-7 py-4 border-t border-slate-100 bg-white/95 backdrop-blur">
+          <Button variant="outline" onClick={back} disabled={step === 1} className="h-11"><ChevronLeft className="w-4 h-4" />Geri</Button>
+          {step < STEPS.length ? (
+            <Button variant="primary" onClick={next} className="h-11 px-6">Devam<ChevronRight className="w-4 h-4" /></Button>
           ) : (
-            <Button variant="brand" onClick={save} disabled={saving}><Save className="w-4 h-4" />{saving ? "Kaydediliyor…" : isEdit ? "Yeniden Gönder" : "Öneriyi Gönder"}</Button>
+            <Button variant="brand" onClick={save} disabled={saving} className="h-11 px-6"><Send className="w-4 h-4" />{saving ? "Gönderiliyor…" : isEdit ? "Yeniden gönder" : "Öneriyi gönder"}</Button>
           )}
         </div>
       </Card>
 
-      {/* Live summary */}
-      <div className="xl:sticky xl:top-2 space-y-4">
-        <Card>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Canlı Özet</p>
-          <h3 className="text-lg font-black text-slate-900 mt-1 break-words">{form.subject || <span className="text-slate-300">Öneri konusu…</span>}</h3>
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {form.suggestionTypes.map(t => <span key={t} className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700">{t}</span>)}
-            {form.isg && <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-red-50 text-red-600">İSG</span>}
-            {form.cevre && <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">Çevre</span>}
-            {form.motivasyon && <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700">Motivasyon</span>}
-          </div>
-          <dl className="mt-5 space-y-4 text-sm">
-            <div><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Öneren</dt><dd className="mt-1 font-semibold text-slate-900">{resolvedPersonnel.name || "—"}<span className="font-normal text-slate-500"> · {resolvedPersonnel.department || "—"}</span></dd></div>
-            <div><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Mevcut Durum</dt><dd className="mt-1 text-slate-700 whitespace-pre-wrap line-clamp-4">{form.currentState || "—"}</dd></div>
-            <div><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Önerilen İyileştirme</dt><dd className="mt-1 text-slate-700 whitespace-pre-wrap line-clamp-4">{form.improvementSuggestion || "—"}</dd></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl bg-emerald-50 p-3"><dt className="text-xs font-semibold text-emerald-700">Tahmini Kazanç</dt><dd className="font-black text-emerald-900 mt-0.5 tabular-nums">{savingNum.toLocaleString("tr-TR")} {form.estimatedSavingCurrency}</dd></div>
-              <div className="rounded-xl bg-slate-100 p-3"><dt className="text-xs font-semibold text-slate-600">Tahmini Maliyet</dt><dd className="font-black text-slate-900 mt-0.5 tabular-nums">{costNum.toLocaleString("tr-TR")} {form.estimatedCostCurrency}</dd></div>
+      {/* Live preview */}
+      <div className="xl:sticky xl:top-20 space-y-4">
+        <Card padded={false} className="overflow-hidden">
+          <div className="h-1.5 bg-gradient-to-r from-amber-400 via-emerald-500 to-teal-400" />
+          <div className="p-5 sm:p-6">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Canlı önizleme</p>
+            <h3 className="text-lg font-bold text-slate-900 mt-1.5 break-words">{form.subject || <span className="text-slate-300">Öneri konusu…</span>}</h3>
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {form.suggestionTypes.map(t => <span key={t} className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700">{t}</span>)}
+              {form.isg && <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-red-50 text-red-600">İSG</span>}
+              {form.cevre && <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">Çevre</span>}
+              {form.motivasyon && <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700">Motivasyon</span>}
             </div>
-            {sameCurrency && (savingNum > 0 || costNum > 0) && (
-              <div className={`rounded-xl p-3 ${net >= 0 ? "bg-teal-50 text-teal-800" : "bg-red-50 text-red-700"}`}>
-                <dt className="text-xs font-semibold">Net etki</dt>
-                <dd className="font-black tabular-nums mt-0.5">{net.toLocaleString("tr-TR")} {form.estimatedSavingCurrency}</dd>
+            {(form.photosCurrent[0] || form.photosPropose[0]) && (
+              <div className="grid grid-cols-2 gap-2 mt-4">
+                {[form.photosCurrent[0], form.photosPropose[0]].map((p, i) => (
+                  <div key={i} className="relative aspect-[4/3] rounded-xl overflow-hidden bg-slate-100">
+                    {p ? <img src={p.dataUrl} alt="" className="w-full h-full object-cover" /> : null}
+                    <span className="absolute bottom-1.5 left-1.5 text-[11px] font-semibold px-1.5 py-0.5 rounded-md bg-slate-900/70 text-white">{i === 0 ? "Önce" : "Sonra"}</span>
+                  </div>
+                ))}
               </div>
             )}
-            <div className="text-slate-600"><span className="font-semibold">Aşama:</span> {form.stage || "—"} · <span className="font-semibold">Süre:</span> {form.paybackPeriod || "—"}</div>
-            <div className="text-slate-600"><span className="font-semibold">Görseller:</span> {form.photosCurrent.length + form.photosPropose.length} adet</div>
-          </dl>
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <div className="rounded-xl bg-emerald-50 p-3"><p className="text-xs font-semibold text-emerald-700">Kazanç</p><p className="font-bold text-emerald-900 mt-0.5 tabular-nums">{savingNum.toLocaleString("tr-TR")} <span className="text-xs">{form.estimatedSavingCurrency}</span></p></div>
+              <div className="rounded-xl bg-slate-100 p-3"><p className="text-xs font-semibold text-slate-600">Maliyet</p><p className="font-bold text-slate-900 mt-0.5 tabular-nums">{costNum.toLocaleString("tr-TR")} <span className="text-xs">{form.estimatedCostCurrency}</span></p></div>
+            </div>
+            {sameCurrency && (savingNum > 0 || costNum > 0) && (
+              <div className={`rounded-xl p-3 mt-3 ${net >= 0 ? "bg-teal-50 text-teal-800" : "bg-red-50 text-red-700"}`}>
+                <p className="text-xs font-semibold">Net etki</p>
+                <p className="font-bold tabular-nums mt-0.5">{net.toLocaleString("tr-TR")} {form.estimatedSavingCurrency}</p>
+              </div>
+            )}
+            <p className="text-xs text-slate-500 mt-4 flex gap-2"><Send className="w-3.5 h-3.5 shrink-0 mt-0.5" />{nextStop}</p>
+          </div>
         </Card>
       </div>
     </div>
   );
 }
 
+function MoneyField({ label, icon: Icon, value, currency, currencies, onValue, onCurrency }: {
+  label: string; icon: any; value: string; currency: string; currencies: string[]; onValue: (v: string) => void; onCurrency: (c: string) => void;
+}) {
+  return (
+    <FormField label={label}>
+      <div className="flex items-center rounded-xl bg-slate-50/80 ring-1 ring-inset ring-slate-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-600/40 transition-all">
+        <Icon className="w-4 h-4 text-slate-400 ml-4 shrink-0" />
+        <input type="number" inputMode="decimal" min={0} value={value} onChange={e => onValue(e.target.value)} placeholder="0"
+          className="flex-1 min-w-0 h-12 px-3 bg-transparent text-sm font-semibold text-slate-900 tabular-nums placeholder:text-slate-400 focus:outline-none" />
+        <select value={currency} onChange={e => onCurrency(e.target.value)} aria-label={`${label} para birimi`}
+          className="h-9 mr-1.5 pl-2.5 pr-1 rounded-lg bg-white ring-1 ring-slate-200 text-sm font-semibold text-slate-700 focus:outline-none cursor-pointer">
+          {currencies.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+    </FormField>
+  );
+}
+
 function PhotoUploader({ label, photos, onAdd, onRemove }: { label: string; photos: KaizenSuggestionPhoto[]; onAdd: (f: FileList | null) => void; onRemove: (i: number) => void }) {
   return (
-    <div>
-      <p className="text-sm font-semibold text-slate-700 mb-1.5">{label} <span className="font-normal text-slate-400">(isteğe bağlı)</span></p>
+    <FormField label={label} aside={<span className="text-xs text-slate-400">İsteğe bağlı · en fazla 8</span>}>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {photos.map((p, i) => (
           <div key={i} className="relative group aspect-[4/3]">
-            <img src={p.dataUrl} alt={label} className="w-full h-full object-cover rounded-xl border border-slate-200" />
-            <button onClick={() => onRemove(i)} className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-slate-900/80 text-white flex items-center justify-center cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity" title="Kaldır">
+            <img src={p.dataUrl} alt={`${label} ${i + 1}`} className="w-full h-full object-cover rounded-xl ring-1 ring-slate-200" />
+            <button onClick={() => onRemove(i)} aria-label="Fotoğrafı kaldır" className="absolute top-1.5 right-1.5 w-8 h-8 rounded-full bg-slate-900/80 text-white flex items-center justify-center cursor-pointer sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 transition-opacity">
               <X className="w-4 h-4" />
             </button>
           </div>
         ))}
-        <label className="aspect-[4/3] rounded-xl border-2 border-dashed border-slate-300 hover:border-slate-500 hover:bg-slate-50 flex flex-col items-center justify-center gap-1.5 text-slate-500 cursor-pointer transition-colors">
-          <Camera className="w-6 h-6" />
-          <span className="text-xs font-semibold">Görsel ekle</span>
-          <input type="file" accept="image/*" multiple className="hidden" onChange={e => { onAdd(e.target.files); e.target.value = ""; }} />
-        </label>
+        {photos.length < 8 && (
+          <label className="aspect-[4/3] rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/60 hover:border-emerald-400 hover:bg-emerald-50/40 flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-emerald-700 cursor-pointer transition-colors">
+            <Camera className="w-6 h-6" />
+            <span className="text-xs font-semibold">Fotoğraf çek / ekle</span>
+            <input type="file" accept="image/*" multiple className="hidden" onChange={e => { onAdd(e.target.files); e.target.value = ""; }} />
+          </label>
+        )}
       </div>
-    </div>
+    </FormField>
   );
 }

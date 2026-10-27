@@ -265,14 +265,14 @@ export default function KaizenSuggestionSystem() {
           api={api}
           showToast={showToast}
           settings={settings}
-          onSaved={(s) => {
+          onSaved={(s, stay) => {
             setSuggestions(prev => {
               const idx = prev.findIndex(r => r.id === s.id);
               if (idx !== -1) { const copy = [...prev]; copy[idx] = s; return copy; }
               return [...prev, s];
             });
             setEditingSuggestion(null);
-            setSection("mine");
+            if (!stay) setSection("mine");
           }}
         />
       )}
