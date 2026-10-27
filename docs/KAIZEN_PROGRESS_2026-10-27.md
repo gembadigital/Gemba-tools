@@ -19,6 +19,10 @@
   - Doğrulama: `tsc --noEmit`, `npm run build`, sunucunun dosya-bazlı ESM yüklemesi ve `kaizenSettings` mantık testleri (normalize, kur çevrimi, eşikler, listeler, ödül, aşama yönlendirmesi). Uçtan uca gerçek oturumda **denenmedi**.
 
 ## Öneriler / Sıradaki işler
+- **Ana iş planı:** [KAIZEN_IS_PLANI.md](KAIZEN_IS_PLANI.md) — kullanıcının gereksinim dosyasıyla karşılaştırma ve
+  Faz 3 (kimlik/roller/görünürlük, sicil+PIN, kiosk, QR) → Faz 4 (fizibilite durumu, mesajlaşma, bildirim, fırsat havuzu)
+  → Faz 5 (kazanç/ROI, raporlar, şampiyonlar, PDF/Excel) → Faz 6 (benzer öneri, PWA) → Faz 7 (repo ayırma, Opx Suite).
+  Repo ayırma en sona bırakıldı (kullanıcı kararı). Aşağıdaki maddeler bu planın ayrıntısıdır.
 - **Faz 2-B canlı doğrulama** (Amir / Kurul / Personel hesaplarıyla):
   1. Ayar girilmemiş müşteride akış eskisi gibi Amir → Kurul mu?
   2. Eşik altı öneri Amir onayıyla "Amir Onayladı" olup Uygulama listesine düşüyor mu?
