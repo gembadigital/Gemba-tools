@@ -2966,6 +2966,12 @@ const addDaysIso = (iso: string, days: number) => {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 };
+const BENEFIT_KEYS = ["costEnergy", "costLabor", "costMaterial", "productivityMachine", "productivityMan", "productivityMaterial", "qualityProduct", "qualityMaterial", "qualityScrap", "safetyRiskDegree", "safetyKso"];
+const sanitizeBenefits = (b: any) => {
+  const out: Record<string, string> = {};
+  for (const k of BENEFIT_KEYS) { const v = clip(b?.[k], 80); if (v) out[k] = v; }
+  return out;
+};
 const sanitizeMetric = (m: any) => {
   const n = m && m.value !== null && m.value !== "" && m.value !== undefined ? Number(m.value) : null;
   return { label: clip(m?.label, 80), value: n !== null && Number.isFinite(n) ? n : null, unit: clip(m?.unit, 20) };
@@ -3055,6 +3061,8 @@ app.post("/api/business/kaizen/suggestions/:id/implementation", authenticateToke
     actualSaving,
     actualSavingCurrency,
     note: clip(req.body.note, 2000),
+    benefitDescription: clip(req.body.benefitDescription, 1000),
+    benefits: sanitizeBenefits(req.body.benefits),
     startedAt: existing?.startedAt || (status !== "Planlandı" ? today : ""),
     completedAt,
     verification,
