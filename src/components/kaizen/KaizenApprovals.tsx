@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { CheckCircle2, XCircle, Download, Share2, Gift, Clock, Inbox, ClipboardCheck, Users, Award, Sparkles, MessageSquare } from "lucide-react";
+import { CheckCircle2, XCircle, Download, Share2, Gift, Clock, Inbox, ClipboardCheck, Users, Award, Sparkles, MessageSquare, LayoutPanelLeft, TableProperties, ChevronLeft, ChevronRight, X, ArrowUp, ArrowDown, ArrowUpDown, RotateCcw } from "lucide-react";
 import { KaizenSuggestion, KaizenCriteria, KaizenApproval, KaizenEvaluation } from "./kaizenTypes";
-import { canDecideAsManager, daysWaiting, WAITING_SEVERITY_COLORS } from "./kaizenCalc";
+import { canDecideAsManager, daysWaiting, WAITING_SEVERITY_COLORS, statusLabel } from "./kaizenCalc";
 import { KaizenSettings, currencyChoices, toBaseCurrency, waitingSeverityFor, rewardFor, stagesOf } from "../../utils/kaizenSettings";
 
 const fmtReward = (r: { amount: number; currency: string }) => `${r.amount.toLocaleString("tr-TR")} ${r.currency}`;
@@ -121,21 +121,85 @@ function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluat
   );
   const selected = list.find(s => s.id === selectedId) || null;
 
+  // "split": queue + decision side by side; "table": full-width sortable/filterable list, the
+  // decision opens in a side drawer. The choice is remembered per browser.
+  const [layout, setLayoutState] = useState<"split" | "table">(() => {
+    try { return localStorage.getItem("kaizen_decision_layout") === "table" ? "table" : "split"; } catch { return "split"; }
+  });
+  const setLayout = (l: "split" | "table") => {
+    setLayoutState(l);
+    setSelectedId(null);
+    try { localStorage.setItem("kaizen_decision_layout", l); } catch { /* per-viewer convenience only */ }
+  };
+
   useEffect(() => { setSelectedId(null); }, [stage, view]);
-  // Auto-open the first waiting item so the right pane is never empty when there is work to do.
-  useEffect(() => { if (!selectedId && list.length > 0 && view === "queue") setSelectedId(list[0].id); }, [list, selectedId, view]);
+  // Split view: auto-open the first waiting item so the right pane is never empty when there is work to do.
+  useEffect(() => { if (layout === "split" && !selectedId && list.length > 0 && view === "queue") setSelectedId(list[0].id); }, [list, selectedId, view, layout]);
+
+  // Drawer prev/next follows the table's current sort + filter order.
+  const [order, setOrder] = useState<string[]>([]);
+  const nav = order.length ? order : list.map(x => x.id);
+
+  const panel = selected && (
+    <DecisionPanel
+      settings={settings}
+      key={selected.id} suggestion={selected} stage={stage} criteria={criteria}
+      approvals={approvals.filter(a => a.suggestionId === selected.id)}
+      evaluations={evaluations.filter(e => e.suggestionId === selected.id)}
+      readOnly={view === "history"} api={api} showToast={showToast} onDone={() => { setSelectedId(null); onReload(); }}
+    />
+  );
+
+  const toolbar = (
+    <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
+      <div className="inline-flex bg-slate-100 rounded-xl p-1 gap-1">
+        {([["queue", "Bekleyen", queue.length], ["history", "Geçmiş", history.length]] as const).map(([k, l, n]) => (
+          <button key={k} onClick={() => setView(k)} className={`h-8 px-3 rounded-lg text-sm font-semibold cursor-pointer flex items-center gap-1.5 transition-all ${view === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}>{l}<span className="text-xs tabular-nums text-slate-400">{n}</span></button>
+        ))}
+      </div>
+      <div className="inline-flex bg-slate-100 rounded-xl p-1 gap-1" role="group" aria-label="Görünüm">
+        {([["split", "Kart", LayoutPanelLeft], ["table", "Liste", TableProperties]] as const).map(([k, l, Icon]) => (
+          <button key={k} onClick={() => setLayout(k)} aria-pressed={layout === k} className={`h-8 px-3 rounded-lg text-sm font-semibold cursor-pointer flex items-center gap-1.5 transition-all ${layout === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}><Icon className="w-4 h-4" />{l}</button>
+        ))}
+      </div>
+    </div>
+  );
+
+  if (layout === "table") {
+    return (
+      <>
+        <Card padded={false} className="overflow-hidden">
+          {toolbar}
+          <QueueTable
+            list={list} view={view} settings={settings} evaluations={evaluations} waitingSince={waitingSince}
+            selectedId={selectedId} onOpen={(id, ids) => { setOrder(ids); setSelectedId(id); }}
+          />
+        </Card>
+        {selected && (
+          <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-[2px]" onClick={() => setSelectedId(null)} role="dialog" aria-modal="true" aria-label={stage === "board" ? "Kurul değerlendirmesi" : "Amir onayı"}>
+            <aside className="bg-[#fafafa] w-full max-w-3xl h-full overflow-y-auto shadow-2xl animate-toast-in" onClick={e => e.stopPropagation()}>
+              <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-5 py-3 bg-white/95 backdrop-blur border-b border-slate-200/70">
+                <p className="text-sm font-bold text-slate-900">{stage === "board" ? "Kurul değerlendirmesi" : "Amir onayı"}<span className="text-slate-400 font-medium"> · {nav.indexOf(selected.id) + 1} / {nav.length}</span></p>
+                <div className="flex items-center gap-1">
+                  {([[-1, ChevronLeft, "Önceki"], [1, ChevronRight, "Sonraki"]] as const).map(([d, Icon, l]) => {
+                    const i = nav.indexOf(selected.id) + d;
+                    return <button key={l} disabled={i < 0 || i >= nav.length} onClick={() => setSelectedId(nav[i])} aria-label={l} className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-500 hover:bg-slate-100 disabled:opacity-30 cursor-pointer"><Icon className="w-5 h-5" /></button>;
+                  })}
+                  <button onClick={() => setSelectedId(null)} aria-label="Kapat" className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-500 hover:bg-slate-100 cursor-pointer"><X className="w-5 h-5" /></button>
+                </div>
+              </div>
+              <div className="p-4 sm:p-5">{panel}</div>
+            </aside>
+          </div>
+        )}
+      </>
+    );
+  }
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start">
       <Card padded={false} className="xl:col-span-2 overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-          <div className="inline-flex bg-slate-100 rounded-xl p-1 gap-1">
-            {([["queue", "Bekleyen", queue.length], ["history", "Geçmiş", history.length]] as const).map(([k, l, n]) => (
-              <button key={k} onClick={() => setView(k)} className={`h-8 px-3 rounded-lg text-sm font-semibold cursor-pointer flex items-center gap-1.5 transition-all ${view === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}>{l}<span className="text-xs tabular-nums text-slate-400">{n}</span></button>
-            ))}
-          </div>
-          <p className="text-xs text-slate-400">{view === "queue" ? "En uzun bekleyen üstte" : "En son karar üstte"}</p>
-        </div>
+        {toolbar}
         {list.length === 0 ? (
           <EmptyState icon={Inbox} title={view === "queue" ? "Bekleyen öneri yok" : "Geçmiş kayıt yok"} text={view === "queue" ? "Tüm kararlar verilmiş görünüyor." : undefined} />
         ) : (
@@ -160,17 +224,137 @@ function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluat
       </Card>
 
       <div className="xl:col-span-3">
-        {!selected ? (
-          <Card><EmptyState icon={ClipboardCheck} title="Bir öneri seçin" text="Soldaki listeden bir öneri seçerek detayını inceleyin ve kararınızı verin." /></Card>
-        ) : (
-          <DecisionPanel
-            settings={settings}
-            key={selected.id} suggestion={selected} stage={stage} criteria={criteria}
-            approvals={approvals.filter(a => a.suggestionId === selected.id)}
-            evaluations={evaluations.filter(e => e.suggestionId === selected.id)}
-            readOnly={view === "history"} api={api} showToast={showToast} onDone={() => { setSelectedId(null); onReload(); }}
-          />
-        )}
+        {panel || <Card><EmptyState icon={ClipboardCheck} title="Bir öneri seçin" text="Soldaki listeden bir öneri seçerek detayını inceleyin ve kararınızı verin." /></Card>}
+      </div>
+    </div>
+  );
+}
+
+// ---------- List view: sortable, filterable columns ----------
+
+// Same reference number the one-pager prints ("Kayıt …"), so a printout can be found in the list.
+const refNo = (s: KaizenSuggestion) => s.id.slice(-8).toUpperCase();
+
+type ColKey = "no" | "date" | "name" | "dept" | "type" | "subject" | "saving" | "stage" | "status";
+
+function QueueTable({ list, view, settings, evaluations, waitingSince, selectedId, onOpen }: {
+  list: KaizenSuggestion[]; view: "queue" | "history"; settings: KaizenSettings; evaluations: KaizenEvaluation[];
+  waitingSince: (s: KaizenSuggestion) => string; selectedId: string | null; onOpen: (id: string, orderedIds: string[]) => void;
+}) {
+  const [sort, setSort] = useState<{ key: ColKey; dir: 1 | -1 }>({ key: "date", dir: view === "queue" ? 1 : -1 });
+  const [f, setF] = useState<Partial<Record<ColKey, string>>>({});
+  const evalBy = useMemo(() => new Map(evaluations.map(e => [e.suggestionId, e])), [evaluations]);
+
+  // Getiri: the income the Kurul approved if any, else the suggestion's own estimate.
+  const saving = (s: KaizenSuggestion) => {
+    const e = evalBy.get(s.id);
+    return e && e.estimatedIncome ? { n: e.estimatedIncome, cur: e.estimatedIncomeCurrency } : { n: s.estimatedSaving || 0, cur: s.estimatedSavingCurrency };
+  };
+  const value = (s: KaizenSuggestion, k: ColKey): string | number => {
+    switch (k) {
+      case "no": return refNo(s);
+      case "date": return s.createdAt || "";
+      case "name": return s.personnelName || "";
+      case "dept": return s.personnelDepartment || "";
+      case "type": return (s.suggestionTypes || []).join(", ");
+      case "subject": return s.subject || "";
+      case "saving": { const v = saving(s); return toBaseCurrency(v.n, v.cur, settings) ?? -1; }
+      case "stage": return s.stage || "";
+      case "status": return statusLabel(s.approvalStatus, s.requiredStages);
+    }
+  };
+
+  const options = (k: ColKey) => Array.from(new Set(list.flatMap(s => k === "type" ? (s.suggestionTypes || []) : [String(value(s, k))]).filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr"));
+
+  const rows = useMemo(() => {
+    const has = (s: KaizenSuggestion, k: ColKey, q: string) => {
+      if (k === "type") return (s.suggestionTypes || []).includes(q);
+      if (k === "saving") return (value(s, k) as number) >= (Number(q) || 0);
+      if (k === "date") return (s.createdAt || "").slice(0, 10) >= q;
+      return String(value(s, k)).toLocaleLowerCase("tr").includes(q.toLocaleLowerCase("tr"));
+    };
+    return list
+      .filter(s => (Object.entries(f) as [ColKey, string][]).every(([k, q]) => !q || has(s, k, q)))
+      .sort((a, b) => {
+        const va = value(a, sort.key), vb = value(b, sort.key);
+        return (typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb), "tr")) * sort.dir;
+      });
+  }, [list, f, sort, settings, evalBy]);
+
+  const cols: { key: ColKey; label: string; filter: "text" | "select" | "date" | "min"; cls?: string }[] = [
+    { key: "no", label: "No", filter: "text", cls: "w-24" },
+    { key: "date", label: "Tarih", filter: "date", cls: "w-32" },
+    { key: "name", label: "İsim", filter: "select" },
+    { key: "dept", label: "Bölüm", filter: "select" },
+    { key: "type", label: "Kategori", filter: "select" },
+    { key: "subject", label: "Konu", filter: "text", cls: "min-w-[14rem]" },
+    { key: "saving", label: "Getiri", filter: "min", cls: "text-right" },
+    { key: "stage", label: "Aşama", filter: "select" },
+    { key: "status", label: view === "queue" ? "Bekleme" : "Durum", filter: "select" }
+  ];
+  const activeFilters = Object.values(f).filter(Boolean).length;
+  const filterCls = "w-full h-8 px-2 rounded-lg bg-white ring-1 ring-inset ring-slate-200 text-xs font-normal normal-case tracking-normal text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-600/40";
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3 px-5 py-2.5 text-xs text-slate-500 bg-slate-50/60 border-b border-slate-100">
+        <span>{rows.length} / {list.length} öneri · başlığa tıklayarak sıralayın, alttaki alanlarla süzün</span>
+        {activeFilters > 0 && <button onClick={() => setF({})} className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-800 cursor-pointer"><RotateCcw className="w-3.5 h-3.5" />Süzgeçleri temizle ({activeFilters})</button>}
+      </div>
+      <div className="overflow-x-auto max-h-[70vh]">
+        <table className={tableCls}>
+          <thead className={`${theadCls} sticky top-0 z-10`}>
+            <tr>
+              {cols.map(c => (
+                <th key={c.key} className={`${thCls} ${c.cls || ""} whitespace-nowrap`} aria-sort={sort.key === c.key ? (sort.dir === 1 ? "ascending" : "descending") : undefined}>
+                  <button onClick={() => setSort(p => ({ key: c.key, dir: p.key === c.key ? (p.dir === 1 ? -1 : 1) : 1 }))} className={`inline-flex items-center gap-1 uppercase cursor-pointer hover:text-slate-900 ${sort.key === c.key ? "text-slate-900" : ""}`}>
+                    {c.label}
+                    {sort.key === c.key ? (sort.dir === 1 ? <ArrowUp className="w-3.5 h-3.5 text-emerald-600" /> : <ArrowDown className="w-3.5 h-3.5 text-emerald-600" />) : <ArrowUpDown className="w-3.5 h-3.5 opacity-40" />}
+                  </button>
+                </th>
+              ))}
+            </tr>
+            <tr className="bg-slate-50">
+              {cols.map(c => (
+                <th key={c.key} className="px-4 pb-2.5 pt-0 font-normal">
+                  {c.filter === "select" ? (
+                    <select value={f[c.key] || ""} onChange={e => setF(p => ({ ...p, [c.key]: e.target.value }))} className={filterCls} aria-label={`${c.label} süz`}>
+                      <option value="">Tümü</option>
+                      {options(c.key).map(o => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  ) : c.filter === "date" ? (
+                    <input type="date" value={f[c.key] || ""} onChange={e => setF(p => ({ ...p, [c.key]: e.target.value }))} className={filterCls} aria-label="Bu tarihten sonra" title="Bu tarihten sonra" />
+                  ) : c.filter === "min" ? (
+                    <input type="number" min={0} value={f[c.key] || ""} onChange={e => setF(p => ({ ...p, [c.key]: e.target.value }))} placeholder={`≥ ${settings.baseCurrency}`} className={`${filterCls} text-right`} aria-label={`En az getiri (${settings.baseCurrency})`} />
+                  ) : (
+                    <input value={f[c.key] || ""} onChange={e => setF(p => ({ ...p, [c.key]: e.target.value }))} placeholder="Ara…" className={filterCls} aria-label={`${c.label} ara`} />
+                  )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr><td colSpan={cols.length}><EmptyState icon={Inbox} title={list.length === 0 ? (view === "queue" ? "Bekleyen öneri yok" : "Geçmiş kayıt yok") : "Süzgece uyan öneri yok"} /></td></tr>
+            ) : rows.map(s => {
+              const v = saving(s);
+              return (
+                <tr key={s.id} onClick={() => onOpen(s.id, rows.map(r => r.id))} onKeyDown={e => { if (e.key === "Enter") onOpen(s.id, rows.map(r => r.id)); }} tabIndex={0}
+                  className={`${trCls} cursor-pointer focus-visible:outline-none focus-visible:bg-emerald-50/60 ${selectedId === s.id ? "bg-emerald-50/60" : ""}`}>
+                  <td className={`${tdCls} font-mono text-xs text-slate-500`}>{refNo(s)}</td>
+                  <td className={`${tdCls} whitespace-nowrap tabular-nums`}>{(s.createdAt || "").slice(0, 10).split("-").reverse().join(".")}</td>
+                  <td className={`${tdCls} whitespace-nowrap font-medium text-slate-900`}>{s.personnelName}</td>
+                  <td className={`${tdCls} whitespace-nowrap`}>{s.personnelDepartment || "—"}</td>
+                  <td className={tdCls}><div className="flex flex-wrap gap-1">{(s.suggestionTypes || []).map(t => <span key={t} className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 whitespace-nowrap">{t}</span>)}</div></td>
+                  <td className={`${tdCls} font-semibold text-slate-900`}><span className="line-clamp-2">{s.subject}</span></td>
+                  <td className={`${tdCls} text-right whitespace-nowrap tabular-nums`}>{v.n ? `${v.n.toLocaleString("tr-TR")} ${v.cur}` : "—"}</td>
+                  <td className={`${tdCls} whitespace-nowrap`}>{s.stage || "—"}</td>
+                  <td className={`${tdCls} whitespace-nowrap`}>{view === "queue" ? <WaitingBadge since={waitingSince(s)} settings={settings} /> : <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} />}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
