@@ -83,7 +83,7 @@ tipleri, `PlatformAdminConsole.tsx` ve `App.tsx` menü mantığı değişmeli.
   time-studies,yamazumi-studies,opex-assessments,ptr-records,master-plan-state}`.
 
 ### Yeni veri koleksiyonları (`records` tablosunda `collection` değeri)
-`weekly_consultant_notes`, `tickets`. (`db.ts`: `getWeeklyConsultantNotes/saveWeeklyConsultantNote/
+`weekly_consultant_notes`, `tickets`, `kaizen_implementations` (Faz 2-A), `kaizen_settings` (Faz 2-B). (`db.ts`: `getWeeklyConsultantNotes/saveWeeklyConsultantNote/
 getWeeklyConsultantNoteById/deleteWeeklyConsultantNote`, `getTickets/saveTicket/deleteTicket`.)
 Doküman Kasası içeriği `company_workspaces` koleksiyonundaki workspace JSON'unun `documents[].url`
 alanında (base64 data URI) tutulur.
@@ -103,6 +103,24 @@ alanında (base64 data URI) tutulur.
 `manualActualOverride` (true ise PTR senkronu atlanır), `actualWeeks`, `plannedManDays` (0 geçerli).
 `owner` artık her zaman `responsibleConsultant`'a eşittir (ExecutiveDashboard/OpexProjectDashboard
 `.owner`'ı "danışman" olarak okur).
+
+### Kaizen müşteri ayarları (Faz 2-B, 2026-10-27; canlıda doğrulanmadı)
+Ayrıntı ve sıradaki işler: [KAIZEN_PROGRESS_2026-10-27.md](KAIZEN_PROGRESS_2026-10-27.md).
+- **Kayıt:** `kaizen_settings` koleksiyonu, müşteri başına tek kayıt (`kaizen_settings_<factoryId>`). Uçlar
+  `GET|POST /api/business/kaizen/settings` (yazma yalnızca Admin/Consultant). Arayüz: Kaizen → Kurulum → Ayarlar.
+- **Tek kaynak:** `src/utils/kaizenSettings.ts` — tip, varsayılanlar, `normalizeKaizenSettings` (okuma ve yazmada),
+  kur çevrimi `toBaseCurrency`, ödül `rewardFor`, aşama kuralları `requiredStagesFor` / `stagesOf` /
+  `awaitingFirstDecision`. İstemci ve sunucu aynı fonksiyonları kullanır. Varsayılanlar eski davranıştır (TL, 3/7 gün
+  kuyruk, 30/90 gün kalıcılık, eski sabit listeler, ödül yok, Amir → Kurul, puan zorunlu).
+- **Sabitlenen değerler (sonraki ayar değişikliği bunları değiştirmez):** önerinin `requiredStages`'i (gönderim /
+  yeniden gönderim anında), uygulamanın `followUps` günleri (tamamlanma anında), değerlendirmenin
+  `rewardAmount/rewardCurrency`'si (Kurul onayında ya da ilk "Ödendi" işaretinde).
+- **Durum modeli değişmedi** (`Pending / First Approval / Second Approval / Rejected / Rejected 2nd`); Amir yoksa öneri
+  `First Approval`'da başlar, Kurul eşiği altında Amir onayı doğrudan `Second Approval` yazar ve Kurul değerlendirme
+  kaydı oluşmaz. `First Approval` etiketi artık "Kurul Bekliyor"; etiket için `statusLabel(status, requiredStages)`
+  kullanın, `APPROVAL_STATUS_LABELS`'ı doğrudan değil.
+- Kaizen'de sabit `"TL"` / sabit seçenek listesi yazmayın — ayarlardan okuyun (`settings.baseCurrency`,
+  `currencyChoices`, `optionChoices`).
 
 ### OpEx Yönetici Raporu (PDF)
 - **Tetik:** OpEx → Rapor sekmesi → "Yönetici Raporu (PDF)" (indir) / "Yazdır" (yeni sekme + yazdır → PDF).
@@ -157,6 +175,10 @@ alanında (base64 data URI) tutulur.
 
 1. Bu dosyayı ve `docs/DEPLOYMENT.md`'yi okuyun.
 2. Kod sorusu için: `graphify query "<soru>"` (repo kökünde `graphify-out/graph.json` var) ya da
-   `graphify-out/GRAPH_REPORT.md`.
+   `graphify-out/GRAPH_REPORT.md`. Grafiği tazelemek için `graphify update .` — bu komut bugünün tarihli
+   klasörünü (`graphify-out/<tarih>/`) eski kök kopyasıyla ezer; önce o klasörü yedekleyin, sonra güncel kök
+   dosyalarını içine kopyalayın.
 3. Değişiklikten sonra: `npx tsc --noEmit` ve `npm run build`, ardından commit + `git push origin main`.
+   Takip edilmeyen `Claude outputs/` klasörü ve `src/components/kaizen/KaizenSuggestionSystem-1.tsx` eski kopyalardır,
+   `tsc` hatası verir; çıktıda onları yok sayın (build'e girmezler).
 4. Canlı doğrulama yapılamadıysa bunu kullanıcıya açıkça söyleyin.
