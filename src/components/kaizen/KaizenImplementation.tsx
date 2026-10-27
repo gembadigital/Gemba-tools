@@ -34,6 +34,7 @@ type Draft = {
   beforeMetric: Impl["beforeMetric"]; afterMetric: Impl["afterMetric"];
   photosBefore: Impl["photosBefore"]; photosAfter: Impl["photosAfter"];
   actualSaving: number; actualSavingCurrency: string; note: string;
+  benefitDescription: string; benefits: Record<string, string>;
 };
 
 const CURRENCIES = ["TL", "USD", "EUR", "Eş Değer Ürün"];
@@ -55,7 +56,9 @@ function draftFrom(s: KaizenSuggestion, impl?: Impl): Draft {
     photosAfter: impl?.photosAfter ?? [],
     actualSaving: impl?.actualSaving ?? 0,
     actualSavingCurrency: impl?.actualSavingCurrency ?? "TL",
-    note: impl?.note ?? ""
+    note: impl?.note ?? "",
+    benefitDescription: impl?.benefitDescription ?? "",
+    benefits: impl?.benefits ?? {}
   };
 }
 
@@ -68,6 +71,14 @@ function StatusPill({ status, overdue }: { status: ImplementationStatus | "Plan 
     </span>
   );
 }
+
+// Same effect groups as the CI Proje Yönetimi "Kaizen Öncesi Sonrası" form.
+const BENEFIT_GROUPS: { title: string; fields: [string, string][] }[] = [
+  { title: "Maliyet", fields: [["costEnergy", "Enerji"], ["costLabor", "İş Gücü"], ["costMaterial", "Malzeme"]] },
+  { title: "Verimlilik", fields: [["productivityMachine", "Makine"], ["productivityMan", "Adam"], ["productivityMaterial", "Malzeme"]] },
+  { title: "Kalite", fields: [["qualityProduct", "Ürün"], ["qualityMaterial", "Malzeme"], ["qualityScrap", "Fire"]] },
+  { title: "Güvenlik", fields: [["safetyRiskDegree", "Risk Derecesi"], ["safetyKso", "KSO"]] }
+];
 
 type Filter = "all" | "noplan" | "active" | "done" | "overdue" | "verify";
 
@@ -130,6 +141,10 @@ export default function KaizenImplementation({
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] gap-6 items-start">
         <Card padded={false} className="overflow-hidden">
           <div className="p-4 border-b border-slate-100 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-bold text-slate-900">Kurul Onaylı Öneriler</p>
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">{rows.length} öneri</span>
+            </div>
             <div className="relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
               <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Öneri, kişi veya sorumlu ara…" className={`${inputCls} pl-9`} />
@@ -147,7 +162,7 @@ export default function KaizenImplementation({
             </div>
           </div>
           {visible.length === 0 ? (
-            <EmptyState icon={Hammer} title="Kayıt yok" text="Kurulca onaylanan öneriler burada uygulama planıyla birlikte izlenir." />
+            <EmptyState icon={Hammer} title="Kayıt yok" text="Yalnızca Kurulca onaylanan öneriler bu listede görünür." />
           ) : (
             <ul>
               {visible.map(({ s, impl }) => {
@@ -163,6 +178,7 @@ export default function KaizenImplementation({
                         <p className="text-sm font-semibold text-slate-900 leading-snug">{s.subject}</p>
                         <StatusPill status={impl ? impl.status : "Plan yok"} overdue={isImplementationOverdue(impl)} />
                       </div>
+                      <p className="text-[11px] font-semibold text-emerald-700 mt-1">✓ Kurul onaylı</p>
                       <p className="text-xs text-slate-500 mt-1">
                         {s.personnelName}{impl?.ownerName ? ` · Sorumlu: ${impl.ownerName}` : ""}
                         {impl?.targetDate ? ` · Hedef: ${fmtDate(impl.targetDate)}` : ""}
@@ -383,6 +399,21 @@ function ImplementationDetail({
                   </label>
                 )}
               </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <SectionTitle icon={Camera} title="Getiri Açıklaması" hint="Tek sayfa çıktının alt bölümü (CI Önce/Sonra formuyla aynı alanlar)" />
+        <textarea className="w-full min-h-[64px] px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 disabled:bg-slate-50" disabled={!canEdit} value={draft.benefitDescription} onChange={e => set("benefitDescription", e.target.value)} placeholder="Parasal veya oran bazında getirinin rakamsal ifadesi" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mt-3">
+          {BENEFIT_GROUPS.map(g => (
+            <div key={g.title} className="rounded-xl border border-slate-200 p-3 space-y-2">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-600">{g.title}</p>
+              {g.fields.map(([key, label]) => (
+                <input key={key} className={inputCls} disabled={!canEdit} placeholder={label} value={draft.benefits[key] || ""} onChange={e => set("benefits", { ...draft.benefits, [key]: e.target.value })} />
+              ))}
             </div>
           ))}
         </div>

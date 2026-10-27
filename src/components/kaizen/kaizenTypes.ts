@@ -190,6 +190,8 @@ export interface KaizenImplementation {
   actualSaving: number;
   actualSavingCurrency: string;
   note: string;
+  benefitDescription?: string;               // "Getiri açıklaması" on the one-pager
+  benefits?: Record<string, string>;         // CI Önce/Sonra form: Maliyet / Verimlilik / Kalite / Güvenlik details
   startedAt: string;
   completedAt: string;
   verification: KaizenVerification;
