@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import { Plus, ListChecks, Star, Trophy, CheckCircle2, XCircle, Clock, BadgeCheck, Lightbulb, ArrowRight, Hourglass } from "lucide-react";
 import { KaizenSuggestion, KaizenEvaluation, KaizenPersonnel } from "./kaizenTypes";
 import { isRejected } from "./kaizenCalc";
+import { awaitingFirstDecision } from "../../utils/kaizenSettings";
 import { Card, SectionTitle, KpiCard, StatusBadge, Button, EmptyState, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 
 interface Props {
@@ -32,9 +33,10 @@ export default function KaizenHome({
   const mine = useMemo(() => suggestions.filter(s => (s.authorEmail || "").toLowerCase() === myEmail), [suggestions, myEmail]);
 
   const total = mine.length;
-  const approved = mine.filter(s => s.approvalStatus === "First Approval" || s.approvalStatus === "Second Approval").length;
+  // "Kurul Bekliyor" counts as approved only once an Amir actually approved it.
+  const approved = mine.filter(s => !awaitingFirstDecision(s) && (s.approvalStatus === "First Approval" || s.approvalStatus === "Second Approval")).length;
   const rejected = mine.filter(s => isRejected(s.approvalStatus)).length;
-  const pending = mine.filter(s => s.approvalStatus === "Pending").length;
+  const pending = mine.filter(s => awaitingFirstDecision(s)).length;
   const completed = mine.filter(s => s.completed).length;
 
   const myPoints = useMemo(() => {
@@ -119,7 +121,7 @@ export default function KaizenHome({
                       <td className={`${tdCls} whitespace-nowrap tabular-nums`}>{(s.createdAt || "").slice(0, 10)}</td>
                       <td className={`${tdCls} font-semibold text-slate-900`}>{s.subject}</td>
                       <td className={`${tdCls} text-slate-500`}>{(s.suggestionTypes || []).join(", ")}</td>
-                      <td className={tdCls}><StatusBadge status={s.approvalStatus} /></td>
+                      <td className={tdCls}><StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} /></td>
                     </tr>
                   ))}
                 </tbody>

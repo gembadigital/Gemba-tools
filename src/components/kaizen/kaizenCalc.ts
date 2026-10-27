@@ -4,6 +4,7 @@
 // live "Yeni Öneri" wizard and Criteria/Ayarlar screen were checked directly to get these exact
 // values, replacing an earlier best-guess version of this file).
 import { ApprovalStatus, ImplementationStatus, KaizenImplementation } from "./kaizenTypes";
+import { stagesOf } from "../../utils/kaizenSettings";
 
 // Öneri Sınıfı / Öneri Aşaması (PDCA) / Kazanç Süresi choices are per customer since Faz 2-B —
 // see DEFAULT_KAIZEN_SETTINGS in src/utils/kaizenSettings.ts for the legacy-confirmed defaults.
@@ -12,7 +13,9 @@ import { ApprovalStatus, ImplementationStatus, KaizenImplementation } from "./ka
 
 export const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
   "Pending": "Onay Bekliyor",
-  "First Approval": "Amir Onayladı",
+  // Since Faz 2-B.3 this also means "sent straight to the Kurul" (no Amir stage), so the label
+  // names the waiting stage rather than the Amir's decision.
+  "First Approval": "Kurul Bekliyor",
   "Second Approval": "Kurul Onayladı",
   "Rejected": "Amir Reddetti",
   "Rejected 2nd": "Kurul Reddetti"
@@ -25,6 +28,13 @@ export const APPROVAL_STATUS_COLORS: Record<ApprovalStatus, string> = {
   "Rejected": "#ef4444",
   "Rejected 2nd": "#ef4444"
 };
+
+// Per-record label: an approval that needed no Kurul (below the customer's Kurul threshold) must not
+// read as "Kurul Onayladı".
+export function statusLabel(status: ApprovalStatus, requiredStages?: unknown): string {
+  if (status === "Second Approval" && !stagesOf({ requiredStages }).includes("Board")) return "Amir Onayladı";
+  return APPROVAL_STATUS_LABELS[status] || status;
+}
 
 export function isRejected(status: ApprovalStatus): boolean {
   return status === "Rejected" || status === "Rejected 2nd";

@@ -3,7 +3,7 @@ import { Edit3, X, Undo2, Search, Check, Circle, XCircle, Lightbulb, MessageSqua
 import { KaizenSuggestion, KaizenApproval, KaizenEvaluation, ApprovalStatus } from "./kaizenTypes";
 import { APPROVAL_STATUS_LABELS, canEditSuggestion, isRejected } from "./kaizenCalc";
 import { KaizenApi } from "./KaizenSuggestionSystem";
-import { KaizenSettings, rewardFor } from "../../utils/kaizenSettings";
+import { KaizenSettings, rewardFor, stagesOf, awaitingFirstDecision } from "../../utils/kaizenSettings";
 import { Card, StatusBadge, Button, EmptyState, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 
 interface Props {
@@ -119,14 +119,14 @@ export default function KaizenMySuggestions({ currentUser, suggestions, approval
                       <td className={tdCls}>{s.personnelName}</td>
                       <td className={`${tdCls} font-semibold text-slate-900 max-w-md truncate`} title={s.subject}>{s.subject}</td>
                       <td className={`${tdCls} text-slate-500`}>{(s.suggestionTypes || []).join(", ")}</td>
-                      <td className={tdCls}><StatusBadge status={s.approvalStatus} /></td>
+                      <td className={tdCls}><StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} /></td>
                       <td className={`${tdCls} text-right whitespace-nowrap`}>
                         {canEditSuggestion(s.approvalStatus) && isMine && (
                           <button onClick={e => { e.stopPropagation(); onEdit(s); }} className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 cursor-pointer" title="Düzenle ve yeniden gönder">
                             <Edit3 className="w-4 h-4" />
                           </button>
                         )}
-                        {s.approvalStatus === "Pending" && isMine && (
+                        {awaitingFirstDecision(s) && isMine && (
                           <button onClick={e => { e.stopPropagation(); withdraw(s); }} className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-red-500 hover:bg-red-50 cursor-pointer" title="Öneriyi geri çek">
                             <Undo2 className="w-4 h-4" />
                           </button>
@@ -148,7 +148,7 @@ export default function KaizenMySuggestions({ currentUser, suggestions, approval
           approvals={approvals.filter(a => a.suggestionId === detail.id).sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""))}
           evaluations={evaluations.filter(e => e.suggestionId === detail.id)}
           canEdit={canEditSuggestion(detail.approvalStatus) && (detail.authorEmail || "").toLowerCase() === myEmail}
-          canWithdraw={detail.approvalStatus === "Pending" && (detail.authorEmail || "").toLowerCase() === myEmail}
+          canWithdraw={awaitingFirstDecision(detail) && (detail.authorEmail || "").toLowerCase() === myEmail}
           onEdit={() => { const s = detail; setDetail(null); onEdit(s); }}
           onWithdraw={() => withdraw(detail)}
           onClose={() => setDetail(null)}
@@ -165,10 +165,12 @@ function buildSteps(s: KaizenSuggestion): { label: string; state: StepState }[] 
   const managerState: StepState = st === "Rejected" ? "rejected" : st === "Pending" ? "current" : "done";
   const boardState: StepState = st === "Rejected 2nd" ? "rejected" : st === "Second Approval" ? "done" : st === "First Approval" ? "current" : "todo";
   const implState: StepState = s.completed ? "done" : st === "Second Approval" ? "current" : "todo";
+  // Only the stages this suggestion was routed through when it was submitted (Faz 2-B.3).
+  const stages = stagesOf(s);
   return [
-    { label: "Gönderildi", state: "done" },
-    { label: "Amir Onayı", state: managerState },
-    { label: "Kurul Değerlendirmesi", state: isRejected(st) && st === "Rejected" ? "todo" : boardState },
+    { label: "Gönderildi", state: "done" as StepState },
+    ...(stages.includes("Manager") ? [{ label: "Amir Onayı", state: managerState }] : []),
+    ...(stages.includes("Board") ? [{ label: "Kurul Değerlendirmesi", state: isRejected(st) && st === "Rejected" ? "todo" as StepState : boardState }] : []),
     { label: "Uygulama", state: implState }
   ];
 }
@@ -190,7 +192,7 @@ function DetailDrawer({ suggestion, approvals, evaluations, canEdit, canWithdraw
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Öneri Detayı</p>
             <h3 className="text-xl font-black text-slate-900 mt-1">{suggestion.subject}</h3>
-            <div className="mt-2"><StatusBadge status={suggestion.approvalStatus} /></div>
+            <div className="mt-2"><StatusBadge status={suggestion.approvalStatus} requiredStages={suggestion.requiredStages} /></div>
           </div>
           <button onClick={onClose} className="w-10 h-10 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer shrink-0"><X className="w-5 h-5" /></button>
         </header>

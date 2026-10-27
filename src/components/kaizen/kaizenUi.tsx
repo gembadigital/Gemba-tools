@@ -1,6 +1,6 @@
 import React from "react";
 import { ApprovalStatus } from "./kaizenTypes";
-import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS } from "./kaizenCalc";
+import { APPROVAL_STATUS_COLORS, statusLabel } from "./kaizenCalc";
 
 // Shared presentation primitives for the Kaizen Öneri module.
 //
@@ -71,7 +71,7 @@ export function KpiCard({ label, value, icon: Icon, tone = "slate", hint, onClic
   );
 }
 
-export function StatusBadge({ status }: { status: ApprovalStatus }) {
+export function StatusBadge({ status, requiredStages }: { status: ApprovalStatus; requiredStages?: unknown }) {
   const color = APPROVAL_STATUS_COLORS[status];
   return (
     <span
@@ -79,7 +79,7 @@ export function StatusBadge({ status }: { status: ApprovalStatus }) {
       style={{ backgroundColor: `${color}1f`, color: status === "Pending" ? "#a16207" : color }}
     >
       <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} />
-      {APPROVAL_STATUS_LABELS[status]}
+      {statusLabel(status, requiredStages)}
     </span>
   );
 }

@@ -279,7 +279,7 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
                   <div key={l}><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{l}</p><p className="text-sm font-semibold text-slate-900 mt-1">{v || "—"}</p></div>
                 ))}
               </div>
-              {!isEdit && !resolvedPersonnel.teamLeaderEmail && (
+              {!isEdit && settings.managerStageEnabled && !resolvedPersonnel.teamLeaderEmail && (
                 <p className="text-sm bg-amber-50 text-amber-800 rounded-xl px-4 py-3">Amir bilgisi bulunamadı: öneri onay için bir amire atanmayacak. Kurulum &gt; Personel Listesi'nde kaydınızı tamamlatın.</p>
               )}
 

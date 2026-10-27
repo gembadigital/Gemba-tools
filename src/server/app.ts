@@ -10,7 +10,7 @@ import { analyzePtrRecords } from "./ptrDigest.js";
 import { buildFacts, generateConsultantBrief } from "./opexReport/consultantBrief.js";
 import { applyFinding, canWriteFinding } from "./opexFindings.js";
 import { renderReportHtml } from "./opexReport/render.js";
-import { KNOWN_CURRENCIES, normalizeKaizenSettings, KaizenSettings, rewardFor } from "../utils/kaizenSettings.js";
+import { KNOWN_CURRENCIES, normalizeKaizenSettings, KaizenSettings, rewardFor, requiredStagesFor, stagesOf, afterManagerApprovalStatus } from "../utils/kaizenSettings.js";
 import * as XLSX from "xlsx";
 
 // This module only builds and configures the Express app (all /api/* routes) and exports it —
@@ -2783,11 +2783,23 @@ app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res)
     estimatedCost: asAmount(req.body.estimatedCost),
     estimatedCostCurrency: asCurrency(req.body.estimatedCostCurrency, settings.baseCurrency),
     isg: !!req.body.isg, cevre: !!req.body.cevre, motivasyon: !!req.body.motivasyon,
-    photosCurrent: cur.photos, photosPropose: prop.photos
+    photosCurrent: cur.photos, photosPropose: prop.photos,
+    // Which stages (Amir / Kurul) this suggestion needs is decided now and frozen on the record.
+    requiredStages: requiredStagesFor(asAmount(req.body.estimatedSaving), asCurrency(req.body.estimatedSavingCurrency, settings.baseCurrency), settings)
   };
   const suggestion = await db.createKaizenSuggestion(user.organization_id, scope.factoryId, payload, user.id, user.email, user.full_name);
 
-  if (suggestion.teamLeaderEmail) {
+  if (suggestion.approvalStatus === "First Approval") {
+    // No Amir stage for this customer: the suggestion goes straight to the Kurul.
+    const board = personnel.filter((p: any) => p.isBoardMember).map((p: any) => p.email).filter(Boolean);
+    if (board.length > 0) {
+      sendMail({
+        to: board,
+        subject: `Değerlendirmeye Hazır: ${suggestion.subject}`,
+        text: `${suggestion.personnelName} tarafından gönderilen ${suggestion.subject} konulu öneri Kaizen Kurulu değerlendirmesini bekliyor.`
+      }).catch(() => {});
+    }
+  } else if (suggestion.teamLeaderEmail) {
     sendMail({
       to: suggestion.teamLeaderEmail,
       subject: `Yeni Kaizen Önerisi: ${suggestion.subject}`,
@@ -2816,7 +2828,8 @@ app.post("/api/business/kaizen/suggestions/:id", authenticateToken, async (req, 
     return;
   }
   const b = req.body;
-  const { baseCurrency } = await loadKaizenSettings(user.organization_id, existing.factory_id);
+  const settings = await loadKaizenSettings(user.organization_id, existing.factory_id);
+  const { baseCurrency } = settings;
   const payload = {
     subject: b.subject !== undefined ? clip(b.subject, 200) : undefined,
     suggestionTypes: Array.isArray(b.suggestionTypes) ? b.suggestionTypes.filter((t: any) => typeof t === "string").slice(0, 10) : undefined,
@@ -2829,7 +2842,13 @@ app.post("/api/business/kaizen/suggestions/:id", authenticateToken, async (req, 
     estimatedCost: b.estimatedCost !== undefined ? asAmount(b.estimatedCost) : undefined,
     estimatedCostCurrency: b.estimatedCostCurrency !== undefined ? asCurrency(b.estimatedCostCurrency, baseCurrency) : undefined,
     isg: b.isg, cevre: b.cevre, motivasyon: b.motivasyon,
-    photosCurrent: cur.photos, photosPropose: prop.photos
+    photosCurrent: cur.photos, photosPropose: prop.photos,
+    // Stages are decided again from the (possibly edited) estimate and the current settings.
+    requiredStages: requiredStagesFor(
+      b.estimatedSaving !== undefined ? asAmount(b.estimatedSaving) : Number(existing.estimatedSaving) || 0,
+      b.estimatedSavingCurrency !== undefined ? asCurrency(b.estimatedSavingCurrency, baseCurrency) : existing.estimatedSavingCurrency,
+      settings
+    )
   };
   const updated = await db.updateKaizenSuggestion(user.organization_id, req.params.id, payload, user.id);
   res.json({ success: true, data: updated });
@@ -2850,23 +2869,31 @@ app.post("/api/business/kaizen/suggestions/:id/manager-decision", authenticateTo
     res.status(400).json({ success: false, error: "Lütfen red nedeni giriniz." });
     return;
   }
-  const result = await db.decideKaizenManager(user.organization_id, req.params.id, approved, comment, user.full_name, user.email);
+  const stages = stagesOf(suggestion);
+  const needsBoard = stages.includes("Board");
+  const result = await db.decideKaizenManager(
+    user.organization_id, req.params.id, approved, comment, user.full_name, user.email, afterManagerApprovalStatus(stages)
+  );
   if (!result) {
     res.status(400).json({ success: false, error: "Bu öneri artık Amir onayı bekleyen durumda değil." });
     return;
   }
 
   // Board notification stays inside the suggestion's own factory (was: every board member in the org).
-  const notifyEmail = approved
+  // Below the Kurul threshold the Amir's approval is final, so the author is told directly.
+  const notifyEmail = approved && needsBoard
     ? (await db.getKaizenRecords("kaizen_personnel", user.organization_id, suggestion.factory_id)).filter((p: any) => p.isBoardMember).map((p: any) => p.email).filter(Boolean)
     : [result.suggestion.authorEmail].filter(Boolean);
   if (notifyEmail.length > 0) {
     sendMail({
       to: notifyEmail,
-      subject: approved ? `Değerlendirmeye Hazır: ${result.suggestion.subject}` : `Öneriniz Reddedildi: ${result.suggestion.subject}`,
-      text: approved
-        ? `${result.suggestion.subject} konulu öneri amir onayından geçti ve Kaizen Kurulu değerlendirmesini bekliyor.`
-        : `${result.suggestion.subject} konulu öneriniz amiriniz tarafından reddedildi.\n\nGerekçe: ${comment || "-"}`
+      subject: !approved ? `Öneriniz Reddedildi: ${result.suggestion.subject}`
+        : needsBoard ? `Değerlendirmeye Hazır: ${result.suggestion.subject}` : `Öneriniz Onaylandı: ${result.suggestion.subject}`,
+      text: !approved
+        ? `${result.suggestion.subject} konulu öneriniz amiriniz tarafından reddedildi.\n\nGerekçe: ${comment || "-"}`
+        : needsBoard
+          ? `${result.suggestion.subject} konulu öneri amir onayından geçti ve Kaizen Kurulu değerlendirmesini bekliyor.`
+          : `Tebrikler! ${result.suggestion.subject} konulu Kaizen öneriniz amiriniz tarafından onaylandı.`
     }).catch(() => {});
   }
   res.json({ success: true, data: result });
@@ -2892,7 +2919,8 @@ app.post("/api/business/kaizen/suggestions/:id/board-decision", authenticateToke
   const settings = await loadKaizenSettings(user.organization_id, suggestion.factory_id);
   const { baseCurrency } = settings;
   let criteriaId = "", criteriaLabel = "", point = 0;
-  if (approved) {
+  // A criteria is mandatory unless this customer made Kurul scoring optional; one that is sent must exist.
+  if (approved && (settings.boardScoreRequired || req.body.criteriaId)) {
     const criteria = (await db.getKaizenRecords("kaizen_criteria", user.organization_id, suggestion.factory_id)).find((c: any) => c.id === req.body.criteriaId);
     if (!criteria) {
       res.status(400).json({ success: false, error: "Onaylamak için geçerli bir değerlendirme kriteri seçiniz." });

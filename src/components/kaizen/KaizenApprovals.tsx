@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { CheckCircle2, XCircle, Download, Share2, Gift, Clock, Inbox, ClipboardCheck, Users, Award, Sparkles, MessageSquare } from "lucide-react";
 import { KaizenSuggestion, KaizenCriteria, KaizenApproval, KaizenEvaluation } from "./kaizenTypes";
 import { canDecideAsManager, daysWaiting, WAITING_SEVERITY_COLORS } from "./kaizenCalc";
-import { KaizenSettings, currencyChoices, toBaseCurrency, waitingSeverityFor, rewardFor } from "../../utils/kaizenSettings";
+import { KaizenSettings, currencyChoices, toBaseCurrency, waitingSeverityFor, rewardFor, stagesOf } from "../../utils/kaizenSettings";
 
 const fmtReward = (r: { amount: number; currency: string }) => `${r.amount.toLocaleString("tr-TR")} ${r.currency}`;
 import { KaizenApi } from "./KaizenSuggestionSystem";
@@ -154,7 +154,7 @@ function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluat
                 <button onClick={() => setSelectedId(s.id)} className={`w-full text-left px-5 py-4 cursor-pointer transition-colors ${selectedId === s.id ? "bg-slate-50 border-l-4 border-slate-900" : "hover:bg-slate-50/70 border-l-4 border-transparent"}`}>
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-sm font-bold text-slate-900 leading-snug">{s.subject}</p>
-                    {view === "queue" ? <WaitingBadge since={waitingSince(s)} settings={settings} /> : <StatusBadge status={s.approvalStatus} />}
+                    {view === "queue" ? <WaitingBadge since={waitingSince(s)} settings={settings} /> : <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} />}
                   </div>
                   <p className="text-sm text-slate-500 mt-1">{s.personnelName} · {s.personnelDepartment || "—"}</p>
                   <p className="text-xs text-slate-400 mt-1 tabular-nums">{(s.createdAt || "").slice(0, 10)} · {(s.suggestionTypes || []).join(", ")}</p>
@@ -212,7 +212,7 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
 
   const decide = async (approved: boolean) => {
     if (!approved && !comment.trim()) { showToast("Lütfen red nedeni giriniz."); return; }
-    if (stage === "board" && approved && !selectedCriteria) { showToast("Onaylamak için bir değerlendirme kriteri seçiniz."); return; }
+    if (stage === "board" && approved && settings.boardScoreRequired && !selectedCriteria) { showToast("Onaylamak için bir değerlendirme kriteri seçiniz."); return; }
     setSaving(true);
     const res = stage === "manager"
       ? await api.post(`suggestions/${s.id}/manager-decision`, { approved, comment })
@@ -232,8 +232,14 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{stage === "manager" ? "Amir Onayı" : "Kurul Değerlendirmesi"}</p>
           <h3 className="text-xl font-black text-slate-900 mt-1">{s.subject}</h3>
           <p className="text-sm text-slate-500 mt-1">{s.personnelName} · {s.personnelDepartment || "—"} · {s.personnelJobTitle || "—"} · Amir: {s.teamLeaderName || "—"}</p>
+          {stage === "manager" && !stagesOf(s).includes("Board") && !readOnly && (
+            <p className="text-xs font-semibold text-teal-700 bg-teal-50 rounded-full px-3 py-1 mt-2 inline-block">Kurul eşiğinin altında: onayınız son karardır</p>
+          )}
+          {stage === "board" && !stagesOf(s).includes("Manager") && (
+            <p className="text-xs font-semibold text-slate-600 bg-slate-100 rounded-full px-3 py-1 mt-2 inline-block">Amir aşaması olmadan doğrudan Kurul'a geldi</p>
+          )}
         </div>
-        <StatusBadge status={s.approvalStatus} />
+        <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} />
       </header>
 
       <div className="p-6 space-y-6">
@@ -278,7 +284,7 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
               <>
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm font-bold text-slate-800 flex items-center gap-2"><Award className="w-4 h-4" />Değerlendirme kriteri</p>
+                    <p className="text-sm font-bold text-slate-800 flex items-center gap-2"><Award className="w-4 h-4" />Değerlendirme kriteri{!settings.boardScoreRequired && <span className="font-normal text-slate-500">(isteğe bağlı)</span>}</p>
                     <div className="flex items-center gap-2 flex-wrap justify-end">
                       {suggestedTier && <span className="text-xs font-semibold bg-teal-50 text-teal-700 rounded-full px-3 py-1 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" />Gelire göre önerilen: {suggestedTier.category} ({suggestedTier.point} puan)</span>}
                       {selectedCriteria && settings.rewardPerPoint > 0 && <span className="text-xs font-semibold bg-amber-50 text-amber-700 rounded-full px-3 py-1">Ödül: {fmtReward(rewardFor({ point: selectedCriteria.point }, settings)!)}</span>}

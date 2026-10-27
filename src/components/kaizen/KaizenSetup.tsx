@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, SlidersHorizontal, Coins, Clock, ListChecks, Gift } from "lucide-react";
+import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, SlidersHorizontal, Coins, Clock, ListChecks, Gift, GitBranch } from "lucide-react";
 import { KaizenPersonnel, KaizenCriteria } from "./kaizenTypes";
 import { Card, SectionTitle, Button, EmptyState, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 import { KaizenSettings, KNOWN_CURRENCIES, IN_KIND_CURRENCY, normalizeKaizenSettings, DEFAULT_KAIZEN_SETTINGS, MAX_OPTIONS, MAX_OPTION_LENGTH } from "../../utils/kaizenSettings";
@@ -202,7 +202,10 @@ function SettingsTab({ settings, onSave }: { settings: KaizenSettings; onSave: (
     suggestionTypes: st.suggestionTypes,
     stages: st.stages,
     paybackPeriods: st.paybackPeriods,
-    reward: st.rewardPerPoint ? String(st.rewardPerPoint) : ""
+    reward: st.rewardPerPoint ? String(st.rewardPerPoint) : "",
+    managerStageEnabled: st.managerStageEnabled,
+    boardThreshold: st.boardThreshold ? String(st.boardThreshold) : "",
+    boardScoreRequired: st.boardScoreRequired
   });
   const [d, setD] = useState(() => fromSettings(settings));
   const [saving, setSaving] = useState(false);
@@ -220,7 +223,10 @@ function SettingsTab({ settings, onSave }: { settings: KaizenSettings; onSave: (
     suggestionTypes: d.suggestionTypes,
     stages: d.stages,
     paybackPeriods: d.paybackPeriods,
-    rewardPerPoint: d.reward
+    rewardPerPoint: d.reward,
+    managerStageEnabled: d.managerStageEnabled,
+    boardThreshold: d.boardThreshold,
+    boardScoreRequired: d.boardScoreRequired
   });
   const foreign = next.currencies.filter(c => c !== next.baseCurrency && c !== IN_KIND_CURRENCY);
 
@@ -292,6 +298,35 @@ function SettingsTab({ settings, onSave }: { settings: KaizenSettings; onSave: (
       </Card>
 
       <Card className="xl:col-span-2">
+        <SectionTitle icon={GitBranch} title="Onay Akışı" hint="Yeni gönderilen önerilere uygulanır; süreçteki öneriler gönderildikleri andaki akışla devam eder" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+          <Toggle
+            checked={d.managerStageEnabled}
+            onChange={v => setD(x => ({ ...x, managerStageEnabled: v }))}
+            title="Amir onayı aşaması"
+            text={d.managerStageEnabled ? "Öneri önce personelin amirine gider." : "Öneri doğrudan Kaizen Kurulu'na gider; Kurul her öneriye karar verir."}
+          />
+          <div className={`rounded-xl border p-3.5 ${d.managerStageEnabled ? "border-slate-200" : "border-slate-100 opacity-60"}`}>
+            <Field label={`Kurul eşiği (${next.baseCurrency}, boş = Kurul her zaman)`}>
+              <input type="number" min={0} step="any" value={d.boardThreshold} placeholder="—" disabled={!d.managerStageEnabled}
+                onChange={e => setD(x => ({ ...x, boardThreshold: e.target.value }))} className={inputCls} />
+            </Field>
+            <p className="text-xs text-slate-500 mt-2">
+              {next.managerStageEnabled && next.boardThreshold > 0
+                ? `Tahmini kazancı ${next.boardThreshold.toLocaleString("tr-TR")} ${next.baseCurrency} altındaki öneriler (kazanç girilmemiş olanlar dahil) Amir onayıyla sonuçlanır. Çevrilemeyen para birimiyle girilenler Kurul'a gider.`
+                : "Tüm öneriler Kurul değerlendirmesinden geçer."}
+            </p>
+          </div>
+          <Toggle
+            checked={d.boardScoreRequired}
+            onChange={v => setD(x => ({ ...x, boardScoreRequired: v }))}
+            title="Kurul onayında puan zorunlu"
+            text={d.boardScoreRequired ? "Kurul onaylarken bir değerlendirme kriteri seçmek zorunda." : "Kriter seçimi isteğe bağlı; seçilmezse puan 0 ve ödül tutarı yok."}
+          />
+        </div>
+      </Card>
+
+      <Card className="xl:col-span-2">
         <SectionTitle icon={ListChecks} title="Seçenek Listeleri" hint="Yeni Öneri formunda ve rapor filtrelerinde görünür" />
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-4">
           <OptionListEditor label="Öneri Sınıfı" items={d.suggestionTypes} defaults={DEFAULT_KAIZEN_SETTINGS.suggestionTypes} onChange={v => setD(x => ({ ...x, suggestionTypes: v }))} />
@@ -355,5 +390,14 @@ function OptionListEditor({ label, items, defaults, onChange }: { label: string;
       </div>
       {exists && value && <p className="text-xs text-amber-700 mt-1">Bu seçenek zaten listede.</p>}
     </div>
+  );
+}
+
+function Toggle({ checked, onChange, title, text }: { checked: boolean; onChange: (v: boolean) => void; title: string; text: string }) {
+  return (
+    <label className={`flex items-start gap-3 rounded-xl border p-3.5 cursor-pointer ${checked ? "border-emerald-400 bg-emerald-50/60" : "border-slate-200"}`}>
+      <input type="checkbox" className="w-4 h-4 mt-0.5 accent-emerald-700" checked={checked} onChange={e => onChange(e.target.checked)} />
+      <span><span className="block text-sm font-bold text-slate-800">{title}</span><span className="block text-xs text-slate-500 mt-0.5">{text}</span></span>
+    </label>
   );
 }

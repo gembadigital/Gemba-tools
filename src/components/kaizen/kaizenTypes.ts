@@ -78,6 +78,7 @@ export interface KaizenSuggestion {
   photosPropose: KaizenSuggestionPhoto[]; // Öneri görselleri
 
   approvalStatus: ApprovalStatus;
+  requiredStages?: ("Manager" | "Board")[]; // Faz 2-B.3 snapshot at submit; missing = both stages
   completed: boolean; // Uygulandı — set once the approved improvement is actually implemented
 
   createdBy: string;

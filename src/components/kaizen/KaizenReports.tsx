@@ -5,9 +5,9 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, RadialBarChart, RadialBar, PolarAngleAxis
 } from "recharts";
 import { KaizenSuggestion, KaizenEvaluation, KaizenPersonnel, KaizenImplementation, ApprovalStatus } from "./kaizenTypes";
-import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, actionProgress } from "./kaizenCalc";
+import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, actionProgress, statusLabel } from "./kaizenCalc";
 import { KaizenApi } from "./KaizenSuggestionSystem";
-import { KaizenSettings, toBaseCurrency, optionChoices } from "../../utils/kaizenSettings";
+import { KaizenSettings, toBaseCurrency, optionChoices, stagesOf, awaitingFirstDecision } from "../../utils/kaizenSettings";
 import { Card, KpiCard, Button, EmptyState, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 
 // Native replacement for the legacy Power BI report (two pages: a KPI/chart dashboard with five
@@ -28,9 +28,9 @@ const TREEMAP_COLORS = ["#0ea5e9", "#3b82f6", "#1e3a8a", "#8b5cf6", "#ec4899", "
 const BUCKET = { approved: "#00A280", pending: "#facc15", rejected: "#ef4444" };
 const TICK = { fontSize: 12, fill: "#64748b" };
 
-function statusBucket(status: ApprovalStatus): "approved" | "pending" | "rejected" {
-  if (status === "Pending") return "pending";
-  if (status === "Rejected" || status === "Rejected 2nd") return "rejected";
+function statusBucket(s: KaizenSuggestion): "approved" | "pending" | "rejected" {
+  if (awaitingFirstDecision(s)) return "pending";
+  if (s.approvalStatus === "Rejected" || s.approvalStatus === "Rejected 2nd") return "rejected";
   return "approved";
 }
 
@@ -81,8 +81,13 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
   const completedCount = filtered.filter(s => s.completed).length;
   // Totals are in the customer's base currency. Other currencies are converted with the customer's
   // fixed rates (Kurulum → Ayarlar); in-kind or rate-less amounts are left out and counted instead.
-  const approvedEvals = filteredEvaluations.filter(e => (e.estimatedIncome || 0) > 0 && filtered.find(s => s.id === e.suggestionId)?.approvalStatus === "Second Approval");
-  const approvedIncomeConverted = approvedEvals.map(e => toBaseCurrency(e.estimatedIncome, e.estimatedIncomeCurrency, settings));
+  // Kurul-approved: the income the Kurul approved. Approved by the Amir alone (below the Kurul
+  // threshold, no evaluation record): the suggestion's own estimate.
+  const approvedIncomeConverted = filtered.filter(s => s.approvalStatus === "Second Approval").flatMap(s => {
+    const e = filteredEvaluations.find(ev => ev.suggestionId === s.id);
+    if (e) return (e.estimatedIncome || 0) > 0 ? [toBaseCurrency(e.estimatedIncome, e.estimatedIncomeCurrency, settings)] : [];
+    return !stagesOf(s).includes("Board") && (s.estimatedSaving || 0) > 0 ? [toBaseCurrency(s.estimatedSaving, s.estimatedSavingCurrency, settings)] : [];
+  });
   const approvedIncomeBase = approvedIncomeConverted.reduce<number>((sum, v) => sum + (v ?? 0), 0);
   const approvedIncomeExcluded = approvedIncomeConverted.filter(v => v === null).length;
   // Actual (Board-verified) saving next to the estimate — same conversion rule as above.
@@ -99,7 +104,7 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
   const verifiedExcluded = verifiedConverted.filter(v => v === null).length;
 
   const decided = filtered.filter(s => s.approvalStatus !== "Pending");
-  const acceptedCount = decided.filter(s => statusBucket(s.approvalStatus) === "approved").length;
+  const acceptedCount = decided.filter(s => statusBucket(s) === "approved").length;
   const acceptanceRate = decided.length > 0 ? Math.round((acceptedCount / decided.length) * 100) : 0;
   const participants = new Set(filtered.map(s => s.personnelName)).size;
   const participationRate = personnel.length > 0 ? Math.min(100, Math.round((participants / personnel.length) * 100)) : 0;
@@ -129,7 +134,7 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
       const month = (s.createdAt || "").slice(0, 7);
       if (!month) return;
       if (!b[month]) b[month] = { month, approved: 0, pending: 0, rejected: 0, saving: 0 };
-      b[month][statusBucket(s.approvalStatus)]++;
+      b[month][statusBucket(s)]++;
       b[month].saving += toBaseCurrency(s.estimatedSaving || 0, s.estimatedSavingCurrency, settings) ?? 0;
     });
     return Object.values(b).sort((a, b) => a.month.localeCompare(b.month));
@@ -140,7 +145,7 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
     filtered.forEach(s => {
       const name = s.personnelName || "Belirtilmemiş";
       if (!b[name]) b[name] = { name, approved: 0, pending: 0, rejected: 0 };
-      b[name][statusBucket(s.approvalStatus)]++;
+      b[name][statusBucket(s)]++;
     });
     return Object.values(b).sort((a, b) => (b.approved + b.pending + b.rejected) - (a.approved + a.pending + a.rejected)).slice(0, 20);
   }, [filtered]);
@@ -196,7 +201,7 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
         <KpiCard label="Toplam Öneri" value={filtered.length} icon={Lightbulb} tone="slate" />
         <KpiCard label="Uygulanan" value={completedCount} icon={BadgeCheck} tone="teal" />
         <KpiCard label="Toplam Kaizen Puanı" value={totalPoints} icon={Award} tone="amber" />
-        <KpiCard label={`Tahmini Getiri (${base})`} value={Math.round(approvedIncomeBase).toLocaleString("tr-TR")} icon={Coins} tone="emerald" hint={approvedIncomeExcluded > 0 ? `${approvedIncomeExcluded} kayıt çevrilemeyen para birimiyle, toplama dahil değil` : "Kurulca onaylanan"} />
+        <KpiCard label={`Tahmini Getiri (${base})`} value={Math.round(approvedIncomeBase).toLocaleString("tr-TR")} icon={Coins} tone="emerald" hint={approvedIncomeExcluded > 0 ? `${approvedIncomeExcluded} kayıt çevrilemeyen para birimiyle, toplama dahil değil` : "Onaylanan öneriler"} />
         <KpiCard label={`Doğrulanmış Gerçek Kazanç (${base})`} value={Math.round(verifiedActualBase).toLocaleString("tr-TR")} icon={BadgeCheck} tone="teal" hint={verifiedExcluded > 0 ? `${verifiedExcluded} kayıt çevrilemeyen para birimiyle, toplama dahil değil` : "Uygulama sonrası Kurul tarafından doğrulanan"} />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -287,7 +292,7 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
                   return (
                     <tr key={s.id} className={trCls}>
                       <td className={`${tdCls} font-semibold text-slate-900`}>{s.personnelName}</td><td className={tdCls}>{s.personnelDepartment}</td><td className={tdCls}>{s.personnelJobTitle}</td>
-                      <td className={`${tdCls} tabular-nums whitespace-nowrap`}>{(s.createdAt || "").slice(0, 10)}</td><td className={tdCls}>{(s.suggestionTypes || []).join(", ")}</td><td className={tdCls}>{APPROVAL_STATUS_LABELS[s.approvalStatus]}</td>
+                      <td className={`${tdCls} tabular-nums whitespace-nowrap`}>{(s.createdAt || "").slice(0, 10)}</td><td className={tdCls}>{(s.suggestionTypes || []).join(", ")}</td><td className={tdCls}>{statusLabel(s.approvalStatus, s.requiredStages)}</td>
                       <td className={`${tdCls} tabular-nums whitespace-nowrap`}>{e?.createdAt ? e.createdAt.slice(0, 10) : "—"}</td>
                       <td className={`${tdCls} text-right tabular-nums`}>{e?.estimatedIncome ? `${e.estimatedIncome.toLocaleString("tr-TR")} ${e.estimatedIncomeCurrency}` : "—"}</td>
                       <td className={`${tdCls} text-right tabular-nums`}>{impl && impl.verification?.status === "Doğrulandı" ? `${impl.actualSaving.toLocaleString("tr-TR")} ${impl.actualSavingCurrency}` : "—"}</td>

@@ -3,6 +3,7 @@ import { Pool } from "pg";
 import { OPEX_SEED_CATEGORIES, OPEX_SEED_QUESTIONS } from "./opexSeedData.js";
 import { FIVE_S_DEFAULT_DEPARTMENTS, FIVE_S_DEFAULT_QUESTIONS } from "./fiveSSeedData.js";
 import { DEFAULT_ROLE_MODULE_VISIBILITY, RoleModuleVisibility } from "../constants/sidebarModules.js";
+import { ALL_STAGES, awaitingFirstDecision, initialStatusFor } from "../utils/kaizenSettings.js";
 
 // Schema Definitions
 export interface Organization {
@@ -1203,7 +1204,9 @@ export class GeminiDb {
       motivasyon: !!payload.motivasyon,
       photosCurrent: payload.photosCurrent || [],
       photosPropose: payload.photosPropose || [],
-      approvalStatus: "Pending",
+      // Stages are decided by the route from the customer's settings (Faz 2-B.3) and frozen here.
+      requiredStages: payload.requiredStages || ALL_STAGES,
+      approvalStatus: initialStatusFor(payload.requiredStages || ALL_STAGES),
       completed: false,
       created_by: userId,
       createdBy: userName,
@@ -1215,8 +1218,8 @@ export class GeminiDb {
   }
 
   // "Öneriyi Düzenle" — only reachable while Rejected/Rejected 2nd (enforced by the route). Resets
-  // the suggestion back to Pending so it re-enters the Manager queue, matching the legacy resubmit
-  // flow. The submitter identity is preserved (legacy app bug: it overwrote `Personel` with
+  // the suggestion back to its first stage (Pending, or the Kurul queue when the route decided it
+  // needs no Amir) with freshly decided stages — a resubmission is a new submission. The submitter identity is preserved (legacy app bug: it overwrote `Personel` with
   // whoever last saved the record, even a team leader editing someone else's rejected suggestion).
   public async updateKaizenSuggestion(orgId: string, id: string, payload: any, userId: string): Promise<any> {
     const existing = await this.getRecordById("kaizen_suggestions", id, orgId);
@@ -1239,7 +1242,8 @@ export class GeminiDb {
       motivasyon: payload.motivasyon !== undefined ? !!payload.motivasyon : existing.motivasyon,
       photosCurrent: payload.photosCurrent ?? existing.photosCurrent,
       photosPropose: payload.photosPropose ?? existing.photosPropose,
-      approvalStatus: "Pending",
+      requiredStages: payload.requiredStages || ALL_STAGES,
+      approvalStatus: initialStatusFor(payload.requiredStages || ALL_STAGES),
       updated_by: userId,
       updatedAt: new Date().toISOString()
     };
@@ -1252,7 +1256,7 @@ export class GeminiDb {
   // branches on `approved`.
   public async decideKaizenManager(
     orgId: string, suggestionId: string, approved: boolean, comment: string,
-    approverName: string, approverEmail: string
+    approverName: string, approverEmail: string, approvedStatus: "First Approval" | "Second Approval" = "First Approval"
   ): Promise<{ suggestion: any; approval: any } | null> {
     const suggestion = await this.getRecordById("kaizen_suggestions", suggestionId, orgId);
     if (!suggestion || suggestion.approvalStatus !== "Pending") return null;
@@ -1272,7 +1276,8 @@ export class GeminiDb {
     await this.upsertMerged("kaizen_approvals", orgId, approval);
     const updatedSuggestion = {
       ...suggestion,
-      approvalStatus: approved ? "First Approval" : "Rejected",
+      // "Second Approval" when the suggestion's stages need no Kurul (below the Kurul threshold).
+      approvalStatus: approved ? approvedStatus : "Rejected",
       updatedAt: nowIso
     };
     await this.upsertMerged("kaizen_suggestions", orgId, updatedSuggestion);
@@ -1377,7 +1382,7 @@ export class GeminiDb {
   public async withdrawKaizenSuggestion(orgId: string, suggestionId: string, userEmail: string): Promise<{ success: boolean; error?: string }> {
     const suggestion = await this.getRecordById("kaizen_suggestions", suggestionId, orgId);
     if (!suggestion) return { success: false, error: "Öneri bulunamadı." };
-    if (suggestion.approvalStatus !== "Pending") return { success: false, error: "Sadece onay bekleyen öneriler geri çekilebilir." };
+    if (!awaitingFirstDecision(suggestion)) return { success: false, error: "Sadece henüz karar verilmemiş öneriler geri çekilebilir." };
     if ((suggestion.authorEmail || "").toLowerCase() !== (userEmail || "").toLowerCase()) {
       return { success: false, error: "Sadece kendi öneriniz geri çekebilirsiniz." };
     }

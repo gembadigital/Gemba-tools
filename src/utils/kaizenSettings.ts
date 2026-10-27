@@ -20,6 +20,9 @@ export interface KaizenSettings {
   stages: string[];                  // Öneri Aşaması (PDCA) choices
   paybackPeriods: string[];          // Kazanç Süresi choices
   rewardPerPoint: number;            // reward paid per Kurul point, in baseCurrency; 0 = no amount shown
+  managerStageEnabled: boolean;      // Amir onayı aşaması var mı
+  boardThreshold: number;            // in baseCurrency; estimate below this needs no Kurul (0 = Kurul always)
+  boardScoreRequired: boolean;       // Kurul must pick a criteria (score) to approve
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -35,7 +38,10 @@ export const DEFAULT_KAIZEN_SETTINGS: KaizenSettings = {
   suggestionTypes: ["Maliyet Azaltma", "Kalite", "ISG", "5S", "Verimlilik", "Enerji"],
   stages: ["Plan (Planlama)", "Do (Yap)", "Check (Kontrol)", "Action (Önlem Al)"],
   paybackPeriods: ["Parça Başı", "Senelik", "Bir Sefer"],
-  rewardPerPoint: 0
+  rewardPerPoint: 0,
+  managerStageEnabled: true,
+  boardThreshold: 0,
+  boardScoreRequired: true
 };
 
 export const MAX_OPTIONS = 30;
@@ -88,6 +94,7 @@ export function normalizeKaizenSettings(input: any): KaizenSettings {
   const followUpDays = days.length ? days : d.followUpDays;
 
   const reward = Number(src.rewardPerPoint);
+  const threshold = Number(src.boardThreshold);
 
   return {
     baseCurrency, currencies, fxRates,
@@ -97,6 +104,9 @@ export function normalizeKaizenSettings(input: any): KaizenSettings {
     stages: optionList(src.stages, d.stages),
     paybackPeriods: optionList(src.paybackPeriods, d.paybackPeriods),
     rewardPerPoint: Number.isFinite(reward) && reward > 0 ? Math.round(reward * 100) / 100 : 0,
+    managerStageEnabled: typeof src.managerStageEnabled === "boolean" ? src.managerStageEnabled : d.managerStageEnabled,
+    boardThreshold: Number.isFinite(threshold) && threshold > 0 ? Math.round(threshold * 100) / 100 : 0,
+    boardScoreRequired: typeof src.boardScoreRequired === "boolean" ? src.boardScoreRequired : d.boardScoreRequired,
     ...(typeof src.updatedAt === "string" ? { updatedAt: src.updatedAt } : {}),
     ...(typeof src.updatedBy === "string" ? { updatedBy: src.updatedBy } : {})
   };
@@ -144,4 +154,40 @@ export function rewardFor(
   }
   if (!settings.rewardPerPoint) return null;
   return { amount: Math.round((Number(evaluation.point) || 0) * settings.rewardPerPoint * 100) / 100, currency: settings.baseCurrency, snapshot: false };
+}
+
+// ---- Onay aşamaları (Faz 2-B.3) ----
+// Which decision stages a suggestion goes through is decided once, when it is submitted (or
+// resubmitted after a rejection), and stored on the suggestion as `requiredStages`. A later settings
+// change therefore never reroutes a suggestion that is already in the pipeline.
+export type KaizenStage = "Manager" | "Board";
+export const ALL_STAGES: KaizenStage[] = ["Manager", "Board"];
+
+export function requiredStagesFor(amount: number, currency: string | undefined, settings: KaizenSettings): KaizenStage[] {
+  // At least one stage always remains: without the Amir stage, the Kurul decides every suggestion.
+  if (!settings.managerStageEnabled) return ["Board"];
+  if (settings.boardThreshold > 0) {
+    // An estimate that cannot be expressed in the base currency (in-kind, no rate) goes to Kurul.
+    const base = toBaseCurrency(amount, currency, settings);
+    if (base !== null && base < settings.boardThreshold) return ["Manager"];
+  }
+  return ALL_STAGES;
+}
+
+// Records submitted before Faz 2-B.3 have no snapshot — they always went through both stages.
+export function stagesOf(suggestion: { requiredStages?: unknown }): KaizenStage[] {
+  const v = suggestion.requiredStages;
+  if (!Array.isArray(v)) return ALL_STAGES;
+  const stages = ALL_STAGES.filter(st => v.includes(st));
+  return stages.length ? stages : ALL_STAGES;
+}
+
+// Status a suggestion enters when submitted, and after an approving Amir decision.
+export const initialStatusFor = (stages: KaizenStage[]) => (stages.includes("Manager") ? "Pending" : "First Approval");
+export const afterManagerApprovalStatus = (stages: KaizenStage[]) => (stages.includes("Board") ? "First Approval" : "Second Approval");
+
+// No decision has been taken yet (so the author may still withdraw it).
+export function awaitingFirstDecision(suggestion: { approvalStatus?: string; requiredStages?: unknown }): boolean {
+  if (suggestion.approvalStatus === "Pending") return true;
+  return suggestion.approvalStatus === "First Approval" && !stagesOf(suggestion).includes("Manager");
 }
