@@ -10,7 +10,7 @@ import { readAndShrink } from "./kaizenImage";
 import { KaizenSettings, currencyChoices } from "../../utils/kaizenSettings";
 import { KaizenApi } from "./KaizenSuggestionSystem";
 import KaizenOnePager from "./KaizenOnePager";
-import { Card, KpiCard, SectionTitle, Button, EmptyState } from "./kaizenUi";
+import { Card, KpiCard, SectionTitle, Button, EmptyState, PageHeader, inputCls as baseInputCls } from "./kaizenUi";
 
 // Uygulama Takibi (Faz 2-A): Kurulca onaylanan her öneri için plan (sorumlu, hedef tarih, aksiyon
 // listesi), önce/sonra ölçüm + fotoğraf, gerçekleşen kazanç, Kurul doğrulaması ve 30/90 gün
@@ -39,7 +39,8 @@ type Draft = {
   benefitDescription: string; benefits: Record<string, string>;
 };
 
-const inputCls = "h-10 w-full px-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/10 disabled:bg-slate-50 disabled:text-slate-500";
+// Dense variant of the shared input for this data-heavy screen.
+const inputCls = `${baseInputCls} !h-10 !px-3`;
 const labelCls = "block text-xs font-semibold text-slate-500 mb-1";
 const emptyMetric = { label: "", value: null as number | null, unit: "" };
 const fmtDate = (iso?: string) => (iso ? iso.slice(0, 10).split("-").reverse().join(".") : "—");
@@ -132,6 +133,7 @@ export default function KaizenImplementation({
 
   return (
     <div className="space-y-6">
+      <PageHeader title="Uygulama takibi" subtitle="Kabul edilen önerilerin planı, önce/sonra ölçümü, gerçekleşen kazancı ve kalıcılığı." />
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <KpiCard label="Plan Bekleyen" value={counts.noplan} icon={Clock} tone="amber" hint="Onaylandı, uygulama planı yok" onClick={() => setFilter("noplan")} />
         <KpiCard label="Devam Eden" value={counts.active} icon={Hammer} tone="blue" onClick={() => setFilter("active")} />
@@ -148,14 +150,14 @@ export default function KaizenImplementation({
             </div>
             <div className="relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Öneri, kişi veya sorumlu ara…" className={`${inputCls} pl-9`} />
+              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Öneri, kişi veya sorumlu ara…" className={`${inputCls} !pl-9`} />
             </div>
             <div className="flex flex-wrap gap-1.5">
               {chips.map(c => (
                 <button
                   key={c.key}
                   onClick={() => setFilter(c.key)}
-                  className={`h-8 px-3 rounded-full text-xs font-semibold cursor-pointer transition-colors ${filter === c.key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                  className={`h-8 px-3 rounded-full text-xs font-semibold cursor-pointer transition-all ${filter === c.key ? "bg-slate-900 text-white shadow-sm" : "bg-white text-slate-600 ring-1 ring-inset ring-slate-200 hover:ring-slate-300"}`}
                 >
                   {c.label}{c.n !== undefined ? ` · ${c.n}` : ""}
                 </button>

@@ -6,7 +6,7 @@ import { KaizenSettings, currencyChoices, toBaseCurrency, waitingSeverityFor, re
 
 const fmtReward = (r: { amount: number; currency: string }) => `${r.amount.toLocaleString("tr-TR")} ${r.currency}`;
 import { KaizenApi } from "./KaizenSuggestionSystem";
-import { Card, StatusBadge, Button, EmptyState, KpiCard, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
+import { Card, StatusBadge, Button, EmptyState, KpiCard, PageHeader, TabBar, Avatar, inputCls, areaCls, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 
 interface Props {
   currentUser: any;
@@ -23,8 +23,6 @@ interface Props {
 
 type Tab = "manager" | "board" | "yokoten" | "reward";
 
-const areaCls = "w-full px-3.5 py-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400";
-const inputCls = "h-11 px-3.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400";
 
 export default function KaizenApprovals({ currentUser, suggestions, approvals, evaluations, criteria, isBoardMember, api, showToast, onReload, settings }: Props) {
   const [tab, setTab] = useState<Tab>("manager");
@@ -54,6 +52,15 @@ export default function KaizenApprovals({ currentUser, suggestions, approvals, e
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Değerlendirmeler"
+        subtitle={isBoardMember ? "Amir onayı, Kurul değerlendirmesi, yaygınlaştırma ve ödül takibi tek yerde." : "Ekibinizden gelen önerileri inceleyin ve kararınızı verin."}
+        actions={isBoardMember ? (
+          <Button variant="outline" onClick={() => api.download("suggestions/export-excel", "Kaizen_Onerileri.xlsx").catch(() => showToast("Hata: Rapor indirilemedi."))}>
+            <Download className="w-4 h-4" />Excel indir
+          </Button>
+        ) : undefined}
+      />
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <KpiCard label="Amir onayı bekleyen" value={managerQueue.length} icon={ClipboardCheck} tone="amber" onClick={() => setTab("manager")} />
         {isBoardMember && <KpiCard label="Kurul bekleyen" value={boardQueue.length} icon={Users} tone="blue" onClick={() => setTab("board")} />}
@@ -61,24 +68,7 @@ export default function KaizenApprovals({ currentUser, suggestions, approvals, e
         {isBoardMember && <KpiCard label="Ödenecek ödül" value={rewardOpen} icon={Gift} tone="emerald" onClick={() => setTab("reward")} />}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex bg-slate-100 rounded-xl p-1 gap-1 flex-wrap">
-          {tabs.filter(t => t.show).map(t => {
-            const Icon = t.icon;
-            return (
-              <button key={t.key} onClick={() => setTab(t.key)} className={`h-10 px-4 rounded-lg text-sm font-semibold flex items-center gap-2 cursor-pointer transition-all ${tab === t.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}>
-                <Icon className="w-4 h-4" />{t.label}
-                {t.count > 0 && <span className="min-w-5 h-5 px-1.5 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center tabular-nums">{t.count}</span>}
-              </button>
-            );
-          })}
-        </div>
-        {isBoardMember && (
-          <Button variant="ghost" onClick={() => api.download("suggestions/export-excel", "Kaizen_Onerileri.xlsx").catch(() => showToast("Hata: Rapor indirilemedi."))}>
-            <Download className="w-4 h-4" />Excel Raporu İndir
-          </Button>
-        )}
-      </div>
+      <TabBar<Tab> tabs={tabs.filter(t => t.show)} value={tab} onChange={setTab} />
 
       {tab === "manager" && (
         <DecisionWorkspace
@@ -139,11 +129,12 @@ function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluat
     <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start">
       <Card padded={false} className="xl:col-span-2 overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-          <div className="inline-flex bg-slate-100 rounded-lg p-0.5">
-            {([["queue", `Bekleyen (${queue.length})`], ["history", `Geçmiş (${history.length})`]] as const).map(([k, l]) => (
-              <button key={k} onClick={() => setView(k)} className={`h-8 px-3 rounded-md text-sm font-semibold cursor-pointer ${view === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}`}>{l}</button>
+          <div className="inline-flex bg-slate-100 rounded-xl p-1 gap-1">
+            {([["queue", "Bekleyen", queue.length], ["history", "Geçmiş", history.length]] as const).map(([k, l, n]) => (
+              <button key={k} onClick={() => setView(k)} className={`h-8 px-3 rounded-lg text-sm font-semibold cursor-pointer flex items-center gap-1.5 transition-all ${view === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}>{l}<span className="text-xs tabular-nums text-slate-400">{n}</span></button>
             ))}
           </div>
+          <p className="text-xs text-slate-400">{view === "queue" ? "En uzun bekleyen üstte" : "En son karar üstte"}</p>
         </div>
         {list.length === 0 ? (
           <EmptyState icon={Inbox} title={view === "queue" ? "Bekleyen öneri yok" : "Geçmiş kayıt yok"} text={view === "queue" ? "Tüm kararlar verilmiş görünüyor." : undefined} />
@@ -151,13 +142,16 @@ function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluat
           <ul className="divide-y divide-slate-100 max-h-[70vh] overflow-y-auto">
             {list.map(s => (
               <li key={s.id}>
-                <button onClick={() => setSelectedId(s.id)} className={`w-full text-left px-5 py-4 cursor-pointer transition-colors ${selectedId === s.id ? "bg-slate-50 border-l-4 border-slate-900" : "hover:bg-slate-50/70 border-l-4 border-transparent"}`}>
+                <button onClick={() => setSelectedId(s.id)} aria-current={selectedId === s.id ? "true" : undefined} className={`w-full text-left px-5 py-4 cursor-pointer transition-colors flex gap-3 ${selectedId === s.id ? "bg-emerald-50/60 shadow-[inset_3px_0_0_#059669]" : "hover:bg-slate-50/70"}`}>
+                  <Avatar name={s.personnelName} size="sm" />
+                  <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-3">
-                    <p className="text-sm font-bold text-slate-900 leading-snug">{s.subject}</p>
+                    <p className="text-sm font-semibold text-slate-900 leading-snug">{s.subject}</p>
                     {view === "queue" ? <WaitingBadge since={waitingSince(s)} settings={settings} /> : <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} />}
                   </div>
                   <p className="text-sm text-slate-500 mt-1">{s.personnelName} · {s.personnelDepartment || "—"}</p>
                   <p className="text-xs text-slate-400 mt-1 tabular-nums">{(s.createdAt || "").slice(0, 10)} · {(s.suggestionTypes || []).join(", ")}</p>
+                  </div>
                 </button>
               </li>
             ))}
@@ -314,8 +308,8 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">Onaylanan getiri</label>
                     <div className="flex gap-2">
-                      <input type="number" min={0} value={income} onChange={e => setIncome(e.target.value)} placeholder="0" className={`${inputCls} w-full`} />
-                      <select value={incomeCurrency} onChange={e => setIncomeCurrency(e.target.value)} className={`${inputCls} w-36`}>{currencyChoices(settings, incomeCurrency).map(c => <option key={c} value={c}>{c}</option>)}</select>
+                      <input type="number" min={0} value={income} onChange={e => setIncome(e.target.value)} placeholder="0" className={inputCls} />
+                      <select value={incomeCurrency} onChange={e => setIncomeCurrency(e.target.value)} className={`${inputCls} !w-36`}>{currencyChoices(settings, incomeCurrency).map(c => <option key={c} value={c}>{c}</option>)}</select>
                     </div>
                   </div>
                   <div>

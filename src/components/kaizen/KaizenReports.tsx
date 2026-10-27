@@ -8,7 +8,7 @@ import { KaizenSuggestion, KaizenEvaluation, KaizenPersonnel, KaizenImplementati
 import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, actionProgress, statusLabel } from "./kaizenCalc";
 import { KaizenApi } from "./KaizenSuggestionSystem";
 import { KaizenSettings, toBaseCurrency, optionChoices, stagesOf, awaitingFirstDecision } from "../../utils/kaizenSettings";
-import { Card, KpiCard, Button, EmptyState, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
+import { Card, KpiCard, Button, EmptyState, PageHeader, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 
 // Native replacement for the legacy Power BI report (two pages: a KPI/chart dashboard with five
 // filters, and a per-suggestion "Personel Bazlı Kaizen Puan Tablosu"). Same grouping, plus the
@@ -34,7 +34,7 @@ function statusBucket(s: KaizenSuggestion): "approved" | "pending" | "rejected" 
   return "approved";
 }
 
-const selectCls = "h-10 px-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/10";
+const selectCls = "h-11 w-full px-3 rounded-xl bg-slate-50/80 ring-1 ring-inset ring-slate-200 text-sm text-slate-800 transition-all focus:outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600/40";
 
 export default function KaizenReports({ suggestions, evaluations, personnel, implementations, api, settings }: Props) {
   const base = settings.baseCurrency;
@@ -176,15 +176,17 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Kaizen raporu"
+        subtitle={`${filtered.length} / ${suggestions.length} öneri · katılım, kazanç ve süreç görünümü`}
+        actions={<>
+          {hasFilter && <Button variant="outline" onClick={resetFilters}><RotateCcw className="w-4 h-4" />Filtreleri sıfırla</Button>}
+          <Button variant="primary" onClick={download} disabled={downloading}><Download className="w-4 h-4" />{downloading ? "Hazırlanıyor…" : "Excel indir"}</Button>
+        </>}
+      />
       {/* Filters */}
       <Card className="space-y-3">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <h3 className="font-black text-slate-900">Filtreler <span className="text-sm font-medium text-slate-500">· {filtered.length} / {suggestions.length} öneri</span></h3>
-          <div className="flex gap-2">
-            {hasFilter && <Button variant="ghost" onClick={resetFilters} className="h-9"><RotateCcw className="w-4 h-4" />Sıfırla</Button>}
-            <Button variant="primary" onClick={download} disabled={downloading} className="h-9"><Download className="w-4 h-4" />{downloading ? "Hazırlanıyor…" : "Excel İndir"}</Button>
-          </div>
-        </div>
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Filtreler</p>
         <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2.5">
           <select value={fPersonnel} onChange={e => setFPersonnel(e.target.value)} className={selectCls}><option value={ALL}>Tüm Personel</option>{personnelNames.map(n => <option key={n} value={n}>{n}</option>)}</select>
           <select value={fDepartment} onChange={e => setFDepartment(e.target.value)} className={selectCls}><option value={ALL}>Tüm Bölümler</option>{departments.map(d => <option key={d} value={d}>{d}</option>)}</select>

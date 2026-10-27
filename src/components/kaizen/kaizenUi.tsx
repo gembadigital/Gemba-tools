@@ -181,3 +181,38 @@ export function ChoiceChip({ on, onClick, icon: Icon, children }: { on: boolean;
     </button>
   );
 }
+
+// ---- Page scaffolding (same header and tab bar on every screen) ----
+export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: React.ReactNode; actions?: React.ReactNode }) {
+  return (
+    <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+      <div className="min-w-0">
+        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">{title}</h2>
+        {subtitle && <p className="text-sm text-slate-500 mt-1">{subtitle}</p>}
+      </div>
+      {actions && <div className="flex flex-wrap gap-2 shrink-0">{actions}</div>}
+    </div>
+  );
+}
+
+export function TabBar<K extends string>({ tabs, value, onChange }: {
+  tabs: { key: K; label: string; icon?: any; count?: number }[]; value: K; onChange: (k: K) => void;
+}) {
+  return (
+    <div role="tablist" className="flex gap-1 bg-slate-100/80 rounded-2xl p-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {tabs.map(t => {
+        const active = t.key === value;
+        const Icon = t.icon;
+        return (
+          <button key={t.key} role="tab" aria-selected={active} onClick={() => onChange(t.key)}
+            className={`shrink-0 h-10 px-4 rounded-xl text-sm font-semibold flex items-center gap-2 cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/40 ${active ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}>
+            {Icon && <Icon className={`w-4 h-4 ${active ? "text-emerald-600" : ""}`} />}{t.label}
+            {t.count !== undefined && t.count > 0 && (
+              <span className={`min-w-5 h-5 px-1.5 rounded-full text-xs font-bold flex items-center justify-center tabular-nums ${active ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-600"}`}>{t.count}</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}

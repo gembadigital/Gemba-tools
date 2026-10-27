@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, SlidersHorizontal, Coins, Clock, ListChecks, Gift, GitBranch } from "lucide-react";
 import { KaizenPersonnel, KaizenCriteria } from "./kaizenTypes";
-import { Card, SectionTitle, Button, EmptyState, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
+import { Card, SectionTitle, Button, EmptyState, PageHeader, TabBar, Avatar, inputCls, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 import { KaizenSettings, KNOWN_CURRENCIES, IN_KIND_CURRENCY, normalizeKaizenSettings, DEFAULT_KAIZEN_SETTINGS, MAX_OPTIONS, MAX_OPTION_LENGTH } from "../../utils/kaizenSettings";
 
 interface Crud<T> {
@@ -18,7 +18,6 @@ interface Props {
   onSaveSettings: (s: KaizenSettings) => Promise<any>;
 }
 
-const inputCls = "w-full h-11 px-3.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">{label}</label>{children}</div>;
@@ -28,13 +27,16 @@ export default function KaizenSetup({ personnel, criteria, personnelCrud, criter
   const [tab, setTab] = useState<"personnel" | "criteria" | "settings">("personnel");
   return (
     <div className="space-y-6">
-      <div className="inline-flex bg-slate-100 rounded-xl p-1 gap-1">
-        {([["personnel", "Personel Listesi", Users, personnel.length], ["criteria", "Değerlendirme Kriterleri", Star, criteria.length], ["settings", "Ayarlar", SlidersHorizontal, null]] as const).map(([k, l, Icon, n]) => (
-          <button key={k} onClick={() => setTab(k)} className={`h-10 px-4 rounded-lg text-sm font-semibold flex items-center gap-2 cursor-pointer transition-all ${tab === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}>
-            <Icon className="w-4 h-4" />{l}{n !== null && <span className="text-xs text-slate-400 tabular-nums">{n}</span>}
-          </button>
-        ))}
-      </div>
+      <PageHeader title="Kurulum" subtitle="Personel ve amir ilişkileri, Kurul puan kriterleri ve bu müşteriye özel ayarlar." />
+      <TabBar<"personnel" | "criteria" | "settings">
+        tabs={[
+          { key: "personnel", label: "Personel", icon: Users, count: personnel.length },
+          { key: "criteria", label: "Değerlendirme kriterleri", icon: Star, count: criteria.length },
+          { key: "settings", label: "Ayarlar", icon: SlidersHorizontal }
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
       {tab === "personnel" && <PersonnelTab personnel={personnel} personnelCrud={personnelCrud} />}
       {tab === "criteria" && <CriteriaTab criteria={criteria} criteriaCrud={criteriaCrud} baseCurrency={settings.baseCurrency} />}
       {tab === "settings" && <SettingsTab settings={settings} onSave={onSaveSettings} />}
@@ -74,7 +76,7 @@ function PersonnelTab({ personnel, personnelCrud }: { personnel: KaizenPersonnel
         <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 flex-wrap">
           <div className="relative w-full sm:w-80">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Ad, e-posta veya bölüm ara…" className={`${inputCls} pl-10`} />
+            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Ad, e-posta veya bölüm ara…" className={`${inputCls} !pl-10`} />
           </div>
           <Button variant="primary" onClick={() => setForm({ ...blankPersonnel })}><Plus className="w-4 h-4" />Personel Ekle</Button>
         </div>
@@ -84,7 +86,7 @@ function PersonnelTab({ personnel, personnelCrud }: { personnel: KaizenPersonnel
               <thead className={`${theadCls} sticky top-0`}><tr><th className={thCls}>Ad Soyad</th><th className={thCls}>Bölüm / Görev</th><th className={thCls}>Amir</th><th className={thCls}>Rol</th><th className={thCls}></th></tr></thead>
               <tbody>{list.map(p => (
                 <tr key={p.id} className={`${trCls} cursor-pointer`} onClick={() => setForm(p)}>
-                  <td className={tdCls}><p className="font-semibold text-slate-900">{p.name}</p><p className="text-xs text-slate-500">{p.email}</p></td>
+                  <td className={tdCls}><div className="flex items-center gap-3"><Avatar name={p.name} size="sm" /><div className="min-w-0"><p className="font-semibold text-slate-900">{p.name}</p><p className="text-xs text-slate-500">{p.email}</p></div></div></td>
                   <td className={tdCls}>{p.department || "—"}<span className="text-slate-400"> · {p.jobTitle || "—"}</span></td>
                   <td className={tdCls}>{p.teamLeaderName || "—"}</td>
                   <td className={tdCls}>{p.isBoardMember && <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 whitespace-nowrap">★ Kurul Üyesi</span>}</td>
