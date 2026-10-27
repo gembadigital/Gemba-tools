@@ -10,7 +10,7 @@ import KaizenApprovals from "./KaizenApprovals";
 import KaizenReports from "./KaizenReports";
 import KaizenSetup from "./KaizenSetup";
 import { daysWaiting } from "./kaizenCalc";
-g
+
 export type KaizenApi = {
   get: (path: string) => Promise<any[]>;
   post: (path: string, body: any) => Promise<any>;
