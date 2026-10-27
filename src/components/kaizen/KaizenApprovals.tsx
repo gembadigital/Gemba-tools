@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { CheckCircle2, XCircle, Download, Share2, Gift, Clock, Inbox, ClipboardCheck, Users, Award, Sparkles, MessageSquare } from "lucide-react";
 import { KaizenSuggestion, KaizenCriteria, KaizenApproval, KaizenEvaluation } from "./kaizenTypes";
-import { canDecideAsManager, CURRENCY_OPTIONS, daysWaiting, waitingSeverity, WAITING_SEVERITY_COLORS } from "./kaizenCalc";
+import { canDecideAsManager, daysWaiting, WAITING_SEVERITY_COLORS } from "./kaizenCalc";
+import { KaizenSettings, currencyChoices, toBaseCurrency, waitingSeverityFor } from "../../utils/kaizenSettings";
 import { KaizenApi } from "./KaizenSuggestionSystem";
 import { Card, StatusBadge, Button, EmptyState, KpiCard, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 
@@ -15,6 +16,7 @@ interface Props {
   api: KaizenApi;
   showToast: (msg: string) => void;
   onReload: () => void;
+  settings: KaizenSettings;
 }
 
 type Tab = "manager" | "board" | "yokoten" | "reward";
@@ -22,7 +24,7 @@ type Tab = "manager" | "board" | "yokoten" | "reward";
 const areaCls = "w-full px-3.5 py-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400";
 const inputCls = "h-11 px-3.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400";
 
-export default function KaizenApprovals({ currentUser, suggestions, approvals, evaluations, criteria, isBoardMember, api, showToast, onReload }: Props) {
+export default function KaizenApprovals({ currentUser, suggestions, approvals, evaluations, criteria, isBoardMember, api, showToast, onReload, settings }: Props) {
   const [tab, setTab] = useState<Tab>("manager");
   const myEmail = currentUser?.email || "";
   const myRole = currentUser?.role || "";
@@ -78,6 +80,7 @@ export default function KaizenApprovals({ currentUser, suggestions, approvals, e
 
       {tab === "manager" && (
         <DecisionWorkspace
+          settings={settings}
           stage="manager" queue={managerQueue} history={managerHistory} criteria={criteria}
           approvals={approvals} evaluations={evaluations}
           waitingSince={s => s.createdAt}
@@ -86,6 +89,7 @@ export default function KaizenApprovals({ currentUser, suggestions, approvals, e
       )}
       {tab === "board" && isBoardMember && (
         <DecisionWorkspace
+          settings={settings}
           stage="board" queue={boardQueue} history={boardHistory} criteria={criteria}
           approvals={approvals} evaluations={evaluations}
           waitingSince={s => managerApprovalBySuggestion.get(s.id) || s.createdAt}
@@ -98,9 +102,9 @@ export default function KaizenApprovals({ currentUser, suggestions, approvals, e
   );
 }
 
-function WaitingBadge({ since }: { since: string }) {
+function WaitingBadge({ since, settings }: { since: string; settings: KaizenSettings }) {
   const days = daysWaiting(since);
-  const color = WAITING_SEVERITY_COLORS[waitingSeverity(days)];
+  const color = WAITING_SEVERITY_COLORS[waitingSeverityFor(days, settings)];
   return (
     <span className="inline-flex items-center gap-1 text-xs font-bold whitespace-nowrap" style={{ color }}>
       <Clock className="w-3.5 h-3.5" />{days} gün
@@ -110,7 +114,8 @@ function WaitingBadge({ since }: { since: string }) {
 
 // ---------- Master/detail workspace: queue on the left, decision form on the right ----------
 
-function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluations, waitingSince, api, showToast, onReload }: {
+function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluations, waitingSince, api, showToast, onReload, settings }: {
+  settings: KaizenSettings;
   stage: "manager" | "board"; queue: KaizenSuggestion[]; history: KaizenSuggestion[]; criteria: KaizenCriteria[];
   approvals: KaizenApproval[]; evaluations: KaizenEvaluation[]; waitingSince: (s: KaizenSuggestion) => string;
   api: KaizenApi; showToast: (m: string) => void; onReload: () => void;
@@ -147,7 +152,7 @@ function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluat
                 <button onClick={() => setSelectedId(s.id)} className={`w-full text-left px-5 py-4 cursor-pointer transition-colors ${selectedId === s.id ? "bg-slate-50 border-l-4 border-slate-900" : "hover:bg-slate-50/70 border-l-4 border-transparent"}`}>
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-sm font-bold text-slate-900 leading-snug">{s.subject}</p>
-                    {view === "queue" ? <WaitingBadge since={waitingSince(s)} /> : <StatusBadge status={s.approvalStatus} />}
+                    {view === "queue" ? <WaitingBadge since={waitingSince(s)} settings={settings} /> : <StatusBadge status={s.approvalStatus} />}
                   </div>
                   <p className="text-sm text-slate-500 mt-1">{s.personnelName} · {s.personnelDepartment || "—"}</p>
                   <p className="text-xs text-slate-400 mt-1 tabular-nums">{(s.createdAt || "").slice(0, 10)} · {(s.suggestionTypes || []).join(", ")}</p>
@@ -163,6 +168,7 @@ function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluat
           <Card><EmptyState icon={ClipboardCheck} title="Bir öneri seçin" text="Soldaki listeden bir öneri seçerek detayını inceleyin ve kararınızı verin." /></Card>
         ) : (
           <DecisionPanel
+            settings={settings}
             key={selected.id} suggestion={selected} stage={stage} criteria={criteria}
             approvals={approvals.filter(a => a.suggestionId === selected.id)}
             evaluations={evaluations.filter(e => e.suggestionId === selected.id)}
@@ -178,23 +184,27 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   return <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p><div className="text-sm text-slate-800 mt-1 whitespace-pre-wrap">{children || "—"}</div></div>;
 }
 
-function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations, readOnly, api, showToast, onDone }: {
+function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations, readOnly, api, showToast, onDone, settings }: {
+  settings: KaizenSettings;
   suggestion: KaizenSuggestion; stage: "manager" | "board"; criteria: KaizenCriteria[]; approvals: KaizenApproval[]; evaluations: KaizenEvaluation[];
   readOnly: boolean; api: KaizenApi; showToast: (m: string) => void; onDone: () => void;
 }) {
   const [comment, setComment] = useState("");
   const [saving, setSaving] = useState(false);
   const [criteriaId, setCriteriaId] = useState("");
-  const [income, setIncome] = useState(s.estimatedSavingCurrency === "TL" && s.estimatedSaving ? String(s.estimatedSaving) : "");
-  const [incomeCurrency, setIncomeCurrency] = useState("TL");
+  // Prefill the Board's income from the suggestion's own estimate, in the estimate's currency.
+  const [income, setIncome] = useState(s.estimatedSaving ? String(s.estimatedSaving) : "");
+  const [incomeCurrency, setIncomeCurrency] = useState(s.estimatedSaving && s.estimatedSavingCurrency ? s.estimatedSavingCurrency : settings.baseCurrency);
   const [yokoten, setYokoten] = useState(false);
   const [yokotenDescription, setYokotenDescription] = useState("");
 
   const sortedCriteria = useMemo(() => [...criteria].sort((a, b) => a.point - b.point), [criteria]);
   const incomeNum = Number(income) || 0;
-  // Suggest the rubric tier whose income band contains the entered income (TL only).
-  const suggestedTier = incomeCurrency === "TL" && incomeNum > 0
-    ? sortedCriteria.find(c => incomeNum >= c.minIncome && (c.maxIncome === 0 || incomeNum <= c.maxIncome))
+  // Suggest the rubric tier whose income band (in the base currency) contains the entered income —
+  // converted with the customer's fixed rate when entered in another currency, none if not convertible.
+  const incomeBase = toBaseCurrency(incomeNum, incomeCurrency, settings);
+  const suggestedTier = incomeBase !== null && incomeBase > 0
+    ? sortedCriteria.find(c => incomeBase >= c.minIncome && (c.maxIncome === 0 || incomeBase <= c.maxIncome))
     : undefined;
   const selectedCriteria = criteria.find(c => c.id === criteriaId);
 
@@ -282,7 +292,7 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
                               <span className={`text-sm font-black tabular-nums ${on ? "text-amber-300" : "text-amber-600"}`}>{c.point} p</span>
                             </div>
                             {c.description && <p className={`text-xs mt-1 ${on ? "text-slate-300" : "text-slate-500"}`}>{c.description}</p>}
-                            {(c.minIncome > 0 || c.maxIncome > 0) && <p className={`text-xs mt-1 tabular-nums ${on ? "text-slate-400" : "text-slate-400"}`}>{c.minIncome.toLocaleString("tr-TR")} – {c.maxIncome ? c.maxIncome.toLocaleString("tr-TR") : "∞"}</p>}
+                            {(c.minIncome > 0 || c.maxIncome > 0) && <p className={`text-xs mt-1 tabular-nums ${on ? "text-slate-400" : "text-slate-400"}`}>{c.minIncome.toLocaleString("tr-TR")} – {c.maxIncome ? c.maxIncome.toLocaleString("tr-TR") : "∞"} {settings.baseCurrency}</p>}
                           </button>
                         );
                       })}
@@ -294,7 +304,7 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
                     <label className="block text-sm font-semibold text-slate-700 mb-1.5">Onaylanan getiri</label>
                     <div className="flex gap-2">
                       <input type="number" min={0} value={income} onChange={e => setIncome(e.target.value)} placeholder="0" className={`${inputCls} w-full`} />
-                      <select value={incomeCurrency} onChange={e => setIncomeCurrency(e.target.value)} className={`${inputCls} w-36`}>{CURRENCY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}</select>
+                      <select value={incomeCurrency} onChange={e => setIncomeCurrency(e.target.value)} className={`${inputCls} w-36`}>{currencyChoices(settings, incomeCurrency).map(c => <option key={c} value={c}>{c}</option>)}</select>
                     </div>
                   </div>
                   <div>

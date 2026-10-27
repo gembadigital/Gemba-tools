@@ -159,7 +159,7 @@ export interface KaizenMetric {
 }
 
 export interface KaizenFollowUp {
-  days: 30 | 90;
+  days: number;       // 30/90 by default; per customer via kaizen_settings.followUpDays
   dueDate: string;
   result: "" | "Sürüyor" | "Bozuldu";
   checkedAt: string;

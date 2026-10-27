@@ -7,6 +7,7 @@ import {
   IMPLEMENTATION_STATUSES, IMPLEMENTATION_STATUS_COLORS, isImplementationOverdue, actionProgress, pendingFollowUps, percentChange, todayIso
 } from "./kaizenCalc";
 import { readAndShrink } from "./kaizenImage";
+import { KaizenSettings, currencyChoices } from "../../utils/kaizenSettings";
 import { KaizenApi } from "./KaizenSuggestionSystem";
 import KaizenOnePager from "./KaizenOnePager";
 import { Card, KpiCard, SectionTitle, Button, EmptyState } from "./kaizenUi";
@@ -26,6 +27,7 @@ interface Props {
   onSaved: (impl: Impl) => void;
   onReload: () => Promise<void> | void;
   companyName?: string;
+  settings: KaizenSettings;
 }
 
 type Draft = {
@@ -37,13 +39,12 @@ type Draft = {
   benefitDescription: string; benefits: Record<string, string>;
 };
 
-const CURRENCIES = ["TL", "USD", "EUR", "Eş Değer Ürün"];
 const inputCls = "h-10 w-full px-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/10 disabled:bg-slate-50 disabled:text-slate-500";
 const labelCls = "block text-xs font-semibold text-slate-500 mb-1";
 const emptyMetric = { label: "", value: null as number | null, unit: "" };
 const fmtDate = (iso?: string) => (iso ? iso.slice(0, 10).split("-").reverse().join(".") : "—");
 
-function draftFrom(s: KaizenSuggestion, impl?: Impl): Draft {
+function draftFrom(s: KaizenSuggestion, baseCurrency: string, impl?: Impl): Draft {
   return {
     ownerName: impl?.ownerName ?? s.teamLeaderName ?? "",
     ownerEmail: impl?.ownerEmail ?? s.teamLeaderEmail ?? "",
@@ -55,7 +56,7 @@ function draftFrom(s: KaizenSuggestion, impl?: Impl): Draft {
     photosBefore: impl?.photosBefore ?? [],
     photosAfter: impl?.photosAfter ?? [],
     actualSaving: impl?.actualSaving ?? 0,
-    actualSavingCurrency: impl?.actualSavingCurrency ?? "TL",
+    actualSavingCurrency: impl?.actualSavingCurrency ?? baseCurrency,
     note: impl?.note ?? "",
     benefitDescription: impl?.benefitDescription ?? "",
     benefits: impl?.benefits ?? {}
@@ -83,7 +84,7 @@ const BENEFIT_GROUPS: { title: string; fields: [string, string][] }[] = [
 type Filter = "all" | "noplan" | "active" | "done" | "overdue" | "verify";
 
 export default function KaizenImplementation({
-  currentUser, suggestions, implementations, evaluations, personnel, isBoardMember, api, showToast, onSaved, onReload, companyName
+  currentUser, suggestions, implementations, evaluations, personnel, isBoardMember, api, showToast, onSaved, onReload, companyName, settings
 }: Props) {
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
@@ -214,6 +215,7 @@ export default function KaizenImplementation({
             onSaved={onSaved}
             onReload={onReload}
             companyName={companyName}
+            settings={settings}
           />
         ) : (
           <Card><EmptyState icon={FileText} title="Bir öneri seçin" text="Plan, kanıt ve doğrulama adımları burada görünür." /></Card>
@@ -224,19 +226,20 @@ export default function KaizenImplementation({
 }
 
 function ImplementationDetail({
-  suggestion: s, impl, evaluation, currentUser, personnel, isBoardMember, api, showToast, onSaved, onReload, companyName
+  suggestion: s, impl, evaluation, currentUser, personnel, isBoardMember, api, showToast, onSaved, onReload, companyName, settings
 }: {
+  settings: KaizenSettings;
   suggestion: KaizenSuggestion; impl?: Impl; evaluation?: KaizenEvaluation; currentUser: any; personnel: KaizenPersonnel[];
   isBoardMember: boolean; api: KaizenApi; showToast: (m: string) => void; onSaved: (i: Impl) => void; onReload: () => Promise<void> | void; companyName?: string;
 }) {
-  const [draft, setDraft] = useState<Draft>(() => draftFrom(s, impl));
+  const [draft, setDraft] = useState<Draft>(() => draftFrom(s, settings.baseCurrency, impl));
   const [saving, setSaving] = useState(false);
   const [newAction, setNewAction] = useState("");
   const [verifyNote, setVerifyNote] = useState("");
   const [showOnePager, setShowOnePager] = useState(false);
 
   // Re-sync when the server record changes (save, verification, follow-up) but not while typing.
-  useEffect(() => { setDraft(draftFrom(s, impl)); }, [impl?.updatedAt]);
+  useEffect(() => { setDraft(draftFrom(s, settings.baseCurrency, impl)); }, [impl?.updatedAt]);
 
   const email = (currentUser?.email || "").toLowerCase();
   const isStaffUser = currentUser?.role === "Admin" || currentUser?.role === "Consultant";
@@ -433,7 +436,7 @@ function ImplementationDetail({
           <div>
             <label className={labelCls}>Para birimi</label>
             <select className={inputCls} disabled={!canEdit} value={draft.actualSavingCurrency} onChange={e => set("actualSavingCurrency", e.target.value)}>
-              {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+              {currencyChoices(settings, draft.actualSavingCurrency).map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
         </div>
@@ -473,7 +476,7 @@ function ImplementationDetail({
 
       {impl?.status === "Tamamlandı" && (
         <Card>
-          <SectionTitle icon={Clock} title="Kalıcılık Kontrolü" hint="İyileştirme hâlâ yerinde mi? 30. ve 90. günde bakılır" />
+          <SectionTitle icon={Clock} title="Kalıcılık Kontrolü" hint={`İyileştirme hâlâ yerinde mi? ${impl.followUps.map(f => `${f.days}.`).join(" ve ")} günde bakılır`} />
           <ul className="space-y-2">
             {impl.followUps.map(f => {
               const due = f.dueDate <= todayIso();

@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from "react";
-import { Plus, Trash2, Users, Star, Search, Pencil, X, Save } from "lucide-react";
+import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, SlidersHorizontal, Coins, Clock } from "lucide-react";
 import { KaizenPersonnel, KaizenCriteria } from "./kaizenTypes";
-import { Card, Button, EmptyState, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
+import { Card, SectionTitle, Button, EmptyState, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
+import { KaizenSettings, KNOWN_CURRENCIES, IN_KIND_CURRENCY, normalizeKaizenSettings } from "../../utils/kaizenSettings";
 
 interface Crud<T> {
   save: (record: Partial<T> & { id?: string }) => Promise<any>;
@@ -13,6 +14,8 @@ interface Props {
   criteria: KaizenCriteria[];
   personnelCrud: Crud<KaizenPersonnel>;
   criteriaCrud: Crud<KaizenCriteria>;
+  settings: KaizenSettings;
+  onSaveSettings: (s: KaizenSettings) => Promise<any>;
 }
 
 const inputCls = "w-full h-11 px-3.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400";
@@ -21,19 +24,20 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">{label}</label>{children}</div>;
 }
 
-export default function KaizenSetup({ personnel, criteria, personnelCrud, criteriaCrud }: Props) {
-  const [tab, setTab] = useState<"personnel" | "criteria">("personnel");
+export default function KaizenSetup({ personnel, criteria, personnelCrud, criteriaCrud, settings, onSaveSettings }: Props) {
+  const [tab, setTab] = useState<"personnel" | "criteria" | "settings">("personnel");
   return (
     <div className="space-y-6">
       <div className="inline-flex bg-slate-100 rounded-xl p-1 gap-1">
-        {([["personnel", "Personel Listesi", Users, personnel.length], ["criteria", "Değerlendirme Kriterleri", Star, criteria.length]] as const).map(([k, l, Icon, n]) => (
+        {([["personnel", "Personel Listesi", Users, personnel.length], ["criteria", "Değerlendirme Kriterleri", Star, criteria.length], ["settings", "Ayarlar", SlidersHorizontal, null]] as const).map(([k, l, Icon, n]) => (
           <button key={k} onClick={() => setTab(k)} className={`h-10 px-4 rounded-lg text-sm font-semibold flex items-center gap-2 cursor-pointer transition-all ${tab === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}>
-            <Icon className="w-4 h-4" />{l}<span className="text-xs text-slate-400 tabular-nums">{n}</span>
+            <Icon className="w-4 h-4" />{l}{n !== null && <span className="text-xs text-slate-400 tabular-nums">{n}</span>}
           </button>
         ))}
       </div>
       {tab === "personnel" && <PersonnelTab personnel={personnel} personnelCrud={personnelCrud} />}
-      {tab === "criteria" && <CriteriaTab criteria={criteria} criteriaCrud={criteriaCrud} />}
+      {tab === "criteria" && <CriteriaTab criteria={criteria} criteriaCrud={criteriaCrud} baseCurrency={settings.baseCurrency} />}
+      {tab === "settings" && <SettingsTab settings={settings} onSave={onSaveSettings} />}
     </div>
   );
 }
@@ -128,7 +132,7 @@ function PersonnelTab({ personnel, personnelCrud }: { personnel: KaizenPersonnel
 
 const blankCriteria: Partial<KaizenCriteria> = { criteria: "", description: "", point: 0, category: "", minIncome: 0, maxIncome: 0 };
 
-function CriteriaTab({ criteria, criteriaCrud }: { criteria: KaizenCriteria[]; criteriaCrud: Crud<KaizenCriteria> }) {
+function CriteriaTab({ criteria, criteriaCrud, baseCurrency }: { criteria: KaizenCriteria[]; criteriaCrud: Crud<KaizenCriteria>; baseCurrency: string }) {
   const [form, setForm] = useState<Partial<KaizenCriteria> | null>(null);
   const [saving, setSaving] = useState(false);
   const sorted = useMemo(() => [...criteria].sort((a, b) => a.point - b.point), [criteria]);
@@ -157,7 +161,7 @@ function CriteriaTab({ criteria, criteriaCrud }: { criteria: KaizenCriteria[]; c
                 <p className="text-sm font-bold text-slate-900">{c.category ? <span className="text-amber-600">{c.category} · </span> : null}{c.criteria}</p>
                 {c.description && <p className="text-sm text-slate-500 mt-0.5">{c.description}</p>}
               </div>
-              <p className="text-sm font-semibold text-slate-600 tabular-nums whitespace-nowrap hidden md:block">{c.minIncome.toLocaleString("tr-TR")} – {c.maxIncome ? c.maxIncome.toLocaleString("tr-TR") : "∞"}</p>
+              <p className="text-sm font-semibold text-slate-600 tabular-nums whitespace-nowrap hidden md:block">{c.minIncome.toLocaleString("tr-TR")} – {c.maxIncome ? c.maxIncome.toLocaleString("tr-TR") : "∞"} {baseCurrency}</p>
             </div>
             <button onClick={() => { if (window.confirm(`"${c.criteria}" kriterini silmek istediğinizden emin misiniz?`)) criteriaCrud.remove(c.id); }} className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-red-500 hover:bg-red-50 cursor-pointer shrink-0" title="Sil"><Trash2 className="w-4 h-4" /></button>
           </Card>
@@ -173,13 +177,116 @@ function CriteriaTab({ criteria, criteriaCrud }: { criteria: KaizenCriteria[]; c
             <div className="grid grid-cols-2 gap-3">
               <Field label="Puan"><input type="number" value={form.point ?? 0} onChange={e => set("point", Number(e.target.value))} className={inputCls} /></Field>
               <Field label="Seviye (D, C, B…)"><input value={form.category || ""} onChange={e => set("category", e.target.value)} className={inputCls} /></Field>
-              <Field label="Min. gelir (TL)"><input type="number" value={form.minIncome ?? 0} onChange={e => set("minIncome", Number(e.target.value))} className={inputCls} /></Field>
-              <Field label="Maks. gelir (TL, 0 = sınırsız)"><input type="number" value={form.maxIncome ?? 0} onChange={e => set("maxIncome", Number(e.target.value))} className={inputCls} /></Field>
+              <Field label={`Min. gelir (${baseCurrency})`}><input type="number" value={form.minIncome ?? 0} onChange={e => set("minIncome", Number(e.target.value))} className={inputCls} /></Field>
+              <Field label={`Maks. gelir (${baseCurrency}, 0 = sınırsız)`}><input type="number" value={form.maxIncome ?? 0} onChange={e => set("maxIncome", Number(e.target.value))} className={inputCls} /></Field>
             </div>
             <Button variant="brand" onClick={save} disabled={!form.criteria?.trim() || saving} className="w-full"><Save className="w-4 h-4" />{saving ? "Kaydediliyor…" : form.id ? "Güncelle" : "Ekle"}</Button>
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+// Müşteri bazında ayarlar (Faz 2-B). Inputs are kept as strings while editing; the shared
+// normalizeKaizenSettings() (same one the server runs) decides what is actually valid on save.
+function SettingsTab({ settings, onSave }: { settings: KaizenSettings; onSave: (s: KaizenSettings) => Promise<any> }) {
+  const fromSettings = (st: KaizenSettings) => ({
+    baseCurrency: st.baseCurrency,
+    currencies: st.currencies,
+    fxRates: Object.fromEntries(Object.entries(st.fxRates).map(([k, v]) => [k, String(v)])) as Record<string, string>,
+    warning: String(st.waitingWarningDays),
+    overdue: String(st.waitingOverdueDays),
+    follow1: String(st.followUpDays[0] ?? ""),
+    follow2: String(st.followUpDays[1] ?? "")
+  });
+  const [d, setD] = useState(() => fromSettings(settings));
+  const [saving, setSaving] = useState(false);
+
+  const toggleCurrency = (c: string) => setD(x => ({
+    ...x, currencies: x.currencies.includes(c) ? x.currencies.filter(v => v !== c) : [...x.currencies, c]
+  }));
+  const next = normalizeKaizenSettings({
+    baseCurrency: d.baseCurrency,
+    currencies: d.currencies,
+    fxRates: d.fxRates,
+    waitingWarningDays: d.warning,
+    waitingOverdueDays: d.overdue,
+    followUpDays: [d.follow1, d.follow2].filter(v => v.trim() !== "")
+  });
+  const foreign = next.currencies.filter(c => c !== next.baseCurrency && c !== IN_KIND_CURRENCY);
+
+  const save = async () => {
+    setSaving(true);
+    const res = await onSave(next);
+    setSaving(false);
+    if (res?.success) setD(fromSettings(normalizeKaizenSettings(res.data)));
+  };
+
+  return (
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+      <Card>
+        <SectionTitle icon={Coins} title="Para Birimi" hint="Bu müşteri için geçerli; raporlar ana para biriminde toplanır" />
+        <div className="space-y-5 mt-4">
+          <Field label="Ana para birimi">
+            <select value={d.baseCurrency} onChange={e => setD(x => ({ ...x, baseCurrency: e.target.value }))} className={inputCls}>
+              {KNOWN_CURRENCIES.filter(c => c !== IN_KIND_CURRENCY).map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </Field>
+          <div>
+            <p className="block text-sm font-semibold text-slate-700 mb-1.5">Formlarda seçilebilen para birimleri</p>
+            <div className="flex flex-wrap gap-2">
+              {KNOWN_CURRENCIES.map(c => {
+                const on = c === next.baseCurrency || d.currencies.includes(c);
+                return (
+                  <button key={c} type="button" disabled={c === next.baseCurrency} onClick={() => toggleCurrency(c)}
+                    className={`h-10 px-4 rounded-xl border text-sm font-semibold cursor-pointer disabled:cursor-default ${on ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>
+                    {c}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-slate-500 mt-2">Listeden çıkarılan para birimiyle girilmiş eski kayıtlar kendi para birimini korur.</p>
+          </div>
+          {foreign.length > 0 && (
+            <div>
+              <p className="block text-sm font-semibold text-slate-700 mb-1.5">Rapor çevrim kurları (sabit)</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {foreign.map(c => (
+                  <label key={c} className="flex items-center gap-2 text-sm text-slate-600">
+                    <span className="whitespace-nowrap font-semibold">1 {c} =</span>
+                    <input type="number" min={0} step="any" value={d.fxRates[c] ?? ""} placeholder="—"
+                      onChange={e => setD(x => ({ ...x, fxRates: { ...x.fxRates, [c]: e.target.value } }))} className={inputCls} />
+                    <span className="whitespace-nowrap">{next.baseCurrency}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-slate-500 mt-2">Kur girilmeyen para birimleri ve "{IN_KIND_CURRENCY}" rapor toplamlarına katılmaz; ayrıca sayılır.</p>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      <Card>
+        <SectionTitle icon={Clock} title="Eşikler" hint="Onay kuyruğu renkleri ve kalıcılık kontrolleri" />
+        <div className="space-y-5 mt-4">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Uyarı (gün)"><input type="number" min={1} value={d.warning} onChange={e => setD(x => ({ ...x, warning: e.target.value }))} className={inputCls} /></Field>
+            <Field label="Gecikme (gün)"><input type="number" min={1} value={d.overdue} onChange={e => setD(x => ({ ...x, overdue: e.target.value }))} className={inputCls} /></Field>
+          </div>
+          <p className="text-xs text-slate-500 -mt-2">Onay bekleyen öneri bu kadar gün sonra sarı, ardından kırmızı görünür. Kaydedilecek: {next.waitingWarningDays} / {next.waitingOverdueDays} gün.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="1. kalıcılık kontrolü (gün)"><input type="number" min={1} value={d.follow1} onChange={e => setD(x => ({ ...x, follow1: e.target.value }))} className={inputCls} /></Field>
+            <Field label="2. kontrol (gün, boş = yok)"><input type="number" min={1} value={d.follow2} onChange={e => setD(x => ({ ...x, follow2: e.target.value }))} className={inputCls} /></Field>
+          </div>
+          <p className="text-xs text-slate-500 -mt-2">Uygulama tamamlandıktan sonra sayılır. Yeni günler yalnızca bundan sonra tamamlanan uygulamalara uygulanır. Kaydedilecek: {next.followUpDays.join(" ve ")}. gün.</p>
+        </div>
+      </Card>
+
+      <div className="xl:col-span-2 flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-xs text-slate-500">{settings.updatedAt ? `Son değişiklik: ${new Date(settings.updatedAt).toLocaleString("tr-TR")}${settings.updatedBy ? ` · ${settings.updatedBy}` : ""}` : "Bu müşteri için henüz ayar kaydedilmedi; varsayılanlar geçerli."}</p>
+        <Button variant="brand" onClick={save} disabled={saving}><Save className="w-4 h-4" />{saving ? "Kaydediliyor…" : "Ayarları Kaydet"}</Button>
+      </div>
     </div>
   );
 }

@@ -7,12 +7,14 @@ import {
 import { KaizenSuggestion, KaizenEvaluation, KaizenPersonnel, KaizenImplementation, ApprovalStatus } from "./kaizenTypes";
 import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, SUGGESTION_TYPE_OPTIONS, STAGE_OPTIONS, actionProgress } from "./kaizenCalc";
 import { KaizenApi } from "./KaizenSuggestionSystem";
+import { KaizenSettings, toBaseCurrency } from "../../utils/kaizenSettings";
 import { Card, KpiCard, Button, EmptyState, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 
 // Native replacement for the legacy Power BI report (two pages: a KPI/chart dashboard with five
 // filters, and a per-suggestion "Personel Bazlı Kaizen Puan Tablosu"). Same grouping, plus the
 // departmental treemap and the "Toplam Getiri" tile that the original had.
 interface Props {
+  settings: KaizenSettings;
   suggestions: KaizenSuggestion[];
   evaluations: KaizenEvaluation[];
   personnel: KaizenPersonnel[];
@@ -34,7 +36,8 @@ function statusBucket(status: ApprovalStatus): "approved" | "pending" | "rejecte
 
 const selectCls = "h-10 px-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/10";
 
-export default function KaizenReports({ suggestions, evaluations, personnel, implementations, api }: Props) {
+export default function KaizenReports({ suggestions, evaluations, personnel, implementations, api, settings }: Props) {
+  const base = settings.baseCurrency;
   const [fDepartment, setFDepartment] = useState(ALL);
   const [fType, setFType] = useState(ALL);
   const [fStatus, setFStatus] = useState(ALL);
@@ -73,21 +76,24 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
   // ---- KPI row ----
   const totalPoints = filteredEvaluations.reduce((sum, e) => sum + (e.point || 0), 0);
   const completedCount = filtered.filter(s => s.completed).length;
-  // Totals are TL-only: USD/EUR/in-kind values are not convertible here and must not be summed as TL.
-  const approvedIncomeTL = filteredEvaluations
-    .filter(e => (e.estimatedIncomeCurrency || "TL") === "TL" && filtered.find(s => s.id === e.suggestionId)?.approvalStatus === "Second Approval")
-    .reduce((sum, e) => sum + (e.estimatedIncome || 0), 0);
-  // Actual (Board-verified) saving next to the estimate — TL only, same rule as above.
+  // Totals are in the customer's base currency. Other currencies are converted with the customer's
+  // fixed rates (Kurulum → Ayarlar); in-kind or rate-less amounts are left out and counted instead.
+  const approvedEvals = filteredEvaluations.filter(e => (e.estimatedIncome || 0) > 0 && filtered.find(s => s.id === e.suggestionId)?.approvalStatus === "Second Approval");
+  const approvedIncomeConverted = approvedEvals.map(e => toBaseCurrency(e.estimatedIncome, e.estimatedIncomeCurrency, settings));
+  const approvedIncomeBase = approvedIncomeConverted.reduce<number>((sum, v) => sum + (v ?? 0), 0);
+  const approvedIncomeExcluded = approvedIncomeConverted.filter(v => v === null).length;
+  // Actual (Board-verified) saving next to the estimate — same conversion rule as above.
   const implBySuggestion = useMemo(() => {
     const map = new Map<string, KaizenImplementation>();
     implementations.forEach(i => map.set(i.suggestionId, i));
     return map;
   }, [implementations]);
-  const verifiedActualTL = filtered.reduce((sum, s) => {
+  const verifiedConverted = filtered.flatMap(s => {
     const i = implBySuggestion.get(s.id);
-    return i && i.verification?.status === "Doğrulandı" && (i.actualSavingCurrency || "TL") === "TL" ? sum + (i.actualSaving || 0) : sum;
-  }, 0);
-  const nonTlCount = filtered.filter(s => (s.estimatedSavingCurrency || "TL") !== "TL" && s.estimatedSaving > 0).length;
+    return i && i.verification?.status === "Doğrulandı" && (i.actualSaving || 0) > 0 ? [toBaseCurrency(i.actualSaving, i.actualSavingCurrency, settings)] : [];
+  });
+  const verifiedActualBase = verifiedConverted.reduce<number>((sum, v) => sum + (v ?? 0), 0);
+  const verifiedExcluded = verifiedConverted.filter(v => v === null).length;
 
   const decided = filtered.filter(s => s.approvalStatus !== "Pending");
   const acceptedCount = decided.filter(s => statusBucket(s.approvalStatus) === "approved").length;
@@ -121,10 +127,10 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
       if (!month) return;
       if (!b[month]) b[month] = { month, approved: 0, pending: 0, rejected: 0, saving: 0 };
       b[month][statusBucket(s.approvalStatus)]++;
-      if ((s.estimatedSavingCurrency || "TL") === "TL") b[month].saving += s.estimatedSaving || 0;
+      b[month].saving += toBaseCurrency(s.estimatedSaving || 0, s.estimatedSavingCurrency, settings) ?? 0;
     });
     return Object.values(b).sort((a, b) => a.month.localeCompare(b.month));
-  }, [filtered]);
+  }, [filtered, settings]);
 
   const byPerson = useMemo(() => {
     const b: Record<string, { name: string; approved: number; pending: number; rejected: number }> = {};
@@ -187,8 +193,8 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
         <KpiCard label="Toplam Öneri" value={filtered.length} icon={Lightbulb} tone="slate" />
         <KpiCard label="Uygulanan" value={completedCount} icon={BadgeCheck} tone="teal" />
         <KpiCard label="Toplam Kaizen Puanı" value={totalPoints} icon={Award} tone="amber" />
-        <KpiCard label="Tahmini Getiri (TL)" value={approvedIncomeTL.toLocaleString("tr-TR")} icon={Coins} tone="emerald" hint={nonTlCount > 0 ? `${nonTlCount} öneri TL dışı para birimiyle, toplama dahil değil` : "Kurulca onaylanan"} />
-        <KpiCard label="Doğrulanmış Gerçek Kazanç (TL)" value={verifiedActualTL.toLocaleString("tr-TR")} icon={BadgeCheck} tone="teal" hint="Uygulama sonrası Kurul tarafından doğrulanan" />
+        <KpiCard label={`Tahmini Getiri (${base})`} value={Math.round(approvedIncomeBase).toLocaleString("tr-TR")} icon={Coins} tone="emerald" hint={approvedIncomeExcluded > 0 ? `${approvedIncomeExcluded} kayıt çevrilemeyen para birimiyle, toplama dahil değil` : "Kurulca onaylanan"} />
+        <KpiCard label={`Doğrulanmış Gerçek Kazanç (${base})`} value={Math.round(verifiedActualBase).toLocaleString("tr-TR")} icon={BadgeCheck} tone="teal" hint={verifiedExcluded > 0 ? `${verifiedExcluded} kayıt çevrilemeyen para birimiyle, toplama dahil değil` : "Uygulama sonrası Kurul tarafından doğrulanan"} />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Gauge label="Kabul Edilen Öneri Oranı" hint={`${acceptedCount} / ${decided.length} karar verilen öneri`} value={acceptanceRate} color="#3b82f6" />
@@ -233,10 +239,10 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
                 </BarChart>
               </ResponsiveContainer>
             </ChartCard>
-            <ChartCard title="Finansal Etki (aylık, tahmini kazanç TL)">
+            <ChartCard title={`Finansal Etki (aylık, tahmini kazanç ${base})`}>
               <ResponsiveContainer width="100%" height={280}>
                 <LineChart data={byMonth}><CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" /><XAxis dataKey="month" tick={TICK} /><YAxis tick={TICK} /><Tooltip /><Legend />
-                  <Line type="monotone" dataKey="saving" name="Tahmini Kazanç (TL)" stroke="#00A280" strokeWidth={3} dot={{ r: 4 }} />
+                  <Line type="monotone" dataKey="saving" name={`Tahmini Kazanç (${base})`} stroke="#00A280" strokeWidth={3} dot={{ r: 4 }} />
                 </LineChart>
               </ResponsiveContainer>
             </ChartCard>

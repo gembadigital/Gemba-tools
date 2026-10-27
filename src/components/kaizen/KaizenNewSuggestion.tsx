@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight, Save, Camera, X, Check, User, FileText, Lightbulb, Coins, Eye } from "lucide-react";
 import { KaizenPersonnel, KaizenSuggestion, KaizenSuggestionPhoto } from "./kaizenTypes";
-import { SUGGESTION_TYPE_OPTIONS, STAGE_OPTIONS, PAYBACK_PERIOD_OPTIONS, CURRENCY_OPTIONS } from "./kaizenCalc";
+import { SUGGESTION_TYPE_OPTIONS, STAGE_OPTIONS, PAYBACK_PERIOD_OPTIONS } from "./kaizenCalc";
+import { KaizenSettings, currencyChoices } from "../../utils/kaizenSettings";
 import { KaizenApi } from "./KaizenSuggestionSystem";
 import { Card, Button } from "./kaizenUi";
 
@@ -12,6 +13,7 @@ interface Props {
   api: KaizenApi;
   showToast: (msg: string) => void;
   onSaved: (s: KaizenSuggestion) => void;
+  settings: KaizenSettings;
 }
 
 interface FormState {
@@ -36,7 +38,7 @@ interface FormState {
 const blank: FormState = {
   onBehalfOfId: "", suggestionTypes: [], subject: "", currentState: "", photosCurrent: [],
   improvementSuggestion: "", photosPropose: [], stage: "", paybackPeriod: "",
-  estimatedSaving: "", estimatedSavingCurrency: "TL", estimatedCost: "", estimatedCostCurrency: "TL",
+  estimatedSaving: "", estimatedSavingCurrency: "", estimatedCost: "", estimatedCostCurrency: "",
   isg: false, cevre: false, motivasyon: false
 };
 
@@ -90,12 +92,14 @@ function Field({ label, required, error, hint, children }: { label: string; requ
   );
 }
 
-export default function KaizenNewSuggestion({ currentUser, personnel, editingSuggestion, api, showToast, onSaved }: Props) {
+export default function KaizenNewSuggestion({ currentUser, personnel, editingSuggestion, api, showToast, onSaved, settings }: Props) {
+  // A new form starts in the customer's base currency.
+  const blankForm: FormState = { ...blank, estimatedSavingCurrency: settings.baseCurrency, estimatedCostCurrency: settings.baseCurrency };
   const isEdit = !!editingSuggestion;
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
   const [attempted, setAttempted] = useState(false);
-  const [form, setForm] = useState<FormState>(blank);
+  const [form, setForm] = useState<FormState>(blankForm);
 
   useEffect(() => {
     setStep(1);
@@ -112,15 +116,15 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
         stage: editingSuggestion.stage,
         paybackPeriod: editingSuggestion.paybackPeriod,
         estimatedSaving: String(editingSuggestion.estimatedSaving || ""),
-        estimatedSavingCurrency: editingSuggestion.estimatedSavingCurrency || "TL",
+        estimatedSavingCurrency: editingSuggestion.estimatedSavingCurrency || settings.baseCurrency,
         estimatedCost: String(editingSuggestion.estimatedCost || ""),
-        estimatedCostCurrency: editingSuggestion.estimatedCostCurrency || "TL",
+        estimatedCostCurrency: editingSuggestion.estimatedCostCurrency || settings.baseCurrency,
         isg: editingSuggestion.isg,
         cevre: editingSuggestion.cevre,
         motivasyon: editingSuggestion.motivasyon
       });
     } else {
-      setForm(blank);
+      setForm(blankForm);
     }
   }, [editingSuggestion]);
 
@@ -338,7 +342,7 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
                   <div className="flex gap-2">
                     <input type="number" min={0} value={form.estimatedSaving} onChange={e => setForm(f => ({ ...f, estimatedSaving: e.target.value }))} placeholder="0" className={inputCls} />
                     <select value={form.estimatedSavingCurrency} onChange={e => setForm(f => ({ ...f, estimatedSavingCurrency: e.target.value }))} className={`${inputCls} !w-36`}>
-                      {CURRENCY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                      {currencyChoices(settings, form.estimatedSavingCurrency).map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
                 </Field>
@@ -346,7 +350,7 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
                   <div className="flex gap-2">
                     <input type="number" min={0} value={form.estimatedCost} onChange={e => setForm(f => ({ ...f, estimatedCost: e.target.value }))} placeholder="0" className={inputCls} />
                     <select value={form.estimatedCostCurrency} onChange={e => setForm(f => ({ ...f, estimatedCostCurrency: e.target.value }))} className={`${inputCls} !w-36`}>
-                      {CURRENCY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                      {currencyChoices(settings, form.estimatedCostCurrency).map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
                 </Field>

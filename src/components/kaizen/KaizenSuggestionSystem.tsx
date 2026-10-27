@@ -11,6 +11,7 @@ import KaizenReports from "./KaizenReports";
 import KaizenSetup from "./KaizenSetup";
 import KaizenImplementation from "./KaizenImplementation";
 import { daysWaiting } from "./kaizenCalc";
+import { KaizenSettings, DEFAULT_KAIZEN_SETTINGS, normalizeKaizenSettings } from "../../utils/kaizenSettings";
 
 export type KaizenApi = {
   get: (path: string) => Promise<any[]>;
@@ -71,6 +72,7 @@ export default function KaizenSuggestionSystem() {
   const [approvals, setApprovals] = useState<KaizenApproval[]>([]);
   const [evaluations, setEvaluations] = useState<KaizenEvaluation[]>([]);
   const [implementations, setImplementations] = useState<KaizenImpl[]>([]);
+  const [settings, setSettings] = useState<KaizenSettings>(DEFAULT_KAIZEN_SETTINGS);
 
   const [toast, setToast] = useState<string | null>(null);
   const showToast = useCallback((msg: string) => {
@@ -104,16 +106,29 @@ export default function KaizenSuggestionSystem() {
 
   const loadAll = useCallback(async () => {
     setLoading(true);
-    const [per, cri, sug, apr, evl, imp] = await Promise.all([
-      api.get("personnel"), api.get("criteria"), api.get("suggestions"), api.get("approvals"), api.get("evaluations"), api.get("implementations")
+    const [per, cri, sug, apr, evl, imp, set] = await Promise.all([
+      api.get("personnel"), api.get("criteria"), api.get("suggestions"), api.get("approvals"), api.get("evaluations"), api.get("implementations"),
+      api.get("settings")
     ]);
     setPersonnel(per); setCriteria(cri); setSuggestions(sug); setApprovals(apr); setEvaluations(evl); setImplementations(imp);
+    setSettings(normalizeKaizenSettings(set));
     setLoading(false);
   }, [factoryId, token]);
 
   useEffect(() => {
     loadAll();
   }, [factoryId]);
+
+  const saveSettings = async (next: KaizenSettings) => {
+    const res = await api.post("settings", next);
+    if (res.success) {
+      setSettings(normalizeKaizenSettings(res.data));
+      showToast("Ayarlar kaydedildi.");
+    } else {
+      showToast(`Hata: ${res.error || "Kaydedilemedi."}`);
+    }
+    return res;
+  };
 
   const personnelCrud = makeCrud<KaizenPersonnel>(api, "personnel", setPersonnel, showToast);
   const criteriaCrud = makeCrud<KaizenCriteria>(api, "criteria", setCriteria, showToast);
@@ -213,6 +228,8 @@ export default function KaizenSuggestionSystem() {
           managerQueueCount={managerQueue.length}
           boardQueueCount={boardQueue.length}
           oldestWaitingDays={oldestWaitingDays}
+          waitingWarningDays={settings.waitingWarningDays}
+          waitingOverdueDays={settings.waitingOverdueDays}
           onNewSuggestion={() => { setEditingSuggestion(null); setSection("new"); }}
           onShowMine={() => setSection("mine")}
           onShowApprovals={() => setSection("approvals")}
@@ -227,6 +244,7 @@ export default function KaizenSuggestionSystem() {
           editingSuggestion={editingSuggestion}
           api={api}
           showToast={showToast}
+          settings={settings}
           onSaved={(s) => {
             setSuggestions(prev => {
               const idx = prev.findIndex(r => r.id === s.id);
@@ -263,6 +281,7 @@ export default function KaizenSuggestionSystem() {
           api={api}
           showToast={showToast}
           onReload={loadAll}
+          settings={settings}
         />
       )}
 
@@ -283,11 +302,12 @@ export default function KaizenSuggestionSystem() {
           })}
           onReload={loadAll}
           companyName={selectedCustomer?.companyName}
+          settings={settings}
         />
       )}
 
       {section === "reports" && isBoardMember && (
-        <KaizenReports suggestions={suggestions} evaluations={evaluations} personnel={personnel} implementations={implementations} api={api} />
+        <KaizenReports suggestions={suggestions} evaluations={evaluations} personnel={personnel} implementations={implementations} api={api} settings={settings} />
       )}
 
       {section === "setup" && (currentUser?.role === "Admin" || currentUser?.role === "Consultant") && (
@@ -296,6 +316,8 @@ export default function KaizenSuggestionSystem() {
           criteria={criteria}
           personnelCrud={personnelCrud}
           criteriaCrud={criteriaCrud}
+          settings={settings}
+          onSaveSettings={saveSettings}
         />
       )}
     </div>

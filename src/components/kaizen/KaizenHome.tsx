@@ -12,6 +12,8 @@ interface Props {
   managerQueueCount: number;
   boardQueueCount: number;
   oldestWaitingDays: number;
+  waitingWarningDays: number;
+  waitingOverdueDays: number;
   onNewSuggestion: () => void;
   onShowMine: () => void;
   onShowApprovals: () => void;
@@ -24,7 +26,7 @@ interface Props {
 // the approval queues into an actionable to-do list.
 export default function KaizenHome({
   currentUser, personnelRecord, suggestions, evaluations, managerQueueCount, boardQueueCount,
-  oldestWaitingDays, onNewSuggestion, onShowMine, onShowApprovals, canSeeApprovals
+  oldestWaitingDays, waitingWarningDays, waitingOverdueDays, onNewSuggestion, onShowMine, onShowApprovals, canSeeApprovals
 }: Props) {
   const myEmail = (currentUser?.email || "").toLowerCase();
   const mine = useMemo(() => suggestions.filter(s => (s.authorEmail || "").toLowerCase() === myEmail), [suggestions, myEmail]);
@@ -140,8 +142,8 @@ export default function KaizenHome({
                   <span className="text-sm font-semibold text-slate-700">Kurul değerlendirmesi bekleyen</span>
                   <span className="text-lg font-black text-slate-900 tabular-nums">{boardQueueCount}</span>
                 </button>
-                {oldestWaitingDays >= 3 && (
-                  <p className={`flex items-center gap-2 text-sm font-semibold rounded-xl px-4 py-2.5 ${oldestWaitingDays >= 7 ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-700"}`}>
+                {oldestWaitingDays >= waitingWarningDays && (
+                  <p className={`flex items-center gap-2 text-sm font-semibold rounded-xl px-4 py-2.5 ${oldestWaitingDays >= waitingOverdueDays ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-700"}`}>
                     <Hourglass className="w-4 h-4 shrink-0" />En eski öneri {oldestWaitingDays} gündür bekliyor
                   </p>
                 )}

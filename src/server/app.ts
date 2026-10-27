@@ -10,6 +10,7 @@ import { analyzePtrRecords } from "./ptrDigest.js";
 import { buildFacts, generateConsultantBrief } from "./opexReport/consultantBrief.js";
 import { applyFinding, canWriteFinding } from "./opexFindings.js";
 import { renderReportHtml } from "./opexReport/render.js";
+import { KNOWN_CURRENCIES, normalizeKaizenSettings, KaizenSettings } from "../utils/kaizenSettings.js";
 import * as XLSX from "xlsx";
 
 // This module only builds and configures the Express app (all /api/* routes) and exports it —
@@ -2642,9 +2643,18 @@ function sanitizePhotos(input: any): { photos: { dataUrl: string; caption?: stri
 }
 
 const clip = (v: any, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
-const CURRENCIES = ["TL", "USD", "EUR", "Eş Değer Ürün"];
-const asCurrency = (v: any) => (CURRENCIES.includes(v) ? v : "TL");
+// Any known currency is accepted (the customer's list only narrows the form choices, see
+// kaizenSettings.ts); a missing/unknown value falls back to the customer's base currency.
+const asCurrency = (v: any, base = "TL") => ((KNOWN_CURRENCIES as readonly string[]).includes(v) ? v : base);
 const asAmount = (v: any) => { const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : 0; };
+
+// Müşteri bazında Kaizen ayarları (Faz 2-B) — one record per customer, defaults when none saved.
+const kaizenSettingsId = (factoryId: string) => `kaizen_settings_${factoryId}`;
+async function loadKaizenSettings(orgId: string, factoryId?: string): Promise<KaizenSettings> {
+  if (!factoryId) return normalizeKaizenSettings(null);
+  const rows = await db.getKaizenRecords("kaizen_settings", orgId, factoryId);
+  return normalizeKaizenSettings(rows.find((r: any) => r.id === kaizenSettingsId(factoryId)) || rows[0]);
+}
 
 // Personnel / Criteria rosters. Reads are open to anyone in scope (the UI needs the roster to resolve
 // team leaders); writes change who can approve things, so they are Admin/Consultant only.
@@ -2700,6 +2710,24 @@ for (const [path, collection] of [["suggestions", "kaizen_suggestions"], ["appro
   });
 }
 
+// Reads are open to anyone in the customer's scope (forms and reports need them); writes are staff-only.
+app.get("/api/business/kaizen/settings", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) return denyKaizen(res);
+  res.json({ success: true, data: await loadKaizenSettings(user.organization_id, scope.factoryId) });
+});
+
+app.post("/api/business/kaizen/settings", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  if (!isStaff(user)) return denyKaizen(res, 403, "Bu işlem için yönetici yetkisi gereklidir.");
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed || !scope.factoryId) return denyKaizen(res);
+  const settings = normalizeKaizenSettings({ ...req.body, updatedAt: new Date().toISOString(), updatedBy: user.email });
+  await db.saveKaizenRecord("kaizen_settings", user.organization_id, scope.factoryId, { id: kaizenSettingsId(scope.factoryId), ...settings }, user.id);
+  res.json({ success: true, data: settings });
+});
+
 app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res) => {
   const user = (req as any).user;
   const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
@@ -2721,6 +2749,7 @@ app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res)
   // Who the suggestion is for, and who approves it, is decided from the server-side personnel roster —
   // never from the request body (a client could otherwise name itself as its own team leader).
   const personnel = await db.getKaizenRecords("kaizen_personnel", user.organization_id, scope.factoryId);
+  const settings = await loadKaizenSettings(user.organization_id, scope.factoryId);
   const myRecord = personnel.find((p: any) => sameEmail(p.email, user.email));
   const wantedName = clip(req.body.personnelName, 120).toLowerCase();
   let subjectRecord = myRecord;
@@ -2750,9 +2779,9 @@ app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res)
     stage: clip(req.body.stage, 60),
     paybackPeriod: clip(req.body.paybackPeriod, 60),
     estimatedSaving: asAmount(req.body.estimatedSaving),
-    estimatedSavingCurrency: asCurrency(req.body.estimatedSavingCurrency),
+    estimatedSavingCurrency: asCurrency(req.body.estimatedSavingCurrency, settings.baseCurrency),
     estimatedCost: asAmount(req.body.estimatedCost),
-    estimatedCostCurrency: asCurrency(req.body.estimatedCostCurrency),
+    estimatedCostCurrency: asCurrency(req.body.estimatedCostCurrency, settings.baseCurrency),
     isg: !!req.body.isg, cevre: !!req.body.cevre, motivasyon: !!req.body.motivasyon,
     photosCurrent: cur.photos, photosPropose: prop.photos
   };
@@ -2787,6 +2816,7 @@ app.post("/api/business/kaizen/suggestions/:id", authenticateToken, async (req, 
     return;
   }
   const b = req.body;
+  const { baseCurrency } = await loadKaizenSettings(user.organization_id, existing.factory_id);
   const payload = {
     subject: b.subject !== undefined ? clip(b.subject, 200) : undefined,
     suggestionTypes: Array.isArray(b.suggestionTypes) ? b.suggestionTypes.filter((t: any) => typeof t === "string").slice(0, 10) : undefined,
@@ -2795,9 +2825,9 @@ app.post("/api/business/kaizen/suggestions/:id", authenticateToken, async (req, 
     stage: b.stage !== undefined ? clip(b.stage, 60) : undefined,
     paybackPeriod: b.paybackPeriod !== undefined ? clip(b.paybackPeriod, 60) : undefined,
     estimatedSaving: b.estimatedSaving !== undefined ? asAmount(b.estimatedSaving) : undefined,
-    estimatedSavingCurrency: b.estimatedSavingCurrency !== undefined ? asCurrency(b.estimatedSavingCurrency) : undefined,
+    estimatedSavingCurrency: b.estimatedSavingCurrency !== undefined ? asCurrency(b.estimatedSavingCurrency, baseCurrency) : undefined,
     estimatedCost: b.estimatedCost !== undefined ? asAmount(b.estimatedCost) : undefined,
-    estimatedCostCurrency: b.estimatedCostCurrency !== undefined ? asCurrency(b.estimatedCostCurrency) : undefined,
+    estimatedCostCurrency: b.estimatedCostCurrency !== undefined ? asCurrency(b.estimatedCostCurrency, baseCurrency) : undefined,
     isg: b.isg, cevre: b.cevre, motivasyon: b.motivasyon,
     photosCurrent: cur.photos, photosPropose: prop.photos
   };
@@ -2859,6 +2889,7 @@ app.post("/api/business/kaizen/suggestions/:id/board-decision", authenticateToke
     return;
   }
   // Score comes from the server's own criteria table, never from the request body.
+  const { baseCurrency } = await loadKaizenSettings(user.organization_id, suggestion.factory_id);
   let criteriaId = "", criteriaLabel = "", point = 0;
   if (approved) {
     const criteria = (await db.getKaizenRecords("kaizen_criteria", user.organization_id, suggestion.factory_id)).find((c: any) => c.id === req.body.criteriaId);
@@ -2873,7 +2904,7 @@ app.post("/api/business/kaizen/suggestions/:id/board-decision", authenticateToke
     {
       criteriaId, criteriaLabel, point,
       yokoten: req.body.yokoten === true, yokotenDescription: clip(req.body.yokotenDescription, 1000),
-      estimatedIncome: asAmount(req.body.estimatedIncome), estimatedIncomeCurrency: asCurrency(req.body.estimatedIncomeCurrency),
+      estimatedIncome: asAmount(req.body.estimatedIncome), estimatedIncomeCurrency: asCurrency(req.body.estimatedIncomeCurrency, baseCurrency),
       comment
     },
     user.full_name, user.email
@@ -2958,7 +2989,7 @@ app.post("/api/business/kaizen/evaluations/:id/reward-status", authenticateToken
 // ---- Uygulama takibi (Faz 2-A) ----
 // One implementation record per Board-approved suggestion: plan (owner/target date/actions),
 // before/after measurement + photos, the actual saving, the Board's verification of it and the
-// 30/90-day persistence checks. Completion also flips the suggestion's `completed` flag.
+// persistence checks (30/90 days by default, per-customer in kaizen_settings). Completion also flips the suggestion's `completed` flag.
 const IMPL_STATUSES = ["Planlandı", "Sürüyor", "Tamamlandı", "İptal"];
 const asDate = (v: any) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : "");
 const addDaysIso = (iso: string, days: number) => {
@@ -3021,7 +3052,8 @@ app.post("/api/business/kaizen/suggestions/:id/implementation", authenticateToke
   })).filter((a: any) => a.text);
 
   const actualSaving = asAmount(req.body.actualSaving);
-  const actualSavingCurrency = asCurrency(req.body.actualSavingCurrency);
+  const settings = await loadKaizenSettings(user.organization_id, suggestion.factory_id);
+  const actualSavingCurrency = asCurrency(req.body.actualSavingCurrency, settings.baseCurrency);
   const beforeMetric = sanitizeMetric(req.body.beforeMetric);
   const afterMetric = sanitizeMetric(req.body.afterMetric);
 
@@ -3030,7 +3062,8 @@ app.post("/api/business/kaizen/suggestions/:id/implementation", authenticateToke
   if (status === "Tamamlandı") {
     if (!existing || existing.status !== "Tamamlandı" || !completedAt) completedAt = today;
     if (!followUps.length) {
-      followUps = [30, 90].map(days => ({ days, dueDate: addDaysIso(completedAt, days), result: "", checkedAt: "", checkedBy: "", note: "" }));
+      // Check days are snapshotted at completion; a later settings change does not move them.
+      followUps = settings.followUpDays.map(days => ({ days, dueDate: addDaysIso(completedAt, days), result: "", checkedAt: "", checkedBy: "", note: "" }));
     }
   } else {
     completedAt = "";
@@ -3095,7 +3128,7 @@ app.post("/api/business/kaizen/implementations/:id/verify", authenticateToken, a
   res.json({ success: true, data: updated });
 });
 
-// 30/90-day "is the improvement still in place?" check.
+// Persistence ("is the improvement still in place?") check — days come from the customer's settings.
 app.post("/api/business/kaizen/implementations/:id/followup", authenticateToken, async (req, res) => {
   const user = (req as any).user;
   const loaded = await loadKaizenImplementation(req, res);
