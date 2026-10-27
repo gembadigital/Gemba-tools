@@ -13,9 +13,12 @@ import { APPROVAL_STATUS_COLORS, statusLabel } from "./kaizenCalc";
 
 export const BRAND = "#00A280";
 
+// Soft two-layer elevation used by every surface (2026 refresh: lighter borders, depth from shadow).
+export const SURFACE = "bg-white border border-slate-200/70 rounded-2xl shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)]";
+
 export function Card({ children, className = "", padded = true }: { children: React.ReactNode; className?: string; padded?: boolean }) {
   return (
-    <div className={`bg-white border border-slate-200 rounded-2xl shadow-xs ${padded ? "p-5" : ""} ${className}`}>
+    <div className={`${SURFACE} ${padded ? "p-5 sm:p-6" : ""} ${className}`}>
       {children}
     </div>
   );
@@ -26,12 +29,12 @@ export function SectionTitle({ icon: Icon, title, hint, right }: { icon?: any; t
     <div className="flex items-center justify-between gap-3 mb-4">
       <div className="flex items-center gap-2.5 min-w-0">
         {Icon && (
-          <span className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+          <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-slate-100 to-slate-50 ring-1 ring-slate-200/70 text-slate-700 flex items-center justify-center shrink-0">
             <Icon className="w-4 h-4" />
           </span>
         )}
         <div className="min-w-0">
-          <h3 className="text-sm font-bold text-slate-900 leading-tight">{title}</h3>
+          <h3 className="text-base font-bold text-slate-900 leading-tight">{title}</h3>
           {hint && <p className="text-xs text-slate-500 mt-0.5">{hint}</p>}
         </div>
       </div>
@@ -57,7 +60,7 @@ export function KpiCard({ label, value, icon: Icon, tone = "slate", hint, onClic
   return (
     <Wrapper
       onClick={onClick}
-      className={`text-left bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex items-start justify-between gap-3 ${onClick ? "cursor-pointer hover:border-slate-300 hover:shadow-sm transition-all" : ""}`}
+      className={`text-left ${SURFACE} p-5 flex items-start justify-between gap-3 ${onClick ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-[0_12px_32px_-16px_rgba(15,23,42,0.25)] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/40" : ""}`}
     >
       <div className="min-w-0">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
@@ -84,17 +87,18 @@ export function StatusBadge({ status, requiredStages }: { status: ApprovalStatus
   );
 }
 
-export function Button({ children, variant = "primary", className = "", ...rest }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" | "brand" | "danger" }) {
+export function Button({ children, variant = "primary", className = "", ...rest }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" | "brand" | "danger" | "outline" }) {
   const styles = {
-    primary: "bg-slate-900 text-white hover:bg-slate-800",
-    brand: "bg-emerald-700 text-white hover:bg-emerald-600",
+    primary: "bg-slate-900 text-white hover:bg-slate-800 shadow-sm",
+    brand: "bg-gradient-to-b from-emerald-600 to-emerald-700 text-white hover:from-emerald-500 hover:to-emerald-600 shadow-sm shadow-emerald-900/20",
     danger: "bg-red-600 text-white hover:bg-red-500",
-    ghost: "bg-slate-100 text-slate-700 hover:bg-slate-200"
+    ghost: "bg-slate-100 text-slate-700 hover:bg-slate-200",
+    outline: "bg-white text-slate-700 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 hover:ring-slate-300"
   }[variant];
   return (
     <button
       {...rest}
-      className={`inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl text-sm font-semibold cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${styles} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl text-sm font-semibold cursor-pointer transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/40 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 ${styles} ${className}`}
     >
       {children}
     </button>
@@ -104,7 +108,7 @@ export function Button({ children, variant = "primary", className = "", ...rest 
 export function EmptyState({ icon: Icon, title, text }: { icon: any; title: string; text?: string }) {
   return (
     <div className="flex flex-col items-center justify-center text-center py-10 text-slate-500">
-      <span className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mb-3"><Icon className="w-6 h-6 text-slate-400" /></span>
+      <span className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-50 to-emerald-50 ring-1 ring-slate-200/70 flex items-center justify-center mb-3"><Icon className="w-6 h-6 text-amber-500" /></span>
       <p className="text-sm font-semibold text-slate-700">{title}</p>
       {text && <p className="text-sm mt-1 max-w-sm">{text}</p>}
     </div>
@@ -117,3 +121,28 @@ export const theadCls = "text-left text-xs font-semibold uppercase tracking-wide
 export const thCls = "py-3 px-4 font-semibold";
 export const tdCls = "py-3.5 px-4 text-slate-700";
 export const trCls = "border-b border-slate-100 last:border-0 hover:bg-slate-50/70 transition-colors";
+
+// ---- Journey (where a suggestion is in its flow) ----
+// One shared definition of the user-facing stages, so Home, Önerilerim and detail views agree.
+export type JourneyStep = { key: string; label: string; state: "done" | "current" | "todo" | "rejected" };
+
+export function MiniJourney({ steps }: { steps: JourneyStep[] }) {
+  return (
+    <ol className="flex items-center gap-1" aria-label="Öneri süreci">
+      {steps.map((st, i) => (
+        <li key={st.key} className="flex items-center gap-1 min-w-0" title={st.label}>
+          <span className={`h-1.5 w-7 sm:w-9 rounded-full ${
+            st.state === "done" ? "bg-emerald-500" : st.state === "current" ? "bg-amber-400 animate-pulse" : st.state === "rejected" ? "bg-red-500" : "bg-slate-200"
+          }`} />
+          {i === steps.length - 1 && <span className="sr-only">{st.label}</span>}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+export function Avatar({ name, size = "md", className = "" }: { name?: string; size?: "sm" | "md" | "lg"; className?: string }) {
+  const initials = (name || "?").split(" ").filter(Boolean).map(p => p[0]).slice(0, 2).join("").toUpperCase();
+  const dim = { sm: "w-8 h-8 text-xs rounded-lg", md: "w-10 h-10 text-sm rounded-xl", lg: "w-16 h-16 text-xl rounded-2xl" }[size];
+  return <span className={`${dim} bg-gradient-to-br from-slate-800 to-slate-950 text-white font-bold flex items-center justify-center shrink-0 ${className}`}>{initials}</span>;
+}

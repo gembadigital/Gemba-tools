@@ -1,9 +1,12 @@
 import React, { useMemo } from "react";
-import { Plus, ListChecks, Star, Trophy, CheckCircle2, XCircle, Clock, BadgeCheck, Lightbulb, ArrowRight, Hourglass } from "lucide-react";
+import {
+  Plus, ListChecks, Trophy, Clock, Lightbulb, ArrowRight, Hourglass, Sparkles, PencilLine,
+  Users, Gavel, Hammer, CheckCircle2, XCircle, Send, Medal, PartyPopper
+} from "lucide-react";
 import { KaizenSuggestion, KaizenEvaluation, KaizenPersonnel } from "./kaizenTypes";
-import { isRejected } from "./kaizenCalc";
+import { isRejected, journeyOf } from "./kaizenCalc";
 import { awaitingFirstDecision } from "../../utils/kaizenSettings";
-import { Card, SectionTitle, KpiCard, StatusBadge, Button, EmptyState, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
+import { Card, SectionTitle, StatusBadge, Button, EmptyState, MiniJourney, Avatar } from "./kaizenUi";
 
 interface Props {
   currentUser: any;
@@ -18,152 +21,279 @@ interface Props {
   onNewSuggestion: () => void;
   onShowMine: () => void;
   onShowApprovals: () => void;
+  onShowImplementation: () => void;
+  onEditSuggestion: (s: KaizenSuggestion) => void;
   canSeeApprovals: boolean;
 }
 
-// Personal landing page: who am I, how am I doing, what needs my attention. The legacy Power Apps
-// home showed an empty profile strip, an overflowing score and a table of everybody's pending
-// suggestions; here every number is scoped to the signed-in user and the right-hand column turns
-// the approval queues into an actionable to-do list.
+const greeting = () => {
+  const h = new Date().getHours();
+  return h < 12 ? "Günaydın" : h < 18 ? "İyi günler" : "İyi akşamlar";
+};
+const fmtDate = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("tr-TR", { day: "numeric", month: "short" }) : "—");
+
+// Personal landing page, built around one question: "what is my next step?". Top to bottom:
+// a hero with the primary action, the things waiting on me (if any), where my suggestions are in
+// the flow, my recent suggestions with their progress, and this month's champions for motivation.
+// Every number is scoped to the signed-in user except the champions card.
 export default function KaizenHome({
   currentUser, personnelRecord, suggestions, evaluations, managerQueueCount, boardQueueCount,
-  oldestWaitingDays, waitingWarningDays, waitingOverdueDays, onNewSuggestion, onShowMine, onShowApprovals, canSeeApprovals
+  oldestWaitingDays, waitingWarningDays, waitingOverdueDays, onNewSuggestion, onShowMine, onShowApprovals,
+  onShowImplementation, onEditSuggestion, canSeeApprovals
 }: Props) {
   const myEmail = (currentUser?.email || "").toLowerCase();
   const mine = useMemo(() => suggestions.filter(s => (s.authorEmail || "").toLowerCase() === myEmail), [suggestions, myEmail]);
 
-  const total = mine.length;
-  // "Kurul Bekliyor" counts as approved only once an Amir actually approved it.
-  const approved = mine.filter(s => !awaitingFirstDecision(s) && (s.approvalStatus === "First Approval" || s.approvalStatus === "Second Approval")).length;
-  const rejected = mine.filter(s => isRejected(s.approvalStatus)).length;
-  const pending = mine.filter(s => awaitingFirstDecision(s)).length;
-  const completed = mine.filter(s => s.completed).length;
+  const pipeline = useMemo(() => {
+    const waiting = mine.filter(s => awaitingFirstDecision(s)).length;
+    const inBoard = mine.filter(s => s.approvalStatus === "First Approval" && !awaitingFirstDecision(s)).length;
+    const accepted = mine.filter(s => s.approvalStatus === "Second Approval" && !s.completed).length;
+    const done = mine.filter(s => s.completed).length;
+    const rejected = mine.filter(s => isRejected(s.approvalStatus)).length;
+    return { waiting, inBoard, accepted, done, rejected };
+  }, [mine]);
 
   const myPoints = useMemo(() => {
     const ids = new Set(mine.map(s => s.id));
     return evaluations.filter(e => ids.has(e.suggestionId)).reduce((sum, e) => sum + (e.point || 0), 0);
   }, [evaluations, mine]);
 
+  const monthKey = new Date().toISOString().slice(0, 7);
+  const thisMonthMine = mine.filter(s => (s.createdAt || "").startsWith(monthKey)).length;
+
+  // Ayın şampiyonları: Kurul points earned this month, per person (suggestion's personnel).
+  const champions = useMemo(() => {
+    const byId = new Map(suggestions.map(s => [s.id, s]));
+    const m = new Map<string, { name: string; department: string; points: number; count: number }>();
+    evaluations.filter(e => (e.createdAt || "").startsWith(monthKey) && (e.point || 0) > 0).forEach(e => {
+      const s = byId.get(e.suggestionId);
+      if (!s) return;
+      const key = s.personnelName || "—";
+      const row = m.get(key) || { name: key, department: s.personnelDepartment || "", points: 0, count: 0 };
+      row.points += e.point || 0;
+      row.count += 1;
+      m.set(key, row);
+    });
+    return Array.from(m.values()).sort((a, b) => b.points - a.points || b.count - a.count).slice(0, 3);
+  }, [suggestions, evaluations, monthKey]);
+
   const recent = useMemo(
-    () => [...mine].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, 8),
+    () => [...mine].sort((a, b) => (b.updatedAt || b.createdAt || "").localeCompare(a.updatedAt || a.createdAt || "")).slice(0, 6),
     [mine]
   );
+  const toRevise = mine.filter(s => isRejected(s.approvalStatus));
 
-  const initials = (currentUser?.full_name || "?").split(" ").map((p: string) => p[0]).slice(0, 2).join("").toUpperCase();
-  const profileFacts = [
-    { label: "Bölüm", value: personnelRecord?.department },
-    { label: "Görev", value: personnelRecord?.jobTitle },
-    { label: "Vardiya", value: personnelRecord?.shift },
-    { label: "Amir", value: personnelRecord?.teamLeaderName }
+  // "Sizden beklenenler": concrete next actions, most urgent first.
+  const actions: { key: string; icon: any; tone: string; title: string; text: string; cta: string; onClick: () => void }[] = [];
+  if (canSeeApprovals && managerQueueCount > 0) actions.push({
+    key: "mgr", icon: Users, tone: "amber", title: `${managerQueueCount} öneri onayınızı bekliyor`,
+    text: "Ekibinizden gelen öneriler için Amir kararı.", cta: "Değerlendir", onClick: onShowApprovals
+  });
+  if (canSeeApprovals && boardQueueCount > 0) actions.push({
+    key: "board", icon: Gavel, tone: "blue", title: `${boardQueueCount} öneri Kurul'da`,
+    text: "Kurul değerlendirmesi ve puanlama bekliyor.", cta: "Kurula git", onClick: onShowApprovals
+  });
+  if (toRevise.length > 0) actions.push({
+    key: "revise", icon: PencilLine, tone: "red", title: `${toRevise.length} önerinizi güncelleyebilirsiniz`,
+    text: "Reddedilen öneriyi gerekçeye göre düzenleyip yeniden gönderin.", cta: "Düzenle", onClick: () => onEditSuggestion(toRevise[0])
+  });
+  if (pipeline.accepted > 0) actions.push({
+    key: "impl", icon: Hammer, tone: "emerald", title: `${pipeline.accepted} kabul edilen öneri uygulamada`,
+    text: "Uygulama planını ve önce/sonra ölçümünü takip edin.", cta: "Uygulamaya git", onClick: onShowImplementation
+  });
+  const toneCls: Record<string, string> = {
+    amber: "bg-amber-50 text-amber-600 ring-amber-200/70",
+    blue: "bg-blue-50 text-blue-600 ring-blue-200/70",
+    red: "bg-red-50 text-red-600 ring-red-200/70",
+    emerald: "bg-emerald-50 text-emerald-600 ring-emerald-200/70"
+  };
+
+  const stages: { key: string; label: string; value: number; icon: any; color: string }[] = [
+    { key: "waiting", label: "Onay bekliyor", value: pipeline.waiting, icon: Send, color: "text-amber-600 bg-amber-50" },
+    { key: "board", label: "Kurul'da", value: pipeline.inBoard, icon: Gavel, color: "text-blue-600 bg-blue-50" },
+    { key: "accepted", label: "Kabul / Uygulamada", value: pipeline.accepted, icon: Hammer, color: "text-teal-600 bg-teal-50" },
+    { key: "done", label: "Uygulandı", value: pipeline.done, icon: CheckCircle2, color: "text-emerald-600 bg-emerald-50" }
   ];
-  const todoTotal = managerQueueCount + boardQueueCount;
+
+  const facts = [personnelRecord?.department, personnelRecord?.jobTitle, personnelRecord?.shift && `${personnelRecord.shift} vardiyası`].filter(Boolean) as string[];
 
   return (
     <div className="space-y-6">
-      {/* Profile + score + primary action */}
-      <Card className="flex flex-col lg:flex-row lg:items-center gap-6">
-        <div className="flex items-center gap-4 min-w-0 lg:flex-1">
-          <div className="w-16 h-16 rounded-2xl bg-slate-900 text-white flex items-center justify-center text-xl font-black shrink-0">{initials}</div>
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hoş geldiniz</p>
-            <h2 className="text-2xl font-black text-slate-900 truncate">{currentUser?.full_name}</h2>
-            <div className="flex flex-wrap gap-x-5 gap-y-1 mt-2 text-sm text-slate-600">
-              {profileFacts.map(f => (
-                <span key={f.label}><span className="text-slate-400">{f.label}: </span><span className="font-semibold">{f.value || "—"}</span></span>
-              ))}
+      {/* Hero */}
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-900 text-white p-6 sm:p-8 shadow-[0_24px_48px_-24px_rgba(6,78,59,0.55)]">
+        <div aria-hidden className="pointer-events-none absolute -top-24 -right-16 w-80 h-80 rounded-full bg-emerald-500/25 blur-3xl" />
+        <div aria-hidden className="pointer-events-none absolute -bottom-28 left-1/3 w-72 h-72 rounded-full bg-amber-400/15 blur-3xl" />
+        <div className="relative flex flex-col lg:flex-row lg:items-center gap-6 lg:gap-10">
+          <div className="flex items-center gap-4 min-w-0 lg:flex-1">
+            <Avatar name={currentUser?.full_name} size="lg" className="!from-white/15 !to-white/5 ring-1 ring-white/20 backdrop-blur" />
+            <div className="min-w-0">
+              <p className="text-sm text-emerald-200/90 font-medium">{greeting()},</p>
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight truncate">{currentUser?.full_name || "Hoş geldiniz"}</h2>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {(facts.length ? facts : ["Personel kaydı bulunamadı"]).map(f => (
+                  <span key={f} className="text-xs font-medium px-2.5 py-1 rounded-full bg-white/10 ring-1 ring-white/15 text-white/85">{f}</span>
+                ))}
+                {personnelRecord?.teamLeaderName && (
+                  <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-white/10 ring-1 ring-white/15 text-white/85">Amir: {personnelRecord.teamLeaderName}</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-stretch gap-3">
+            <div className="rounded-2xl bg-white/10 ring-1 ring-white/15 backdrop-blur px-5 py-4 min-w-[8.5rem]">
+              <p className="text-xs text-white/70 font-medium flex items-center gap-1.5"><Trophy className="w-3.5 h-3.5 text-amber-300" />Öneri puanım</p>
+              <p className="text-3xl font-bold tabular-nums mt-1">{myPoints}</p>
+            </div>
+            <div className="rounded-2xl bg-white/10 ring-1 ring-white/15 backdrop-blur px-5 py-4 min-w-[8.5rem]">
+              <p className="text-xs text-white/70 font-medium flex items-center gap-1.5"><Lightbulb className="w-3.5 h-3.5 text-amber-300" />Bu ay</p>
+              <p className="text-3xl font-bold tabular-nums mt-1">{thisMonthMine}<span className="text-sm font-medium text-white/60 ml-1">öneri</span></p>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-6 lg:gap-8">
-          <div className="text-center">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Öneri Puanı</p>
-            <p className="text-4xl font-black text-amber-500 tabular-nums leading-none mt-1.5 flex items-center justify-center gap-2">
-              <Trophy className="w-7 h-7" />{myPoints}
-            </p>
-          </div>
-          <Button variant="brand" onClick={onNewSuggestion} className="h-12 px-6 text-base">
-            <Plus className="w-5 h-5" />Yeni Öneri
-          </Button>
+
+        <div className="relative mt-6 flex flex-col sm:flex-row gap-3">
+          <button
+            onClick={onNewSuggestion}
+            className="group inline-flex items-center justify-center gap-2.5 h-12 px-6 rounded-2xl bg-white text-slate-900 text-base font-bold shadow-lg shadow-black/20 hover:bg-emerald-50 active:scale-[0.98] transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+          >
+            <span className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center group-hover:rotate-90 transition-transform"><Plus className="w-4 h-4" /></span>
+            Yeni öneri ver
+          </button>
+          <button
+            onClick={onShowMine}
+            className="inline-flex items-center justify-center gap-2 h-12 px-5 rounded-2xl text-sm font-semibold text-white/90 ring-1 ring-white/20 hover:bg-white/10 transition-colors cursor-pointer"
+          >
+            <ListChecks className="w-4 h-4" />Önerilerimi gör ({mine.length})
+          </button>
         </div>
+      </section>
+
+      {/* Next actions */}
+      {(actions.length > 0 || (canSeeApprovals && oldestWaitingDays >= waitingWarningDays)) && (
+        <section aria-label="Sizden beklenenler" className="space-y-3">
+          <h3 className="text-sm font-semibold text-slate-500 px-1">Sizden beklenenler</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+            {actions.map(a => (
+              <button key={a.key} onClick={a.onClick} className="group text-left bg-white rounded-2xl p-4 ring-1 ring-slate-200/70 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:-translate-y-0.5 hover:shadow-[0_12px_32px_-16px_rgba(15,23,42,0.25)] transition-all cursor-pointer flex gap-3.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/40">
+                <span className={`w-10 h-10 rounded-xl ring-1 flex items-center justify-center shrink-0 ${toneCls[a.tone]}`}><a.icon className="w-5 h-5" /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-bold text-slate-900">{a.title}</span>
+                  <span className="block text-xs text-slate-500 mt-0.5">{a.text}</span>
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 mt-2">{a.cta}<ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" /></span>
+                </span>
+              </button>
+            ))}
+          </div>
+          {canSeeApprovals && oldestWaitingDays >= waitingWarningDays && (
+            <p className={`flex items-center gap-2 text-sm font-semibold rounded-xl px-4 py-2.5 ${oldestWaitingDays >= waitingOverdueDays ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-700"}`}>
+              <Hourglass className="w-4 h-4 shrink-0" />Kuyruktaki en eski öneri {oldestWaitingDays} gündür karar bekliyor
+            </p>
+          )}
+        </section>
+      )}
+
+      {/* Where my suggestions are */}
+      <Card>
+        <SectionTitle
+          icon={Sparkles}
+          title="Önerilerim nerede?"
+          hint={mine.length === 0 ? "İlk önerinizi verdiğinizde süreç burada görünür" : `${mine.length} önerinin süreçteki dağılımı`}
+          right={pipeline.rejected > 0 ? <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-600 bg-red-50 rounded-full px-3 py-1"><XCircle className="w-3.5 h-3.5" />{pipeline.rejected} reddedildi</span> : undefined}
+        />
+        <ol className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {stages.map((st, i) => (
+            <li key={st.key}>
+              <button onClick={st.key === "accepted" || st.key === "done" ? onShowImplementation : onShowMine} className="relative w-full text-left rounded-2xl bg-slate-50/80 ring-1 ring-slate-200/60 p-4 hover:bg-white hover:ring-slate-300 transition-all cursor-pointer">
+                <span className={`w-9 h-9 rounded-xl flex items-center justify-center ${st.color}`}><st.icon className="w-4.5 h-4.5" /></span>
+                <span className="block text-3xl font-bold text-slate-900 tabular-nums mt-3 leading-none">{st.value}</span>
+                <span className="block text-sm font-medium text-slate-600 mt-1.5">{st.label}</span>
+                {i < stages.length - 1 && (
+                  <ArrowRight aria-hidden className="hidden lg:block absolute top-1/2 -right-[1.05rem] -translate-y-1/2 w-4 h-4 text-slate-300" />
+                )}
+              </button>
+            </li>
+          ))}
+        </ol>
       </Card>
 
-      {/* KPI row */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
-        <KpiCard label="Toplam Önerim" value={total} icon={Lightbulb} tone="slate" onClick={onShowMine} />
-        <KpiCard label="Onaylanan" value={approved} icon={CheckCircle2} tone="emerald" />
-        <KpiCard label="Reddedilen" value={rejected} icon={XCircle} tone="red" />
-        <KpiCard label="Onay Bekleyen" value={pending} icon={Clock} tone="amber" />
-        <KpiCard label="Uygulanan" value={completed} icon={BadgeCheck} tone="teal" />
-      </div>
-
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Recent suggestions */}
-        <Card padded={false} className="xl:col-span-2 overflow-hidden">
-          <div className="px-5 pt-5">
-            <SectionTitle
-              icon={ListChecks}
-              title="Son Önerilerim"
-              hint="En son gönderdiğiniz 8 öneri"
-              right={<Button variant="ghost" onClick={onShowMine} className="h-9">Tümünü gör<ArrowRight className="w-4 h-4" /></Button>}
-            />
-          </div>
+        {/* Recent suggestions with their progress */}
+        <Card className="xl:col-span-2">
+          <SectionTitle
+            icon={Clock}
+            title="Son hareketler"
+            hint="En son güncellenen önerileriniz"
+            right={mine.length > 0 ? <Button variant="outline" onClick={onShowMine} className="h-9">Tümü<ArrowRight className="w-4 h-4" /></Button> : undefined}
+          />
           {recent.length === 0 ? (
-            <EmptyState icon={Lightbulb} title="Henüz öneriniz yok" text="İlk Kaizen önerinizi oluşturun; sürecinizi her adımda buradan izleyin." />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className={tableCls}>
-                <thead className={theadCls}>
-                  <tr><th className={thCls}>Tarih</th><th className={thCls}>Öneri Konusu</th><th className={thCls}>Sınıf</th><th className={thCls}>Durum</th></tr>
-                </thead>
-                <tbody>
-                  {recent.map(s => (
-                    <tr key={s.id} className={trCls}>
-                      <td className={`${tdCls} whitespace-nowrap tabular-nums`}>{(s.createdAt || "").slice(0, 10)}</td>
-                      <td className={`${tdCls} font-semibold text-slate-900`}>{s.subject}</td>
-                      <td className={`${tdCls} text-slate-500`}>{(s.suggestionTypes || []).join(", ")}</td>
-                      <td className={tdCls}><StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex flex-col items-center text-center py-6">
+              <EmptyState icon={Lightbulb} title="Henüz öneriniz yok" text="Çalıştığınız yerde gördüğünüz bir israfı ya da iyileştirme fikrini yazın — birkaç dakika sürer." />
+              <Button variant="brand" onClick={onNewSuggestion} className="h-11 px-5"><Plus className="w-4 h-4" />İlk önerimi ver</Button>
             </div>
+          ) : (
+            <ul className="divide-y divide-slate-100 -mx-1">
+              {recent.map(s => (
+                <li key={s.id}>
+                  <button
+                    onClick={() => (isRejected(s.approvalStatus) ? onEditSuggestion(s) : onShowMine())}
+                    className="w-full text-left flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-1 py-3.5 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-slate-900 truncate">{s.subject}</span>
+                      <span className="block text-xs text-slate-500 mt-0.5 truncate">
+                        {fmtDate(s.createdAt)}{(s.suggestionTypes || []).length ? ` · ${(s.suggestionTypes || []).join(", ")}` : ""}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-3 shrink-0">
+                      <MiniJourney steps={journeyOf(s)} />
+                      <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} />
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </Card>
 
-        {/* To-do column */}
         <div className="space-y-6">
-          {canSeeApprovals && (
-            <Card>
-              <SectionTitle icon={Star} title="Bekleyen İşlerim" hint={todoTotal === 0 ? "Şu an bekleyen kararınız yok" : `${todoTotal} öneri kararınızı bekliyor`} />
-              <div className="space-y-2.5">
-                <button onClick={onShowApprovals} className="w-full flex items-center justify-between rounded-xl bg-slate-50 hover:bg-slate-100 px-4 py-3 cursor-pointer transition-colors">
-                  <span className="text-sm font-semibold text-slate-700">Amir onayı bekleyen</span>
-                  <span className="text-lg font-black text-slate-900 tabular-nums">{managerQueueCount}</span>
-                </button>
-                <button onClick={onShowApprovals} className="w-full flex items-center justify-between rounded-xl bg-slate-50 hover:bg-slate-100 px-4 py-3 cursor-pointer transition-colors">
-                  <span className="text-sm font-semibold text-slate-700">Kurul değerlendirmesi bekleyen</span>
-                  <span className="text-lg font-black text-slate-900 tabular-nums">{boardQueueCount}</span>
-                </button>
-                {oldestWaitingDays >= waitingWarningDays && (
-                  <p className={`flex items-center gap-2 text-sm font-semibold rounded-xl px-4 py-2.5 ${oldestWaitingDays >= waitingOverdueDays ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-700"}`}>
-                    <Hourglass className="w-4 h-4 shrink-0" />En eski öneri {oldestWaitingDays} gündür bekliyor
-                  </p>
-                )}
-              </div>
-            </Card>
-          )}
+          {/* Champions of the month */}
+          <Card className="relative overflow-hidden">
+            <div aria-hidden className="pointer-events-none absolute -top-10 -right-10 w-40 h-40 rounded-full bg-amber-200/40 blur-2xl" />
+            <div className="relative">
+              <SectionTitle icon={Medal} title="Ayın Kaizen şampiyonları" hint={new Date().toLocaleDateString("tr-TR", { month: "long", year: "numeric" })} />
+              {champions.length === 0 ? (
+                <p className="text-sm text-slate-500 flex items-center gap-2"><PartyPopper className="w-4 h-4 text-amber-500" />Bu ay henüz puanlanan öneri yok — ilk siz olun.</p>
+              ) : (
+                <ol className="space-y-2.5">
+                  {champions.map((c, i) => (
+                    <li key={c.name} className="flex items-center gap-3">
+                      <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${i === 0 ? "bg-amber-400 text-amber-950" : i === 1 ? "bg-slate-200 text-slate-700" : "bg-orange-200 text-orange-900"}`}>{i + 1}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold text-slate-900 truncate">{c.name}</span>
+                        <span className="block text-xs text-slate-500 truncate">{c.department || "—"} · {c.count} öneri</span>
+                      </span>
+                      <span className="text-sm font-bold text-slate-900 tabular-nums">{c.points}<span className="text-xs font-medium text-slate-400 ml-0.5">p</span></span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          </Card>
+
+          {/* How it works */}
           <Card>
             <SectionTitle icon={Lightbulb} title="Nasıl çalışır?" />
-            <ol className="space-y-3 text-sm text-slate-600">
+            <ol className="relative space-y-4 before:absolute before:left-[0.9rem] before:top-2 before:bottom-2 before:w-px before:bg-slate-200">
               {[
-                ["Öneriyi yazın", "Mevcut durumu, iyileştirmeyi ve tahmini kazancı girin."],
-                ["Amir onayı", "Takım liderinizin onayı ile süreç ilerler."],
-                ["Kurul değerlendirmesi", "Kaizen Kurulu puanlar, kazancı ve yokoten fırsatını belirler."],
-                ["Uygulama ve ödül", "Uygulanan öneriler puan ve ödül için takip edilir."]
+                ["Öneriyi yazın", "Mevcut durum, iyileştirme ve tahmini kazanç."],
+                ["Amir onayı", "Takım lideriniz değerlendirir."],
+                ["Kurul değerlendirmesi", "Puan, kazanç ve yaygınlaştırma kararı."],
+                ["Uygulama ve ödül", "Uygulanan öneri puan ve ödüle dönüşür."]
               ].map(([t, d], i) => (
-                <li key={t} className="flex gap-3">
-                  <span className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
-                  <span><span className="font-semibold text-slate-900">{t}.</span> {d}</span>
+                <li key={t} className="relative flex gap-3">
+                  <span className="w-7 h-7 rounded-full bg-white ring-2 ring-emerald-500 text-emerald-700 text-xs font-bold flex items-center justify-center shrink-0 z-10">{i + 1}</span>
+                  <span className="text-sm text-slate-600 pt-0.5"><span className="font-semibold text-slate-900">{t}</span> — {d}</span>
                 </li>
               ))}
             </ol>

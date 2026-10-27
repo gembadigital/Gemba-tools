@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from "react";
 import { Edit3, X, Undo2, Search, Check, Circle, XCircle, Lightbulb, MessageSquare, Trophy } from "lucide-react";
 import { KaizenSuggestion, KaizenApproval, KaizenEvaluation, ApprovalStatus } from "./kaizenTypes";
-import { APPROVAL_STATUS_LABELS, canEditSuggestion, isRejected } from "./kaizenCalc";
+import { APPROVAL_STATUS_LABELS, canEditSuggestion, journeyOf } from "./kaizenCalc";
 import { KaizenApi } from "./KaizenSuggestionSystem";
-import { KaizenSettings, rewardFor, stagesOf, awaitingFirstDecision } from "../../utils/kaizenSettings";
+import { KaizenSettings, rewardFor, awaitingFirstDecision } from "../../utils/kaizenSettings";
 import { Card, StatusBadge, Button, EmptyState, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 
 interface Props {
@@ -158,29 +158,13 @@ export default function KaizenMySuggestions({ currentUser, suggestions, approval
   );
 }
 
-type StepState = "done" | "current" | "todo" | "rejected";
-
-function buildSteps(s: KaizenSuggestion): { label: string; state: StepState }[] {
-  const st = s.approvalStatus;
-  const managerState: StepState = st === "Rejected" ? "rejected" : st === "Pending" ? "current" : "done";
-  const boardState: StepState = st === "Rejected 2nd" ? "rejected" : st === "Second Approval" ? "done" : st === "First Approval" ? "current" : "todo";
-  const implState: StepState = s.completed ? "done" : st === "Second Approval" ? "current" : "todo";
-  // Only the stages this suggestion was routed through when it was submitted (Faz 2-B.3).
-  const stages = stagesOf(s);
-  return [
-    { label: "Gönderildi", state: "done" as StepState },
-    ...(stages.includes("Manager") ? [{ label: "Amir Onayı", state: managerState }] : []),
-    ...(stages.includes("Board") ? [{ label: "Kurul Değerlendirmesi", state: isRejected(st) && st === "Rejected" ? "todo" as StepState : boardState }] : []),
-    { label: "Uygulama", state: implState }
-  ];
-}
 
 function DetailDrawer({ suggestion, approvals, evaluations, canEdit, canWithdraw, onEdit, onWithdraw, onClose, settings }: {
   settings: KaizenSettings;
   suggestion: KaizenSuggestion; approvals: KaizenApproval[]; evaluations: KaizenEvaluation[];
   canEdit: boolean; canWithdraw: boolean; onEdit: () => void; onWithdraw: () => void; onClose: () => void;
 }) {
-  const steps = buildSteps(suggestion);
+  const steps = journeyOf(suggestion);
   const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
     <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p><div className="text-sm text-slate-800 mt-1 whitespace-pre-wrap">{children || "—"}</div></div>
   );

@@ -5,6 +5,7 @@
 // values, replacing an earlier best-guess version of this file).
 import { ApprovalStatus, ImplementationStatus, KaizenImplementation } from "./kaizenTypes";
 import { stagesOf } from "../../utils/kaizenSettings";
+import type { KaizenSuggestion } from "./kaizenTypes";
 
 // Öneri Sınıfı / Öneri Aşaması (PDCA) / Kazanç Süresi choices are per customer since Faz 2-B —
 // see DEFAULT_KAIZEN_SETTINGS in src/utils/kaizenSettings.ts for the legacy-confirmed defaults.
@@ -119,4 +120,23 @@ export function pendingFollowUps(impl?: Pick<KaizenImplementation, "followUps" |
 export function percentChange(before: number | null, after: number | null): number | null {
   if (before === null || after === null || before === 0) return null;
   return ((after - before) / Math.abs(before)) * 100;
+}
+
+// ---- Süreç adımları (journey) ----
+// The stages a suggestion goes through, as shown to people: only the stages it was routed through
+// when submitted (Faz 2-B.3), then implementation. Shared by Home, Önerilerim and the detail drawer.
+export type StepState = "done" | "current" | "todo" | "rejected";
+
+export function journeyOf(s: KaizenSuggestion): { key: string; label: string; state: StepState }[] {
+  const st = s.approvalStatus;
+  const managerState: StepState = st === "Rejected" ? "rejected" : st === "Pending" ? "current" : "done";
+  const boardState: StepState = st === "Rejected 2nd" ? "rejected" : st === "Second Approval" ? "done" : st === "First Approval" ? "current" : "todo";
+  const implState: StepState = s.completed ? "done" : st === "Second Approval" ? "current" : "todo";
+  const stages = stagesOf(s);
+  return [
+    { key: "sent", label: "Gönderildi", state: "done" },
+    ...(stages.includes("Manager") ? [{ key: "manager", label: "Amir Onayı", state: managerState }] : []),
+    ...(stages.includes("Board") ? [{ key: "board", label: "Kurul Değerlendirmesi", state: st === "Rejected" ? "todo" as StepState : boardState }] : []),
+    { key: "impl", label: "Uygulama", state: implState }
+  ];
 }

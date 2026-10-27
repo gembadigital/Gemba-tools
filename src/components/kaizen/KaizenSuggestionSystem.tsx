@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Home, Plus, ListChecks, Star, BarChart3, Settings, Hammer } from "lucide-react";
+import { Home, Plus, ListChecks, Star, BarChart3, Settings, Hammer, AlertCircle, CheckCircle2, X } from "lucide-react";
 import { useFactory } from "../../context/FactoryContext";
 import { KaizenPersonnel, KaizenCriteria, KaizenSuggestion, KaizenApproval, KaizenEvaluation, KaizenImplementation as KaizenImpl } from "./kaizenTypes";
 import { canDecideAsManager } from "./kaizenCalc";
@@ -75,9 +75,12 @@ export default function KaizenSuggestionSystem() {
   const [settings, setSettings] = useState<KaizenSettings>(DEFAULT_KAIZEN_SETTINGS);
 
   const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 3500);
+    // Errors stay longer — they usually ask the user to do something.
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), /^hata|oturum/i.test(msg) ? 9000 : 3500);
   }, []);
 
   // Token is read per request (it may be in sessionStorage, and may be renewed by a new login).
@@ -175,56 +178,63 @@ export default function KaizenSuggestionSystem() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64 text-slate-400 font-bold text-sm">
-        Kaizen öneri verileri yükleniyor...
+      <div className="space-y-6 animate-pulse" aria-busy="true" aria-label="Kaizen öneri verileri yükleniyor">
+        <div className="h-14 rounded-2xl bg-slate-200/70" />
+        <div className="h-56 rounded-3xl bg-slate-200/70" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">{[0, 1, 2, 3].map(i => <div key={i} className="h-28 rounded-2xl bg-slate-200/60" />)}</div>
       </div>
     );
   }
 
+  const isError = !!toast && /^hata|oturum/i.test(toast);
+
   return (
     <div className="space-y-6 font-sans w-full">
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-semibold max-w-sm">
-          {toast}
+        <div role="status" aria-live="polite" className="fixed bottom-6 right-6 left-6 sm:left-auto z-50 sm:max-w-md animate-toast-in">
+          <div className={`flex items-start gap-3 rounded-2xl px-4 py-3.5 shadow-2xl ring-1 backdrop-blur ${isError ? "bg-white ring-red-200 text-slate-800" : "bg-slate-900/95 ring-white/10 text-white"}`}>
+            {isError ? <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" /> : <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />}
+            <p className="text-sm font-medium flex-1">{toast.replace(/^Hata:\s*/, "")}</p>
+            <button onClick={() => setToast(null)} aria-label="Kapat" className={`shrink-0 -mr-1 w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer ${isError ? "text-slate-400 hover:bg-slate-100" : "text-white/60 hover:bg-white/10"}`}><X className="w-4 h-4" /></button>
+          </div>
         </div>
       )}
 
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-xs">
-        <div className="flex items-center justify-between flex-wrap gap-3 px-6 pt-5 pb-4">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-sm">
-              <Star className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Kaizen Öneri Sistemi</p>
-              <h2 className="text-xl font-black text-slate-900 leading-tight">Öneri Kutusu &amp; Değerlendirme</h2>
-            </div>
+      {/* Module bar: identity + section navigation (scrolls horizontally on phones) */}
+      <div className="sticky top-0 z-20 -mx-1 px-1 pt-1 pb-2 bg-gradient-to-b from-[#fafafa] via-[#fafafa]/95 to-[#fafafa]/0">
+        <div className="flex items-center gap-3 bg-white/90 backdrop-blur rounded-2xl ring-1 ring-slate-200/70 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-16px_rgba(15,23,42,0.12)] p-1.5 pl-3">
+          <div className="hidden sm:flex items-center gap-2.5 pr-3 mr-1 border-r border-slate-200 shrink-0">
+            <span className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-amber-500 text-white flex items-center justify-center shadow-sm shadow-amber-600/30"><Star className="w-4 h-4" /></span>
+            <span className="text-sm font-bold text-slate-900 whitespace-nowrap">Kaizen Öneri</span>
           </div>
+          <nav aria-label="Kaizen bölümleri" className="flex-1 min-w-0 flex gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {NAV_ITEMS.map(item => {
+              const Icon = item.icon;
+              const active = section === item.key;
+              return (
+                <button
+                  key={item.key}
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => {
+                    if (item.key === "new") setEditingSuggestion(null);
+                    setSection(item.key);
+                  }}
+                  className={`relative shrink-0 flex items-center gap-2 h-10 px-3.5 rounded-xl text-sm font-semibold cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/40 ${
+                    active
+                      ? item.key === "new" ? "bg-emerald-600 text-white shadow-sm" : "bg-slate-900 text-white shadow-sm"
+                      : item.key === "new" ? "text-emerald-700 hover:bg-emerald-50" : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{item.label}</span>
+                  {!!item.badge && item.badge > 0 && (
+                    <span className={`min-w-5 h-5 px-1.5 rounded-full text-xs font-bold flex items-center justify-center tabular-nums ${active ? "bg-white text-slate-900" : "bg-red-500 text-white"}`}>{item.badge}</span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
         </div>
-        <nav className="flex flex-wrap gap-1 px-4 border-t border-slate-100">
-          {NAV_ITEMS.map(item => {
-            const Icon = item.icon;
-            const active = section === item.key;
-            return (
-              <button
-                key={item.key}
-                onClick={() => {
-                  if (item.key === "new") setEditingSuggestion(null);
-                  setSection(item.key);
-                }}
-                className={`relative flex items-center gap-2 px-4 py-3.5 text-sm font-semibold cursor-pointer transition-colors border-b-2 -mb-px ${
-                  active ? "border-slate-900 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                <span>{item.label}</span>
-                {!!item.badge && item.badge > 0 && (
-                  <span className="min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center tabular-nums">{item.badge}</span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
       </div>
 
       {section === "home" && (
@@ -241,6 +251,8 @@ export default function KaizenSuggestionSystem() {
           onNewSuggestion={() => { setEditingSuggestion(null); setSection("new"); }}
           onShowMine={() => setSection("mine")}
           onShowApprovals={() => setSection("approvals")}
+          onShowImplementation={() => setSection("impl")}
+          onEditSuggestion={openEdit}
           canSeeApprovals={canSeeApprovals}
         />
       )}
