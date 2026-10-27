@@ -1285,7 +1285,7 @@ export class GeminiDb {
   // Criteria rubric doesn't retroactively change historical scores.
   public async decideKaizenBoard(
     orgId: string, suggestionId: string, approved: boolean,
-    evaluation: { criteriaId: string; criteriaLabel: string; point: number; yokoten: boolean; yokotenDescription: string; estimatedIncome: number; estimatedIncomeCurrency: string; comment: string },
+    evaluation: { criteriaId: string; criteriaLabel: string; point: number; yokoten: boolean; yokotenDescription: string; estimatedIncome: number; estimatedIncomeCurrency: string; reward?: { amount: number; currency: string } | null; comment: string },
     approverName: string, approverEmail: string
   ): Promise<{ suggestion: any; approval: any; evaluation: any } | null> {
     const suggestion = await this.getRecordById("kaizen_suggestions", suggestionId, orgId);
@@ -1320,6 +1320,7 @@ export class GeminiDb {
       estimatedIncome: Number(evaluation.estimatedIncome) || 0,
       estimatedIncomeCurrency: evaluation.estimatedIncomeCurrency || "TL",
       rewardStatus: "Bekliyor",
+      ...(evaluation.reward ? { rewardAmount: evaluation.reward.amount, rewardCurrency: evaluation.reward.currency } : {}),
       comment: evaluation.comment || "",
       createdAt: nowIso
     };
@@ -1360,10 +1361,12 @@ export class GeminiDb {
 
   // "Ödül Durumu" güncelleme — kazanılan puanın/kazancın fiilen çalışana bir ödül olarak ödenip
   // ödenmediğinin takibi. Puanlama yapılıyor ama sonrasında ödül sürecinin izlenmesi eksikti.
-  public async setKaizenRewardStatus(orgId: string, evaluationId: string, status: "Bekliyor" | "Ödendi"): Promise<any | null> {
+  public async setKaizenRewardStatus(
+    orgId: string, evaluationId: string, status: "Bekliyor" | "Ödendi", reward?: { amount: number; currency: string } | null
+  ): Promise<any | null> {
     const evaluation = await this.getRecordById("kaizen_evaluations", evaluationId, orgId);
     if (!evaluation) return null;
-    const updated = { ...evaluation, rewardStatus: status };
+    const updated = { ...evaluation, rewardStatus: status, ...(reward ? { rewardAmount: reward.amount, rewardCurrency: reward.currency } : {}) };
     await this.upsertMerged("kaizen_evaluations", orgId, updated);
     return updated;
   }

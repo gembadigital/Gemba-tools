@@ -2,7 +2,9 @@ import React, { useState, useMemo, useEffect } from "react";
 import { CheckCircle2, XCircle, Download, Share2, Gift, Clock, Inbox, ClipboardCheck, Users, Award, Sparkles, MessageSquare } from "lucide-react";
 import { KaizenSuggestion, KaizenCriteria, KaizenApproval, KaizenEvaluation } from "./kaizenTypes";
 import { canDecideAsManager, daysWaiting, WAITING_SEVERITY_COLORS } from "./kaizenCalc";
-import { KaizenSettings, currencyChoices, toBaseCurrency, waitingSeverityFor } from "../../utils/kaizenSettings";
+import { KaizenSettings, currencyChoices, toBaseCurrency, waitingSeverityFor, rewardFor } from "../../utils/kaizenSettings";
+
+const fmtReward = (r: { amount: number; currency: string }) => `${r.amount.toLocaleString("tr-TR")} ${r.currency}`;
 import { KaizenApi } from "./KaizenSuggestionSystem";
 import { Card, StatusBadge, Button, EmptyState, KpiCard, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 
@@ -97,7 +99,7 @@ export default function KaizenApprovals({ currentUser, suggestions, approvals, e
         />
       )}
       {tab === "yokoten" && isBoardMember && <YokotenTab suggestions={suggestions} evaluations={evaluations} api={api} showToast={showToast} onReload={onReload} />}
-      {tab === "reward" && isBoardMember && <RewardTab suggestions={suggestions} evaluations={evaluations} api={api} showToast={showToast} onReload={onReload} />}
+      {tab === "reward" && isBoardMember && <RewardTab suggestions={suggestions} evaluations={evaluations} api={api} showToast={showToast} onReload={onReload} settings={settings} />}
     </div>
   );
 }
@@ -277,7 +279,10 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-sm font-bold text-slate-800 flex items-center gap-2"><Award className="w-4 h-4" />Değerlendirme kriteri</p>
-                    {suggestedTier && <span className="text-xs font-semibold bg-teal-50 text-teal-700 rounded-full px-3 py-1 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" />Gelire göre önerilen: {suggestedTier.category} ({suggestedTier.point} puan)</span>}
+                    <div className="flex items-center gap-2 flex-wrap justify-end">
+                      {suggestedTier && <span className="text-xs font-semibold bg-teal-50 text-teal-700 rounded-full px-3 py-1 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" />Gelire göre önerilen: {suggestedTier.category} ({suggestedTier.point} puan)</span>}
+                      {selectedCriteria && settings.rewardPerPoint > 0 && <span className="text-xs font-semibold bg-amber-50 text-amber-700 rounded-full px-3 py-1">Ödül: {fmtReward(rewardFor({ point: selectedCriteria.point }, settings)!)}</span>}
+                    </div>
                   </div>
                   {sortedCriteria.length === 0 ? (
                     <p className="text-sm text-amber-700 bg-amber-50 rounded-xl px-4 py-3">Henüz kriter tanımlanmamış. Kurulum &gt; Değerlendirme Kriterleri bölümünden ekleyin.</p>
@@ -362,7 +367,7 @@ function YokotenTab({ suggestions, evaluations, api, showToast, onReload }: { su
   );
 }
 
-function RewardTab({ suggestions, evaluations, api, showToast, onReload }: { suggestions: KaizenSuggestion[]; evaluations: KaizenEvaluation[]; api: KaizenApi; showToast: (m: string) => void; onReload: () => void }) {
+function RewardTab({ suggestions, evaluations, api, showToast, onReload, settings }: { suggestions: KaizenSuggestion[]; evaluations: KaizenEvaluation[]; api: KaizenApi; showToast: (m: string) => void; onReload: () => void; settings: KaizenSettings }) {
   const rows = useMemo(() => evaluations.map(e => ({ evaluation: e, suggestion: suggestions.find(s => s.id === e.suggestionId) }))
     .filter(r => !!r.suggestion && r.suggestion!.approvalStatus === "Second Approval")
     .sort((a, b) => (b.evaluation.createdAt || "").localeCompare(a.evaluation.createdAt || "")), [evaluations, suggestions]);
@@ -373,15 +378,21 @@ function RewardTab({ suggestions, evaluations, api, showToast, onReload }: { sug
   };
   const pendingPoints = rows.filter(r => (r.evaluation.rewardStatus || "Bekliyor") !== "Ödendi").reduce((sum, r) => sum + (r.evaluation.point || 0), 0);
   const pending = rows.filter(r => (r.evaluation.rewardStatus || "Bekliyor") !== "Ödendi").length;
+  // Amount owed per row: the amount fixed at approval/payment, else point × the current rate.
+  const rewards = new Map(rows.map(r => [r.evaluation.id, rewardFor(r.evaluation, settings)]));
+  const showAmounts = Array.from(rewards.values()).some(Boolean);
+  const pendingAmount = rows
+    .filter(r => (r.evaluation.rewardStatus || "Bekliyor") !== "Ödendi")
+    .reduce((sum, r) => { const w = rewards.get(r.evaluation.id); return w && w.currency === settings.baseCurrency ? sum + w.amount : sum; }, 0);
   return (
     <Card padded={false} className="overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
         <div><h3 className="font-black text-slate-900">Ödül Takibi ({rows.length})</h3><p className="text-sm text-slate-500">Onaylanan önerilerin ödül/prim ödemesi.</p></div>
-        <p className="text-sm font-semibold text-amber-700 bg-amber-50 rounded-full px-4 py-1.5">{pending} ödeme bekliyor · {pendingPoints} puan</p>
+        <p className="text-sm font-semibold text-amber-700 bg-amber-50 rounded-full px-4 py-1.5">{pending} ödeme bekliyor · {pendingPoints} puan{showAmounts && pendingAmount > 0 ? ` · ${pendingAmount.toLocaleString("tr-TR")} ${settings.baseCurrency}` : ""}</p>
       </div>
       {rows.length === 0 ? <EmptyState icon={Gift} title="Onaylanmış öneri bulunamadı" /> : (
         <div className="overflow-x-auto"><table className={tableCls}>
-          <thead className={theadCls}><tr><th className={thCls}>Konu</th><th className={thCls}>Ad Soyad</th><th className={thCls}>Puan</th><th className={thCls}>Onaylanan Getiri</th><th className={thCls}>Ödül Durumu</th></tr></thead>
+          <thead className={theadCls}><tr><th className={thCls}>Konu</th><th className={thCls}>Ad Soyad</th><th className={thCls}>Puan</th>{showAmounts && <th className={thCls}>Ödül Tutarı</th>}<th className={thCls}>Onaylanan Getiri</th><th className={thCls}>Ödül Durumu</th></tr></thead>
           <tbody>{rows.map(({ evaluation: e, suggestion: s }) => {
             const paid = (e.rewardStatus || "Bekliyor") === "Ödendi";
             return (
@@ -389,6 +400,10 @@ function RewardTab({ suggestions, evaluations, api, showToast, onReload }: { sug
                 <td className={`${tdCls} font-semibold text-slate-900`}>{s!.subject}</td>
                 <td className={tdCls}>{s!.personnelName}</td>
                 <td className={`${tdCls} font-bold tabular-nums`}>{e.point}</td>
+                {showAmounts && (() => {
+                  const w = rewards.get(e.id);
+                  return <td className={`${tdCls} tabular-nums`} title={w && !w.snapshot ? "Güncel puan başı ödüle göre; ödendi olarak işaretlenince sabitlenir" : undefined}>{w ? `${fmtReward(w)}${w.snapshot ? "" : " *"}` : "—"}</td>;
+                })()}
                 <td className={`${tdCls} tabular-nums`}>{e.estimatedIncome ? `${e.estimatedIncome.toLocaleString("tr-TR")} ${e.estimatedIncomeCurrency}` : "—"}</td>
                 <td className={tdCls}><button onClick={() => toggle(e.id, !paid)} className={`h-9 px-3.5 rounded-full text-sm font-semibold cursor-pointer ${paid ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{paid ? "Ödendi" : "Bekliyor"}</button></td>
               </tr>

@@ -5,23 +5,10 @@
 // values, replacing an earlier best-guess version of this file).
 import { ApprovalStatus, ImplementationStatus, KaizenImplementation } from "./kaizenTypes";
 
-// Öneri Sınıfı (Suggestion.SuggestionType) — confirmed exact values from the live app's picker.
-export const SUGGESTION_TYPE_OPTIONS = [
-  "Maliyet Azaltma", "Kalite", "ISG", "5S", "Verimlilik", "Enerji"
-] as const;
-
-// Öneri Aşaması (Suggestion.Status) — this is the PDCA improvement-cycle stage, not a maturity
-// label like "planned/in progress" — confirmed from the live picker.
-export const STAGE_OPTIONS = ["Plan (Planlama)", "Do (Yap)", "Check (Kontrol)", "Action (Önlem Al)"] as const;
-
-// Kazanç Süresi (Suggestion.Time) — this describes how the estimated saving RECURS (per unit
-// produced, once a year, or a one-off), not a payback-period window — confirmed from the live
-// picker (an earlier version of this file wrongly modeled it as a payback window like "0-3 Ay").
-export const PAYBACK_PERIOD_OPTIONS = ["Parça Başı", "Senelik", "Bir Sefer"] as const;
-
-// Estimated_Saving_Currency / Estimated_Cost_Currency — confirmed from the live picker; "Eş Değer
-// Ürün" (in-kind/equivalent product) is a real 4th option alongside actual currencies.
-export const CURRENCY_OPTIONS = ["TL", "USD", "EUR", "Eş Değer Ürün"] as const;
+// Öneri Sınıfı / Öneri Aşaması (PDCA) / Kazanç Süresi choices are per customer since Faz 2-B —
+// see DEFAULT_KAIZEN_SETTINGS in src/utils/kaizenSettings.ts for the legacy-confirmed defaults.
+// "Kazanç Süresi" describes how the saving RECURS (per unit / yearly / one-off), not a payback window.
+// Currencies likewise (KNOWN_CURRENCIES there; "Eş Değer Ürün" = in-kind saving).
 
 export const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
   "Pending": "Onay Bekliyor",

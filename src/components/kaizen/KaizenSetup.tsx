@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from "react";
-import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, SlidersHorizontal, Coins, Clock } from "lucide-react";
+import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, SlidersHorizontal, Coins, Clock, ListChecks, Gift } from "lucide-react";
 import { KaizenPersonnel, KaizenCriteria } from "./kaizenTypes";
 import { Card, SectionTitle, Button, EmptyState, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
-import { KaizenSettings, KNOWN_CURRENCIES, IN_KIND_CURRENCY, normalizeKaizenSettings } from "../../utils/kaizenSettings";
+import { KaizenSettings, KNOWN_CURRENCIES, IN_KIND_CURRENCY, normalizeKaizenSettings, DEFAULT_KAIZEN_SETTINGS, MAX_OPTIONS, MAX_OPTION_LENGTH } from "../../utils/kaizenSettings";
 
 interface Crud<T> {
   save: (record: Partial<T> & { id?: string }) => Promise<any>;
@@ -198,7 +198,11 @@ function SettingsTab({ settings, onSave }: { settings: KaizenSettings; onSave: (
     warning: String(st.waitingWarningDays),
     overdue: String(st.waitingOverdueDays),
     follow1: String(st.followUpDays[0] ?? ""),
-    follow2: String(st.followUpDays[1] ?? "")
+    follow2: String(st.followUpDays[1] ?? ""),
+    suggestionTypes: st.suggestionTypes,
+    stages: st.stages,
+    paybackPeriods: st.paybackPeriods,
+    reward: st.rewardPerPoint ? String(st.rewardPerPoint) : ""
   });
   const [d, setD] = useState(() => fromSettings(settings));
   const [saving, setSaving] = useState(false);
@@ -212,7 +216,11 @@ function SettingsTab({ settings, onSave }: { settings: KaizenSettings; onSave: (
     fxRates: d.fxRates,
     waitingWarningDays: d.warning,
     waitingOverdueDays: d.overdue,
-    followUpDays: [d.follow1, d.follow2].filter(v => v.trim() !== "")
+    followUpDays: [d.follow1, d.follow2].filter(v => v.trim() !== ""),
+    suggestionTypes: d.suggestionTypes,
+    stages: d.stages,
+    paybackPeriods: d.paybackPeriods,
+    rewardPerPoint: d.reward
   });
   const foreign = next.currencies.filter(c => c !== next.baseCurrency && c !== IN_KIND_CURRENCY);
 
@@ -283,10 +291,69 @@ function SettingsTab({ settings, onSave }: { settings: KaizenSettings; onSave: (
         </div>
       </Card>
 
+      <Card className="xl:col-span-2">
+        <SectionTitle icon={ListChecks} title="Seçenek Listeleri" hint="Yeni Öneri formunda ve rapor filtrelerinde görünür" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-4">
+          <OptionListEditor label="Öneri Sınıfı" items={d.suggestionTypes} defaults={DEFAULT_KAIZEN_SETTINGS.suggestionTypes} onChange={v => setD(x => ({ ...x, suggestionTypes: v }))} />
+          <OptionListEditor label="Öneri Aşaması (PDCA)" items={d.stages} defaults={DEFAULT_KAIZEN_SETTINGS.stages} onChange={v => setD(x => ({ ...x, stages: v }))} />
+          <OptionListEditor label="Kazanç Süresi" items={d.paybackPeriods} defaults={DEFAULT_KAIZEN_SETTINGS.paybackPeriods} onChange={v => setD(x => ({ ...x, paybackPeriods: v }))} />
+        </div>
+        <p className="text-xs text-slate-500 mt-4">Bir seçeneği kaldırmak eski kayıtları değiştirmez; o değer eski önerilerde ve filtrelerde görünmeye devam eder. Yeniden adlandırma yeni bir değer sayılır.</p>
+      </Card>
+
+      <Card className="xl:col-span-2">
+        <SectionTitle icon={Gift} title="Ödül" hint="Kurul puanını ödüle çevirir" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 items-end">
+          <Field label={`Puan başına ödül (${next.baseCurrency}, boş = tutar gösterilmez)`}>
+            <input type="number" min={0} step="any" value={d.reward} placeholder="—" onChange={e => setD(x => ({ ...x, reward: e.target.value }))} className={inputCls} />
+          </Field>
+          <p className="text-xs text-slate-500">Tutar Kurul onayında kayda sabitlenir; oran sonradan değişirse önceki ödüller değişmez. Oran girilmeden önce onaylanmış öneriler ödendi olarak işaretlendiğinde o günkü oranla sabitlenir.</p>
+        </div>
+      </Card>
+
       <div className="xl:col-span-2 flex items-center justify-between gap-3 flex-wrap">
         <p className="text-xs text-slate-500">{settings.updatedAt ? `Son değişiklik: ${new Date(settings.updatedAt).toLocaleString("tr-TR")}${settings.updatedBy ? ` · ${settings.updatedBy}` : ""}` : "Bu müşteri için henüz ayar kaydedilmedi; varsayılanlar geçerli."}</p>
         <Button variant="brand" onClick={save} disabled={saving}><Save className="w-4 h-4" />{saving ? "Kaydediliyor…" : "Ayarları Kaydet"}</Button>
       </div>
+    </div>
+  );
+}
+
+function OptionListEditor({ label, items, defaults, onChange }: { label: string; items: string[]; defaults: string[]; onChange: (v: string[]) => void }) {
+  const [text, setText] = useState("");
+  const value = text.trim().slice(0, MAX_OPTION_LENGTH);
+  const exists = items.some(i => i.toLocaleLowerCase("tr") === value.toLocaleLowerCase("tr"));
+  const canAdd = !!value && !exists && items.length < MAX_OPTIONS;
+  const add = () => { if (canAdd) { onChange([...items, value]); setText(""); } };
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= items.length) return;
+    const copy = [...items];
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+    onChange(copy);
+  };
+  const isDefault = items.length === defaults.length && items.every((v, i) => v === defaults[i]);
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <p className="text-sm font-semibold text-slate-700">{label}</p>
+        {!isDefault && <button type="button" onClick={() => onChange(defaults)} className="text-xs text-slate-500 hover:text-slate-800 underline cursor-pointer">Varsayılana dön</button>}
+      </div>
+      <ul className="space-y-1.5">
+        {items.map((item, i) => (
+          <li key={item} className="flex items-center gap-1 rounded-xl border border-slate-200 pl-3.5 pr-1 h-11">
+            <span className="flex-1 min-w-0 truncate text-sm text-slate-800">{item}</span>
+            <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="w-8 h-8 rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-30 cursor-pointer" title="Yukarı">↑</button>
+            <button type="button" onClick={() => move(i, 1)} disabled={i === items.length - 1} className="w-8 h-8 rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-30 cursor-pointer" title="Aşağı">↓</button>
+            <button type="button" onClick={() => onChange(items.filter((_, k) => k !== i))} disabled={items.length === 1} className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-red-500 hover:bg-red-50 disabled:opacity-30 cursor-pointer" title="Kaldır"><X className="w-4 h-4" /></button>
+          </li>
+        ))}
+      </ul>
+      <div className="flex gap-2 mt-2">
+        <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); add(); } }} placeholder="Yeni seçenek" maxLength={MAX_OPTION_LENGTH} className={inputCls} />
+        <Button variant="ghost" onClick={add} disabled={!canAdd} className="shrink-0"><Plus className="w-4 h-4" />Ekle</Button>
+      </div>
+      {exists && value && <p className="text-xs text-amber-700 mt-1">Bu seçenek zaten listede.</p>}
     </div>
   );
 }

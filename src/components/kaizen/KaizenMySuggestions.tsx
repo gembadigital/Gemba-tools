@@ -3,6 +3,7 @@ import { Edit3, X, Undo2, Search, Check, Circle, XCircle, Lightbulb, MessageSqua
 import { KaizenSuggestion, KaizenApproval, KaizenEvaluation, ApprovalStatus } from "./kaizenTypes";
 import { APPROVAL_STATUS_LABELS, canEditSuggestion, isRejected } from "./kaizenCalc";
 import { KaizenApi } from "./KaizenSuggestionSystem";
+import { KaizenSettings, rewardFor } from "../../utils/kaizenSettings";
 import { Card, StatusBadge, Button, EmptyState, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 
 interface Props {
@@ -14,11 +15,12 @@ interface Props {
   api: KaizenApi;
   showToast: (msg: string) => void;
   onReload: () => void;
+  settings: KaizenSettings;
 }
 
 const ALL = "__ALL__";
 
-export default function KaizenMySuggestions({ currentUser, suggestions, approvals, evaluations, onEdit, api, showToast, onReload }: Props) {
+export default function KaizenMySuggestions({ currentUser, suggestions, approvals, evaluations, onEdit, api, showToast, onReload, settings }: Props) {
   const myEmail = (currentUser?.email || "").toLowerCase();
   // A suggestion shows here if I authored it OR I am its team leader (team leaders track their
   // team's submissions in the same list).
@@ -141,6 +143,7 @@ export default function KaizenMySuggestions({ currentUser, suggestions, approval
 
       {detail && (
         <DetailDrawer
+          settings={settings}
           suggestion={detail}
           approvals={approvals.filter(a => a.suggestionId === detail.id).sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""))}
           evaluations={evaluations.filter(e => e.suggestionId === detail.id)}
@@ -170,7 +173,8 @@ function buildSteps(s: KaizenSuggestion): { label: string; state: StepState }[] 
   ];
 }
 
-function DetailDrawer({ suggestion, approvals, evaluations, canEdit, canWithdraw, onEdit, onWithdraw, onClose }: {
+function DetailDrawer({ suggestion, approvals, evaluations, canEdit, canWithdraw, onEdit, onWithdraw, onClose, settings }: {
+  settings: KaizenSettings;
   suggestion: KaizenSuggestion; approvals: KaizenApproval[]; evaluations: KaizenEvaluation[];
   canEdit: boolean; canWithdraw: boolean; onEdit: () => void; onWithdraw: () => void; onClose: () => void;
 }) {
@@ -280,7 +284,7 @@ function DetailDrawer({ suggestion, approvals, evaluations, canEdit, canWithdraw
                 <div key={e.id} className="text-sm text-slate-700 space-y-0.5">
                   <p><span className="font-bold text-slate-900">{e.criteriaLabel || "Kriter seçilmedi"}</span> — {e.point} puan</p>
                   {!!e.estimatedIncome && <p>Onaylanan getiri: {e.estimatedIncome.toLocaleString("tr-TR")} {e.estimatedIncomeCurrency}</p>}
-                  <p>Yokoten: {e.yokoten ? (e.yokotenImplemented ? "Uygulandı" : "Uygulanabilir, bekliyor") : "Uygulanamaz"} · Ödül: {e.rewardStatus || "Bekliyor"}</p>
+                  <p>Yokoten: {e.yokoten ? (e.yokotenImplemented ? "Uygulandı" : "Uygulanabilir, bekliyor") : "Uygulanamaz"} · Ödül: {e.rewardStatus || "Bekliyor"}{(() => { const w = rewardFor(e, settings); return w ? ` · ${w.amount.toLocaleString("tr-TR")} ${w.currency}` : ""; })()}</p>
                 </div>
               ))}
             </div>

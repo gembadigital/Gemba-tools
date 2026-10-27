@@ -10,7 +10,7 @@ import { analyzePtrRecords } from "./ptrDigest.js";
 import { buildFacts, generateConsultantBrief } from "./opexReport/consultantBrief.js";
 import { applyFinding, canWriteFinding } from "./opexFindings.js";
 import { renderReportHtml } from "./opexReport/render.js";
-import { KNOWN_CURRENCIES, normalizeKaizenSettings, KaizenSettings } from "../utils/kaizenSettings.js";
+import { KNOWN_CURRENCIES, normalizeKaizenSettings, KaizenSettings, rewardFor } from "../utils/kaizenSettings.js";
 import * as XLSX from "xlsx";
 
 // This module only builds and configures the Express app (all /api/* routes) and exports it —
@@ -2889,7 +2889,8 @@ app.post("/api/business/kaizen/suggestions/:id/board-decision", authenticateToke
     return;
   }
   // Score comes from the server's own criteria table, never from the request body.
-  const { baseCurrency } = await loadKaizenSettings(user.organization_id, suggestion.factory_id);
+  const settings = await loadKaizenSettings(user.organization_id, suggestion.factory_id);
+  const { baseCurrency } = settings;
   let criteriaId = "", criteriaLabel = "", point = 0;
   if (approved) {
     const criteria = (await db.getKaizenRecords("kaizen_criteria", user.organization_id, suggestion.factory_id)).find((c: any) => c.id === req.body.criteriaId);
@@ -2905,6 +2906,8 @@ app.post("/api/business/kaizen/suggestions/:id/board-decision", authenticateToke
       criteriaId, criteriaLabel, point,
       yokoten: req.body.yokoten === true, yokotenDescription: clip(req.body.yokotenDescription, 1000),
       estimatedIncome: asAmount(req.body.estimatedIncome), estimatedIncomeCurrency: asCurrency(req.body.estimatedIncomeCurrency, baseCurrency),
+      // Reward owed is fixed at approval so a later rate change does not rewrite it.
+      reward: approved ? rewardFor({ point }, settings) : null,
       comment
     },
     user.full_name, user.email
@@ -2978,10 +2981,15 @@ app.post("/api/business/kaizen/evaluations/:id/yokoten-implemented", authenticat
 });
 
 app.post("/api/business/kaizen/evaluations/:id/reward-status", authenticateToken, async (req, res) => {
-  if (!(await loadKaizenEvaluationForBoard(req, res))) return;
+  const evaluation = await loadKaizenEvaluationForBoard(req, res);
+  if (!evaluation) return;
   const user = (req as any).user;
   const status = req.body.status === "Ödendi" ? "Ödendi" : "Bekliyor";
-  const updated = await db.setKaizenRewardStatus(user.organization_id, req.params.id, status);
+  // Evaluations approved before a reward rate existed get their amount fixed when first paid.
+  const reward = status === "Ödendi"
+    ? rewardFor(evaluation, await loadKaizenSettings(user.organization_id, evaluation.factory_id))
+    : null;
+  const updated = await db.setKaizenRewardStatus(user.organization_id, req.params.id, status, reward && !reward.snapshot ? reward : null);
   if (!updated) return denyKaizen(res, 404, "Değerlendirme bulunamadı.");
   res.json({ success: true, data: updated });
 });

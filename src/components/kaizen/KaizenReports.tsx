@@ -5,9 +5,9 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, RadialBarChart, RadialBar, PolarAngleAxis
 } from "recharts";
 import { KaizenSuggestion, KaizenEvaluation, KaizenPersonnel, KaizenImplementation, ApprovalStatus } from "./kaizenTypes";
-import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, SUGGESTION_TYPE_OPTIONS, STAGE_OPTIONS, actionProgress } from "./kaizenCalc";
+import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, actionProgress } from "./kaizenCalc";
 import { KaizenApi } from "./KaizenSuggestionSystem";
-import { KaizenSettings, toBaseCurrency } from "../../utils/kaizenSettings";
+import { KaizenSettings, toBaseCurrency, optionChoices } from "../../utils/kaizenSettings";
 import { Card, KpiCard, Button, EmptyState, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 
 // Native replacement for the legacy Power BI report (two pages: a KPI/chart dashboard with five
@@ -38,6 +38,9 @@ const selectCls = "h-10 px-3 rounded-xl border border-slate-200 bg-white text-sm
 
 export default function KaizenReports({ suggestions, evaluations, personnel, implementations, api, settings }: Props) {
   const base = settings.baseCurrency;
+  // Filters list the customer's current options plus any older value still present in the data.
+  const typeFilterOptions = useMemo(() => optionChoices(settings.suggestionTypes, suggestions.flatMap(s => s.suggestionTypes || [])), [settings, suggestions]);
+  const stageFilterOptions = useMemo(() => optionChoices(settings.stages, suggestions.map(s => s.stage)), [settings, suggestions]);
   const [fDepartment, setFDepartment] = useState(ALL);
   const [fType, setFType] = useState(ALL);
   const [fStatus, setFStatus] = useState(ALL);
@@ -180,9 +183,9 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
         <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2.5">
           <select value={fPersonnel} onChange={e => setFPersonnel(e.target.value)} className={selectCls}><option value={ALL}>Tüm Personel</option>{personnelNames.map(n => <option key={n} value={n}>{n}</option>)}</select>
           <select value={fDepartment} onChange={e => setFDepartment(e.target.value)} className={selectCls}><option value={ALL}>Tüm Bölümler</option>{departments.map(d => <option key={d} value={d}>{d}</option>)}</select>
-          <select value={fType} onChange={e => setFType(e.target.value)} className={selectCls}><option value={ALL}>Tüm Sınıflar</option>{SUGGESTION_TYPE_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}</select>
+          <select value={fType} onChange={e => setFType(e.target.value)} className={selectCls}><option value={ALL}>Tüm Sınıflar</option>{typeFilterOptions.map(t => <option key={t} value={t}>{t}</option>)}</select>
           <select value={fStatus} onChange={e => setFStatus(e.target.value)} className={selectCls}><option value={ALL}>Tüm Durumlar</option>{Object.entries(APPROVAL_STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
-          <select value={fStage} onChange={e => setFStage(e.target.value)} className={selectCls}><option value={ALL}>Tüm Aşamalar</option>{STAGE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}</select>
+          <select value={fStage} onChange={e => setFStage(e.target.value)} className={selectCls}><option value={ALL}>Tüm Aşamalar</option>{stageFilterOptions.map(s => <option key={s} value={s}>{s}</option>)}</select>
           <input type="date" value={fFrom} onChange={e => setFFrom(e.target.value)} className={selectCls} aria-label="Başlangıç tarihi" />
           <input type="date" value={fTo} onChange={e => setFTo(e.target.value)} className={selectCls} aria-label="Bitiş tarihi" />
         </div>

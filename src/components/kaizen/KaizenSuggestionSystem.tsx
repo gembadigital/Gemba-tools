@@ -267,6 +267,7 @@ export default function KaizenSuggestionSystem() {
           api={api}
           showToast={showToast}
           onReload={loadAll}
+          settings={settings}
         />
       )}
 

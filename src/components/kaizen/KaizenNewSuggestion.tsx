@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight, Save, Camera, X, Check, User, FileText, Lightbulb, Coins, Eye } from "lucide-react";
 import { KaizenPersonnel, KaizenSuggestion, KaizenSuggestionPhoto } from "./kaizenTypes";
-import { SUGGESTION_TYPE_OPTIONS, STAGE_OPTIONS, PAYBACK_PERIOD_OPTIONS } from "./kaizenCalc";
-import { KaizenSettings, currencyChoices } from "../../utils/kaizenSettings";
+import { KaizenSettings, currencyChoices, optionChoices } from "../../utils/kaizenSettings";
 import { KaizenApi } from "./KaizenSuggestionSystem";
 import { Card, Button } from "./kaizenUi";
 
@@ -286,7 +285,7 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
 
               <Field label="Öneri Sınıfı" required error={attempted && form.suggestionTypes.length === 0 ? "En az bir sınıf seçiniz." : undefined}>
                 <div className="flex flex-wrap gap-2">
-                  {SUGGESTION_TYPE_OPTIONS.map(t => {
+                  {optionChoices(settings.suggestionTypes, editingSuggestion?.suggestionTypes).map(t => {
                     const on = form.suggestionTypes.includes(t);
                     return (
                       <button key={t} type="button" onClick={() => toggleType(t)} className={`h-10 px-4 rounded-full text-sm font-semibold cursor-pointer transition-colors ${on ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
@@ -329,13 +328,13 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
                 <Field label="Öneri Aşaması (PDCA)" required error={attempted && !form.stage ? "Seçiniz." : undefined}>
                   <select value={form.stage} onChange={e => setForm(f => ({ ...f, stage: e.target.value }))} className={`${inputCls} ${attempted && !form.stage ? errCls : ""}`}>
                     <option value="">Seçiniz…</option>
-                    {STAGE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                    {optionChoices(settings.stages, editingSuggestion?.stage).map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </Field>
                 <Field label="Kazanç Süresi" required hint="Kazanç ne sıklıkla oluşuyor?" error={attempted && !form.paybackPeriod ? "Seçiniz." : undefined}>
                   <select value={form.paybackPeriod} onChange={e => setForm(f => ({ ...f, paybackPeriod: e.target.value }))} className={`${inputCls} ${attempted && !form.paybackPeriod ? errCls : ""}`}>
                     <option value="">Seçiniz…</option>
-                    {PAYBACK_PERIOD_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+                    {optionChoices(settings.paybackPeriods, editingSuggestion?.paybackPeriod).map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </Field>
                 <Field label="Tahmini Kazanç">

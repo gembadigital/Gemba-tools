@@ -16,6 +16,10 @@ export interface KaizenSettings {
   waitingWarningDays: number;        // approval queue: amber from this many days
   waitingOverdueDays: number;        // approval queue: red from this many days
   followUpDays: number[];            // persistence checks after completion, ascending (1–2 entries)
+  suggestionTypes: string[];         // Öneri Sınıfı choices
+  stages: string[];                  // Öneri Aşaması (PDCA) choices
+  paybackPeriods: string[];          // Kazanç Süresi choices
+  rewardPerPoint: number;            // reward paid per Kurul point, in baseCurrency; 0 = no amount shown
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -26,8 +30,28 @@ export const DEFAULT_KAIZEN_SETTINGS: KaizenSettings = {
   fxRates: {},
   waitingWarningDays: 3,
   waitingOverdueDays: 7,
-  followUpDays: [30, 90]
+  followUpDays: [30, 90],
+  // Values confirmed against the legacy KaizenSuite app (see kaizenCalc.ts history).
+  suggestionTypes: ["Maliyet Azaltma", "Kalite", "ISG", "5S", "Verimlilik", "Enerji"],
+  stages: ["Plan (Planlama)", "Do (Yap)", "Check (Kontrol)", "Action (Önlem Al)"],
+  paybackPeriods: ["Parça Başı", "Senelik", "Bir Sefer"],
+  rewardPerPoint: 0
 };
+
+export const MAX_OPTIONS = 30;
+export const MAX_OPTION_LENGTH = 60;
+
+// Trimmed, de-duplicated (case-insensitive), length-capped list; empty or missing → default.
+function optionList(v: any, fallback: string[]): string[] {
+  if (!Array.isArray(v)) return fallback;
+  const out: string[] = [];
+  for (const raw of v) {
+    const t = typeof raw === "string" ? raw.trim().slice(0, MAX_OPTION_LENGTH) : "";
+    if (t && !out.some(o => o.toLocaleLowerCase("tr") === t.toLocaleLowerCase("tr"))) out.push(t);
+    if (out.length >= MAX_OPTIONS) break;
+  }
+  return out.length ? out : fallback;
+}
 
 const isKnownCurrency = (v: any): v is string => typeof v === "string" && (KNOWN_CURRENCIES as readonly string[]).includes(v);
 const intIn = (v: any, min: number, max: number): number | null => {
@@ -63,10 +87,16 @@ export function normalizeKaizenSettings(input: any): KaizenSettings {
   const days = parsed.filter((v, i) => parsed.indexOf(v) === i).sort((a, b) => a - b).slice(0, 2);
   const followUpDays = days.length ? days : d.followUpDays;
 
+  const reward = Number(src.rewardPerPoint);
+
   return {
     baseCurrency, currencies, fxRates,
     waitingWarningDays: warning, waitingOverdueDays: overdue,
     followUpDays,
+    suggestionTypes: optionList(src.suggestionTypes, d.suggestionTypes),
+    stages: optionList(src.stages, d.stages),
+    paybackPeriods: optionList(src.paybackPeriods, d.paybackPeriods),
+    rewardPerPoint: Number.isFinite(reward) && reward > 0 ? Math.round(reward * 100) / 100 : 0,
     ...(typeof src.updatedAt === "string" ? { updatedAt: src.updatedAt } : {}),
     ...(typeof src.updatedBy === "string" ? { updatedBy: src.updatedBy } : {})
   };
@@ -93,4 +123,25 @@ export function waitingSeverityFor(days: number, settings: KaizenSettings): "nor
 // has since removed it (otherwise the select would silently show — and resave — another currency).
 export function currencyChoices(settings: KaizenSettings, current?: string): string[] {
   return current && !settings.currencies.includes(current) ? [...settings.currencies, current] : settings.currencies;
+}
+
+// Same as currencyChoices for the option lists: keep a record's own value selectable after an
+// admin removed or renamed it, so editing an old suggestion never silently changes it.
+export function optionChoices(list: string[], current?: string | string[]): string[] {
+  const values = Array.isArray(current) ? current : current ? [current] : [];
+  const extra = values.filter((v, i) => v && !list.includes(v) && values.indexOf(v) === i);
+  return extra.length ? [...list, ...extra] : list;
+}
+
+// Reward owed for one Kurul evaluation. A snapshot taken at approval/payment time wins, so changing
+// the rate later never rewrites what was promised or paid; otherwise it is point × current rate.
+export function rewardFor(
+  evaluation: { point?: number; rewardAmount?: number; rewardCurrency?: string },
+  settings: KaizenSettings
+): { amount: number; currency: string; snapshot: boolean } | null {
+  if (typeof evaluation.rewardAmount === "number" && evaluation.rewardCurrency) {
+    return { amount: evaluation.rewardAmount, currency: evaluation.rewardCurrency, snapshot: true };
+  }
+  if (!settings.rewardPerPoint) return null;
+  return { amount: Math.round((Number(evaluation.point) || 0) * settings.rewardPerPoint * 100) / 100, currency: settings.baseCurrency, snapshot: false };
 }

@@ -134,6 +134,8 @@ export interface KaizenEvaluation {
   estimatedIncome: number;
   estimatedIncomeCurrency: string;
   rewardStatus: RewardStatus;  // has the earned point/kazanç actually been paid out to the employee?
+  rewardAmount?: number;       // Faz 2-B: point × customer's rewardPerPoint, snapshotted at approval/payment
+  rewardCurrency?: string;
   comment: string;
   createdAt: string;
 }
