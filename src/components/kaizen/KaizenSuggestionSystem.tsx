@@ -10,7 +10,7 @@ import KaizenApprovals from "./KaizenApprovals";
 import KaizenReports from "./KaizenReports";
 import KaizenSetup from "./KaizenSetup";
 import { daysWaiting } from "./kaizenCalc";
-
+g
 export type KaizenApi = {
   get: (path: string) => Promise<any[]>;
   post: (path: string, body: any) => Promise<any>;
@@ -174,9 +174,6 @@ export default function KaizenSuggestionSystem() {
               <h2 className="text-xl font-black text-slate-900 leading-tight">Öneri Kutusu &amp; Değerlendirme</h2>
             </div>
           </div>
-          {selectedCustomer?.companyName && (
-            <span className="text-sm font-semibold text-slate-600 bg-slate-100 rounded-full px-3.5 py-1.5">{selectedCustomer.companyName}</span>
-          )}
         </div>
         <nav className="flex flex-wrap gap-1 px-4 border-t border-slate-100">
           {NAV_ITEMS.map(item => {
