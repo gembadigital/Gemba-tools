@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Printer, X, ArrowRight } from "lucide-react";
 import { KaizenSuggestion, KaizenImplementation, KaizenEvaluation } from "./kaizenTypes";
 import { percentChange } from "./kaizenCalc";
@@ -19,17 +20,33 @@ interface Props {
 const fmtMoney = (n: number, cur: string) => `${(n || 0).toLocaleString("tr-TR")} ${cur || "TL"}`;
 const fmtDate = (iso?: string) => (iso ? iso.slice(0, 10).split("-").reverse().join(".") : "—");
 
+// Printing: the overlay is portalled straight into <body> (inside the app it sat in a fixed-height
+// scroll container, so the print clipped everything below the first screen). In print only the
+// overlay is shown, and the sheet is scaled with `zoom` so its measured height fits the printable
+// A4-landscape area (297×210 mm minus 6 mm margins) — long texts shrink instead of being cut off.
+const PAGE_W_MM = 285;
+const PAGE_H_MM = 198;
+const MM = 96 / 25.4; // CSS px per mm
 const PRINT_CSS = `
 @page { size: A4 landscape; margin: 6mm; }
 @media print {
-  body * { visibility: hidden !important; }
-  #kaizen-onepager, #kaizen-onepager * { visibility: visible !important; }
-  .kaizen-op-overlay { position: absolute !important; inset: 0 !important; overflow: visible !important; background: none !important; padding: 0 !important; }
-  #kaizen-onepager { position: absolute; left: 0; top: 0; width: 285mm !important; max-width: none !important; height: 197mm !important; min-height: 0 !important; box-shadow: none !important; margin: 0 !important; }
+  html, body { height: auto !important; overflow: visible !important; background: #fff !important; }
+  body > *:not(.kaizen-op-overlay) { display: none !important; }
+  .kaizen-op-overlay { position: static !important; overflow: visible !important; background: none !important; padding: 0 !important; }
   .kaizen-op-noprint { display: none !important; }
+  #kaizen-onepager { width: ${PAGE_W_MM}mm !important; min-height: 0 !important; box-shadow: none !important; margin: 0 !important; zoom: var(--op-scale, 1); break-inside: avoid; page-break-inside: avoid; }
   #kaizen-onepager * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 `;
+
+// Scale factor (≤ 1) that makes the sheet's natural height fit one printed page.
+function fitScale(el: HTMLElement): number {
+  const prev = el.style.minHeight;
+  el.style.minHeight = "0";
+  const h = el.scrollHeight;
+  el.style.minHeight = prev;
+  return Math.min(1, (PAGE_H_MM * MM * 0.985) / h);
+}
 
 // Suggestion classes -> the CI form's Kategori / Alan checkboxes.
 function categoryOf(types: string[]): "Verimlilik" | "Kalite" | "Güvenlik" {
@@ -55,6 +72,18 @@ const lbl = "bg-slate-100 text-slate-700 font-bold text-[9px] uppercase tracking
 const cell = "border border-slate-300 px-1.5 py-1 text-[10.5px]";
 
 export default function KaizenOnePager({ suggestion: s, implementation: impl, evaluation: ev, companyName, onClose }: Props) {
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const applyFit = () => {
+    const el = sheetRef.current;
+    if (el) el.style.setProperty("--op-scale", String(fitScale(el)));
+  };
+  // Also covers Ctrl/Cmd+P, not just the button.
+  useEffect(() => {
+    window.addEventListener("beforeprint", applyFit);
+    return () => window.removeEventListener("beforeprint", applyFit);
+  }, []);
+  const print = () => { applyFit(); window.print(); };
+
   const before = impl?.photosBefore?.length ? impl.photosBefore : s.photosCurrent || [];
   const after = impl?.photosAfter?.length ? impl.photosAfter : s.photosPropose || [];
   const bm = impl?.beforeMetric;
@@ -75,18 +104,18 @@ export default function KaizenOnePager({ suggestion: s, implementation: impl, ev
   ].filter(Boolean).join("  |  ");
   const followText = (impl?.followUps || []).map(f => `${f.days}. gün: ${f.result === "Sürüyor" ? "yerinde" : f.result === "Bozuldu" ? "bozuldu" : "bekliyor"}`).join(" · ");
 
-  return (
-    <div className="kaizen-op-overlay fixed inset-0 z-50 bg-slate-900/70 overflow-auto p-4 sm:p-8">
+  return createPortal(
+    <div className="kaizen-op-overlay fixed inset-0 z-[60] bg-slate-900/70 overflow-auto p-4 sm:p-8">
       <style>{PRINT_CSS}</style>
-      <div className="kaizen-op-noprint max-w-[297mm] mx-auto mb-3 flex items-center justify-between gap-3">
+      <div className="kaizen-op-noprint w-[285mm] max-w-full mx-auto mb-3 flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-white">Öncesi / Sonrası — Yatay A4</p>
         <div className="flex gap-2">
-          <Button variant="brand" onClick={() => window.print()}><Printer className="w-4 h-4" />Yazdır / PDF</Button>
+          <Button variant="brand" onClick={print}><Printer className="w-4 h-4" />Yazdır / PDF</Button>
           <Button variant="ghost" onClick={onClose}><X className="w-4 h-4" />Kapat</Button>
         </div>
       </div>
 
-      <div id="kaizen-onepager" className="max-w-[297mm] w-full min-h-[200mm] mx-auto bg-white shadow-2xl p-[6mm] text-slate-900 flex flex-col gap-1.5">
+      <div id="kaizen-onepager" ref={sheetRef} className="w-[285mm] min-h-[198mm] mx-auto bg-white shadow-2xl p-[5mm] text-slate-900 flex flex-col gap-1.5">
         {/* Title row */}
         <div className="grid grid-cols-[1fr_auto] gap-1.5">
           <div className="bg-[#1e1b4b] text-white flex items-center justify-center px-3 py-2 rounded-sm">
@@ -120,19 +149,19 @@ export default function KaizenOnePager({ suggestion: s, implementation: impl, ev
         </table>
 
         {/* Before / After */}
-        <div className="grid grid-cols-[1fr_auto_1fr] gap-1.5 flex-1 min-h-0">
-          <section className="flex flex-col border border-slate-300 rounded-sm min-h-0">
+        <div className="grid grid-cols-[1fr_auto_1fr] gap-1.5 flex-1">
+          <section className="flex flex-col border border-slate-300 rounded-sm">
             <h2 className="bg-[#312e81] text-white text-center text-[10.5px] font-bold py-1">İYİLEŞTİRME ÖNCESİ</h2>
             <div className="flex-1 p-1.5 min-h-0"><Photo photos={before} empty="Görsel eklenmedi" /></div>
             <p className={`${lbl} border-x-0`}>AÇIKLAMA:</p>
-            <p className="px-1.5 py-1 text-[10.5px] whitespace-pre-wrap min-h-[16mm] max-h-[24mm] overflow-hidden">{s.currentState}</p>
+            <p className="px-1.5 py-1 text-[10.5px] whitespace-pre-wrap min-h-[16mm]">{s.currentState}</p>
           </section>
           <div className="flex items-center"><ArrowRight className="w-5 h-5 text-slate-400" /></div>
-          <section className="flex flex-col border border-slate-300 rounded-sm min-h-0">
+          <section className="flex flex-col border border-slate-300 rounded-sm">
             <h2 className="bg-[#312e81] text-white text-center text-[10.5px] font-bold py-1">İYİLEŞTİRME SONRASI</h2>
             <div className="flex-1 p-1.5 min-h-0"><Photo photos={after} empty="Görsel eklenmedi" /></div>
             <p className={`${lbl} border-x-0`}>AÇIKLAMA:</p>
-            <p className="px-1.5 py-1 text-[10.5px] whitespace-pre-wrap min-h-[16mm] max-h-[24mm] overflow-hidden">{s.improvementSuggestion}{doneActions.length ? `\nYapılan: ${doneActions.slice(0, 5).map(a => a.text).join("; ")}` : ""}</p>
+            <p className="px-1.5 py-1 text-[10.5px] whitespace-pre-wrap min-h-[16mm]">{s.improvementSuggestion}{doneActions.length ? `\nYapılan: ${doneActions.slice(0, 5).map(a => a.text).join("; ")}` : ""}</p>
           </section>
         </div>
 
@@ -163,6 +192,7 @@ export default function KaizenOnePager({ suggestion: s, implementation: impl, ev
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
