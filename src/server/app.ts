@@ -2590,6 +2590,64 @@ app.post("/api/business/five-s/audit-list-report/send", authenticateToken, async
 // the legacy app's confirmed bugs (silent-reassignment-on-edit, Manager-reject-doesn't-reject,
 // no real server-side authorization, ISG/Çevre/Motivasyon discarded on save).
 
+// ---- Kaizen security helpers (Faz 0) ----
+// Every Kaizen id-based endpoint must (a) stay inside the caller's organization (db layer already
+// does that), (b) stay inside the caller's customer/factory scope, and (c) check the caller's role
+// on the server — the UI hiding a button is not authorization.
+const isStaff = (user: any) => user.role === "Admin" || user.role === "Consultant";
+const sameEmail = (a?: string, b?: string) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+
+function canAccessFactory(req: express.Request, factoryId?: string): boolean {
+  const allowed = (req as any).allowedCustomerIds as string[] | null;
+  if (allowed === null) return true;
+  return !!factoryId && allowed.includes(factoryId);
+}
+
+function denyKaizen(res: express.Response, status = 403, error = "Access Denied.") {
+  res.status(status).json({ success: false, error });
+}
+
+// Loads a suggestion and verifies the caller may see it (factory scope). Replies and returns null on failure.
+async function loadKaizenSuggestion(req: express.Request, res: express.Response): Promise<any | null> {
+  const user = (req as any).user;
+  const suggestion = (await db.getKaizenRecords("kaizen_suggestions", user.organization_id)).find((s: any) => s.id === req.params.id);
+  if (!suggestion || !canAccessFactory(req, suggestion.factory_id)) {
+    denyKaizen(res, 404, "Öneri bulunamadı.");
+    return null;
+  }
+  return suggestion;
+}
+
+async function isKaizenBoardMember(user: any, factoryId?: string): Promise<boolean> {
+  if (isStaff(user)) return true;
+  const personnel = await db.getKaizenRecords("kaizen_personnel", user.organization_id, factoryId);
+  return personnel.some((p: any) => sameEmail(p.email, user.email) && !!p.isBoardMember);
+}
+
+const MAX_PHOTOS_PER_GROUP = 8;
+const MAX_PHOTO_CHARS = 1_500_000; // ~1.1 MB of binary as a base64 data URL; the client already downsizes to ~300 KB
+function sanitizePhotos(input: any): { photos: { dataUrl: string; caption?: string }[]; error?: string } {
+  if (input === undefined || input === null) return { photos: [] };
+  if (!Array.isArray(input) || input.length > MAX_PHOTOS_PER_GROUP) {
+    return { photos: [], error: `En fazla ${MAX_PHOTOS_PER_GROUP} görsel eklenebilir.` };
+  }
+  const photos: { dataUrl: string; caption?: string }[] = [];
+  for (const p of input) {
+    const dataUrl = typeof p?.dataUrl === "string" ? p.dataUrl : "";
+    if (!/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(dataUrl)) return { photos: [], error: "Geçersiz görsel biçimi." };
+    if (dataUrl.length > MAX_PHOTO_CHARS) return { photos: [], error: "Görsel çok büyük (en fazla ~1 MB)." };
+    photos.push({ dataUrl, caption: typeof p.caption === "string" ? p.caption.slice(0, 200) : undefined });
+  }
+  return { photos };
+}
+
+const clip = (v: any, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+const CURRENCIES = ["TL", "USD", "EUR", "Eş Değer Ürün"];
+const asCurrency = (v: any) => (CURRENCIES.includes(v) ? v : "TL");
+const asAmount = (v: any) => { const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : 0; };
+
+// Personnel / Criteria rosters. Reads are open to anyone in scope (the UI needs the roster to resolve
+// team leaders); writes change who can approve things, so they are Admin/Consultant only.
 const KAIZEN_SIMPLE_ENTITIES: { path: string; collection: Parameters<typeof db.getKaizenRecords>[0] }[] = [
   { path: "personnel", collection: "kaizen_personnel" },
   { path: "criteria", collection: "kaizen_criteria" }
@@ -2599,73 +2657,106 @@ for (const { path, collection } of KAIZEN_SIMPLE_ENTITIES) {
   app.get(`/api/business/kaizen/${path}`, authenticateToken, async (req, res) => {
     const user = (req as any).user;
     const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
-    if (!scope.allowed) {
-      res.status(403).json({ success: false, error: "Access Denied." });
-      return;
-    }
+    if (!scope.allowed) return denyKaizen(res);
     res.json({ success: true, data: await db.getKaizenRecords(collection, user.organization_id, scope.factoryId) });
   });
 
   app.post(`/api/business/kaizen/${path}`, authenticateToken, async (req, res) => {
     const user = (req as any).user;
+    if (!isStaff(user)) return denyKaizen(res, 403, "Bu işlem için yönetici yetkisi gereklidir.");
     const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
-    if (!scope.allowed) {
-      res.status(403).json({ success: false, error: "Access Denied." });
-      return;
+    if (!scope.allowed || !scope.factoryId) return denyKaizen(res);
+    const body = { ...req.body };
+    if (body.id) {
+      // An id from another customer must never be overwritten through this customer's scope.
+      const existing = (await db.getKaizenRecords(collection, user.organization_id)).find((r: any) => r.id === body.id);
+      if (existing && existing.factory_id !== scope.factoryId) return denyKaizen(res, 404, "Kayıt bulunamadı.");
+      if (collection === "kaizen_personnel" && existing && !!existing.isBoardMember !== !!body.isBoardMember) {
+        console.info(`[kaizen-audit] board membership of ${existing.email} set to ${!!body.isBoardMember} by ${user.email}`);
+        body.boardChangedBy = user.email;
+        body.boardChangedAt = new Date().toISOString();
+      }
     }
-    const saved = await db.saveKaizenRecord(collection, user.organization_id, scope.factoryId || "", { ...req.body }, user.id);
+    const saved = await db.saveKaizenRecord(collection, user.organization_id, scope.factoryId, body, user.id);
     res.json({ success: true, data: saved });
   });
 
   app.delete(`/api/business/kaizen/${path}/:id`, authenticateToken, async (req, res) => {
     const user = (req as any).user;
+    if (!isStaff(user)) return denyKaizen(res, 403, "Bu işlem için yönetici yetkisi gereklidir.");
+    const existing = (await db.getKaizenRecords(collection, user.organization_id)).find((r: any) => r.id === req.params.id);
+    if (!existing || !canAccessFactory(req, existing.factory_id)) return denyKaizen(res, 404, "Kayıt bulunamadı.");
     await db.deleteKaizenRecord(collection, user.organization_id, req.params.id);
     res.json({ success: true });
   });
 }
 
-app.get("/api/business/kaizen/suggestions", authenticateToken, async (req, res) => {
-  const user = (req as any).user;
-  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
-  if (!scope.allowed) {
-    res.status(403).json({ success: false, error: "Access Denied." });
-    return;
-  }
-  res.json({ success: true, data: await db.getKaizenRecords("kaizen_suggestions", user.organization_id, scope.factoryId) });
-});
-
-app.get("/api/business/kaizen/approvals", authenticateToken, async (req, res) => {
-  const user = (req as any).user;
-  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
-  if (!scope.allowed) {
-    res.status(403).json({ success: false, error: "Access Denied." });
-    return;
-  }
-  res.json({ success: true, data: await db.getKaizenRecords("kaizen_approvals", user.organization_id, scope.factoryId) });
-});
-
-app.get("/api/business/kaizen/evaluations", authenticateToken, async (req, res) => {
-  const user = (req as any).user;
-  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
-  if (!scope.allowed) {
-    res.status(403).json({ success: false, error: "Access Denied." });
-    return;
-  }
-  res.json({ success: true, data: await db.getKaizenRecords("kaizen_evaluations", user.organization_id, scope.factoryId) });
-});
+for (const [path, collection] of [["suggestions", "kaizen_suggestions"], ["approvals", "kaizen_approvals"], ["evaluations", "kaizen_evaluations"]] as const) {
+  app.get(`/api/business/kaizen/${path}`, authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+    if (!scope.allowed) return denyKaizen(res);
+    res.json({ success: true, data: await db.getKaizenRecords(collection, user.organization_id, scope.factoryId) });
+  });
+}
 
 app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res) => {
   const user = (req as any).user;
   const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
-  if (!scope.allowed || !scope.factoryId) {
-    res.status(403).json({ success: false, error: "Access Denied." });
-    return;
-  }
-  if (!req.body.subject || !req.body.currentState || !req.body.improvementSuggestion) {
+  if (!scope.allowed || !scope.factoryId) return denyKaizen(res);
+  const subject = clip(req.body.subject, 200);
+  const currentState = clip(req.body.currentState, 5000);
+  const improvementSuggestion = clip(req.body.improvementSuggestion, 5000);
+  if (!subject || !currentState || !improvementSuggestion) {
     res.status(400).json({ success: false, error: "Öneri Konusu, Mevcut Durum ve Önerilen İyileştirme alanları zorunludur." });
     return;
   }
-  const suggestion = await db.createKaizenSuggestion(user.organization_id, scope.factoryId, req.body, user.id, user.email, user.full_name);
+  const cur = sanitizePhotos(req.body.photosCurrent);
+  const prop = sanitizePhotos(req.body.photosPropose);
+  if (cur.error || prop.error) {
+    res.status(400).json({ success: false, error: cur.error || prop.error });
+    return;
+  }
+
+  // Who the suggestion is for, and who approves it, is decided from the server-side personnel roster —
+  // never from the request body (a client could otherwise name itself as its own team leader).
+  const personnel = await db.getKaizenRecords("kaizen_personnel", user.organization_id, scope.factoryId);
+  const myRecord = personnel.find((p: any) => sameEmail(p.email, user.email));
+  const wantedName = clip(req.body.personnelName, 120).toLowerCase();
+  let subjectRecord = myRecord;
+  if (wantedName && wantedName !== (myRecord?.name || user.full_name || "").toLowerCase()) {
+    const other = personnel.find((p: any) => (p.name || "").toLowerCase() === wantedName);
+    if (!other) {
+      if (!isStaff(user)) return denyKaizen(res, 403, "Seçilen personel kayıtlı değil.");
+    } else if (!isStaff(user) && !sameEmail(other.teamLeaderEmail, user.email)) {
+      return denyKaizen(res, 403, "Sadece amiri olduğunuz personel adına öneri girebilirsiniz.");
+    } else {
+      subjectRecord = other;
+    }
+  }
+  const payload = {
+    personnelName: subjectRecord?.name || user.full_name,
+    personnelDepartment: subjectRecord?.department || "",
+    personnelJobTitle: subjectRecord?.jobTitle || "",
+    shift: subjectRecord?.shift || "",
+    teamLeaderName: subjectRecord?.teamLeaderName || "",
+    teamLeaderEmail: subjectRecord?.teamLeaderEmail || "",
+    machineLeaderName: subjectRecord?.machineLeaderName || "",
+    machineLeaderEmail: subjectRecord?.machineLeaderEmail || "",
+    subject,
+    suggestionTypes: Array.isArray(req.body.suggestionTypes) ? req.body.suggestionTypes.filter((t: any) => typeof t === "string").slice(0, 10) : [],
+    currentState,
+    improvementSuggestion,
+    stage: clip(req.body.stage, 60),
+    paybackPeriod: clip(req.body.paybackPeriod, 60),
+    estimatedSaving: asAmount(req.body.estimatedSaving),
+    estimatedSavingCurrency: asCurrency(req.body.estimatedSavingCurrency),
+    estimatedCost: asAmount(req.body.estimatedCost),
+    estimatedCostCurrency: asCurrency(req.body.estimatedCostCurrency),
+    isg: !!req.body.isg, cevre: !!req.body.cevre, motivasyon: !!req.body.motivasyon,
+    photosCurrent: cur.photos, photosPropose: prop.photos
+  };
+  const suggestion = await db.createKaizenSuggestion(user.organization_id, scope.factoryId, payload, user.id, user.email, user.full_name);
 
   if (suggestion.teamLeaderEmail) {
     sendMail({
@@ -2677,47 +2768,67 @@ app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res)
   res.json({ success: true, data: suggestion });
 });
 
+// Edit + resubmit a rejected suggestion: only its author (or staff), and only the content fields.
 app.post("/api/business/kaizen/suggestions/:id", authenticateToken, async (req, res) => {
   const user = (req as any).user;
-  const existing = (await db.getKaizenRecords("kaizen_suggestions", user.organization_id)).find((s: any) => s.id === req.params.id);
-  if (!existing) {
-    res.status(404).json({ success: false, error: "Öneri bulunamadı." });
-    return;
+  const existing = await loadKaizenSuggestion(req, res);
+  if (!existing) return;
+  if (!isStaff(user) && !sameEmail(existing.authorEmail, user.email)) {
+    return denyKaizen(res, 403, "Sadece kendi öneriniz düzenleyebilirsiniz.");
   }
   if (existing.approvalStatus !== "Rejected" && existing.approvalStatus !== "Rejected 2nd") {
     res.status(400).json({ success: false, error: "Sadece reddedilen öneriler yeniden düzenlenip gönderilebilir." });
     return;
   }
-  const updated = await db.updateKaizenSuggestion(user.organization_id, req.params.id, req.body, user.id);
+  const cur = req.body.photosCurrent === undefined ? { photos: undefined as any } : sanitizePhotos(req.body.photosCurrent);
+  const prop = req.body.photosPropose === undefined ? { photos: undefined as any } : sanitizePhotos(req.body.photosPropose);
+  if ((cur as any).error || (prop as any).error) {
+    res.status(400).json({ success: false, error: (cur as any).error || (prop as any).error });
+    return;
+  }
+  const b = req.body;
+  const payload = {
+    subject: b.subject !== undefined ? clip(b.subject, 200) : undefined,
+    suggestionTypes: Array.isArray(b.suggestionTypes) ? b.suggestionTypes.filter((t: any) => typeof t === "string").slice(0, 10) : undefined,
+    currentState: b.currentState !== undefined ? clip(b.currentState, 5000) : undefined,
+    improvementSuggestion: b.improvementSuggestion !== undefined ? clip(b.improvementSuggestion, 5000) : undefined,
+    stage: b.stage !== undefined ? clip(b.stage, 60) : undefined,
+    paybackPeriod: b.paybackPeriod !== undefined ? clip(b.paybackPeriod, 60) : undefined,
+    estimatedSaving: b.estimatedSaving !== undefined ? asAmount(b.estimatedSaving) : undefined,
+    estimatedSavingCurrency: b.estimatedSavingCurrency !== undefined ? asCurrency(b.estimatedSavingCurrency) : undefined,
+    estimatedCost: b.estimatedCost !== undefined ? asAmount(b.estimatedCost) : undefined,
+    estimatedCostCurrency: b.estimatedCostCurrency !== undefined ? asCurrency(b.estimatedCostCurrency) : undefined,
+    isg: b.isg, cevre: b.cevre, motivasyon: b.motivasyon,
+    photosCurrent: cur.photos, photosPropose: prop.photos
+  };
+  const updated = await db.updateKaizenSuggestion(user.organization_id, req.params.id, payload, user.id);
   res.json({ success: true, data: updated });
 });
 
 app.post("/api/business/kaizen/suggestions/:id/manager-decision", authenticateToken, async (req, res) => {
   const user = (req as any).user;
-  const suggestion = (await db.getKaizenRecords("kaizen_suggestions", user.organization_id)).find((s: any) => s.id === req.params.id);
-  if (!suggestion) {
-    res.status(404).json({ success: false, error: "Öneri bulunamadı." });
-    return;
+  const suggestion = await loadKaizenSuggestion(req, res);
+  if (!suggestion) return;
+  const isManager = isStaff(user) || sameEmail(suggestion.teamLeaderEmail, user.email);
+  if (!isManager) return denyKaizen(res, 403, "Bu öneriyi onaylama/reddetme yetkiniz yok.");
+  if (!isStaff(user) && sameEmail(suggestion.authorEmail, user.email)) {
+    return denyKaizen(res, 403, "Kendi önerinizi onaylayamazsınız.");
   }
-  const isManager = user.role === "Admin" || user.role === "Consultant" ||
-    (!!suggestion.teamLeaderEmail && suggestion.teamLeaderEmail.toLowerCase() === (user.email || "").toLowerCase());
-  if (!isManager) {
-    res.status(403).json({ success: false, error: "Bu öneriyi onaylama/reddetme yetkiniz yok." });
-    return;
-  }
-  const { approved, comment } = req.body;
+  const approved = req.body.approved === true;
+  const comment = clip(req.body.comment, 2000);
   if (!approved && !comment) {
     res.status(400).json({ success: false, error: "Lütfen red nedeni giriniz." });
     return;
   }
-  const result = await db.decideKaizenManager(user.organization_id, req.params.id, !!approved, comment || "", user.full_name, user.email);
+  const result = await db.decideKaizenManager(user.organization_id, req.params.id, approved, comment, user.full_name, user.email);
   if (!result) {
     res.status(400).json({ success: false, error: "Bu öneri artık Amir onayı bekleyen durumda değil." });
     return;
   }
 
+  // Board notification stays inside the suggestion's own factory (was: every board member in the org).
   const notifyEmail = approved
-    ? (await db.getKaizenRecords("kaizen_personnel", user.organization_id)).filter((p: any) => p.isBoardMember).map((p: any) => p.email).filter(Boolean)
+    ? (await db.getKaizenRecords("kaizen_personnel", user.organization_id, suggestion.factory_id)).filter((p: any) => p.isBoardMember).map((p: any) => p.email).filter(Boolean)
     : [result.suggestion.authorEmail].filter(Boolean);
   if (notifyEmail.length > 0) {
     sendMail({
@@ -2733,26 +2844,38 @@ app.post("/api/business/kaizen/suggestions/:id/manager-decision", authenticateTo
 
 app.post("/api/business/kaizen/suggestions/:id/board-decision", authenticateToken, async (req, res) => {
   const user = (req as any).user;
-  const suggestion = (await db.getKaizenRecords("kaizen_suggestions", user.organization_id)).find((s: any) => s.id === req.params.id);
-  if (!suggestion) {
-    res.status(404).json({ success: false, error: "Öneri bulunamadı." });
-    return;
+  const suggestion = await loadKaizenSuggestion(req, res);
+  if (!suggestion) return;
+  if (!(await isKaizenBoardMember(user, suggestion.factory_id))) {
+    return denyKaizen(res, 403, "Kurul değerlendirmesi yapma yetkiniz yok.");
   }
-  const personnel = await db.getKaizenRecords("kaizen_personnel", user.organization_id);
-  const myRecord = personnel.find((p: any) => (p.email || "").toLowerCase() === (user.email || "").toLowerCase());
-  const isBoard = user.role === "Admin" || user.role === "Consultant" || !!myRecord?.isBoardMember;
-  if (!isBoard) {
-    res.status(403).json({ success: false, error: "Kurul değerlendirmesi yapma yetkiniz yok." });
-    return;
+  if (!isStaff(user) && sameEmail(suggestion.authorEmail, user.email)) {
+    return denyKaizen(res, 403, "Kendi önerinizi değerlendiremezsiniz.");
   }
-  const { approved, criteriaId, criteriaLabel, point, yokoten, yokotenDescription, estimatedIncome, estimatedIncomeCurrency, comment } = req.body;
+  const approved = req.body.approved === true;
+  const comment = clip(req.body.comment, 2000);
   if (!approved && !comment) {
     res.status(400).json({ success: false, error: "Lütfen red nedeni giriniz." });
     return;
   }
+  // Score comes from the server's own criteria table, never from the request body.
+  let criteriaId = "", criteriaLabel = "", point = 0;
+  if (approved) {
+    const criteria = (await db.getKaizenRecords("kaizen_criteria", user.organization_id, suggestion.factory_id)).find((c: any) => c.id === req.body.criteriaId);
+    if (!criteria) {
+      res.status(400).json({ success: false, error: "Onaylamak için geçerli bir değerlendirme kriteri seçiniz." });
+      return;
+    }
+    criteriaId = criteria.id; criteriaLabel = criteria.criteria || ""; point = Number(criteria.point) || 0;
+  }
   const result = await db.decideKaizenBoard(
-    user.organization_id, req.params.id, !!approved,
-    { criteriaId, criteriaLabel, point, yokoten, yokotenDescription, estimatedIncome, estimatedIncomeCurrency, comment },
+    user.organization_id, req.params.id, approved,
+    {
+      criteriaId, criteriaLabel, point,
+      yokoten: req.body.yokoten === true, yokotenDescription: clip(req.body.yokotenDescription, 1000),
+      estimatedIncome: asAmount(req.body.estimatedIncome), estimatedIncomeCurrency: asCurrency(req.body.estimatedIncomeCurrency),
+      comment
+    },
     user.full_name, user.email
   );
   if (!result) {
@@ -2771,8 +2894,14 @@ app.post("/api/business/kaizen/suggestions/:id/board-decision", authenticateToke
   res.json({ success: true, data: result });
 });
 
+// "Uygulandı": the Board, staff, or the suggestion's own team leader — it used to be open to any signed-in user.
 app.post("/api/business/kaizen/suggestions/:id/complete", authenticateToken, async (req, res) => {
   const user = (req as any).user;
+  const suggestion = await loadKaizenSuggestion(req, res);
+  if (!suggestion) return;
+  if (!sameEmail(suggestion.teamLeaderEmail, user.email) && !(await isKaizenBoardMember(user, suggestion.factory_id))) {
+    return denyKaizen(res, 403, "Bu işlem için yetkiniz yok.");
+  }
   const updated = await db.markKaizenCompleted(user.organization_id, req.params.id);
   if (!updated) {
     res.status(400).json({ success: false, error: "Sadece Kurul tarafından onaylanmış öneriler tamamlandı olarak işaretlenebilir." });
@@ -2781,10 +2910,11 @@ app.post("/api/business/kaizen/suggestions/:id/complete", authenticateToken, asy
   res.json({ success: true, data: updated });
 });
 
-// "Öneriyi Geri Çek" — only the submitter, only while still Pending (see kaizenTypes.ts header —
-// the legacy app had no withdraw capability at all).
+// "Öneriyi Geri Çek" — only the submitter, only while still Pending.
 app.post("/api/business/kaizen/suggestions/:id/withdraw", authenticateToken, async (req, res) => {
   const user = (req as any).user;
+  const suggestion = await loadKaizenSuggestion(req, res);
+  if (!suggestion) return;
   const result = await db.withdrawKaizenSuggestion(user.organization_id, req.params.id, user.email);
   if (!result.success) {
     res.status(400).json(result);
@@ -2793,56 +2923,54 @@ app.post("/api/business/kaizen/suggestions/:id/withdraw", authenticateToken, asy
   res.json({ success: true });
 });
 
-// Yokoten (yatay yayılım) ve Ödül takibi — Board/Admin only, since these are follow-up actions on
-// an already-scored evaluation, not part of the original approve/reject decision.
-async function requireKaizenBoardAccess(req: express.Request, res: express.Response): Promise<boolean> {
+// Yokoten and reward follow-ups: Board/staff only, inside the evaluation's own factory.
+async function loadKaizenEvaluationForBoard(req: express.Request, res: express.Response): Promise<any | null> {
   const user = (req as any).user;
-  if (user.role === "Admin" || user.role === "Consultant") return true;
-  const personnel = await db.getKaizenRecords("kaizen_personnel", user.organization_id);
-  const myRecord = personnel.find((p: any) => (p.email || "").toLowerCase() === (user.email || "").toLowerCase());
-  if (myRecord?.isBoardMember) return true;
-  res.status(403).json({ success: false, error: "Bu işlem için Kaizen Kurulu yetkisi gereklidir." });
-  return false;
+  const evaluation = (await db.getKaizenRecords("kaizen_evaluations", user.organization_id)).find((e: any) => e.id === req.params.id);
+  if (!evaluation || !canAccessFactory(req, evaluation.factory_id)) {
+    denyKaizen(res, 404, "Değerlendirme bulunamadı.");
+    return null;
+  }
+  if (!(await isKaizenBoardMember(user, evaluation.factory_id))) {
+    denyKaizen(res, 403, "Bu işlem için Kaizen Kurulu yetkisi gereklidir.");
+    return null;
+  }
+  return evaluation;
 }
 
 app.post("/api/business/kaizen/evaluations/:id/yokoten-implemented", authenticateToken, async (req, res) => {
-  if (!(await requireKaizenBoardAccess(req, res))) return;
+  if (!(await loadKaizenEvaluationForBoard(req, res))) return;
   const user = (req as any).user;
-  const updated = await db.setKaizenYokotenImplemented(user.organization_id, req.params.id, !!req.body.implemented);
-  if (!updated) {
-    res.status(404).json({ success: false, error: "Değerlendirme bulunamadı." });
-    return;
-  }
+  const updated = await db.setKaizenYokotenImplemented(user.organization_id, req.params.id, req.body.implemented === true);
+  if (!updated) return denyKaizen(res, 404, "Değerlendirme bulunamadı.");
   res.json({ success: true, data: updated });
 });
 
 app.post("/api/business/kaizen/evaluations/:id/reward-status", authenticateToken, async (req, res) => {
-  if (!(await requireKaizenBoardAccess(req, res))) return;
+  if (!(await loadKaizenEvaluationForBoard(req, res))) return;
   const user = (req as any).user;
   const status = req.body.status === "Ödendi" ? "Ödendi" : "Bekliyor";
   const updated = await db.setKaizenRewardStatus(user.organization_id, req.params.id, status);
-  if (!updated) {
-    res.status(404).json({ success: false, error: "Değerlendirme bulunamadı." });
-    return;
-  }
+  if (!updated) return denyKaizen(res, 404, "Değerlendirme bulunamadı.");
   res.json({ success: true, data: updated });
 });
 
 app.get("/api/business/kaizen/suggestions/export-excel", authenticateToken, async (req, res) => {
   const user = (req as any).user;
   const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
-  if (!scope.allowed) {
-    res.status(403).json({ success: false, error: "Access Denied." });
-    return;
-  }
+  if (!scope.allowed) return denyKaizen(res);
+  if (!(await isKaizenBoardMember(user, scope.factoryId))) return denyKaizen(res, 403, "Bu rapor için Kaizen Kurulu yetkisi gereklidir.");
   const suggestions = await db.getKaizenRecords("kaizen_suggestions", user.organization_id, scope.factoryId);
-  const tableHeader = ["Tarih", "Ad Soyad", "Bölüm", "Konu", "Kategori", "Durum", "Tahmini Kazanç", "Tahmini Maliyet"];
+  // Amounts are real numeric cells with their own currency column (they used to be "1000 TL" text,
+  // which Excel cannot sum, and mixed currencies were indistinguishable).
+  const tableHeader = ["Tarih", "Ad Soyad", "Bölüm", "Konu", "Kategori", "Durum", "Tahmini Kazanç", "Kazanç Para Birimi", "Tahmini Maliyet", "Maliyet Para Birimi"];
   const tableRows = suggestions
     .sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || ""))
     .map((s: any) => [
       (s.createdAt || "").slice(0, 10), s.personnelName, s.personnelDepartment, s.subject,
       (s.suggestionTypes || []).join(", "), s.approvalStatus,
-      `${s.estimatedSaving} ${s.estimatedSavingCurrency}`, `${s.estimatedCost} ${s.estimatedCostCurrency}`
+      Number(s.estimatedSaving) || 0, s.estimatedSavingCurrency || "TL",
+      Number(s.estimatedCost) || 0, s.estimatedCostCurrency || "TL"
     ]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Kaizen Önerileri Raporu"], [], tableHeader, ...tableRows]), "Kaizen Önerileri");
