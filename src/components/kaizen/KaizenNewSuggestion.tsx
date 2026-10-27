@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, ChevronRight, Save, Camera, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Save, Camera, X, Check, User, FileText, Lightbulb, Coins, Eye } from "lucide-react";
 import { KaizenPersonnel, KaizenSuggestion, KaizenSuggestionPhoto } from "./kaizenTypes";
 import { SUGGESTION_TYPE_OPTIONS, STAGE_OPTIONS, PAYBACK_PERIOD_OPTIONS, CURRENCY_OPTIONS } from "./kaizenCalc";
 import { KaizenApi } from "./KaizenSuggestionSystem";
+import { Card, Button } from "./kaizenUi";
 
 interface Props {
   currentUser: any;
@@ -33,32 +34,60 @@ interface FormState {
 }
 
 const blank: FormState = {
-  onBehalfOfId: "",
-  suggestionTypes: [],
-  subject: "",
-  currentState: "",
-  photosCurrent: [],
-  improvementSuggestion: "",
-  photosPropose: [],
-  stage: "",
-  paybackPeriod: "",
-  estimatedSaving: "",
-  estimatedSavingCurrency: "TL",
-  estimatedCost: "",
-  estimatedCostCurrency: "TL",
-  isg: false,
-  cevre: false,
-  motivasyon: false
+  onBehalfOfId: "", suggestionTypes: [], subject: "", currentState: "", photosCurrent: [],
+  improvementSuggestion: "", photosPropose: [], stage: "", paybackPeriod: "",
+  estimatedSaving: "", estimatedSavingCurrency: "TL", estimatedCost: "", estimatedCostCurrency: "TL",
+  isg: false, cevre: false, motivasyon: false
 };
 
-const STEP_LABELS = ["Personel", "Mevcut Durum", "Öneri", "Kazanç", "Önizleme"];
+const STEPS = [
+  { label: "Personel", icon: User },
+  { label: "Mevcut Durum", icon: FileText },
+  { label: "Öneri", icon: Lightbulb },
+  { label: "Kazanç", icon: Coins },
+  { label: "Önizleme", icon: Eye }
+];
 
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve) => {
+// Photos are stored inline as data URLs, so downscale before upload: a raw phone photo is
+// 3–8 MB; 1600px / JPEG 0.8 is ~200–400 KB and plenty for a Kaizen before/after picture.
+function readAndShrink(file: File, maxEdge = 1600, quality = 0.8): Promise<string> {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const original = reader.result as string;
+      const img = new Image();
+      img.onerror = () => resolve(original);
+      img.onload = () => {
+        const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+        if (scale === 1 && file.size < 400_000) { resolve(original); return; }
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { resolve(original); return; }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = original;
+    };
     reader.readAsDataURL(file);
   });
+}
+
+const inputCls = "w-full h-11 px-3.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400";
+const areaCls = "w-full px-3.5 py-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400";
+const errCls = "!border-red-400 !ring-red-100";
+
+function Field({ label, required, error, hint, children }: { label: string; required?: boolean; error?: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-sm font-semibold text-slate-700 mb-1.5">{label}{required && <span className="text-red-500"> *</span>}</label>
+      {children}
+      {hint && !error && <p className="text-xs text-slate-500 mt-1.5">{hint}</p>}
+      {error && <p className="text-xs text-red-500 mt-1.5">{error}</p>}
+    </div>
+  );
 }
 
 export default function KaizenNewSuggestion({ currentUser, personnel, editingSuggestion, api, showToast, onSaved }: Props) {
@@ -97,8 +126,8 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
 
   const myEmail = (currentUser?.email || "").toLowerCase();
   const myPersonnelRecord = personnel.find(p => (p.email || "").toLowerCase() === myEmail);
-  // Legacy app: a normal user can only submit "on behalf of" people they are the team leader of;
-  // Admin/Consultant can pick anyone. Replaces the source's hard-coded admin-email bypass.
+  // A normal user can only submit "on behalf of" people they are the team leader of;
+  // Admin/Consultant can pick anyone.
   const isAdmin = currentUser?.role === "Admin" || currentUser?.role === "Consultant";
   const selectablePersonnel = personnel.filter(p => isAdmin || (p.teamLeaderEmail || "").toLowerCase() === myEmail);
   const onBehalfOf = personnel.find(p => p.id === form.onBehalfOfId) || myPersonnelRecord;
@@ -121,26 +150,27 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
         machineLeaderEmail: onBehalfOf?.machineLeaderEmail || ""
       };
 
-  const step1Valid = form.suggestionTypes.length > 0 && form.subject.trim().length > 0;
-  const step2Valid = form.currentState.trim().length > 0;
-  const step3Valid = form.improvementSuggestion.trim().length > 0;
-  const step4Valid = !!form.stage && !!form.paybackPeriod && !!form.estimatedSavingCurrency && !!form.estimatedCostCurrency;
+  const valid = [
+    form.suggestionTypes.length > 0 && form.subject.trim().length > 0,
+    form.currentState.trim().length > 0,
+    form.improvementSuggestion.trim().length > 0,
+    !!form.stage && !!form.paybackPeriod && !!form.estimatedSavingCurrency && !!form.estimatedCostCurrency,
+    true
+  ];
 
   const next = () => {
     setAttempted(true);
-    if (step === 1 && !step1Valid) return;
-    if (step === 2 && !step2Valid) return;
-    if (step === 3 && !step3Valid) return;
-    if (step === 4 && !step4Valid) return;
+    if (!valid[step - 1]) return;
     setAttempted(false);
     setStep(s => s + 1);
   };
   const back = () => setStep(s => Math.max(1, s - 1));
 
-  const addPhoto = async (which: "photosCurrent" | "photosPropose", file: File | undefined) => {
-    if (!file) return;
-    const dataUrl = await readFileAsDataUrl(file);
-    setForm(f => ({ ...f, [which]: [...f[which], { dataUrl }] }));
+  const addPhotos = async (which: "photosCurrent" | "photosPropose", files: FileList | null) => {
+    if (!files) return;
+    const added: KaizenSuggestionPhoto[] = [];
+    for (const f of Array.from(files)) added.push({ dataUrl: await readAndShrink(f) });
+    setForm(f => ({ ...f, [which]: [...f[which], ...added] }));
   };
   const removePhoto = (which: "photosCurrent" | "photosPropose", idx: number) => {
     setForm(f => ({ ...f, [which]: f[which].filter((_, i) => i !== idx) }));
@@ -192,195 +222,225 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
     }));
   };
 
-  const inputCls = "w-full p-2 border border-gray-200 rounded-lg text-xs font-bold";
-  const errCls = "border-red-400";
+  const savingNum = Number(form.estimatedSaving) || 0;
+  const costNum = Number(form.estimatedCost) || 0;
+  const sameCurrency = form.estimatedSavingCurrency === form.estimatedCostCurrency && form.estimatedSavingCurrency !== "Eş Değer Ürün";
+  const net = savingNum - costNum;
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-5 max-w-2xl mx-auto space-y-4">
-      <div className="flex items-center justify-between text-[10px] font-black uppercase text-slate-400">
-        {STEP_LABELS.map((l, i) => (
-          <div key={l} className={`flex-1 text-center pb-2 border-b-2 ${step === i + 1 ? "border-slate-900 text-slate-900" : "border-gray-100"}`}>
-            {i + 1}. {l}
-          </div>
-        ))}
-      </div>
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
+      {/* Form column */}
+      <Card padded={false} className="xl:col-span-2 overflow-hidden">
+        {/* Stepper */}
+        <ol className="flex items-center px-6 pt-6 pb-5 border-b border-slate-100 overflow-x-auto gap-2">
+          {STEPS.map((s, i) => {
+            const n = i + 1;
+            const done = step > n;
+            const active = step === n;
+            const Icon = s.icon;
+            return (
+              <React.Fragment key={s.label}>
+                <li
+                  onClick={() => { if (n < step) setStep(n); }}
+                  className={`flex items-center gap-2.5 shrink-0 ${n < step ? "cursor-pointer" : ""}`}
+                >
+                  <span className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold ${done ? "bg-emerald-600 text-white" : active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-400"}`}>
+                    {done ? <Check className="w-4 h-4" /> : <Icon className="w-4 h-4" />}
+                  </span>
+                  <span className={`text-sm font-semibold hidden sm:inline ${active ? "text-slate-900" : done ? "text-slate-700" : "text-slate-400"}`}>{s.label}</span>
+                </li>
+                {i < STEPS.length - 1 && <span className={`flex-1 h-0.5 min-w-4 rounded ${step > n ? "bg-emerald-600" : "bg-slate-100"}`} />}
+              </React.Fragment>
+            );
+          })}
+        </ol>
 
-      {step === 1 && (
-        <div className="space-y-3">
-          {!isEdit && selectablePersonnel.length > 0 && (
-            <div>
-              <label className="text-[10px] font-black uppercase text-slate-400">Kimin Adına? (opsiyonel)</label>
-              <select value={form.onBehalfOfId} onChange={e => setForm(f => ({ ...f, onBehalfOfId: e.target.value }))} className={inputCls}>
-                <option value="">Kendi adıma ({currentUser?.full_name})</option>
-                {selectablePersonnel.map(p => <option key={p.id} value={p.id}>{p.name} — {p.department}</option>)}
-              </select>
+        <div className="p-6 min-h-[420px] space-y-5">
+          {isEdit && (
+            <p className="text-sm bg-amber-50 text-amber-800 rounded-xl px-4 py-3">Reddedilen öneriyi düzenliyorsunuz. Kaydettiğinizde öneri yeniden Amir onayına gönderilir.</p>
+          )}
+
+          {step === 1 && (
+            <div className="space-y-5">
+              <h3 className="text-lg font-black text-slate-900">Personel Bilgileri</h3>
+              {!isEdit && selectablePersonnel.length > 0 && (
+                <Field label="Kimin adına?" hint="Boş bırakırsanız öneri kendi adınıza oluşturulur.">
+                  <select value={form.onBehalfOfId} onChange={e => setForm(f => ({ ...f, onBehalfOfId: e.target.value }))} className={inputCls}>
+                    <option value="">Kendi adıma ({currentUser?.full_name})</option>
+                    {selectablePersonnel.map(p => <option key={p.id} value={p.id}>{p.name} — {p.department}</option>)}
+                  </select>
+                </Field>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 bg-slate-50 rounded-2xl p-5">
+                {[["Ad Soyad", resolvedPersonnel.name], ["Bölüm", resolvedPersonnel.department], ["Görev", resolvedPersonnel.jobTitle], ["Vardiya", resolvedPersonnel.shift], ["Amir", resolvedPersonnel.teamLeaderName], ["Makine Lideri", resolvedPersonnel.machineLeaderName]].map(([l, v]) => (
+                  <div key={l}><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{l}</p><p className="text-sm font-semibold text-slate-900 mt-1">{v || "—"}</p></div>
+                ))}
+              </div>
+              {!isEdit && !resolvedPersonnel.teamLeaderEmail && (
+                <p className="text-sm bg-amber-50 text-amber-800 rounded-xl px-4 py-3">Amir bilgisi bulunamadı: öneri onay için bir amire atanmayacak. Kurulum &gt; Personel Listesi'nde kaydınızı tamamlatın.</p>
+              )}
+
+              <Field label="Öneri Sınıfı" required error={attempted && form.suggestionTypes.length === 0 ? "En az bir sınıf seçiniz." : undefined}>
+                <div className="flex flex-wrap gap-2">
+                  {SUGGESTION_TYPE_OPTIONS.map(t => {
+                    const on = form.suggestionTypes.includes(t);
+                    return (
+                      <button key={t} type="button" onClick={() => toggleType(t)} className={`h-10 px-4 rounded-full text-sm font-semibold cursor-pointer transition-colors ${on ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+                        {on && <Check className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" />}{t}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
+              <Field label="Öneri Konusu" required error={attempted && !form.subject.trim() ? "Öneri konusunu yazınız." : undefined}>
+                <input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} className={`${inputCls} ${attempted && !form.subject.trim() ? errCls : ""}`} placeholder="Önerinizi tek cümleyle özetleyin" />
+              </Field>
             </div>
           )}
-          <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 rounded-lg p-3">
-            <div><span className="text-slate-400 font-bold">Ad Soyad: </span>{resolvedPersonnel.name || "-"}</div>
-            <div><span className="text-slate-400 font-bold">Bölüm: </span>{resolvedPersonnel.department || "-"}</div>
-            <div><span className="text-slate-400 font-bold">Görev: </span>{resolvedPersonnel.jobTitle || "-"}</div>
-            <div><span className="text-slate-400 font-bold">Vardiya: </span>{resolvedPersonnel.shift || "-"}</div>
-            <div><span className="text-slate-400 font-bold">Amir: </span>{resolvedPersonnel.teamLeaderName || "-"}</div>
-          </div>
 
-          <div>
-            <label className="text-[10px] font-black uppercase text-slate-400">Öneri Sınıfı *</label>
-            <div className="flex flex-wrap gap-1.5 mt-1">
-              {SUGGESTION_TYPE_OPTIONS.map(t => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => toggleType(t)}
-                  className={`px-2.5 py-1 rounded-full text-[11px] font-bold cursor-pointer ${form.suggestionTypes.includes(t) ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600"}`}
-                >
-                  {t}
-                </button>
-              ))}
+          {step === 2 && (
+            <div className="space-y-5">
+              <h3 className="text-lg font-black text-slate-900">Mevcut Durum</h3>
+              <Field label="Mevcut durum / problem" required error={attempted && !form.currentState.trim() ? "Mevcut durumu yazınız." : undefined} hint="Problem nedir, nerede ve ne sıklıkla yaşanıyor?">
+                <textarea value={form.currentState} onChange={e => setForm(f => ({ ...f, currentState: e.target.value }))} rows={7} className={`${areaCls} ${attempted && !form.currentState.trim() ? errCls : ""}`} placeholder="Mevcut durumu açıklayın" />
+              </Field>
+              <PhotoUploader label="Mevcut durum görselleri" photos={form.photosCurrent} onAdd={f => addPhotos("photosCurrent", f)} onRemove={i => removePhoto("photosCurrent", i)} />
             </div>
-            {attempted && form.suggestionTypes.length === 0 && <p className="text-red-500 text-[11px] mt-1">Lütfen en az bir öneri sınıfı seçiniz.</p>}
-          </div>
+          )}
 
-          <div>
-            <label className="text-[10px] font-black uppercase text-slate-400">Öneri Konusu *</label>
-            <input
-              value={form.subject}
-              onChange={e => setForm(f => ({ ...f, subject: e.target.value }))}
-              className={`${inputCls} ${attempted && !form.subject.trim() ? errCls : ""}`}
-              placeholder="Öneri konusunu kısaca yazın"
-            />
-            {attempted && !form.subject.trim() && <p className="text-red-500 text-[11px] mt-1">Lütfen öneri konusu yazınız.</p>}
-          </div>
-        </div>
-      )}
-
-      {step === 2 && (
-        <div className="space-y-3">
-          <div>
-            <label className="text-[10px] font-black uppercase text-slate-400">Mevcut Durum Açıklaması *</label>
-            <textarea
-              value={form.currentState}
-              onChange={e => setForm(f => ({ ...f, currentState: e.target.value }))}
-              rows={5}
-              className={`${inputCls} ${attempted && !form.currentState.trim() ? errCls : ""}`}
-              placeholder="Mevcut durumu / problemi açıklayın"
-            />
-            {attempted && !form.currentState.trim() && <p className="text-red-500 text-[11px] mt-1">Lütfen mevcut durumu yazınız.</p>}
-          </div>
-          <PhotoUploader label="Mevcut Durum Görseli" photos={form.photosCurrent} onAdd={f => addPhoto("photosCurrent", f)} onRemove={i => removePhoto("photosCurrent", i)} />
-        </div>
-      )}
-
-      {step === 3 && (
-        <div className="space-y-3">
-          <div>
-            <label className="text-[10px] font-black uppercase text-slate-400">Önerilen İyileştirme *</label>
-            <textarea
-              value={form.improvementSuggestion}
-              onChange={e => setForm(f => ({ ...f, improvementSuggestion: e.target.value }))}
-              rows={5}
-              className={`${inputCls} ${attempted && !form.improvementSuggestion.trim() ? errCls : ""}`}
-              placeholder="Önerdiğiniz iyileştirmeyi açıklayın"
-            />
-            {attempted && !form.improvementSuggestion.trim() && <p className="text-red-500 text-[11px] mt-1">Lütfen önerinizi yazınız.</p>}
-          </div>
-          <PhotoUploader label="Öneri Görseli" photos={form.photosPropose} onAdd={f => addPhoto("photosPropose", f)} onRemove={i => removePhoto("photosPropose", i)} />
-        </div>
-      )}
-
-      {step === 4 && (
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] font-black uppercase text-slate-400">Öneri Aşaması *</label>
-              <select value={form.stage} onChange={e => setForm(f => ({ ...f, stage: e.target.value }))} className={`${inputCls} ${attempted && !form.stage ? errCls : ""}`}>
-                <option value="">Seçiniz...</option>
-                {STAGE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+          {step === 3 && (
+            <div className="space-y-5">
+              <h3 className="text-lg font-black text-slate-900">Önerilen İyileştirme</h3>
+              <Field label="İyileştirme önerisi" required error={attempted && !form.improvementSuggestion.trim() ? "Önerinizi yazınız." : undefined} hint="Ne değişecek, nasıl uygulanacak, beklenen sonuç ne?">
+                <textarea value={form.improvementSuggestion} onChange={e => setForm(f => ({ ...f, improvementSuggestion: e.target.value }))} rows={7} className={`${areaCls} ${attempted && !form.improvementSuggestion.trim() ? errCls : ""}`} placeholder="Önerdiğiniz iyileştirmeyi açıklayın" />
+              </Field>
+              <PhotoUploader label="Öneri görselleri" photos={form.photosPropose} onAdd={f => addPhotos("photosPropose", f)} onRemove={i => removePhoto("photosPropose", i)} />
             </div>
-            <div>
-              <label className="text-[10px] font-black uppercase text-slate-400">Kazanç Süresi *</label>
-              <select value={form.paybackPeriod} onChange={e => setForm(f => ({ ...f, paybackPeriod: e.target.value }))} className={`${inputCls} ${attempted && !form.paybackPeriod ? errCls : ""}`}>
-                <option value="">Seçiniz...</option>
-                {PAYBACK_PERIOD_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="flex space-x-1">
-              <input type="number" value={form.estimatedSaving} onChange={e => setForm(f => ({ ...f, estimatedSaving: e.target.value }))} placeholder="Tahmini Kazanç" className={inputCls} />
-              <select value={form.estimatedSavingCurrency} onChange={e => setForm(f => ({ ...f, estimatedSavingCurrency: e.target.value }))} className={`${inputCls} w-20`}>
-                {CURRENCY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            <div className="flex space-x-1">
-              <input type="number" value={form.estimatedCost} onChange={e => setForm(f => ({ ...f, estimatedCost: e.target.value }))} placeholder="Tahmini Maliyet" className={inputCls} />
-              <select value={form.estimatedCostCurrency} onChange={e => setForm(f => ({ ...f, estimatedCostCurrency: e.target.value }))} className={`${inputCls} w-20`}>
-                {CURRENCY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-4 pt-2">
-            {[["isg", "ISG"], ["cevre", "Çevre"], ["motivasyon", "Motivasyon"]].map(([key, label]) => (
-              <label key={key} className="flex items-center space-x-1.5 text-xs font-bold cursor-pointer">
-                <input type="checkbox" checked={(form as any)[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.checked }))} />
-                <span>{label}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
+          )}
 
-      {step === 5 && (
-        <div className="space-y-2 text-xs bg-slate-50 rounded-lg p-4">
-          <p><span className="font-bold text-slate-400">Ad Soyad: </span>{resolvedPersonnel.name}</p>
-          <p><span className="font-bold text-slate-400">Öneri Sınıfı: </span>{form.suggestionTypes.join(", ")}</p>
-          <p><span className="font-bold text-slate-400">Öneri Konusu: </span>{form.subject}</p>
-          <p><span className="font-bold text-slate-400">Mevcut Durum: </span>{form.currentState}</p>
-          <p><span className="font-bold text-slate-400">Önerilen İyileştirme: </span>{form.improvementSuggestion}</p>
-          <p><span className="font-bold text-slate-400">Öneri Aşaması: </span>{form.stage} · <span className="font-bold text-slate-400">Kazanç Süresi: </span>{form.paybackPeriod}</p>
-          <p><span className="font-bold text-slate-400">Tahmini Kazanç: </span>{form.estimatedSaving || 0} {form.estimatedSavingCurrency} · <span className="font-bold text-slate-400">Tahmini Maliyet: </span>{form.estimatedCost || 0} {form.estimatedCostCurrency}</p>
-        </div>
-      )}
+          {step === 4 && (
+            <div className="space-y-5">
+              <h3 className="text-lg font-black text-slate-900">Kazanç ve Etki</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Öneri Aşaması (PDCA)" required error={attempted && !form.stage ? "Seçiniz." : undefined}>
+                  <select value={form.stage} onChange={e => setForm(f => ({ ...f, stage: e.target.value }))} className={`${inputCls} ${attempted && !form.stage ? errCls : ""}`}>
+                    <option value="">Seçiniz…</option>
+                    {STAGE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </Field>
+                <Field label="Kazanç Süresi" required hint="Kazanç ne sıklıkla oluşuyor?" error={attempted && !form.paybackPeriod ? "Seçiniz." : undefined}>
+                  <select value={form.paybackPeriod} onChange={e => setForm(f => ({ ...f, paybackPeriod: e.target.value }))} className={`${inputCls} ${attempted && !form.paybackPeriod ? errCls : ""}`}>
+                    <option value="">Seçiniz…</option>
+                    {PAYBACK_PERIOD_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </Field>
+                <Field label="Tahmini Kazanç">
+                  <div className="flex gap-2">
+                    <input type="number" min={0} value={form.estimatedSaving} onChange={e => setForm(f => ({ ...f, estimatedSaving: e.target.value }))} placeholder="0" className={inputCls} />
+                    <select value={form.estimatedSavingCurrency} onChange={e => setForm(f => ({ ...f, estimatedSavingCurrency: e.target.value }))} className={`${inputCls} !w-36`}>
+                      {CURRENCY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                </Field>
+                <Field label="Tahmini Maliyet">
+                  <div className="flex gap-2">
+                    <input type="number" min={0} value={form.estimatedCost} onChange={e => setForm(f => ({ ...f, estimatedCost: e.target.value }))} placeholder="0" className={inputCls} />
+                    <select value={form.estimatedCostCurrency} onChange={e => setForm(f => ({ ...f, estimatedCostCurrency: e.target.value }))} className={`${inputCls} !w-36`}>
+                      {CURRENCY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                </Field>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-700 mb-2">Ek etkiler</p>
+                <div className="flex flex-wrap gap-3">
+                  {([["isg", "İş Sağlığı ve Güvenliği"], ["cevre", "Çevre"], ["motivasyon", "Motivasyon"]] as const).map(([key, label]) => (
+                    <label key={key} className={`h-11 px-4 rounded-xl border flex items-center gap-2.5 text-sm font-semibold cursor-pointer transition-colors ${form[key] ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+                      <input type="checkbox" className="w-4 h-4 accent-emerald-700" checked={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.checked }))} />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
-      <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-        <button onClick={back} disabled={step === 1} className="px-3 py-2 rounded-lg text-xs font-black bg-slate-100 text-slate-600 disabled:opacity-40 cursor-pointer flex items-center space-x-1">
-          <ChevronLeft className="w-3.5 h-3.5" /><span>Geri</span>
-        </button>
-        {step < 5 ? (
-          <button onClick={next} className="px-3 py-2 rounded-lg text-xs font-black bg-slate-900 text-white cursor-pointer flex items-center space-x-1">
-            <span>İleri</span><ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        ) : (
-          <button onClick={save} disabled={saving} className="px-3 py-2 rounded-lg text-xs font-black bg-emerald-800 hover:bg-emerald-700 text-white cursor-pointer flex items-center space-x-1.5 disabled:opacity-50">
-            <Save className="w-3.5 h-3.5" /><span>{saving ? "Kaydediliyor..." : "Kaydet"}</span>
-          </button>
-        )}
+          {step === 5 && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-black text-slate-900">Göndermeden önce kontrol edin</h3>
+              <p className="text-sm text-slate-500">Sağdaki özet kartında tüm alanları görebilirsiniz. Değiştirmek için ilgili adıma dönün; Kaydet'e bastığınızda öneri amirinize onaya gider.</p>
+              <div className="flex flex-wrap gap-2">
+                {STEPS.slice(0, 4).map((s, i) => (
+                  <button key={s.label} onClick={() => setStep(i + 1)} className="h-9 px-3.5 rounded-full bg-slate-100 hover:bg-slate-200 text-sm font-semibold text-slate-700 cursor-pointer">{s.label} adımını düzenle</button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/60">
+          <Button variant="ghost" onClick={back} disabled={step === 1}><ChevronLeft className="w-4 h-4" />Geri</Button>
+          {step < 5 ? (
+            <Button variant="primary" onClick={next}>İleri<ChevronRight className="w-4 h-4" /></Button>
+          ) : (
+            <Button variant="brand" onClick={save} disabled={saving}><Save className="w-4 h-4" />{saving ? "Kaydediliyor…" : isEdit ? "Yeniden Gönder" : "Öneriyi Gönder"}</Button>
+          )}
+        </div>
+      </Card>
+
+      {/* Live summary */}
+      <div className="xl:sticky xl:top-2 space-y-4">
+        <Card>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Canlı Özet</p>
+          <h3 className="text-lg font-black text-slate-900 mt-1 break-words">{form.subject || <span className="text-slate-300">Öneri konusu…</span>}</h3>
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            {form.suggestionTypes.map(t => <span key={t} className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700">{t}</span>)}
+            {form.isg && <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-red-50 text-red-600">İSG</span>}
+            {form.cevre && <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">Çevre</span>}
+            {form.motivasyon && <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700">Motivasyon</span>}
+          </div>
+          <dl className="mt-5 space-y-4 text-sm">
+            <div><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Öneren</dt><dd className="mt-1 font-semibold text-slate-900">{resolvedPersonnel.name || "—"}<span className="font-normal text-slate-500"> · {resolvedPersonnel.department || "—"}</span></dd></div>
+            <div><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Mevcut Durum</dt><dd className="mt-1 text-slate-700 whitespace-pre-wrap line-clamp-4">{form.currentState || "—"}</dd></div>
+            <div><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Önerilen İyileştirme</dt><dd className="mt-1 text-slate-700 whitespace-pre-wrap line-clamp-4">{form.improvementSuggestion || "—"}</dd></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl bg-emerald-50 p-3"><dt className="text-xs font-semibold text-emerald-700">Tahmini Kazanç</dt><dd className="font-black text-emerald-900 mt-0.5 tabular-nums">{savingNum.toLocaleString("tr-TR")} {form.estimatedSavingCurrency}</dd></div>
+              <div className="rounded-xl bg-slate-100 p-3"><dt className="text-xs font-semibold text-slate-600">Tahmini Maliyet</dt><dd className="font-black text-slate-900 mt-0.5 tabular-nums">{costNum.toLocaleString("tr-TR")} {form.estimatedCostCurrency}</dd></div>
+            </div>
+            {sameCurrency && (savingNum > 0 || costNum > 0) && (
+              <div className={`rounded-xl p-3 ${net >= 0 ? "bg-teal-50 text-teal-800" : "bg-red-50 text-red-700"}`}>
+                <dt className="text-xs font-semibold">Net etki</dt>
+                <dd className="font-black tabular-nums mt-0.5">{net.toLocaleString("tr-TR")} {form.estimatedSavingCurrency}</dd>
+              </div>
+            )}
+            <div className="text-slate-600"><span className="font-semibold">Aşama:</span> {form.stage || "—"} · <span className="font-semibold">Süre:</span> {form.paybackPeriod || "—"}</div>
+            <div className="text-slate-600"><span className="font-semibold">Görseller:</span> {form.photosCurrent.length + form.photosPropose.length} adet</div>
+          </dl>
+        </Card>
       </div>
     </div>
   );
 }
 
-function PhotoUploader({ label, photos, onAdd, onRemove }: { label: string; photos: KaizenSuggestionPhoto[]; onAdd: (f: File | undefined) => void; onRemove: (i: number) => void }) {
+function PhotoUploader({ label, photos, onAdd, onRemove }: { label: string; photos: KaizenSuggestionPhoto[]; onAdd: (f: FileList | null) => void; onRemove: (i: number) => void }) {
   return (
-    <div className="space-y-2">
-      <label className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-[11px] font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 cursor-pointer w-fit">
-        <Camera className="w-3.5 h-3.5" />
-        <span>{label}</span>
-        <input type="file" accept="image/*" className="hidden" onChange={e => onAdd(e.target.files?.[0])} />
-      </label>
-      {photos.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {photos.map((p, i) => (
-            <div key={i} className="relative">
-              <img src={p.dataUrl} alt={label} className="h-14 rounded-lg border border-gray-200" />
-              <button onClick={() => onRemove(i)} className="absolute -top-1.5 -right-1.5 bg-red-600 text-white rounded-full p-0.5 cursor-pointer">
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+    <div>
+      <p className="text-sm font-semibold text-slate-700 mb-1.5">{label} <span className="font-normal text-slate-400">(isteğe bağlı)</span></p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {photos.map((p, i) => (
+          <div key={i} className="relative group aspect-[4/3]">
+            <img src={p.dataUrl} alt={label} className="w-full h-full object-cover rounded-xl border border-slate-200" />
+            <button onClick={() => onRemove(i)} className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-slate-900/80 text-white flex items-center justify-center cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity" title="Kaldır">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+        <label className="aspect-[4/3] rounded-xl border-2 border-dashed border-slate-300 hover:border-slate-500 hover:bg-slate-50 flex flex-col items-center justify-center gap-1.5 text-slate-500 cursor-pointer transition-colors">
+          <Camera className="w-6 h-6" />
+          <span className="text-xs font-semibold">Görsel ekle</span>
+          <input type="file" accept="image/*" multiple className="hidden" onChange={e => { onAdd(e.target.files); e.target.value = ""; }} />
+        </label>
+      </div>
     </div>
   );
 }

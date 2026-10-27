@@ -1,11 +1,9 @@
-import React, { useState, useMemo } from "react";
-import { CheckCircle, XCircle, Download, X, Share2, Gift, Clock } from "lucide-react";
+import React, { useState, useMemo, useEffect } from "react";
+import { CheckCircle2, XCircle, Download, Share2, Gift, Clock, Inbox, ClipboardCheck, Users, Award, Sparkles, MessageSquare } from "lucide-react";
 import { KaizenSuggestion, KaizenCriteria, KaizenApproval, KaizenEvaluation } from "./kaizenTypes";
-import {
-  APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, canDecideAsManager, canDecideAsBoard, CURRENCY_OPTIONS,
-  daysWaiting, waitingSeverity, WAITING_SEVERITY_COLORS
-} from "./kaizenCalc";
+import { canDecideAsManager, CURRENCY_OPTIONS, daysWaiting, waitingSeverity, WAITING_SEVERITY_COLORS } from "./kaizenCalc";
 import { KaizenApi } from "./KaizenSuggestionSystem";
+import { Card, StatusBadge, Button, EmptyState, KpiCard, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 
 interface Props {
   currentUser: any;
@@ -19,387 +17,375 @@ interface Props {
   onReload: () => void;
 }
 
-const ALL = "__ALL__";
+type Tab = "manager" | "board" | "yokoten" | "reward";
+
+const areaCls = "w-full px-3.5 py-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400";
+const inputCls = "h-11 px-3.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400";
 
 export default function KaizenApprovals({ currentUser, suggestions, approvals, evaluations, criteria, isBoardMember, api, showToast, onReload }: Props) {
-  const [tab, setTab] = useState<"manager" | "board" | "yokoten" | "reward">("manager");
+  const [tab, setTab] = useState<Tab>("manager");
   const myEmail = currentUser?.email || "";
   const myRole = currentUser?.role || "";
 
-  // Manager kuyruğunda bekleme süresi = öneri gönderildiğinden bu yana geçen gün sayısı; Kurul
-  // kuyruğunda = Amir onayının verildiği tarihten bu yana geçen gün sayısı (Amir onay kaydı yoksa
-  // öneri tarihine düşülür).
   const managerApprovalBySuggestion = useMemo(() => {
     const map = new Map<string, string>();
     approvals.filter(a => a.stage === "Manager" && a.approved).forEach(a => map.set(a.suggestionId, a.createdAt));
     return map;
   }, [approvals]);
 
-  const waitingSinceFor = (s: KaizenSuggestion, forBoard: boolean) =>
-    forBoard ? (managerApprovalBySuggestion.get(s.id) || s.createdAt) : s.createdAt;
+  const managerQueue = useMemo(() => suggestions.filter(s => s.approvalStatus === "Pending" && canDecideAsManager(myEmail, myRole, s.teamLeaderEmail)), [suggestions, myEmail, myRole]);
+  const managerHistory = useMemo(() => suggestions.filter(s => s.approvalStatus !== "Pending" && canDecideAsManager(myEmail, myRole, s.teamLeaderEmail)), [suggestions, myEmail, myRole]);
+  const boardQueue = useMemo(() => suggestions.filter(s => s.approvalStatus === "First Approval"), [suggestions]);
+  const boardHistory = useMemo(() => suggestions.filter(s => s.approvalStatus === "Second Approval" || s.approvalStatus === "Rejected 2nd"), [suggestions]);
 
-  const managerQueue = useMemo(
-    () => suggestions.filter(s => s.approvalStatus === "Pending" && canDecideAsManager(myEmail, myRole, s.teamLeaderEmail)),
-    [suggestions, myEmail, myRole]
-  );
-  const managerHistory = useMemo(
-    () => suggestions.filter(s => s.approvalStatus !== "Pending" && canDecideAsManager(myEmail, myRole, s.teamLeaderEmail)),
-    [suggestions, myEmail, myRole]
-  );
-  const boardQueue = useMemo(
-    () => suggestions.filter(s => s.approvalStatus === "First Approval"),
-    [suggestions]
-  );
-  const boardHistory = useMemo(
-    () => suggestions.filter(s => s.approvalStatus === "Second Approval" || s.approvalStatus === "Rejected 2nd"),
-    [suggestions]
-  );
+  const yokotenOpen = evaluations.filter(e => e.yokoten && !e.yokotenImplemented).length;
+  const rewardOpen = evaluations.filter(e => (e.rewardStatus || "Bekliyor") !== "Ödendi" && suggestions.find(s => s.id === e.suggestionId)?.approvalStatus === "Second Approval").length;
 
-  const [decisionTarget, setDecisionTarget] = useState<KaizenSuggestion | null>(null);
-  const exportUrl = `/api/business/kaizen/suggestions/export-excel`;
+  const tabs: { key: Tab; label: string; icon: any; count: number; show: boolean }[] = [
+    { key: "manager", label: "Amir Onayı", icon: ClipboardCheck, count: managerQueue.length, show: true },
+    { key: "board", label: "Kurul Değerlendirmesi", icon: Users, count: boardQueue.length, show: isBoardMember },
+    { key: "yokoten", label: "Yokoten Takibi", icon: Share2, count: yokotenOpen, show: isBoardMember },
+    { key: "reward", label: "Ödül Takibi", icon: Gift, count: rewardOpen, show: isBoardMember }
+  ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex space-x-2 flex-wrap gap-y-2">
-        <button onClick={() => setTab("manager")} className={tabBtn(tab === "manager")}>Amir Onayı ({managerQueue.length})</button>
-        {isBoardMember && <button onClick={() => setTab("board")} className={tabBtn(tab === "board")}>Kurul Onayı ({boardQueue.length})</button>}
-        {isBoardMember && <button onClick={() => setTab("yokoten")} className={tabBtn(tab === "yokoten")}><Share2 className="w-3 h-3 inline mr-1" />Yokoten Takibi</button>}
-        {isBoardMember && <button onClick={() => setTab("reward")} className={tabBtn(tab === "reward")}><Gift className="w-3 h-3 inline mr-1" />Ödül Takibi</button>}
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <KpiCard label="Amir onayı bekleyen" value={managerQueue.length} icon={ClipboardCheck} tone="amber" onClick={() => setTab("manager")} />
+        {isBoardMember && <KpiCard label="Kurul bekleyen" value={boardQueue.length} icon={Users} tone="blue" onClick={() => setTab("board")} />}
+        {isBoardMember && <KpiCard label="Yayılımı bekleyen" value={yokotenOpen} icon={Share2} tone="teal" onClick={() => setTab("yokoten")} />}
+        {isBoardMember && <KpiCard label="Ödenecek ödül" value={rewardOpen} icon={Gift} tone="emerald" onClick={() => setTab("reward")} />}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex bg-slate-100 rounded-xl p-1 gap-1 flex-wrap">
+          {tabs.filter(t => t.show).map(t => {
+            const Icon = t.icon;
+            return (
+              <button key={t.key} onClick={() => setTab(t.key)} className={`h-10 px-4 rounded-lg text-sm font-semibold flex items-center gap-2 cursor-pointer transition-all ${tab === t.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}>
+                <Icon className="w-4 h-4" />{t.label}
+                {t.count > 0 && <span className="min-w-5 h-5 px-1.5 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center tabular-nums">{t.count}</span>}
+              </button>
+            );
+          })}
+        </div>
+        {isBoardMember && (
+          <Button variant="ghost" onClick={() => api.download("suggestions/export-excel", "Kaizen_Onerileri.xlsx").catch(() => showToast("Hata: Rapor indirilemedi."))}>
+            <Download className="w-4 h-4" />Excel Raporu İndir
+          </Button>
+        )}
       </div>
 
       {tab === "manager" && (
-        <ApprovalTable
-          title="Onay Bekleyen Öneriler"
-          rows={managerQueue}
-          onRowClick={setDecisionTarget}
-          extraCol="Amir"
-          waitingSinceFor={s => waitingSinceFor(s, false)}
+        <DecisionWorkspace
+          stage="manager" queue={managerQueue} history={managerHistory} criteria={criteria}
+          approvals={approvals} evaluations={evaluations}
+          waitingSince={s => s.createdAt}
+          api={api} showToast={showToast} onReload={onReload}
         />
       )}
-      {tab === "manager" && managerHistory.length > 0 && (
-        <ApprovalTable title="Geçmiş Kararlar" rows={managerHistory} onRowClick={() => {}} extraCol="Amir" muted />
-      )}
-
       {tab === "board" && isBoardMember && (
-        <>
-          <div className="flex justify-end">
-            <a href={exportUrl} className="px-3 py-2 rounded-lg text-xs font-black bg-slate-100 text-slate-700 flex items-center space-x-1.5 cursor-pointer hover:bg-slate-200">
-              <Download className="w-3.5 h-3.5" /><span>Rapor İndir</span>
-            </a>
-          </div>
-          <ApprovalTable
-            title="Değerlendirme Bekleyen Öneriler"
-            rows={boardQueue}
-            onRowClick={setDecisionTarget}
-            extraCol="Amir"
-            waitingSinceFor={s => waitingSinceFor(s, true)}
-          />
-          {boardHistory.length > 0 && <ApprovalTable title="Geçmiş Kararlar" rows={boardHistory} onRowClick={() => {}} extraCol="Amir" muted />}
-        </>
-      )}
-
-      {tab === "yokoten" && isBoardMember && (
-        <YokotenTab suggestions={suggestions} evaluations={evaluations} api={api} showToast={showToast} onReload={onReload} />
-      )}
-
-      {tab === "reward" && isBoardMember && (
-        <RewardTab suggestions={suggestions} evaluations={evaluations} api={api} showToast={showToast} onReload={onReload} />
-      )}
-
-      {decisionTarget && decisionTarget.approvalStatus === "Pending" && (
-        <ManagerDecisionModal
-          suggestion={decisionTarget}
-          api={api}
-          showToast={showToast}
-          onClose={() => setDecisionTarget(null)}
-          onDone={() => { setDecisionTarget(null); onReload(); }}
+        <DecisionWorkspace
+          stage="board" queue={boardQueue} history={boardHistory} criteria={criteria}
+          approvals={approvals} evaluations={evaluations}
+          waitingSince={s => managerApprovalBySuggestion.get(s.id) || s.createdAt}
+          api={api} showToast={showToast} onReload={onReload}
         />
       )}
-      {decisionTarget && decisionTarget.approvalStatus === "First Approval" && (
-        <BoardDecisionModal
-          suggestion={decisionTarget}
-          criteria={criteria}
-          api={api}
-          showToast={showToast}
-          onClose={() => setDecisionTarget(null)}
-          onDone={() => { setDecisionTarget(null); onReload(); }}
-        />
-      )}
+      {tab === "yokoten" && isBoardMember && <YokotenTab suggestions={suggestions} evaluations={evaluations} api={api} showToast={showToast} onReload={onReload} />}
+      {tab === "reward" && isBoardMember && <RewardTab suggestions={suggestions} evaluations={evaluations} api={api} showToast={showToast} onReload={onReload} />}
     </div>
   );
-}
-
-function tabBtn(active: boolean) {
-  return `py-1.5 px-3 rounded-lg font-black text-[11px] uppercase cursor-pointer transition-all ${active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`;
 }
 
 function WaitingBadge({ since }: { since: string }) {
   const days = daysWaiting(since);
-  const severity = waitingSeverity(days);
+  const color = WAITING_SEVERITY_COLORS[waitingSeverity(days)];
   return (
-    <span className="inline-flex items-center space-x-1 text-[10px] font-black" style={{ color: WAITING_SEVERITY_COLORS[severity] }}>
-      <Clock className="w-3 h-3" />
-      <span>{days} gün</span>
+    <span className="inline-flex items-center gap-1 text-xs font-bold whitespace-nowrap" style={{ color }}>
+      <Clock className="w-3.5 h-3.5" />{days} gün
     </span>
   );
 }
 
-function ApprovalTable({ title, rows, onRowClick, extraCol, muted, waitingSinceFor }: {
-  title: string; rows: KaizenSuggestion[]; onRowClick: (s: KaizenSuggestion) => void; extraCol: string; muted?: boolean;
-  waitingSinceFor?: (s: KaizenSuggestion) => string;
+// ---------- Master/detail workspace: queue on the left, decision form on the right ----------
+
+function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluations, waitingSince, api, showToast, onReload }: {
+  stage: "manager" | "board"; queue: KaizenSuggestion[]; history: KaizenSuggestion[]; criteria: KaizenCriteria[];
+  approvals: KaizenApproval[]; evaluations: KaizenEvaluation[]; waitingSince: (s: KaizenSuggestion) => string;
+  api: KaizenApi; showToast: (m: string) => void; onReload: () => void;
 }) {
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <h3 className="font-black text-xs uppercase text-slate-700 px-3 pt-3 pb-2">{title} ({rows.length})</h3>
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="text-left text-slate-400 uppercase text-[10px] border-b bg-slate-50">
-            <th className="py-2 px-3">Tarih</th><th>Ad Soyad</th><th>Konu</th><th>{extraCol}</th>
-            {waitingSinceFor && <th>Bekleme</th>}
-            <th>Durum</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {rows.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).map(s => (
-            <tr key={s.id} className={muted ? "" : "cursor-pointer hover:bg-slate-50"} onClick={() => !muted && onRowClick(s)}>
-              <td className="py-2 px-3">{(s.createdAt || "").slice(0, 10)}</td>
-              <td>{s.personnelName}</td>
-              <td className="max-w-[220px] truncate" title={s.subject}>{s.subject}</td>
-              <td>{s.teamLeaderName}</td>
-              {waitingSinceFor && <td><WaitingBadge since={waitingSinceFor(s)} /></td>}
-              <td><span className="text-[10px] font-black uppercase px-2 py-1 rounded-full text-white" style={{ backgroundColor: APPROVAL_STATUS_COLORS[s.approvalStatus] }}>{APPROVAL_STATUS_LABELS[s.approvalStatus]}</span></td>
-            </tr>
-          ))}
-          {rows.length === 0 && <tr><td colSpan={waitingSinceFor ? 6 : 5} className="text-slate-400 py-3 px-3">Kayıt bulunamadı.</td></tr>}
-        </tbody>
-      </table>
-    </div>
+  const [view, setView] = useState<"queue" | "history">("queue");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const list = useMemo(
+    () => [...(view === "queue" ? queue : history)].sort((a, b) => (view === "queue" ? (waitingSince(a) || "").localeCompare(waitingSince(b) || "") : (b.updatedAt || "").localeCompare(a.updatedAt || ""))),
+    [view, queue, history]
   );
-}
+  const selected = list.find(s => s.id === selectedId) || null;
 
-// "Yokoten Takibi" — Board'un "yatay yayılım yapılabilir" olarak işaretlediği fikirlerin diğer
-// alanlara/hatlara fiilen uygulanıp uygulanmadığının takip listesi. Legacy uygulamada bu bayrak
-// sadece kaydediliyordu, hiçbir yerde bir takip listesi yoktu.
-function YokotenTab({ suggestions, evaluations, api, showToast, onReload }: { suggestions: KaizenSuggestion[]; evaluations: KaizenEvaluation[]; api: KaizenApi; showToast: (m: string) => void; onReload: () => void }) {
-  const rows = useMemo(() => evaluations.filter(e => e.yokoten).map(e => ({
-    evaluation: e,
-    suggestion: suggestions.find(s => s.id === e.suggestionId)
-  })).filter(r => !!r.suggestion), [evaluations, suggestions]);
-
-  const toggle = async (evaluationId: string, implemented: boolean) => {
-    const res = await api.post(`evaluations/${evaluationId}/yokoten-implemented`, { implemented });
-    if (res.success) { showToast(implemented ? "Yokoten uygulaması işaretlendi." : "Yokoten uygulaması geri alındı."); onReload(); }
-    else showToast(`Hata: ${res.error || "İşlem başarısız."}`);
-  };
+  useEffect(() => { setSelectedId(null); }, [stage, view]);
+  // Auto-open the first waiting item so the right pane is never empty when there is work to do.
+  useEffect(() => { if (!selectedId && list.length > 0 && view === "queue") setSelectedId(list[0].id); }, [list, selectedId, view]);
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <h3 className="font-black text-xs uppercase text-slate-700 px-3 pt-3 pb-2">Yokoten Fırsatları ({rows.length})</h3>
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="text-left text-slate-400 uppercase text-[10px] border-b bg-slate-50">
-            <th className="py-2 px-3">Konu</th><th>Bölüm</th><th>Açıklama</th><th>Diğer Alanlarda Uygulandı mı?</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {rows.map(({ evaluation, suggestion }) => (
-            <tr key={evaluation.id}>
-              <td className="py-2 px-3 font-bold max-w-[200px] truncate" title={suggestion!.subject}>{suggestion!.subject}</td>
-              <td>{suggestion!.personnelDepartment}</td>
-              <td className="max-w-[280px] truncate" title={evaluation.yokotenDescription}>{evaluation.yokotenDescription || "-"}</td>
-              <td>
-                <label className="flex items-center space-x-1.5 cursor-pointer">
-                  <input type="checkbox" checked={!!evaluation.yokotenImplemented} onChange={e => toggle(evaluation.id, e.target.checked)} />
-                  <span className={`font-black text-[10px] uppercase ${evaluation.yokotenImplemented ? "text-emerald-700" : "text-amber-600"}`}>
-                    {evaluation.yokotenImplemented ? "Uygulandı" : "Bekliyor"}
-                  </span>
-                </label>
-              </td>
-            </tr>
-          ))}
-          {rows.length === 0 && <tr><td colSpan={4} className="text-slate-400 py-3 px-3">Yokoten olarak işaretlenmiş öneri bulunamadı.</td></tr>}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// "Ödül Takibi" — Kurul tarafından puanlanan/kazanç ataması yapılan önerilerin, bu kazancın fiilen
-// çalışana bir ödül/prim olarak ödenip ödenmediğinin takibi. Legacy uygulamada puanlama yapılıyordu
-// ama sonrasında hiçbir ödül/ödeme süreci izlenmiyordu.
-function RewardTab({ suggestions, evaluations, api, showToast, onReload }: { suggestions: KaizenSuggestion[]; evaluations: KaizenEvaluation[]; api: KaizenApi; showToast: (m: string) => void; onReload: () => void }) {
-  const rows = useMemo(() => evaluations.map(e => ({
-    evaluation: e,
-    suggestion: suggestions.find(s => s.id === e.suggestionId)
-  })).filter(r => !!r.suggestion && r.suggestion!.approvalStatus === "Second Approval")
-    .sort((a, b) => (b.evaluation.createdAt || "").localeCompare(a.evaluation.createdAt || "")), [evaluations, suggestions]);
-
-  const toggle = async (evaluationId: string, paid: boolean) => {
-    const res = await api.post(`evaluations/${evaluationId}/reward-status`, { status: paid ? "Ödendi" : "Bekliyor" });
-    if (res.success) { showToast(paid ? "Ödül ödendi olarak işaretlendi." : "Ödül durumu bekliyor olarak güncellendi."); onReload(); }
-    else showToast(`Hata: ${res.error || "İşlem başarısız."}`);
-  };
-
-  const totalPending = rows.filter(r => (r.evaluation.rewardStatus || "Bekliyor") !== "Ödendi").length;
-
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <h3 className="font-black text-xs uppercase text-slate-700 px-3 pt-3 pb-2">Ödül Takibi ({rows.length}) — {totalPending} ödeme bekliyor</h3>
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="text-left text-slate-400 uppercase text-[10px] border-b bg-slate-50">
-            <th className="py-2 px-3">Konu</th><th>Ad Soyad</th><th>Puan</th><th>Tahmini Kazanç</th><th>Ödül Durumu</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {rows.map(({ evaluation, suggestion }) => {
-            const paid = (evaluation.rewardStatus || "Bekliyor") === "Ödendi";
-            return (
-              <tr key={evaluation.id}>
-                <td className="py-2 px-3 font-bold max-w-[200px] truncate" title={suggestion!.subject}>{suggestion!.subject}</td>
-                <td>{suggestion!.personnelName}</td>
-                <td>{evaluation.point}</td>
-                <td>{evaluation.estimatedIncome ? `${evaluation.estimatedIncome.toLocaleString("tr-TR")} ${evaluation.estimatedIncomeCurrency}` : "-"}</td>
-                <td>
-                  <button onClick={() => toggle(evaluation.id, !paid)} className={`px-2 py-1 rounded-full text-[10px] font-black uppercase cursor-pointer ${paid ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-                    {paid ? "Ödendi" : "Bekliyor"}
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-          {rows.length === 0 && <tr><td colSpan={5} className="text-slate-400 py-3 px-3">Onaylanmış öneri bulunamadı.</td></tr>}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl p-5 w-full max-w-lg space-y-3 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h3 className="font-black text-sm text-slate-800">{title}</h3>
-          <button onClick={onClose} className="cursor-pointer text-slate-400 hover:text-slate-700"><X className="w-4 h-4" /></button>
+    <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start">
+      <Card padded={false} className="xl:col-span-2 overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <div className="inline-flex bg-slate-100 rounded-lg p-0.5">
+            {([["queue", `Bekleyen (${queue.length})`], ["history", `Geçmiş (${history.length})`]] as const).map(([k, l]) => (
+              <button key={k} onClick={() => setView(k)} className={`h-8 px-3 rounded-md text-sm font-semibold cursor-pointer ${view === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}`}>{l}</button>
+            ))}
+          </div>
         </div>
-        {children}
+        {list.length === 0 ? (
+          <EmptyState icon={Inbox} title={view === "queue" ? "Bekleyen öneri yok" : "Geçmiş kayıt yok"} text={view === "queue" ? "Tüm kararlar verilmiş görünüyor." : undefined} />
+        ) : (
+          <ul className="divide-y divide-slate-100 max-h-[70vh] overflow-y-auto">
+            {list.map(s => (
+              <li key={s.id}>
+                <button onClick={() => setSelectedId(s.id)} className={`w-full text-left px-5 py-4 cursor-pointer transition-colors ${selectedId === s.id ? "bg-slate-50 border-l-4 border-slate-900" : "hover:bg-slate-50/70 border-l-4 border-transparent"}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-sm font-bold text-slate-900 leading-snug">{s.subject}</p>
+                    {view === "queue" ? <WaitingBadge since={waitingSince(s)} /> : <StatusBadge status={s.approvalStatus} />}
+                  </div>
+                  <p className="text-sm text-slate-500 mt-1">{s.personnelName} · {s.personnelDepartment || "—"}</p>
+                  <p className="text-xs text-slate-400 mt-1 tabular-nums">{(s.createdAt || "").slice(0, 10)} · {(s.suggestionTypes || []).join(", ")}</p>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <div className="xl:col-span-3">
+        {!selected ? (
+          <Card><EmptyState icon={ClipboardCheck} title="Bir öneri seçin" text="Soldaki listeden bir öneri seçerek detayını inceleyin ve kararınızı verin." /></Card>
+        ) : (
+          <DecisionPanel
+            key={selected.id} suggestion={selected} stage={stage} criteria={criteria}
+            approvals={approvals.filter(a => a.suggestionId === selected.id)}
+            evaluations={evaluations.filter(e => e.suggestionId === selected.id)}
+            readOnly={view === "history"} api={api} showToast={showToast} onDone={() => { setSelectedId(null); onReload(); }}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-function SuggestionSummary({ s }: { s: KaizenSuggestion }) {
-  return (
-    <div className="text-xs bg-slate-50 rounded-lg p-3 space-y-1">
-      <p><span className="font-bold text-slate-400">Ad Soyad: </span>{s.personnelName} · {s.personnelDepartment}</p>
-      <p><span className="font-bold text-slate-400">Konu: </span>{s.subject}</p>
-      <p><span className="font-bold text-slate-400">Mevcut Durum: </span>{s.currentState}</p>
-      <p><span className="font-bold text-slate-400">Önerilen İyileştirme: </span>{s.improvementSuggestion}</p>
-      <p><span className="font-bold text-slate-400">Tahmini Kazanç: </span>{s.estimatedSaving} {s.estimatedSavingCurrency} · <span className="font-bold text-slate-400">Tahmini Maliyet: </span>{s.estimatedCost} {s.estimatedCostCurrency}</p>
-    </div>
-  );
+function Fact({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p><div className="text-sm text-slate-800 mt-1 whitespace-pre-wrap">{children || "—"}</div></div>;
 }
 
-function ManagerDecisionModal({ suggestion, api, showToast, onClose, onDone }: { suggestion: KaizenSuggestion; api: KaizenApi; showToast: (m: string) => void; onClose: () => void; onDone: () => void }) {
+function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations, readOnly, api, showToast, onDone }: {
+  suggestion: KaizenSuggestion; stage: "manager" | "board"; criteria: KaizenCriteria[]; approvals: KaizenApproval[]; evaluations: KaizenEvaluation[];
+  readOnly: boolean; api: KaizenApi; showToast: (m: string) => void; onDone: () => void;
+}) {
   const [comment, setComment] = useState("");
   const [saving, setSaving] = useState(false);
-
-  const decide = async (approved: boolean) => {
-    if (!approved && !comment.trim()) { showToast("Lütfen red nedeni giriniz."); return; }
-    setSaving(true);
-    const res = await api.post(`suggestions/${suggestion.id}/manager-decision`, { approved, comment });
-    setSaving(false);
-    if (res.success) { showToast(approved ? "Öneri onaylandı." : "Öneri reddedildi."); onDone(); }
-    else showToast(`Hata: ${res.error || "İşlem başarısız."}`);
-  };
-
-  return (
-    <ModalShell title="Amir Onayı" onClose={onClose}>
-      <SuggestionSummary s={suggestion} />
-      <textarea value={comment} onChange={e => setComment(e.target.value)} rows={3} placeholder="Yorum / red nedeni" className="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold" />
-      <div className="flex space-x-2">
-        <button onClick={() => decide(true)} disabled={saving} className="flex-1 py-2 rounded-lg bg-emerald-800 hover:bg-emerald-700 text-white text-xs font-black flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50">
-          <CheckCircle className="w-3.5 h-3.5" /><span>Onayla</span>
-        </button>
-        <button onClick={() => decide(false)} disabled={saving} className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-black flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50">
-          <XCircle className="w-3.5 h-3.5" /><span>Reddet</span>
-        </button>
-      </div>
-    </ModalShell>
-  );
-}
-
-function BoardDecisionModal({ suggestion, criteria, api, showToast, onClose, onDone }: { suggestion: KaizenSuggestion; criteria: KaizenCriteria[]; api: KaizenApi; showToast: (m: string) => void; onClose: () => void; onDone: () => void }) {
   const [criteriaId, setCriteriaId] = useState("");
+  const [income, setIncome] = useState(s.estimatedSavingCurrency === "TL" && s.estimatedSaving ? String(s.estimatedSaving) : "");
+  const [incomeCurrency, setIncomeCurrency] = useState("TL");
   const [yokoten, setYokoten] = useState(false);
   const [yokotenDescription, setYokotenDescription] = useState("");
-  const [estimatedIncome, setEstimatedIncome] = useState("");
-  const [estimatedIncomeCurrency, setEstimatedIncomeCurrency] = useState("TL");
-  const [comment, setComment] = useState("");
-  const [saving, setSaving] = useState(false);
 
+  const sortedCriteria = useMemo(() => [...criteria].sort((a, b) => a.point - b.point), [criteria]);
+  const incomeNum = Number(income) || 0;
+  // Suggest the rubric tier whose income band contains the entered income (TL only).
+  const suggestedTier = incomeCurrency === "TL" && incomeNum > 0
+    ? sortedCriteria.find(c => incomeNum >= c.minIncome && (c.maxIncome === 0 || incomeNum <= c.maxIncome))
+    : undefined;
   const selectedCriteria = criteria.find(c => c.id === criteriaId);
 
   const decide = async (approved: boolean) => {
     if (!approved && !comment.trim()) { showToast("Lütfen red nedeni giriniz."); return; }
+    if (stage === "board" && approved && !selectedCriteria) { showToast("Onaylamak için bir değerlendirme kriteri seçiniz."); return; }
     setSaving(true);
-    const res = await api.post(`suggestions/${suggestion.id}/board-decision`, {
-      approved,
-      criteriaId,
-      criteriaLabel: selectedCriteria?.criteria || "",
-      point: selectedCriteria?.point || 0,
-      yokoten,
-      yokotenDescription,
-      estimatedIncome: Number(estimatedIncome) || 0,
-      estimatedIncomeCurrency,
-      comment
-    });
+    const res = stage === "manager"
+      ? await api.post(`suggestions/${s.id}/manager-decision`, { approved, comment })
+      : await api.post(`suggestions/${s.id}/board-decision`, {
+          approved, criteriaId, criteriaLabel: selectedCriteria?.criteria || "", point: selectedCriteria?.point || 0,
+          yokoten, yokotenDescription, estimatedIncome: incomeNum, estimatedIncomeCurrency: incomeCurrency, comment
+        });
     setSaving(false);
     if (res.success) { showToast(approved ? "Öneri onaylandı." : "Öneri reddedildi."); onDone(); }
     else showToast(`Hata: ${res.error || "İşlem başarısız."}`);
   };
 
   return (
-    <ModalShell title="Kaizen Kurulu Değerlendirmesi" onClose={onClose}>
-      <SuggestionSummary s={suggestion} />
+    <Card padded={false} className="overflow-hidden">
+      <header className="px-6 py-5 border-b border-slate-100 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{stage === "manager" ? "Amir Onayı" : "Kurul Değerlendirmesi"}</p>
+          <h3 className="text-xl font-black text-slate-900 mt-1">{s.subject}</h3>
+          <p className="text-sm text-slate-500 mt-1">{s.personnelName} · {s.personnelDepartment || "—"} · {s.personnelJobTitle || "—"} · Amir: {s.teamLeaderName || "—"}</p>
+        </div>
+        <StatusBadge status={s.approvalStatus} />
+      </header>
 
-      <div>
-        <label className="text-[10px] font-black uppercase text-slate-400">Değerlendirme Kriteri</label>
-        <select value={criteriaId} onChange={e => setCriteriaId(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold">
-          <option value="">Seçiniz...</option>
-          {criteria.map(c => <option key={c.id} value={c.id}>{c.point} - {c.criteria}</option>)}
-        </select>
-        {selectedCriteria && <p className="text-[11px] text-slate-500 mt-1">{selectedCriteria.description}</p>}
+      <div className="p-6 space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Fact label="Mevcut Durum">{s.currentState}</Fact>
+          <Fact label="Önerilen İyileştirme">{s.improvementSuggestion}</Fact>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="rounded-xl bg-emerald-50 p-3"><p className="text-xs font-semibold text-emerald-700">Tahmini Kazanç</p><p className="font-black text-emerald-900 tabular-nums mt-0.5">{s.estimatedSaving.toLocaleString("tr-TR")} {s.estimatedSavingCurrency}</p></div>
+          <div className="rounded-xl bg-slate-100 p-3"><p className="text-xs font-semibold text-slate-600">Tahmini Maliyet</p><p className="font-black text-slate-900 tabular-nums mt-0.5">{s.estimatedCost.toLocaleString("tr-TR")} {s.estimatedCostCurrency}</p></div>
+          <div className="rounded-xl bg-slate-100 p-3"><p className="text-xs font-semibold text-slate-600">Aşama</p><p className="font-bold text-slate-900 mt-0.5 text-sm">{s.stage || "—"}</p></div>
+          <div className="rounded-xl bg-slate-100 p-3"><p className="text-xs font-semibold text-slate-600">Kazanç Süresi</p><p className="font-bold text-slate-900 mt-0.5 text-sm">{s.paybackPeriod || "—"}</p></div>
+        </div>
+        {(s.photosCurrent.length > 0 || s.photosPropose.length > 0) && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {[...s.photosCurrent, ...s.photosPropose].map((p, i) => <img key={i} src={p.dataUrl} alt="" className="w-full h-28 object-cover rounded-xl border border-slate-200" />)}
+          </div>
+        )}
+
+        {approvals.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Önceki kararlar</p>
+            {approvals.sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || "")).map(a => (
+              <div key={a.id} className="flex gap-3 text-sm">
+                {a.approved ? <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" /> : <XCircle className="w-5 h-5 text-red-500 shrink-0" />}
+                <div><span className="font-semibold">{a.stage === "Manager" ? "Amir" : "Kurul"} · {a.approverName}</span> <span className="text-slate-400 tabular-nums">{(a.createdAt || "").slice(0, 10)}</span>
+                  {a.comment && <p className="text-slate-600 mt-0.5 flex gap-1.5"><MessageSquare className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />{a.comment}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {evaluations.length > 0 && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 text-sm space-y-1">
+            {evaluations.map(e => <p key={e.id}><span className="font-bold">{e.criteriaLabel || "Kriter seçilmedi"}</span> — {e.point} puan{e.estimatedIncome ? ` · Getiri ${e.estimatedIncome.toLocaleString("tr-TR")} ${e.estimatedIncomeCurrency}` : ""}{e.yokoten ? " · Yokoten uygulanabilir" : ""}</p>)}
+          </div>
+        )}
+
+        {!readOnly && (
+          <div className="border-t border-slate-100 pt-6 space-y-5">
+            {stage === "board" && (
+              <>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-bold text-slate-800 flex items-center gap-2"><Award className="w-4 h-4" />Değerlendirme kriteri</p>
+                    {suggestedTier && <span className="text-xs font-semibold bg-teal-50 text-teal-700 rounded-full px-3 py-1 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" />Gelire göre önerilen: {suggestedTier.category} ({suggestedTier.point} puan)</span>}
+                  </div>
+                  {sortedCriteria.length === 0 ? (
+                    <p className="text-sm text-amber-700 bg-amber-50 rounded-xl px-4 py-3">Henüz kriter tanımlanmamış. Kurulum &gt; Değerlendirme Kriterleri bölümünden ekleyin.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                      {sortedCriteria.map(c => {
+                        const on = criteriaId === c.id;
+                        return (
+                          <button key={c.id} onClick={() => setCriteriaId(c.id)} className={`text-left rounded-xl border p-3.5 cursor-pointer transition-all ${on ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 hover:border-slate-400"}`}>
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-bold">{c.category ? `${c.category} · ` : ""}{c.criteria}</span>
+                              <span className={`text-sm font-black tabular-nums ${on ? "text-amber-300" : "text-amber-600"}`}>{c.point} p</span>
+                            </div>
+                            {c.description && <p className={`text-xs mt-1 ${on ? "text-slate-300" : "text-slate-500"}`}>{c.description}</p>}
+                            {(c.minIncome > 0 || c.maxIncome > 0) && <p className={`text-xs mt-1 tabular-nums ${on ? "text-slate-400" : "text-slate-400"}`}>{c.minIncome.toLocaleString("tr-TR")} – {c.maxIncome ? c.maxIncome.toLocaleString("tr-TR") : "∞"}</p>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Onaylanan getiri</label>
+                    <div className="flex gap-2">
+                      <input type="number" min={0} value={income} onChange={e => setIncome(e.target.value)} placeholder="0" className={`${inputCls} w-full`} />
+                      <select value={incomeCurrency} onChange={e => setIncomeCurrency(e.target.value)} className={`${inputCls} w-36`}>{CURRENCY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}</select>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="block text-sm font-semibold text-slate-700 mb-1.5">Yokoten (yatay yayılım)</p>
+                    <div className="inline-flex bg-slate-100 rounded-xl p-1">
+                      {([[true, "Yapılabilir"], [false, "Yapılamaz"]] as const).map(([v, l]) => (
+                        <button key={l} onClick={() => setYokoten(v)} className={`h-9 px-4 rounded-lg text-sm font-semibold cursor-pointer ${yokoten === v ? "bg-white shadow-sm text-slate-900" : "text-slate-600"}`}>{l}</button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {yokoten && <textarea value={yokotenDescription} onChange={e => setYokotenDescription(e.target.value)} rows={2} placeholder="Hangi hat/bölümlere yayılabilir?" className={areaCls} />}
+              </>
+            )}
+            <textarea value={comment} onChange={e => setComment(e.target.value)} rows={3} placeholder="Yorum — reddederken gerekçe zorunludur" className={areaCls} />
+            <div className="flex gap-3">
+              <Button variant="brand" onClick={() => decide(true)} disabled={saving} className="flex-1 h-12"><CheckCircle2 className="w-5 h-5" />Onayla</Button>
+              <Button variant="danger" onClick={() => decide(false)} disabled={saving} className="flex-1 h-12"><XCircle className="w-5 h-5" />Reddet</Button>
+            </div>
+          </div>
+        )}
       </div>
+    </Card>
+  );
+}
 
-      <div className="flex space-x-1">
-        <input type="number" value={estimatedIncome} onChange={e => setEstimatedIncome(e.target.value)} placeholder="Tahmini Kazanım" className="flex-1 p-2 border border-gray-200 rounded-lg text-xs font-bold" />
-        <select value={estimatedIncomeCurrency} onChange={e => setEstimatedIncomeCurrency(e.target.value)} className="p-2 border border-gray-200 rounded-lg text-xs font-bold">
-          {CURRENCY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
+// ---------- Yokoten & reward follow-ups ----------
+
+function YokotenTab({ suggestions, evaluations, api, showToast, onReload }: { suggestions: KaizenSuggestion[]; evaluations: KaizenEvaluation[]; api: KaizenApi; showToast: (m: string) => void; onReload: () => void }) {
+  const rows = useMemo(() => evaluations.filter(e => e.yokoten).map(e => ({ evaluation: e, suggestion: suggestions.find(s => s.id === e.suggestionId) })).filter(r => !!r.suggestion), [evaluations, suggestions]);
+  const toggle = async (id: string, implemented: boolean) => {
+    const res = await api.post(`evaluations/${id}/yokoten-implemented`, { implemented });
+    if (res.success) { showToast(implemented ? "Yokoten uygulaması işaretlendi." : "Yokoten uygulaması geri alındı."); onReload(); }
+    else showToast(`Hata: ${res.error || "İşlem başarısız."}`);
+  };
+  return (
+    <Card padded={false} className="overflow-hidden">
+      <div className="px-5 py-4 border-b border-slate-100"><h3 className="font-black text-slate-900">Yokoten Fırsatları ({rows.length})</h3><p className="text-sm text-slate-500">Kurulun yatay yayılıma uygun gördüğü fikirlerin diğer alanlara uygulanma durumu.</p></div>
+      {rows.length === 0 ? <EmptyState icon={Share2} title="Yokoten olarak işaretlenmiş öneri yok" /> : (
+        <div className="overflow-x-auto"><table className={tableCls}>
+          <thead className={theadCls}><tr><th className={thCls}>Konu</th><th className={thCls}>Bölüm</th><th className={thCls}>Açıklama</th><th className={thCls}>Durum</th></tr></thead>
+          <tbody>{rows.map(({ evaluation: e, suggestion: s }) => (
+            <tr key={e.id} className={trCls}>
+              <td className={`${tdCls} font-semibold text-slate-900`}>{s!.subject}</td>
+              <td className={tdCls}>{s!.personnelDepartment || "—"}</td>
+              <td className={`${tdCls} text-slate-500 max-w-md`}>{e.yokotenDescription || "—"}</td>
+              <td className={tdCls}>
+                <button onClick={() => toggle(e.id, !e.yokotenImplemented)} className={`h-9 px-3.5 rounded-full text-sm font-semibold cursor-pointer ${e.yokotenImplemented ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{e.yokotenImplemented ? "Uygulandı" : "Bekliyor"}</button>
+              </td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      )}
+    </Card>
+  );
+}
+
+function RewardTab({ suggestions, evaluations, api, showToast, onReload }: { suggestions: KaizenSuggestion[]; evaluations: KaizenEvaluation[]; api: KaizenApi; showToast: (m: string) => void; onReload: () => void }) {
+  const rows = useMemo(() => evaluations.map(e => ({ evaluation: e, suggestion: suggestions.find(s => s.id === e.suggestionId) }))
+    .filter(r => !!r.suggestion && r.suggestion!.approvalStatus === "Second Approval")
+    .sort((a, b) => (b.evaluation.createdAt || "").localeCompare(a.evaluation.createdAt || "")), [evaluations, suggestions]);
+  const toggle = async (id: string, paid: boolean) => {
+    const res = await api.post(`evaluations/${id}/reward-status`, { status: paid ? "Ödendi" : "Bekliyor" });
+    if (res.success) { showToast(paid ? "Ödül ödendi olarak işaretlendi." : "Ödül durumu bekliyor olarak güncellendi."); onReload(); }
+    else showToast(`Hata: ${res.error || "İşlem başarısız."}`);
+  };
+  const pendingPoints = rows.filter(r => (r.evaluation.rewardStatus || "Bekliyor") !== "Ödendi").reduce((sum, r) => sum + (r.evaluation.point || 0), 0);
+  const pending = rows.filter(r => (r.evaluation.rewardStatus || "Bekliyor") !== "Ödendi").length;
+  return (
+    <Card padded={false} className="overflow-hidden">
+      <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+        <div><h3 className="font-black text-slate-900">Ödül Takibi ({rows.length})</h3><p className="text-sm text-slate-500">Onaylanan önerilerin ödül/prim ödemesi.</p></div>
+        <p className="text-sm font-semibold text-amber-700 bg-amber-50 rounded-full px-4 py-1.5">{pending} ödeme bekliyor · {pendingPoints} puan</p>
       </div>
-
-      <div className="flex items-center space-x-4">
-        <label className="flex items-center space-x-1.5 text-xs font-bold cursor-pointer">
-          <input type="radio" checked={yokoten} onChange={() => setYokoten(true)} /><span>Yokoten Yapılabilir</span>
-        </label>
-        <label className="flex items-center space-x-1.5 text-xs font-bold cursor-pointer">
-          <input type="radio" checked={!yokoten} onChange={() => setYokoten(false)} /><span>Yokoten Yapılamaz</span>
-        </label>
-      </div>
-      <textarea value={yokotenDescription} onChange={e => setYokotenDescription(e.target.value)} rows={2} placeholder="Yokoten açıklaması (opsiyonel)" className="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold" />
-
-      <textarea value={comment} onChange={e => setComment(e.target.value)} rows={2} placeholder="Yorum / red nedeni" className="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold" />
-
-      <div className="flex space-x-2">
-        <button onClick={() => decide(true)} disabled={saving} className="flex-1 py-2 rounded-lg bg-emerald-800 hover:bg-emerald-700 text-white text-xs font-black flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50">
-          <CheckCircle className="w-3.5 h-3.5" /><span>Onayla</span>
-        </button>
-        <button onClick={() => decide(false)} disabled={saving} className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-black flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50">
-          <XCircle className="w-3.5 h-3.5" /><span>Reddet</span>
-        </button>
-      </div>
-    </ModalShell>
+      {rows.length === 0 ? <EmptyState icon={Gift} title="Onaylanmış öneri bulunamadı" /> : (
+        <div className="overflow-x-auto"><table className={tableCls}>
+          <thead className={theadCls}><tr><th className={thCls}>Konu</th><th className={thCls}>Ad Soyad</th><th className={thCls}>Puan</th><th className={thCls}>Onaylanan Getiri</th><th className={thCls}>Ödül Durumu</th></tr></thead>
+          <tbody>{rows.map(({ evaluation: e, suggestion: s }) => {
+            const paid = (e.rewardStatus || "Bekliyor") === "Ödendi";
+            return (
+              <tr key={e.id} className={trCls}>
+                <td className={`${tdCls} font-semibold text-slate-900`}>{s!.subject}</td>
+                <td className={tdCls}>{s!.personnelName}</td>
+                <td className={`${tdCls} font-bold tabular-nums`}>{e.point}</td>
+                <td className={`${tdCls} tabular-nums`}>{e.estimatedIncome ? `${e.estimatedIncome.toLocaleString("tr-TR")} ${e.estimatedIncomeCurrency}` : "—"}</td>
+                <td className={tdCls}><button onClick={() => toggle(e.id, !paid)} className={`h-9 px-3.5 rounded-full text-sm font-semibold cursor-pointer ${paid ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{paid ? "Ödendi" : "Bekliyor"}</button></td>
+              </tr>
+            );
+          })}</tbody>
+        </table></div>
+      )}
+    </Card>
   );
 }

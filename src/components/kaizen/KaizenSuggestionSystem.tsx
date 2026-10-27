@@ -2,18 +2,20 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Home, Plus, ListChecks, Star, BarChart3, Settings } from "lucide-react";
 import { useFactory } from "../../context/FactoryContext";
 import { KaizenPersonnel, KaizenCriteria, KaizenSuggestion, KaizenApproval, KaizenEvaluation } from "./kaizenTypes";
-import { canDecideAsManager, canDecideAsBoard } from "./kaizenCalc";
+import { canDecideAsManager } from "./kaizenCalc";
 import KaizenHome from "./KaizenHome";
 import KaizenNewSuggestion from "./KaizenNewSuggestion";
 import KaizenMySuggestions from "./KaizenMySuggestions";
 import KaizenApprovals from "./KaizenApprovals";
 import KaizenReports from "./KaizenReports";
 import KaizenSetup from "./KaizenSetup";
+import { daysWaiting } from "./kaizenCalc";
 
 export type KaizenApi = {
   get: (path: string) => Promise<any[]>;
   post: (path: string, body: any) => Promise<any>;
   del: (path: string) => Promise<any>;
+  download: (path: string, filename: string) => Promise<void>;
 };
 
 function makeCrud<T extends { id: string }>(
@@ -85,7 +87,17 @@ export default function KaizenSuggestionSystem() {
     post: async (path: string, body: any) =>
       fetch(`/api/business/kaizen/${path}`, { method: "POST", headers: jsonHeaders, body: JSON.stringify(body) }).then(r => r.json()),
     del: async (path: string) =>
-      fetch(`/api/business/kaizen/${path}`, { method: "DELETE", headers }).then(r => r.json())
+      fetch(`/api/business/kaizen/${path}`, { method: "DELETE", headers }).then(r => r.json()),
+    // Authenticated file download: a plain <a href> cannot send the Bearer token.
+    download: async (path: string, filename: string) => {
+      const res = await fetch(`/api/business/kaizen/${path}`, { headers });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    }
   };
 
   const loadAll = useCallback(async () => {
@@ -109,16 +121,28 @@ export default function KaizenSuggestionSystem() {
   const isTeamLeader = suggestions.some(s => canDecideAsManager(currentUser?.email || "", currentUser?.role || "", s.teamLeaderEmail));
   const canSeeApprovals = isBoardMember || isTeamLeader || currentUser?.role === "Admin" || currentUser?.role === "Consultant";
 
+  // Queue sizes drive the nav badge and the Home to-do card.
+  const managerQueue = suggestions.filter(s => s.approvalStatus === "Pending" && canDecideAsManager(currentUser?.email || "", currentUser?.role || "", s.teamLeaderEmail));
+  const boardQueue = isBoardMember ? suggestions.filter(s => s.approvalStatus === "First Approval") : [];
+  const managerApprovalDate = new Map<string, string>();
+  approvals.filter(a => a.stage === "Manager" && a.approved).forEach(a => managerApprovalDate.set(a.suggestionId, a.createdAt));
+  const oldestWaitingDays = Math.max(
+    0,
+    ...managerQueue.map(s => daysWaiting(s.createdAt)),
+    ...boardQueue.map(s => daysWaiting(managerApprovalDate.get(s.id) || s.createdAt))
+  );
+  const approvalsBadge = managerQueue.length + boardQueue.length;
+
   const openEdit = (s: KaizenSuggestion) => {
     setEditingSuggestion(s);
     setSection("new");
   };
 
-  const NAV_ITEMS: { key: typeof section; label: string; icon: any }[] = [
+  const NAV_ITEMS: { key: typeof section; label: string; icon: any; badge?: number }[] = [
     { key: "home", label: "Ana Sayfa", icon: Home },
     { key: "new", label: "Yeni Öneri", icon: Plus },
     { key: "mine", label: "Önerilerim", icon: ListChecks },
-    ...(canSeeApprovals ? [{ key: "approvals" as const, label: "Değerlendirmeler", icon: Star }] : []),
+    ...(canSeeApprovals ? [{ key: "approvals" as const, label: "Değerlendirmeler", icon: Star, badge: approvalsBadge }] : []),
     ...(isBoardMember ? [{ key: "reports" as const, label: "Rapor", icon: BarChart3 }] : []),
     ...(currentUser?.role === "Admin" || currentUser?.role === "Consultant" ? [{ key: "setup" as const, label: "Kurulum", icon: Settings }] : [])
   ];
@@ -132,26 +156,32 @@ export default function KaizenSuggestionSystem() {
   }
 
   return (
-    <div className="space-y-4 font-sans">
+    <div className="space-y-6 font-sans w-full">
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-lg text-xs font-bold max-w-sm">
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-semibold max-w-sm">
           {toast}
         </div>
       )}
 
-      <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-xs flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center space-x-3">
-          <div className="p-2.5 bg-amber-500 rounded-xl text-white">
-            <Star className="w-5 h-5" />
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-xs">
+        <div className="flex items-center justify-between flex-wrap gap-3 px-6 pt-5 pb-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-sm">
+              <Star className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Kaizen Öneri Sistemi</p>
+              <h2 className="text-xl font-black text-slate-900 leading-tight">Öneri Kutusu &amp; Değerlendirme</h2>
+            </div>
           </div>
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Kaizen Öneri Sistemi</p>
-            <h2 className="text-lg font-black text-slate-800">Öneri Kutusu &amp; Değerlendirme</h2>
-          </div>
+          {selectedCustomer?.companyName && (
+            <span className="text-sm font-semibold text-slate-600 bg-slate-100 rounded-full px-3.5 py-1.5">{selectedCustomer.companyName}</span>
+          )}
         </div>
-        <div className="flex flex-wrap gap-2">
+        <nav className="flex flex-wrap gap-1 px-4 border-t border-slate-100">
           {NAV_ITEMS.map(item => {
             const Icon = item.icon;
+            const active = section === item.key;
             return (
               <button
                 key={item.key}
@@ -159,25 +189,30 @@ export default function KaizenSuggestionSystem() {
                   if (item.key === "new") setEditingSuggestion(null);
                   setSection(item.key);
                 }}
-                className={`py-2 px-3.5 rounded-lg font-black text-xs uppercase flex items-center space-x-2 transition-all cursor-pointer ${
-                  section === item.key
-                    ? "bg-slate-950 text-white shadow-sm"
-                    : "text-slate-600 hover:bg-slate-100 bg-slate-50"
+                className={`relative flex items-center gap-2 px-4 py-3.5 text-sm font-semibold cursor-pointer transition-colors border-b-2 -mb-px ${
+                  active ? "border-slate-900 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-800"
                 }`}
               >
-                <Icon className="w-3.5 h-3.5" />
+                <Icon className="w-4 h-4" />
                 <span>{item.label}</span>
+                {!!item.badge && item.badge > 0 && (
+                  <span className="min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center tabular-nums">{item.badge}</span>
+                )}
               </button>
             );
           })}
-        </div>
+        </nav>
       </div>
 
       {section === "home" && (
         <KaizenHome
           currentUser={currentUser}
+          personnelRecord={myPersonnelRecord}
           suggestions={suggestions}
           evaluations={evaluations}
+          managerQueueCount={managerQueue.length}
+          boardQueueCount={boardQueue.length}
+          oldestWaitingDays={oldestWaitingDays}
           onNewSuggestion={() => { setEditingSuggestion(null); setSection("new"); }}
           onShowMine={() => setSection("mine")}
           onShowApprovals={() => setSection("approvals")}
