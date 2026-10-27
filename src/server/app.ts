@@ -2691,7 +2691,7 @@ for (const { path, collection } of KAIZEN_SIMPLE_ENTITIES) {
   });
 }
 
-for (const [path, collection] of [["suggestions", "kaizen_suggestions"], ["approvals", "kaizen_approvals"], ["evaluations", "kaizen_evaluations"]] as const) {
+for (const [path, collection] of [["suggestions", "kaizen_suggestions"], ["approvals", "kaizen_approvals"], ["evaluations", "kaizen_evaluations"], ["implementations", "kaizen_implementations"]] as const) {
   app.get(`/api/business/kaizen/${path}`, authenticateToken, async (req, res) => {
     const user = (req as any).user;
     const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
@@ -2952,6 +2952,157 @@ app.post("/api/business/kaizen/evaluations/:id/reward-status", authenticateToken
   const status = req.body.status === "Ödendi" ? "Ödendi" : "Bekliyor";
   const updated = await db.setKaizenRewardStatus(user.organization_id, req.params.id, status);
   if (!updated) return denyKaizen(res, 404, "Değerlendirme bulunamadı.");
+  res.json({ success: true, data: updated });
+});
+
+// ---- Uygulama takibi (Faz 2-A) ----
+// One implementation record per Board-approved suggestion: plan (owner/target date/actions),
+// before/after measurement + photos, the actual saving, the Board's verification of it and the
+// 30/90-day persistence checks. Completion also flips the suggestion's `completed` flag.
+const IMPL_STATUSES = ["Planlandı", "Sürüyor", "Tamamlandı", "İptal"];
+const asDate = (v: any) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : "");
+const addDaysIso = (iso: string, days: number) => {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+const sanitizeMetric = (m: any) => {
+  const n = m && m.value !== null && m.value !== "" && m.value !== undefined ? Number(m.value) : null;
+  return { label: clip(m?.label, 80), value: n !== null && Number.isFinite(n) ? n : null, unit: clip(m?.unit, 20) };
+};
+
+async function loadKaizenImplementation(req: express.Request, res: express.Response): Promise<{ impl: any; suggestion: any } | null> {
+  const user = (req as any).user;
+  const impl = (await db.getKaizenRecords("kaizen_implementations", user.organization_id)).find((i: any) => i.id === req.params.id);
+  if (!impl || !canAccessFactory(req, impl.factory_id)) {
+    denyKaizen(res, 404, "Uygulama kaydı bulunamadı.");
+    return null;
+  }
+  const suggestion = (await db.getKaizenRecords("kaizen_suggestions", user.organization_id)).find((x: any) => x.id === impl.suggestionId);
+  if (!suggestion) {
+    denyKaizen(res, 404, "Öneri bulunamadı.");
+    return null;
+  }
+  return { impl, suggestion };
+}
+
+async function canManageKaizenImplementation(user: any, suggestion: any, impl?: any): Promise<boolean> {
+  return sameEmail(suggestion.teamLeaderEmail, user.email) || sameEmail(impl?.ownerEmail, user.email) || (await isKaizenBoardMember(user, suggestion.factory_id));
+}
+
+app.post("/api/business/kaizen/suggestions/:id/implementation", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const suggestion = await loadKaizenSuggestion(req, res);
+  if (!suggestion) return;
+  if (suggestion.approvalStatus !== "Second Approval") {
+    return denyKaizen(res, 400, "Uygulama planı yalnızca Kurul tarafından onaylanmış öneriler için açılabilir.");
+  }
+  const existing = (await db.getKaizenRecords("kaizen_implementations", user.organization_id)).find((i: any) => i.suggestionId === suggestion.id);
+  if (!(await canManageKaizenImplementation(user, suggestion, existing))) return denyKaizen(res, 403, "Bu işlem için yetkiniz yok.");
+
+  const before = sanitizePhotos(req.body.photosBefore);
+  const after = sanitizePhotos(req.body.photosAfter);
+  if (before.error || after.error) return denyKaizen(res, 400, before.error || after.error);
+
+  const status = IMPL_STATUSES.includes(req.body.status) ? req.body.status : (existing?.status || "Planlandı");
+  const nowIso = new Date().toISOString();
+  const today = nowIso.slice(0, 10);
+  const actions = (Array.isArray(req.body.actions) ? req.body.actions : []).slice(0, 50).map((a: any, i: number) => ({
+    id: clip(a?.id, 40) || `a${i}_${Date.now().toString(36)}`,
+    text: clip(a?.text, 300),
+    done: a?.done === true,
+    dueDate: asDate(a?.dueDate)
+  })).filter((a: any) => a.text);
+
+  const actualSaving = asAmount(req.body.actualSaving);
+  const actualSavingCurrency = asCurrency(req.body.actualSavingCurrency);
+  const beforeMetric = sanitizeMetric(req.body.beforeMetric);
+  const afterMetric = sanitizeMetric(req.body.afterMetric);
+
+  let completedAt = existing?.completedAt || "";
+  let followUps = existing?.followUps || [];
+  if (status === "Tamamlandı") {
+    if (!existing || existing.status !== "Tamamlandı" || !completedAt) completedAt = today;
+    if (!followUps.length) {
+      followUps = [30, 90].map(days => ({ days, dueDate: addDaysIso(completedAt, days), result: "", checkedAt: "", checkedBy: "", note: "" }));
+    }
+  } else {
+    completedAt = "";
+    followUps = [];
+  }
+
+  // A saving figure that changed after the Board verified it has to be verified again.
+  let verification = existing?.verification || { status: "Bekliyor", by: "", at: "", note: "" };
+  if (verification.status !== "Bekliyor" && (
+    existing?.actualSaving !== actualSaving || existing?.actualSavingCurrency !== actualSavingCurrency || status !== "Tamamlandı"
+  )) {
+    verification = { status: "Bekliyor", by: "", at: "", note: "" };
+  }
+
+  const record = {
+    ...(existing || {}),
+    id: existing?.id || `kaizen_implementations_${suggestion.id}`,
+    suggestionId: suggestion.id,
+    ownerName: clip(req.body.ownerName, 120) || existing?.ownerName || suggestion.teamLeaderName || suggestion.personnelName || "",
+    ownerEmail: clip(req.body.ownerEmail, 200) || existing?.ownerEmail || suggestion.teamLeaderEmail || suggestion.authorEmail || "",
+    targetDate: asDate(req.body.targetDate),
+    status,
+    actions,
+    beforeMetric,
+    afterMetric,
+    photosBefore: before.photos,
+    photosAfter: after.photos,
+    actualSaving,
+    actualSavingCurrency,
+    note: clip(req.body.note, 2000),
+    startedAt: existing?.startedAt || (status !== "Planlandı" ? today : ""),
+    completedAt,
+    verification,
+    followUps,
+    createdAt: existing?.createdAt || nowIso,
+    updatedAt: nowIso
+  };
+  const saved = await db.saveKaizenRecord("kaizen_implementations", user.organization_id, suggestion.factory_id, record, user.id);
+  if (status === "Tamamlandı" && !suggestion.completed) await db.markKaizenCompleted(user.organization_id, suggestion.id);
+  res.json({ success: true, data: saved });
+});
+
+// Board verification of the actual saving — not the owner, not the submitter (unless staff).
+app.post("/api/business/kaizen/implementations/:id/verify", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const loaded = await loadKaizenImplementation(req, res);
+  if (!loaded) return;
+  const { impl, suggestion } = loaded;
+  if (!(await isKaizenBoardMember(user, impl.factory_id))) return denyKaizen(res, 403, "Doğrulama için Kaizen Kurulu yetkisi gereklidir.");
+  if (!isStaff(user) && (sameEmail(impl.ownerEmail, user.email) || sameEmail(suggestion.authorEmail, user.email))) {
+    return denyKaizen(res, 403, "Kendi uygulamanızı doğrulayamazsınız.");
+  }
+  if (impl.status !== "Tamamlandı") return denyKaizen(res, 400, "Yalnızca tamamlanmış uygulamalar doğrulanabilir.");
+  const decision = req.body.decision === "Doğrulandı" ? "Doğrulandı" : req.body.decision === "Reddedildi" ? "Reddedildi" : "";
+  if (!decision) return denyKaizen(res, 400, "Geçersiz karar.");
+  const note = clip(req.body.note, 1000);
+  if (decision === "Reddedildi" && !note) return denyKaizen(res, 400, "Reddetmek için gerekçe yazın.");
+  const updated = { ...impl, verification: { status: decision, by: user.name || user.email, at: new Date().toISOString(), note }, updatedAt: new Date().toISOString() };
+  await db.saveKaizenRecord("kaizen_implementations", user.organization_id, impl.factory_id, updated, user.id);
+  res.json({ success: true, data: updated });
+});
+
+// 30/90-day "is the improvement still in place?" check.
+app.post("/api/business/kaizen/implementations/:id/followup", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const loaded = await loadKaizenImplementation(req, res);
+  if (!loaded) return;
+  const { impl, suggestion } = loaded;
+  if (!(await canManageKaizenImplementation(user, suggestion, impl))) return denyKaizen(res, 403, "Bu işlem için yetkiniz yok.");
+  if (impl.status !== "Tamamlandı") return denyKaizen(res, 400, "Kalıcılık kontrolü yalnızca tamamlanmış uygulamalar için yapılır.");
+  const days = Number(req.body.days);
+  const result = req.body.result === "Sürüyor" ? "Sürüyor" : req.body.result === "Bozuldu" ? "Bozuldu" : "";
+  const followUps = (impl.followUps || []).map((f: any) => f.days === days
+    ? { ...f, result, checkedAt: result ? new Date().toISOString() : "", checkedBy: result ? (user.name || user.email) : "", note: clip(req.body.note, 500) }
+    : f);
+  if (!followUps.some((f: any) => f.days === days)) return denyKaizen(res, 400, "Geçersiz kontrol günü.");
+  const updated = { ...impl, followUps, updatedAt: new Date().toISOString() };
+  await db.saveKaizenRecord("kaizen_implementations", user.organization_id, impl.factory_id, updated, user.id);
   res.json({ success: true, data: updated });
 });
 
