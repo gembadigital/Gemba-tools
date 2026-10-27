@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { CheckCircle2, XCircle, Download, Share2, Gift, Clock, Inbox, ClipboardCheck, Users, Award, Sparkles, MessageSquare, LayoutPanelLeft, TableProperties, ChevronLeft, ChevronRight, X, ArrowUp, ArrowDown, ArrowUpDown, RotateCcw } from "lucide-react";
+import { CheckCircle2, XCircle, Download, Share2, Gift, Clock, Inbox, ClipboardCheck, Users, Award, Sparkles, MessageSquare, LayoutPanelLeft, TableProperties, ChevronLeft, ChevronRight, X, ArrowUp, ArrowDown, ArrowUpDown, RotateCcw, Filter } from "lucide-react";
 import { KaizenSuggestion, KaizenCriteria, KaizenApproval, KaizenEvaluation } from "./kaizenTypes";
 import { canDecideAsManager, daysWaiting, WAITING_SEVERITY_COLORS, statusLabel } from "./kaizenCalc";
 import { KaizenSettings, currencyChoices, toBaseCurrency, waitingSeverityFor, rewardFor, stagesOf } from "../../utils/kaizenSettings";
@@ -243,6 +243,8 @@ function QueueTable({ list, view, settings, evaluations, waitingSince, selectedI
 }) {
   const [sort, setSort] = useState<{ key: ColKey; dir: 1 | -1 }>({ key: "date", dir: view === "queue" ? 1 : -1 });
   const [f, setF] = useState<Partial<Record<ColKey, string>>>({});
+  // Filter row is hidden until the filter icon is pressed; filters stay applied while hidden.
+  const [showFilters, setShowFilters] = useState(false);
   const evalBy = useMemo(() => new Map(evaluations.map(e => [e.suggestionId, e])), [evaluations]);
 
   // Getiri: the income the Kurul approved if any, else the suggestion's own estimate.
@@ -298,8 +300,20 @@ function QueueTable({ list, view, settings, evaluations, waitingSince, selectedI
   return (
     <div>
       <div className="flex items-center justify-between gap-3 px-5 py-2.5 text-xs text-slate-500 bg-slate-50/60 border-b border-slate-100">
-        <span>{rows.length} / {list.length} öneri · başlığa tıklayarak sıralayın, alttaki alanlarla süzün</span>
-        {activeFilters > 0 && <button onClick={() => setF({})} className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-800 cursor-pointer"><RotateCcw className="w-3.5 h-3.5" />Süzgeçleri temizle ({activeFilters})</button>}
+        <span>{rows.length} / {list.length} öneri · sıralamak için başlığa tıklayın</span>
+        <div className="flex items-center gap-2">
+          {activeFilters > 0 && <button onClick={() => setF({})} className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-800 cursor-pointer"><RotateCcw className="w-3.5 h-3.5" />Temizle</button>}
+          <button
+            onClick={() => setShowFilters(v => !v)}
+            aria-pressed={showFilters}
+            aria-label={showFilters ? "Süzgeçleri gizle" : "Süzgeçleri göster"}
+            title={showFilters ? "Süzgeçleri gizle" : "Süz"}
+            className={`relative h-8 px-2.5 rounded-lg inline-flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-all ${showFilters || activeFilters > 0 ? "bg-emerald-600 text-white shadow-sm" : "bg-white text-slate-600 ring-1 ring-inset ring-slate-200 hover:ring-slate-300"}`}
+          >
+            <Filter className="w-4 h-4" />Süz
+            {activeFilters > 0 && <span className="min-w-4 h-4 px-1 rounded-full bg-white text-emerald-700 text-[11px] font-bold flex items-center justify-center tabular-nums">{activeFilters}</span>}
+          </button>
+        </div>
       </div>
       <div className="overflow-x-auto max-h-[70vh]">
         <table className={tableCls}>
@@ -314,7 +328,7 @@ function QueueTable({ list, view, settings, evaluations, waitingSince, selectedI
                 </th>
               ))}
             </tr>
-            <tr className="bg-slate-50">
+            {showFilters && <tr className="bg-slate-50">
               {cols.map(c => (
                 <th key={c.key} className="px-4 pb-2.5 pt-0 font-normal">
                   {c.filter === "select" ? (
@@ -331,7 +345,7 @@ function QueueTable({ list, view, settings, evaluations, waitingSince, selectedI
                   )}
                 </th>
               ))}
-            </tr>
+            </tr>}
           </thead>
           <tbody>
             {rows.length === 0 ? (
