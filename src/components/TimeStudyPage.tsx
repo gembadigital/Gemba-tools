@@ -694,7 +694,7 @@ export default function TimeStudyPage({ selectedCustomer, vsmProcesses = [] }: T
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${localStorage.getItem("gemba_token") || ""}`
+          "Authorization": `Bearer ${localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || ""}`
         },
         body: JSON.stringify({
           elements: ccEls,

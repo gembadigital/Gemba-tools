@@ -12,6 +12,7 @@ import KaizenSetup from "./KaizenSetup";
 import KaizenImplementation from "./KaizenImplementation";
 import { daysWaiting } from "./kaizenCalc";
 import { KaizenSettings, DEFAULT_KAIZEN_SETTINGS, normalizeKaizenSettings } from "../../utils/kaizenSettings";
+import { getAuthToken } from "../../utils/authToken";
 
 export type KaizenApi = {
   get: (path: string) => Promise<any[]>;
@@ -59,7 +60,6 @@ function makeCrud<T extends { id: string }>(
 export default function KaizenSuggestionSystem() {
   const { selectedCustomer, globalState } = useFactory();
   const currentUser = globalState?.CurrentUser;
-  const token = localStorage.getItem("gemba_token") || "";
   const factoryId = selectedCustomer?.id || "default";
 
   const [section, setSection] = useState<"home" | "new" | "mine" | "approvals" | "impl" | "reports" | "setup">("home");
@@ -80,21 +80,29 @@ export default function KaizenSuggestionSystem() {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
-  const headers = { "Authorization": `Bearer ${token}`, "x-factory-id": factoryId };
-  const jsonHeaders = { ...headers, "Content-Type": "application/json" };
+  // Token is read per request (it may be in sessionStorage, and may be renewed by a new login).
+  const headers = () => ({ "Authorization": `Bearer ${getAuthToken()}`, "x-factory-id": factoryId });
+  const jsonHeaders = () => ({ ...headers(), "Content-Type": "application/json" });
+  // An expired session gets a clear Turkish message; the caller keeps its form state, so nothing typed is lost.
+  const SESSION_ERROR = "Oturumunuz sona erdi. Girdiğiniz bilgiler kaybolmadı; yeni sekmede tekrar giriş yapıp bu sayfaya dönerek yeniden gönderebilirsiniz.";
+  const toJson = async (r: Response) => {
+    if (r.status === 401) return { success: false, error: SESSION_ERROR, sessionExpired: true };
+    try { return await r.json(); } catch { return { success: false, error: `Sunucu hatası (HTTP ${r.status}).` }; }
+  };
 
   const api: KaizenApi = {
     get: async (path: string) => {
-      const res = await fetch(`/api/business/kaizen/${path}`, { headers }).then(r => r.json());
+      const res = await fetch(`/api/business/kaizen/${path}`, { headers: headers() }).then(toJson);
+      if (res.sessionExpired) showToast(SESSION_ERROR);
       return res.success ? res.data : [];
     },
     post: async (path: string, body: any) =>
-      fetch(`/api/business/kaizen/${path}`, { method: "POST", headers: jsonHeaders, body: JSON.stringify(body) }).then(r => r.json()),
+      fetch(`/api/business/kaizen/${path}`, { method: "POST", headers: jsonHeaders(), body: JSON.stringify(body) }).then(toJson),
     del: async (path: string) =>
-      fetch(`/api/business/kaizen/${path}`, { method: "DELETE", headers }).then(r => r.json()),
+      fetch(`/api/business/kaizen/${path}`, { method: "DELETE", headers: headers() }).then(toJson),
     // Authenticated file download: a plain <a href> cannot send the Bearer token.
     download: async (path: string, filename: string) => {
-      const res = await fetch(`/api/business/kaizen/${path}`, { headers });
+      const res = await fetch(`/api/business/kaizen/${path}`, { headers: headers() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const url = URL.createObjectURL(await res.blob());
       const a = document.createElement("a");
@@ -113,7 +121,7 @@ export default function KaizenSuggestionSystem() {
     setPersonnel(per); setCriteria(cri); setSuggestions(sug); setApprovals(apr); setEvaluations(evl); setImplementations(imp);
     setSettings(normalizeKaizenSettings(set));
     setLoading(false);
-  }, [factoryId, token]);
+  }, [factoryId]);
 
   useEffect(() => {
     loadAll();

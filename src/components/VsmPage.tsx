@@ -1288,7 +1288,7 @@ export default function VsmPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("gemba_token") || ""}`,
+            Authorization: `Bearer ${localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || ""}`,
             "x-factory-id": factoryId
           },
           body: JSON.stringify(k)

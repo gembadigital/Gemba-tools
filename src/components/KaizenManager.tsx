@@ -94,7 +94,7 @@ export default function KaizenManager({
   onDeleteActivity,
   selectedCustomer
 }: KaizenManagerProps) {
-  const token = localStorage.getItem("gemba_token") || "";
+  const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
   const [activeTab, setActiveTab] = useState<TabType>("kanban");
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [selectedDeptFilter, setSelectedDeptFilter] = useState("all");

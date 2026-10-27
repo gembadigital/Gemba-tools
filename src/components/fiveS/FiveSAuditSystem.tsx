@@ -58,7 +58,7 @@ function makeCrud<T extends { id: string }>(
 export default function FiveSAuditSystem() {
   const { selectedCustomer, globalState } = useFactory();
   const currentUser = globalState?.CurrentUser;
-  const token = localStorage.getItem("gemba_token") || "";
+  const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
   const factoryId = selectedCustomer?.id || "default";
 
   const [section, setSection] = useState<"home" | "dashboard" | "audits" | "setup" | "actions" | "gembawalk">("home");
