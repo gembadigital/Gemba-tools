@@ -4,8 +4,8 @@ import {
   ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, LineChart, Line, Treemap,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, RadialBarChart, RadialBar, PolarAngleAxis
 } from "recharts";
-import { KaizenSuggestion, KaizenEvaluation, KaizenPersonnel, ApprovalStatus } from "./kaizenTypes";
-import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, SUGGESTION_TYPE_OPTIONS, STAGE_OPTIONS } from "./kaizenCalc";
+import { KaizenSuggestion, KaizenEvaluation, KaizenPersonnel, KaizenImplementation, ApprovalStatus } from "./kaizenTypes";
+import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, SUGGESTION_TYPE_OPTIONS, STAGE_OPTIONS, actionProgress } from "./kaizenCalc";
 import { KaizenApi } from "./KaizenSuggestionSystem";
 import { Card, KpiCard, Button, EmptyState, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 
@@ -16,6 +16,7 @@ interface Props {
   suggestions: KaizenSuggestion[];
   evaluations: KaizenEvaluation[];
   personnel: KaizenPersonnel[];
+  implementations: KaizenImplementation[];
   api: KaizenApi;
 }
 
@@ -33,7 +34,7 @@ function statusBucket(status: ApprovalStatus): "approved" | "pending" | "rejecte
 
 const selectCls = "h-10 px-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/10";
 
-export default function KaizenReports({ suggestions, evaluations, personnel, api }: Props) {
+export default function KaizenReports({ suggestions, evaluations, personnel, implementations, api }: Props) {
   const [fDepartment, setFDepartment] = useState(ALL);
   const [fType, setFType] = useState(ALL);
   const [fStatus, setFStatus] = useState(ALL);
@@ -76,6 +77,16 @@ export default function KaizenReports({ suggestions, evaluations, personnel, api
   const approvedIncomeTL = filteredEvaluations
     .filter(e => (e.estimatedIncomeCurrency || "TL") === "TL" && filtered.find(s => s.id === e.suggestionId)?.approvalStatus === "Second Approval")
     .reduce((sum, e) => sum + (e.estimatedIncome || 0), 0);
+  // Actual (Board-verified) saving next to the estimate — TL only, same rule as above.
+  const implBySuggestion = useMemo(() => {
+    const map = new Map<string, KaizenImplementation>();
+    implementations.forEach(i => map.set(i.suggestionId, i));
+    return map;
+  }, [implementations]);
+  const verifiedActualTL = filtered.reduce((sum, s) => {
+    const i = implBySuggestion.get(s.id);
+    return i && i.verification?.status === "Doğrulandı" && (i.actualSavingCurrency || "TL") === "TL" ? sum + (i.actualSaving || 0) : sum;
+  }, 0);
   const nonTlCount = filtered.filter(s => (s.estimatedSavingCurrency || "TL") !== "TL" && s.estimatedSaving > 0).length;
 
   const decided = filtered.filter(s => s.approvalStatus !== "Pending");
@@ -172,11 +183,12 @@ export default function KaizenReports({ suggestions, evaluations, personnel, api
       </Card>
 
       {/* KPI row */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
         <KpiCard label="Toplam Öneri" value={filtered.length} icon={Lightbulb} tone="slate" />
         <KpiCard label="Uygulanan" value={completedCount} icon={BadgeCheck} tone="teal" />
         <KpiCard label="Toplam Kaizen Puanı" value={totalPoints} icon={Award} tone="amber" />
-        <KpiCard label="Toplam Getiri (TL)" value={approvedIncomeTL.toLocaleString("tr-TR")} icon={Coins} tone="emerald" hint={nonTlCount > 0 ? `${nonTlCount} öneri TL dışı para birimiyle, toplama dahil değil` : "Kurulca onaylanan"} />
+        <KpiCard label="Tahmini Getiri (TL)" value={approvedIncomeTL.toLocaleString("tr-TR")} icon={Coins} tone="emerald" hint={nonTlCount > 0 ? `${nonTlCount} öneri TL dışı para birimiyle, toplama dahil değil` : "Kurulca onaylanan"} />
+        <KpiCard label="Doğrulanmış Gerçek Kazanç (TL)" value={verifiedActualTL.toLocaleString("tr-TR")} icon={BadgeCheck} tone="teal" hint="Uygulama sonrası Kurul tarafından doğrulanan" />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Gauge label="Kabul Edilen Öneri Oranı" hint={`${acceptedCount} / ${decided.length} karar verilen öneri`} value={acceptanceRate} color="#3b82f6" />
@@ -258,16 +270,20 @@ export default function KaizenReports({ suggestions, evaluations, personnel, api
             <div className="overflow-x-auto">
               <table className={tableCls}>
                 <thead className={theadCls}><tr>
-                  <th className={thCls}>Ad Soyad</th><th className={thCls}>Bölüm</th><th className={thCls}>Görev</th><th className={thCls}>Tarih</th><th className={thCls}>Sınıf</th><th className={thCls}>Durum</th><th className={`${thCls} text-right`}>Getiri</th><th className={`${thCls} text-right`}>Puan</th>
+                  <th className={thCls}>Ad Soyad</th><th className={thCls}>Bölüm</th><th className={thCls}>Görev</th><th className={thCls}>Tarih</th><th className={thCls}>Sınıf</th><th className={thCls}>Durum</th><th className={thCls}>Kontrol Tarihi</th><th className={`${thCls} text-right`}>Tahmini Getiri</th><th className={`${thCls} text-right`}>Gerçek Getiri</th><th className={`${thCls} text-right`}>Puan</th><th className={thCls}>Tamamlanma</th>
                 </tr></thead>
                 <tbody>{detailRows.map(s => {
                   const e = evaluationBySuggestion.get(s.id);
+                  const impl = implBySuggestion.get(s.id);
                   return (
                     <tr key={s.id} className={trCls}>
                       <td className={`${tdCls} font-semibold text-slate-900`}>{s.personnelName}</td><td className={tdCls}>{s.personnelDepartment}</td><td className={tdCls}>{s.personnelJobTitle}</td>
                       <td className={`${tdCls} tabular-nums whitespace-nowrap`}>{(s.createdAt || "").slice(0, 10)}</td><td className={tdCls}>{(s.suggestionTypes || []).join(", ")}</td><td className={tdCls}>{APPROVAL_STATUS_LABELS[s.approvalStatus]}</td>
+                      <td className={`${tdCls} tabular-nums whitespace-nowrap`}>{e?.createdAt ? e.createdAt.slice(0, 10) : "—"}</td>
                       <td className={`${tdCls} text-right tabular-nums`}>{e?.estimatedIncome ? `${e.estimatedIncome.toLocaleString("tr-TR")} ${e.estimatedIncomeCurrency}` : "—"}</td>
+                      <td className={`${tdCls} text-right tabular-nums`}>{impl && impl.verification?.status === "Doğrulandı" ? `${impl.actualSaving.toLocaleString("tr-TR")} ${impl.actualSavingCurrency}` : "—"}</td>
                       <td className={`${tdCls} text-right font-bold tabular-nums`}>{e?.point ?? "—"}</td>
+                      <td className={`${tdCls} whitespace-nowrap`}>{impl ? `${impl.status}${actionProgress(impl).total ? ` · ${actionProgress(impl).done}/${actionProgress(impl).total}` : ""}` : s.completed ? "Uygulandı" : "—"}</td>
                     </tr>
                   );
                 })}</tbody>

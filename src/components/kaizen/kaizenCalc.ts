@@ -3,7 +3,7 @@
 // (its SharePoint choice columns aren't recoverable from the .msapp package alone — this app's
 // live "Yeni Öneri" wizard and Criteria/Ayarlar screen were checked directly to get these exact
 // values, replacing an earlier best-guess version of this file).
-import { ApprovalStatus } from "./kaizenTypes";
+import { ApprovalStatus, ImplementationStatus, KaizenImplementation } from "./kaizenTypes";
 
 // Öneri Sınıfı (Suggestion.SuggestionType) — confirmed exact values from the live app's picker.
 export const SUGGESTION_TYPE_OPTIONS = [
@@ -84,3 +84,42 @@ export const WAITING_SEVERITY_COLORS: Record<ReturnType<typeof waitingSeverity>,
   warning: "#f59e0b",
   overdue: "#ef4444"
 };
+
+// ---- Uygulama takibi (Faz 2-A) ----
+
+export const IMPLEMENTATION_STATUSES: ImplementationStatus[] = ["Planlandı", "Sürüyor", "Tamamlandı", "İptal"];
+
+export const IMPLEMENTATION_STATUS_COLORS: Record<ImplementationStatus, string> = {
+  "Planlandı": "#64748b",
+  "Sürüyor": "#3b82f6",
+  "Tamamlandı": "#00A280",
+  "İptal": "#ef4444"
+};
+
+export function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// Past its target date and neither finished nor cancelled.
+export function isImplementationOverdue(impl?: Pick<KaizenImplementation, "status" | "targetDate">): boolean {
+  if (!impl || !impl.targetDate) return false;
+  if (impl.status === "Tamamlandı" || impl.status === "İptal") return false;
+  return impl.targetDate < todayIso();
+}
+
+export function actionProgress(impl?: Pick<KaizenImplementation, "actions">): { done: number; total: number } {
+  const actions = impl?.actions || [];
+  return { done: actions.filter(a => a.done).length, total: actions.length };
+}
+
+// A 30/90-day persistence check that is due (or overdue) and not yet answered.
+export function pendingFollowUps(impl?: Pick<KaizenImplementation, "followUps" | "status">) {
+  if (!impl || impl.status !== "Tamamlandı") return [];
+  const today = todayIso();
+  return (impl.followUps || []).filter(f => !f.result && f.dueDate <= today);
+}
+
+export function percentChange(before: number | null, after: number | null): number | null {
+  if (before === null || after === null || before === 0) return null;
+  return ((after - before) / Math.abs(before)) * 100;
+}

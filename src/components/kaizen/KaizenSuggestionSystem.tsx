@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Home, Plus, ListChecks, Star, BarChart3, Settings } from "lucide-react";
+import { Home, Plus, ListChecks, Star, BarChart3, Settings, Hammer } from "lucide-react";
 import { useFactory } from "../../context/FactoryContext";
-import { KaizenPersonnel, KaizenCriteria, KaizenSuggestion, KaizenApproval, KaizenEvaluation } from "./kaizenTypes";
+import { KaizenPersonnel, KaizenCriteria, KaizenSuggestion, KaizenApproval, KaizenEvaluation, KaizenImplementation as KaizenImpl } from "./kaizenTypes";
 import { canDecideAsManager } from "./kaizenCalc";
 import KaizenHome from "./KaizenHome";
 import KaizenNewSuggestion from "./KaizenNewSuggestion";
@@ -9,6 +9,7 @@ import KaizenMySuggestions from "./KaizenMySuggestions";
 import KaizenApprovals from "./KaizenApprovals";
 import KaizenReports from "./KaizenReports";
 import KaizenSetup from "./KaizenSetup";
+import KaizenImplementation from "./KaizenImplementation";
 import { daysWaiting } from "./kaizenCalc";
 
 export type KaizenApi = {
@@ -60,7 +61,7 @@ export default function KaizenSuggestionSystem() {
   const token = localStorage.getItem("gemba_token") || "";
   const factoryId = selectedCustomer?.id || "default";
 
-  const [section, setSection] = useState<"home" | "new" | "mine" | "approvals" | "reports" | "setup">("home");
+  const [section, setSection] = useState<"home" | "new" | "mine" | "approvals" | "impl" | "reports" | "setup">("home");
   const [editingSuggestion, setEditingSuggestion] = useState<KaizenSuggestion | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -69,6 +70,7 @@ export default function KaizenSuggestionSystem() {
   const [suggestions, setSuggestions] = useState<KaizenSuggestion[]>([]);
   const [approvals, setApprovals] = useState<KaizenApproval[]>([]);
   const [evaluations, setEvaluations] = useState<KaizenEvaluation[]>([]);
+  const [implementations, setImplementations] = useState<KaizenImpl[]>([]);
 
   const [toast, setToast] = useState<string | null>(null);
   const showToast = useCallback((msg: string) => {
@@ -102,10 +104,10 @@ export default function KaizenSuggestionSystem() {
 
   const loadAll = useCallback(async () => {
     setLoading(true);
-    const [per, cri, sug, apr, evl] = await Promise.all([
-      api.get("personnel"), api.get("criteria"), api.get("suggestions"), api.get("approvals"), api.get("evaluations")
+    const [per, cri, sug, apr, evl, imp] = await Promise.all([
+      api.get("personnel"), api.get("criteria"), api.get("suggestions"), api.get("approvals"), api.get("evaluations"), api.get("implementations")
     ]);
-    setPersonnel(per); setCriteria(cri); setSuggestions(sug); setApprovals(apr); setEvaluations(evl);
+    setPersonnel(per); setCriteria(cri); setSuggestions(sug); setApprovals(apr); setEvaluations(evl); setImplementations(imp);
     setLoading(false);
   }, [factoryId, token]);
 
@@ -143,6 +145,7 @@ export default function KaizenSuggestionSystem() {
     { key: "new", label: "Yeni Öneri", icon: Plus },
     { key: "mine", label: "Önerilerim", icon: ListChecks },
     ...(canSeeApprovals ? [{ key: "approvals" as const, label: "Değerlendirmeler", icon: Star, badge: approvalsBadge }] : []),
+    { key: "impl", label: "Uygulama", icon: Hammer },
     ...(isBoardMember ? [{ key: "reports" as const, label: "Rapor", icon: BarChart3 }] : []),
     ...(currentUser?.role === "Admin" || currentUser?.role === "Consultant" ? [{ key: "setup" as const, label: "Kurulum", icon: Settings }] : [])
   ];
@@ -263,8 +266,28 @@ export default function KaizenSuggestionSystem() {
         />
       )}
 
+      {section === "impl" && (
+        <KaizenImplementation
+          currentUser={currentUser}
+          suggestions={suggestions}
+          implementations={implementations}
+          evaluations={evaluations}
+          personnel={personnel}
+          isBoardMember={isBoardMember}
+          api={api}
+          showToast={showToast}
+          onSaved={(i) => setImplementations(prev => {
+            const idx = prev.findIndex(r => r.id === i.id);
+            if (idx !== -1) { const copy = [...prev]; copy[idx] = i; return copy; }
+            return [...prev, i];
+          })}
+          onReload={loadAll}
+          companyName={selectedCustomer?.companyName}
+        />
+      )}
+
       {section === "reports" && isBoardMember && (
-        <KaizenReports suggestions={suggestions} evaluations={evaluations} personnel={personnel} api={api} />
+        <KaizenReports suggestions={suggestions} evaluations={evaluations} personnel={personnel} implementations={implementations} api={api} />
       )}
 
       {section === "setup" && (currentUser?.role === "Admin" || currentUser?.role === "Consultant") && (

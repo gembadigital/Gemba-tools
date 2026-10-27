@@ -137,3 +137,63 @@ export interface KaizenEvaluation {
   comment: string;
   createdAt: string;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Uygulama takibi (Faz 2-A). One record per Board-approved suggestion: who implements it, by when,
+// the action checklist, before/after measurement + photos, the actual (not estimated) saving and
+// the Board's verification of it, and the 30/90-day "still in place?" persistence checks.
+// ---------------------------------------------------------------------------------------------
+export type ImplementationStatus = "Planlandı" | "Sürüyor" | "Tamamlandı" | "İptal";
+
+export interface KaizenAction {
+  id: string;
+  text: string;
+  done: boolean;
+  dueDate: string; // YYYY-MM-DD or ""
+}
+
+export interface KaizenMetric {
+  label: string;        // e.g. "Çevrim süresi"
+  value: number | null;
+  unit: string;         // e.g. "sn", "adet/saat", "%"
+}
+
+export interface KaizenFollowUp {
+  days: 30 | 90;
+  dueDate: string;
+  result: "" | "Sürüyor" | "Bozuldu";
+  checkedAt: string;
+  checkedBy: string;
+  note: string;
+}
+
+export interface KaizenVerification {
+  status: "Bekliyor" | "Doğrulandı" | "Reddedildi";
+  by: string;
+  at: string;
+  note: string;
+}
+
+export interface KaizenImplementation {
+  id: string;
+  suggestionId: string;
+  factory_id?: string;
+  ownerName: string;
+  ownerEmail: string;
+  targetDate: string;
+  status: ImplementationStatus;
+  actions: KaizenAction[];
+  beforeMetric: KaizenMetric;
+  afterMetric: KaizenMetric;
+  photosBefore: KaizenSuggestionPhoto[];
+  photosAfter: KaizenSuggestionPhoto[];
+  actualSaving: number;
+  actualSavingCurrency: string;
+  note: string;
+  startedAt: string;
+  completedAt: string;
+  verification: KaizenVerification;
+  followUps: KaizenFollowUp[];
+  createdAt: string;
+  updatedAt: string;
+}
