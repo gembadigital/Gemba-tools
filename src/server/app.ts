@@ -1420,7 +1420,11 @@ app.post("/api/business/segments/clear", authenticateToken, async (req, res) => 
 });
 
 // 5. CI projects (stored as "kaizens") + CI settings — see ci/ciRoutes.ts
-registerCiRoutes(app, { authenticateToken, resolveFactoryScope, canAccessFactory });
+registerCiRoutes(app, {
+  authenticateToken, resolveFactoryScope, canAccessFactory,
+  sendMail: (o) => sendMail(o),
+  appUrl: (req) => process.env.APP_URL || getBaseUrl(req)
+});
 
 // 5b. COPQ Snapshots (Loss Capacity Analizi historical trend tracking)
 app.get("/api/business/copq-snapshots", authenticateToken, async (req, res) => {

@@ -12,13 +12,27 @@ export const isActive = (k: KaizenCard) => !isClosed(k) && !k.holdState;
 
 export interface Attention {
   project: KaizenCard;
-  kind: "approval" | "stageLate" | "projectLate" | "actionsLate" | "stale";
+  kind: "approval" | "stageLate" | "projectLate" | "actionsLate" | "stale" | "followUp" | "notSustained";
   text: string;
   days?: number;
 }
 
 // Why an active project needs attention today. `stale` = no recorded change for 30+ days.
+// Closed projects: a sustainability check that is due, or the latest one recorded as not held.
+export function followUpAttention(k: KaizenCard, todayIso: string): Attention[] {
+  if (!isClosed(k) || k.holdState) return [];
+  const list = k.followUps || [];
+  const out: Attention[] = [];
+  const checked = list.filter(f => f.checkedAt).sort((a, b) => (a.checkedAt || "").localeCompare(b.checkedAt || ""));
+  const last = checked[checked.length - 1];
+  if (last && last.sustained === false) out.push({ project: k, kind: "notSustained", text: `${last.days}. gün kontrolünde iyileştirme sürmüyor` });
+  const due = list.find(f => !f.checkedAt && f.dueDate <= todayIso);
+  if (due) out.push({ project: k, kind: "followUp", days: daysBetween(due.dueDate, todayIso), text: `${due.days}. gün sürdürülebilirlik kontrolü zamanı geldi` });
+  return out;
+}
+
 export function attentionFor(k: KaizenCard, todayIso: string): Attention[] {
+  if (isClosed(k)) return followUpAttention(k, todayIso);
   if (!isActive(k)) return [];
   const out: Attention[] = [];
   const stage = stageOf(k);

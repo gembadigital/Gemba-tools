@@ -8,9 +8,10 @@ import type express from "express";
 import { db } from "../db.js";
 import { normalizeCiSettings } from "../../utils/ciSettings.js";
 import {
-  CiStageAction, CI_SERVER_OWNED_FIELDS, applyStageAction, canEditProject, canViewProject, derivedStatusFields,
-  isCiStaffUser, isClosed, isLeader, stageOf, withHistory
+  CiStageAction, CI_SERVER_OWNED_FIELDS, CI_STEPS, applyStageAction, applyFollowUp, canEditProject, canViewProject,
+  derivedStatusFields, isCiStaffUser, isClosed, isLeader, isTaskFinished, stageOf, withHistory
 } from "../../utils/ciLifecycle.js";
+import { buildCiDigests, ciDigestText } from "../../utils/ciReminders.js";
 
 import {
   lossOpportunities, costOpportunities, opexOpportunities, kaizenOpportunities, ptrOpportunities, markConverted
@@ -30,6 +31,10 @@ export interface CiRouteDeps {
   // Scope check for the x-factory-id header (see app.ts resolveFactoryScope).
   resolveFactoryScope: (req: express.Request, requestedId?: string) => { allowed: boolean; factoryId?: string };
   canAccessFactory: (req: express.Request, factoryId?: string) => boolean;
+  // Outgoing e-mail of the host app (Microsoft Graph in Gemba Tools).
+  sendMail: (o: { to: string | string[]; subject: string; text: string }) => Promise<{ success: boolean; error?: string }>;
+  // Link to the app put in e-mails.
+  appUrl: (req: express.Request) => string;
 }
 
 const isStaff = (user: any) => isCiStaffUser(user);
@@ -43,7 +48,46 @@ function deny(res: express.Response, status = 403, error = "Access Denied.") {
 }
 
 export function registerCiRoutes(app: express.Express, deps: CiRouteDeps) {
-  const { authenticateToken, resolveFactoryScope, canAccessFactory } = deps;
+  const { authenticateToken, resolveFactoryScope, canAccessFactory, sendMail, appUrl } = deps;
+
+  // ---- notifications (plan step C9) ----
+  // E-mail to user accounts of the organization; a failure is logged and never fails the request.
+  // Off when the customer's CI settings say so.
+  const remindersOn = async (orgId: string, factoryId: string) =>
+    normalizeCiSettings(await db.getCiSettingsRecord(orgId, factoryId)).remindersEnabled;
+
+  async function mailUsers(orgId: string, factoryId: string, userIds: (string | undefined)[], subject: string, text: string, exceptUserId?: string): Promise<number> {
+    const ids = new Set(userIds.filter((x): x is string => !!x && x !== exceptUserId));
+    if (!ids.size || !(await remindersOn(orgId, factoryId))) return 0;
+    const to = (await db.getUsers())
+      .filter(u => u.organization_id === orgId && ids.has(u.id) && u.status !== "Disabled" && u.email)
+      .map(u => u.email);
+    if (!to.length) return 0;
+    try {
+      const r = await sendMail({ to, subject, text });
+      if (!r.success) console.warn("[ci-notify] mail failed:", r.error);
+      return r.success ? to.length : 0;
+    } catch (e: any) {
+      console.warn("[ci-notify] mail failed:", e?.message);
+      return 0;
+    }
+  }
+
+  const projectLine = (p: any, all: any[]) => `${displayProjectNo(p, all)} · ${p.title || "Adsız proje"}`;
+  const footer = (req: express.Request) => `\n\nGemba Tools → CI Proje Yönetimi: ${appUrl(req)}`;
+
+  // Short status of a project for the manual reminder.
+  function statusText(p: any, todayIso: string): string {
+    const stage = stageOf(p);
+    const lines = [isClosed(p) ? "Durum: kapandı" : `Durum: Adım ${stage}/8 — ${CI_STEPS[stage - 1].title}`];
+    const planned = p.stageDates?.[stage]?.planned;
+    if (!isClosed(p) && planned) lines.push(`Bu adımın planlanan tarihi: ${planned}${planned < todayIso ? " (geçti)" : ""}`);
+    if (p.pendingApproval) lines.push(`Adım ${p.pendingApproval.stage} proje liderinin onayını bekliyor.`);
+    const late = (p.tasks || []).filter((t: any) => t.deadline && t.deadline < todayIso && !isTaskFinished(t));
+    if (late.length) lines.push(`Termini geçen aksiyonlar:\n${late.map((t: any) => `  - ${t.name} (${t.responsible || "sorumlu yok"}, ${t.deadline})`).join("\n")}`);
+    if (p.plannedFinishDate) lines.push(`Hedef bitiş: ${p.plannedFinishDate}`);
+    return lines.join("\n");
+  }
 
   app.get("/api/business/kaizens", authenticateToken, async (req, res) => {
     const user = (req as any).user;
@@ -83,7 +127,14 @@ export function registerCiRoutes(app: express.Express, deps: CiRouteDeps) {
       for (const f of CI_SERVER_OWNED_FIELDS) delete payload[f];
       Object.assign(payload, { stage: 1, closedAt: null, holdState: null, pendingApproval: null }, derivedStatusFields(1, false, null));
       const created = withHistory(payload, { at: now, by: who, byId: user.id, action: "Proje açıldı" });
-      res.json({ success: true, data: await db.createKaizenWithNumber(user.organization_id, payload.factory_id, created, user.id) });
+      const saved = await db.createKaizenWithNumber(user.organization_id, payload.factory_id, created, user.id);
+      if (saved.factory_id) {
+        await mailUsers(user.organization_id, saved.factory_id, [saved.projectLeaderId, ...(saved.projectTeamIds || [])],
+          `CI projesi: ${saved.projectNo} ${saved.title || ""}`.trim(),
+          `${who} yeni bir CI projesi açtı; proje lideri ya da ekip üyesi olarak eklendiniz.\n\n${saved.projectNo} · ${saved.title || ""}\nProje lideri: ${saved.projectLeader || "—"}\nHedef bitiş: ${saved.plannedFinishDate || "—"}${footer(req)}`,
+          user.id);
+      }
+      res.json({ success: true, data: saved });
       return;
     }
 
@@ -117,7 +168,21 @@ export function registerCiRoutes(app: express.Express, deps: CiRouteDeps) {
     const record = changed.length
       ? withHistory({ ...existing, ...payload }, { at: now, by: who, byId: user.id, action: `Güncellendi (${changed.length} alan)` })
       : { ...existing, ...payload };
-    res.json({ success: true, data: await db.saveKaizen(user.organization_id, record, user.id) });
+    const saved = await db.saveKaizen(user.organization_id, record, user.id);
+    // Actions newly assigned to someone (new action, or a different responsible) → tell them.
+    if (Array.isArray(payload.tasks)) {
+      const before = new Map<string, string | undefined>((existing.tasks || []).map((t: any) => [t.id, t.responsibleId]));
+      const assigned = payload.tasks.filter((t: any) => t?.responsibleId && before.get(t.id) !== t.responsibleId && !isTaskFinished(t));
+      const all = await db.getKaizens(user.organization_id, existingFactory);
+      const assignees: string[] = Array.from(new Set<string>(assigned.map((t: any) => String(t.responsibleId))));
+      for (const uid of assignees) {
+        const mine = assigned.filter((t: any) => t.responsibleId === uid);
+        await mailUsers(user.organization_id, existingFactory, [uid], `CI aksiyonu atandı: ${saved.title || ""}`.trim(),
+          `${who} size ${mine.length} aksiyon atadı.\n\n${projectLine(saved, all)}\n${mine.map((t: any) => `  - ${t.name || "Adsız aksiyon"}${t.deadline ? ` (termin ${t.deadline})` : ""}`).join("\n")}${footer(req)}`,
+          user.id);
+      }
+    }
+    res.json({ success: true, data: saved });
   });
 
   // Lifecycle actions: submit / approve a step, return, step back, reopen, hold, cancel, resume,
@@ -129,9 +194,75 @@ export function registerCiRoutes(app: express.Express, deps: CiRouteDeps) {
     if (!STAGE_ACTIONS.includes(action)) return deny(res, 400, "Geçersiz işlem.");
     const existing = await db.getKaizenById(user.organization_id, req.params.id);
     if (!existing || !canAccessFactory(req, factoryOf(existing)) || !canViewProject(user, existing)) return deny(res);
-    const result = applyStageAction(existing, action, user, new Date(), req.body?.note);
+    const factory = factoryOf(existing);
+    const settings = normalizeCiSettings(await db.getCiSettingsRecord(user.organization_id, factory));
+    const result = applyStageAction(existing, action, user, new Date(), req.body?.note, { followUpDays: settings.followUpDays });
     if (!result.project) return deny(res, 409, result.error);
-    res.json({ success: true, data: await db.saveKaizen(user.organization_id, result.project, user.id) });
+    const saved = await db.saveKaizen(user.organization_id, result.project, user.id);
+    const who = user.full_name || user.email;
+    const all = await db.getKaizens(user.organization_id, factory);
+    const line = projectLine(saved, all);
+    const note = (req.body?.note || "").trim();
+    const prev = existing.pendingApproval;
+    if (action === "submit" && saved.pendingApproval) {
+      await mailUsers(user.organization_id, factory, [saved.projectLeaderId], `Onayınız bekleniyor: ${saved.title || ""}`.trim(),
+        `${who}, Adım ${saved.pendingApproval.stage} (${CI_STEPS[saved.pendingApproval.stage - 1].title}) için onayınızı istiyor.\n\n${line}${note ? `\nNot: ${note}` : ""}${footer(req)}`, user.id);
+    } else if ((action === "approve" || action === "submit") && prev?.byId) {
+      await mailUsers(user.organization_id, factory, [prev.byId], `Adım onaylandı: ${saved.title || ""}`.trim(),
+        `${who}, Adım ${prev.stage} (${CI_STEPS[prev.stage - 1].title}) onayladı.${isClosed(saved) ? " Proje kapatıldı." : ` Sıradaki adım: ${CI_STEPS[stageOf(saved) - 1].title}.`}\n\n${line}${note ? `\nNot: ${note}` : ""}${footer(req)}`, user.id);
+    } else if (action === "return" && prev?.byId) {
+      await mailUsers(user.organization_id, factory, [prev.byId], `Adım geri gönderildi: ${saved.title || ""}`.trim(),
+        `${who}, Adım ${prev.stage} (${CI_STEPS[prev.stage - 1].title}) onayını geri gönderdi.\n\n${line}${note ? `\nNot: ${note}` : ""}${footer(req)}`, user.id);
+    }
+    res.json({ success: true, data: saved });
+  });
+
+  // Sustainability check result of a closed project (utils/ciLifecycle.ts applyFollowUp).
+  app.post("/api/business/kaizens/:id/follow-up", authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    if (isKaizenSession(user)) return deny(res);
+    const existing = await db.getKaizenById(user.organization_id, req.params.id);
+    if (!existing || !canAccessFactory(req, factoryOf(existing)) || !canViewProject(user, existing)) return deny(res);
+    const result = applyFollowUp(existing, user, new Date(), {
+      index: Number(req.body?.index), value: req.body?.value === null || req.body?.value === undefined ? null : Number(req.body.value),
+      sustained: req.body?.sustained, note: req.body?.note
+    });
+    if (!result.project) return deny(res, 409, result.error);
+    const saved = await db.saveKaizen(user.organization_id, result.project, user.id);
+    // A check that didn't hold is worth telling the leader and the team about.
+    if (req.body?.sustained === false) {
+      const all = await db.getKaizens(user.organization_id, factoryOf(existing));
+      await mailUsers(user.organization_id, factoryOf(existing), [saved.projectLeaderId, ...(saved.projectTeamIds || [])],
+        `Sürdürülebilirlik uyarısı: ${saved.title || ""}`.trim(),
+        `${user.full_name || user.email} sürdürülebilirlik kontrolünde iyileştirmenin sürmediğini kaydetti.\n\n${projectLine(saved, all)}${req.body?.note ? `\nNot: ${req.body.note}` : ""}${footer(req)}`, user.id);
+    }
+    res.json({ success: true, data: saved });
+  });
+
+  // Manual reminder (replaces the old counter-only "hatırlatma kaydı"): e-mails the leader or the
+  // whole team a status summary. Admin / Consultant or the project leader.
+  app.post("/api/business/kaizens/:id/remind", authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    if (isKaizenSession(user)) return deny(res);
+    const existing = await db.getKaizenById(user.organization_id, req.params.id);
+    if (!existing || !canAccessFactory(req, factoryOf(existing))) return deny(res);
+    if (!isStaff(user) && !isLeader(user, existing)) return deny(res, 403, "Hatırlatmayı proje lideri ya da danışman gönderebilir.");
+    const factory = factoryOf(existing);
+    const to = req.body?.to === "team"
+      ? [existing.projectLeaderId, ...(existing.projectTeamIds || []), ...(existing.tasks || []).map((t: any) => t.responsibleId)]
+      : [existing.projectLeaderId];
+    if (!(await remindersOn(user.organization_id, factory))) return deny(res, 409, "Bu müşteri için CI e-postaları kapalı (CI Ayarları).");
+    const all = await db.getKaizens(user.organization_id, factory);
+    const note = String(req.body?.note || "").trim().slice(0, 1000);
+    const today = new Date().toISOString().slice(0, 10);
+    const sent = await mailUsers(user.organization_id, factory, to, `CI projesi hatırlatma: ${existing.title || ""}`.trim(),
+      `${user.full_name || user.email} bu proje için hatırlatma gönderdi.${note ? `\n\n${note}` : ""}\n\n${projectLine(existing, all)}\n${statusText(existing, today)}${footer(req)}`, user.id);
+    if (!sent) return deny(res, 409, "Gönderilecek e-posta adresi bulunamadı (lider / ekip kullanıcı hesabı yok ya da gönderim başarısız).");
+    const now = new Date().toISOString();
+    const saved = await db.saveKaizen(user.organization_id, withHistory({
+      ...existing, emailSentCount: (existing.emailSentCount || 0) + 1, lastEmailSentAt: now
+    }, { at: now, by: user.full_name || user.email, byId: user.id, action: `Hatırlatma e-postası gönderildi (${sent} kişi)`, note: note || undefined }), user.id);
+    res.json({ success: true, data: saved, sent });
   });
 
   app.delete("/api/business/kaizens/:id", authenticateToken, async (req, res) => {
@@ -191,6 +322,59 @@ export function registerCiRoutes(app: express.Express, deps: CiRouteDeps) {
       updatedAt: typeof req.body?.updatedAt === "string" ? req.body.updatedAt : new Date().toISOString()
     }, user.id);
     res.json({ success: true });
+  });
+
+  // Weekly reminder digests: preview (no sending) and "send now" for Admin / Consultant, and the
+  // weekly cron (CRON_SECRET, every customer with CI projects).
+  async function ciDigests(orgId: string, factoryId: string) {
+    const [projects, users] = await Promise.all([db.getKaizens(orgId, factoryId), db.getUsers()]);
+    return buildCiDigests(projects, users.filter(u => u.organization_id === orgId), new Date().toISOString().slice(0, 10));
+  }
+
+  async function sendCiDigests(orgId: string, factoryId: string, link: string): Promise<{ sent: number; skipped?: string }> {
+    if (!(await remindersOn(orgId, factoryId))) return { sent: 0, skipped: "CI e-postaları bu müşteri için kapalı." };
+    const company = await db.getCustomerName(orgId, factoryId);
+    let sent = 0;
+    for (const d of await ciDigests(orgId, factoryId)) {
+      try {
+        const r = await sendMail({ to: d.email, subject: `CI hatırlatma: ${d.items.length} konu ilginizi bekliyor`, text: ciDigestText(d, company, link) });
+        if (r.success) sent++;
+      } catch (e: any) {
+        console.warn("[ci-notify] digest mail failed:", e?.message);
+      }
+    }
+    return { sent };
+  }
+
+  app.get("/api/business/ci/reminders/preview", authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+    if (!scope.allowed || !scope.factoryId || !isStaff(user)) return deny(res);
+    res.json({ success: true, data: await ciDigests(user.organization_id, scope.factoryId) });
+  });
+
+  app.post("/api/business/ci/reminders/send", authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+    if (!scope.allowed || !scope.factoryId || !isStaff(user)) return deny(res);
+    const result = await sendCiDigests(user.organization_id, scope.factoryId, appUrl(req));
+    console.info(`[ci-audit] reminders sent manually by ${user.email}: ${JSON.stringify(result)}`);
+    res.json({ success: true, data: result });
+  });
+
+  app.get("/api/cron/ci-reminders", async (req, res) => {
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) return deny(res, 503, "CRON_SECRET ortam değişkeni tanımlı değil.");
+    if (req.headers.authorization !== `Bearer ${cronSecret}`) return deny(res, 401, "Unauthorized.");
+    const results: any[] = [];
+    for (const { orgId, factoryId } of await db.listCiFactories()) {
+      try {
+        results.push({ factoryId, ...(await sendCiDigests(orgId, factoryId, process.env.APP_URL || appUrl(req))) });
+      } catch (e: any) {
+        results.push({ factoryId, error: e.message }); // one customer's bad data must not stop the others
+      }
+    }
+    res.json({ success: true, data: results });
   });
 
   // Per-customer CI settings. Everyone with access to the customer reads them (the forms need the

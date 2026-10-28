@@ -22,6 +22,8 @@ export interface CiSettings {
   productFamilies: CiProductFamily[];// Ürün Ailesi scope in the new-project wizard; empty → whole plant only
   defaultDurationDays: number;       // default deadline of a new project, in days from today
   fishboneCategories: string[];      // bones of the fishbone (Ishikawa) diagram in A3 step 4 (2–8)
+  followUpDays: number[];            // sustainability checks after closing, days (1–3 entries, ascending)
+  remindersEnabled: boolean;         // weekly CI reminder e-mails and event notifications
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -36,7 +38,9 @@ export const DEFAULT_CI_SETTINGS: CiSettings = {
   phases: ["Faz 1 (1 Ay)", "Faz 2 (2-3 Ay)", "Faz 3 (6-12 Ay)"],
   productFamilies: [],
   defaultDurationDays: 90,
-  fishboneCategories: ["İnsan", "Makine", "Metot", "Malzeme", "Ölçüm", "Çevre"]
+  fishboneCategories: ["İnsan", "Makine", "Metot", "Malzeme", "Ölçüm", "Çevre"],
+  followUpDays: [30, 60, 90],
+  remindersEnabled: true
 };
 
 export const CI_MAX_OPTIONS = 30;
@@ -100,6 +104,13 @@ export function normalizeCiSettings(input: any): CiSettings {
       const list = optionList(src.fishboneCategories, d.fishboneCategories).slice(0, 8);
       return list.length >= 2 ? list : d.fishboneCategories;
     })(),
+    followUpDays: (() => {
+      const raw = Array.isArray(src.followUpDays) ? src.followUpDays : d.followUpDays;
+      const days = raw.map((v: any) => Math.round(Number(v))).filter((v: number) => v >= 1 && v <= 730);
+      const uniq = days.filter((v: number, i: number) => days.indexOf(v) === i).sort((a: number, b: number) => a - b).slice(0, 3);
+      return uniq.length ? uniq : d.followUpDays;
+    })(),
+    remindersEnabled: typeof src.remindersEnabled === "boolean" ? src.remindersEnabled : d.remindersEnabled,
     ...(typeof src.updatedAt === "string" ? { updatedAt: src.updatedAt } : {}),
     ...(typeof src.updatedBy === "string" ? { updatedBy: src.updatedBy } : {})
   };

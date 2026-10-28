@@ -23,7 +23,7 @@ interface Props {
 
 const short = (n: number) => Math.abs(n) >= 1e6 ? `${formatAmount(n / 1e6, 1)}\u00a0Mn` : Math.abs(n) >= 1e3 ? `${formatAmount(n / 1e3, 0)}\u00a0B` : formatAmount(n, 0);
 const KIND_TONE: Record<Attention["kind"], "red" | "amber" | "slate" | "violet"> = {
-  approval: "violet", stageLate: "amber", projectLate: "red", actionsLate: "red", stale: "slate"
+  approval: "violet", stageLate: "amber", projectLate: "red", actionsLate: "red", stale: "slate", followUp: "violet", notSustained: "red"
 };
 
 export default function CiOverview({ projects, currentUser, currencySymbol, fxRates, projectNo, onOpenProject, onShowFinance }: Props) {
@@ -31,8 +31,8 @@ export default function CiOverview({ projects, currentUser, currencySymbol, fxRa
   const live = projects.filter(k => k.holdState !== "cancelled");
   const active = live.filter(isActive);
   const closed = live.filter(isClosed);
-  const attention = active.flatMap(k => attentionFor(k, todayIso));
-  const lateProjects = new Set(attention.filter(a => a.kind !== "stale").map(a => a.project.id));
+  const attention = [...active, ...closed].flatMap(k => attentionFor(k, todayIso));
+  const lateProjects = new Set(attention.filter(a => a.kind !== "stale" && a.kind !== "followUp" && a.kind !== "notSustained").map(a => a.project.id));
   const mine = awaitingMyApproval(projects, currentUser);
   const money = live.map(k => projectMoney(k, currencySymbol, fxRates));
   const expected = money.reduce((s, m) => s + (m.expected ?? 0), 0);
@@ -43,7 +43,7 @@ export default function CiOverview({ projects, currentUser, currencySymbol, fxRa
   const leaders = leaderPerformance(projects, todayIso);
 
   // Attention grouped per project, worst first (late project > late step > late actions > stale).
-  const order: Attention["kind"][] = ["projectLate", "stageLate", "actionsLate", "stale"];
+  const order: Attention["kind"][] = ["notSustained", "projectLate", "stageLate", "actionsLate", "followUp", "stale"];
   const byProject = Array.from(new Set(attention.map(a => a.project.id)))
     .map(id => attention.filter(a => a.project.id === id))
     .sort((a, b) => Math.min(...a.map(x => order.indexOf(x.kind))) - Math.min(...b.map(x => order.indexOf(x.kind))));
@@ -84,7 +84,7 @@ export default function CiOverview({ projects, currentUser, currencySymbol, fxRa
 
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
         <Card className="xl:col-span-3">
-          <SectionTitle icon={AlertTriangle} title="Dikkat gerektirenler" hint="Aktif projelerde geciken aşama, hedef tarih ve aksiyonlar; 30 gündür hareketsiz projeler." />
+          <SectionTitle icon={AlertTriangle} title="Dikkat gerektirenler" hint="Geciken aşama, hedef tarih ve aksiyonlar; 30 gündür hareketsiz projeler; kapanan projelerde zamanı gelen ya da tutmayan sürdürülebilirlik kontrolleri." />
           {byProject.length === 0 ? <EmptyState icon={CheckCircle2} title="Her şey planında" text="Geciken aşama, hedef tarih ya da aksiyon yok." /> : (
             <ul className="divide-y divide-slate-100 -mx-1">
               {byProject.slice(0, 12).map(items => {

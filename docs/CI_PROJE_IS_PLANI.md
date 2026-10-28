@@ -196,6 +196,7 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
 | C4 | ✅ kod (canlıda doğrulanmadı) | Balık kılçığı (6M) kök neden analizi, ayarlanabilir kategoriler. Ayrıntı aşağıda. |
 | C8 | ✅ kod (canlıda doğrulanmadı) | Tek sayfa A3 sunum kartı, PDF + Excel, isteğe bağlı önce-sonra. Ayrıntı aşağıda. |
 | C5 | ✅ kod (canlıda doğrulanmadı) | Sunucu tarafı fırsat havuzu (5 kaynak), tam ekran yeni proje akışı. Ayrıntı aşağıda. |
+| C9 | ✅ kod (canlıda doğrulanmadı) | Gerçek e-posta bildirimleri, haftalık özet (cron), manuel hatırlatma, 30/60/90 gün sürdürülebilirlik. Ayrıntı aşağıda. |
 
 ### C0 — yapılanlar
 - **Sunucu (`/api/business/kaizens`):** müşteri gövdeden değil `x-factory-id` kapsamından alınır; güncellemede mevcut
@@ -464,4 +465,37 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
   dönüştürmenin reddi, iptalin fırsatı serbest bırakması) + önceki testler. Yeni proje ekranı yerel önizlemede uçtan uca
   denendi (ürün ailesi ölçeği, kilitli fırsat, doğrulama mesajları, müşteri kullanıcısı kuralı, telefon görünümü).
   Canlıda denenmedi.
+
+### C9 — yapılanlar
+- **E-posta bildirimleri (gerçek, Microsoft Graph `sendMail`)** — `src/server/ci/ciRoutes.ts`; CI modülü e-postayı ana
+  uygulamadan bağımlılık olarak alır (`sendMail`, `appUrl` → ayrılabilirlik). Yalnızca kullanıcı hesabı olan (devre dışı
+  olmayan) kişilere; işlemi yapan kişiye gönderilmez; gönderim hatası isteği bozmaz (loglanır).
+  - Proje açıldı → lider ve üyeler · aksiyon atandı (yeni ya da sorumlusu değişen, bitmemiş) → atanan kişi
+  - Adım onaya gönderildi → proje lideri · adım onaylandı / geri gönderildi → gönderen (geri göndermede not)
+  - Sürdürülebilirlik kontrolü "sürmüyor" → lider ve ekip
+- **Manuel hatırlatma** — kartta "Hatırlat" (Admin/Danışman ya da lider): lidere ya da tüm ekip + aksiyon sorumlularına,
+  isteğe bağlı mesaj + proje durumu (adım, onay, geciken aksiyonlar, hedef bitiş). `POST /api/business/kaizens/:id/remind`;
+  sayaç ve geçmiş sunucuda tutulur. Kanbandaki eski "hatırlatma kaydı" (yalnız sayaç, "bu bir e-posta DEĞİLDİR") artık
+  lidere gerçek e-posta gönderir. `emailSentCount` / `lastEmailSentAt` sunucu alanı.
+- **Haftalık özet** — `src/utils/ciReminders.ts` (`buildCiDigests`): kişi başına termini geçen ve 7 gün içinde biten
+  aksiyonlar, liderin onay bekleyen ve planı geçen adımları, zamanı gelen sürdürülebilirlik kontrolleri; askıdaki /
+  iptal projeler hariç. Cron `GET /api/cron/ci-reminders` (Pazartesi 06:00 UTC, `vercel.json`; `CRON_SECRET`), müşteri
+  başına hata yalıtımlı. CI Ayarları'nda "Bu haftanın özetini önizle" (gönderim yok) ve "Şimdi gönder" (Admin/Danışman).
+- **Sürdürülebilirlik (S3)** — kapanışta `followUps` planlanır (ayardan, varsayılan 30/60/90 gün; yeniden açılıp
+  kapanınca kaydedilmiş kontroller korunur). Kapanmış kartta "Sürdürülebilirlik takibi": KPI değeri + sürüyor/sürmüyor +
+  not (lider ya da danışman; `POST /api/business/kaizens/:id/follow-up`, geçmişe yazılır). Genel Bakış "Dikkat
+  gerektirenler"de zamanı gelen kontrol ve son kontrolü tutmayan proje görünür. `followUps` sunucu alanı.
+- **Ayarlar** — `followUpDays` (1–3 değer, 1–730 gün), `remindersEnabled` (kapalıysa hiçbir CI e-postası gitmez,
+  manuel hatırlatma 409 döner).
+- **Canlıda dikkat:** cron'un çalışması için Vercel'de `CRON_SECRET` tanımlı olmalı (diğer cron'larla aynı); e-posta
+  bağlantısı `APP_URL` ile kurulur. Bu sürümden önce kapanmış projelerde `followUps` yoktur (takip yalnızca yeni
+  kapanışlarda başlar).
+- **Açık kalanlar:** uygulama içi bildirim (zil) ve WhatsApp/SMS yok (yalnız e-posta); hesabı olmayan, isimle kayıtlı
+  lider / sorumlulara gönderilemez; yaygınlaştırma hâlâ serbest metin (yapılandırılmış hat/alan listesi yok).
+- **Doğrulama:** `tsc`, `npm run build`, native ESM yükleme; C9 testleri 26 kontrol (takip planlama / kaydetme / yetki /
+  yeniden kapanış, ayar temizliği, haftalık özet içeriği ve atlanan kişiler; uçlar: açılış, atama, değişmeyen atamada
+  e-posta yok, onaya gönder, geri gönder, manuel hatırlatma yetkisi ve sayaçları, sunucu alanı koruması, e-postalar
+  kapalıyken ret, tutmayan kontrol uyarısı, önizleme yetkisi, cron gizli anahtarı) — gerçek e-posta gönderilmedi, sahte
+  gönderici kullanıldı. C2/C3/C5 test düzenekleri yeni bağımlılıklarla güncellendi ve yeniden geçti. Sürdürülebilirlik
+  bölümü ve hatırlatma penceresi yerel önizlemede denendi. Canlıda denenmedi.
 

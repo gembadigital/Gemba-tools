@@ -50,6 +50,19 @@ export interface CiFishboneCause {
   root?: boolean;   // marked as a root cause
 }
 
+// Sustainability checks after closing (plan step C9): at each due date the leader / a consultant
+// records the KPI value and whether the improvement held.
+export interface CiFollowUp {
+  days: number;               // after closing
+  dueDate: string;            // YYYY-MM-DD
+  value?: number | null;      // KPI value measured at the check
+  sustained?: boolean | null; // did the improvement hold?
+  note?: string;
+  checkedAt?: string;
+  checkedBy?: string;
+  checkedById?: string;
+}
+
 export interface CiStageDate {
   planned?: string;     // planned completion date of the step
   completed?: string;   // date the leader approved the step
@@ -96,6 +109,7 @@ export interface CiProjectLike {
   rootCause?: string;
   rootCauseWhys?: string[];
   fishbone?: CiFishboneCause[];
+  followUps?: CiFollowUp[];
   tasks?: any[];
   kpiTargetMet?: boolean | null;
   realizedGain?: number;
@@ -299,8 +313,23 @@ export function withHistory<T extends CiProjectLike>(p: T, entry: CiHistoryEntry
 }
 
 // Returns the updated project or an error (Turkish, user-facing). Only lifecycle fields change.
+export const DEFAULT_FOLLOW_UP_DAYS = [30, 60, 90];
+
+const addDaysIso = (iso: string, days: number) =>
+  new Date(new Date(`${iso.slice(0, 10)}T00:00:00Z`).getTime() + days * 86400000).toISOString().slice(0, 10);
+
+// Follow-up schedule set when a project closes. Checks already recorded for the same day count are
+// kept (a reopened and re-closed project doesn't lose them); the others are re-dated from `closedIso`.
+export function scheduleFollowUps(existing: CiFollowUp[] | undefined, closedIso: string, days: number[]): CiFollowUp[] {
+  return days.map(d => {
+    const done = (existing || []).find(f => f.days === d && f.checkedAt);
+    return done || { days: d, dueDate: addDaysIso(closedIso, d) };
+  });
+}
+
 export function applyStageAction<T extends CiProjectLike>(
-  project: T, action: CiStageAction, user: CiUserLike, now: Date, note?: string
+  project: T, action: CiStageAction, user: CiUserLike, now: Date, note?: string,
+  opts: { followUpDays?: number[] } = {}
 ): { project?: T; error?: string } {
   const stage = stageOf(project);
   const closed = isClosed(project);
@@ -321,7 +350,7 @@ export function applyStageAction<T extends CiProjectLike>(
     const stageDates = { ...(p.stageDates || {}) };
     stageDates[stage] = { ...(stageDates[stage] || {}), completed: today(now), approvedBy: who, approvedById: user.id };
     const next: T = stage >= CI_LAST_STAGE
-      ? { ...p, stageDates, pendingApproval: null, closedAt: at }
+      ? { ...p, stageDates, pendingApproval: null, closedAt: at, followUps: scheduleFollowUps(p.followUps, at, opts.followUpDays || DEFAULT_FOLLOW_UP_DAYS) }
       : { ...p, stageDates, pendingApproval: null, stage: stage + 1 };
     return finish(next, stage >= CI_LAST_STAGE
       ? `Adım ${stage} onaylandı — proje kapatıldı`
@@ -381,9 +410,35 @@ export function applyStageAction<T extends CiProjectLike>(
   return { error: "Bilinmeyen işlem." };
 }
 
+// Records the result of sustainability check `index` of a closed project (leader or Admin /
+// Consultant). A "not sustained" result stays visible as an attention item until the project is
+// reopened or a later check holds.
+export function applyFollowUp<T extends CiProjectLike>(
+  project: T, user: CiUserLike, now: Date, input: { index: number; value?: number | null; sustained: boolean; note?: string }
+): { project?: T; error?: string } {
+  if (!isClosed(project)) return { error: "Sürdürülebilirlik kontrolü kapanmış projede yapılır." };
+  if (!canApproveStage(user, project) && !isCiStaffUser(user) && !isLeader(user, project)) {
+    return { error: "Kontrolü yalnızca proje lideri ya da danışman kaydedebilir." };
+  }
+  const list = [...(project.followUps || [])];
+  const f = list[input.index];
+  if (!f) return { error: "Kontrol bulunamadı." };
+  if (typeof input.sustained !== "boolean") return { error: "Sonuç seçilmeli (sürdü / sürmedi)." };
+  const value = typeof input.value === "number" && Number.isFinite(input.value) ? input.value : null;
+  const who = user.full_name || user.email || "?";
+  list[input.index] = { ...f, value, sustained: input.sustained, note: (input.note || "").trim().slice(0, 1000) || undefined, checkedAt: now.toISOString(), checkedBy: who, checkedById: user.id };
+  return {
+    project: withHistory({ ...project, followUps: list }, {
+      at: now.toISOString(), by: who, byId: user.id,
+      action: `${f.days}. gün sürdürülebilirlik kontrolü: ${input.sustained ? "iyileştirme sürüyor" : "iyileştirme sürmüyor"}${value !== null ? ` (KPI ${value.toLocaleString("tr-TR")})` : ""}`,
+      note: input.note?.trim() || undefined
+    })
+  };
+}
+
 // Fields only the lifecycle actions may change; a normal save keeps the stored values.
 export const CI_SERVER_OWNED_FIELDS = [
-  "stage", "closedAt", "holdState", "pendingApproval", "history",
+  "stage", "closedAt", "holdState", "pendingApproval", "history", "followUps", "emailSentCount", "lastEmailSentAt",
   "gainConfirmedAt", "gainConfirmedBy", "gainConfirmedById",
   "projectNo", "projectSeq", "created_by", "created_at"
 ] as const;

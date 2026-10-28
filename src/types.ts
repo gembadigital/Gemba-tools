@@ -1,4 +1,4 @@
-import type { CiHoldState, CiPendingApproval, CiStageDate, CiHistoryEntry, CiKpi, CiFishboneCause } from "./utils/ciLifecycle";
+import type { CiHoldState, CiPendingApproval, CiStageDate, CiHistoryEntry, CiKpi, CiFishboneCause, CiFollowUp } from "./utils/ciLifecycle";
 export interface AuditRecord {
   id: string;
   name: string;
@@ -206,6 +206,8 @@ export interface KaizenCard {
   gainConfirmedById?: string | null;
   horizontalDeployment?: string;
   lessonsLearned?: string;
+  // Sustainability checks scheduled at closing (30/60/90 days by default) — server-owned.
+  followUps?: CiFollowUp[];
 }
 
 export interface AnnotationLine {

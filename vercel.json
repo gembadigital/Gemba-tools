@@ -33,6 +33,10 @@
     {
       "path": "/api/cron/kaizen-reminders",
       "schedule": "30 5 * * 1"
+    },
+    {
+      "path": "/api/cron/ci-reminders",
+      "schedule": "0 6 * * 1"
     }
   ],
   "headers": [

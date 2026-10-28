@@ -1,10 +1,13 @@
 // CI Ayarları — per-customer settings screen (plan step C1). Shown to Admin / Consultant only; the
 // server enforces the same rule. Edits a local draft and saves it as a whole.
 import React, { useEffect, useState } from "react";
-import { Save, Plus, Trash2 } from "lucide-react";
+import { Save, Plus, Trash2, Mail, Eye, Send } from "lucide-react";
+import type { CiDigest } from "../../utils/ciReminders";
+import { ciAuthToken } from "./useCiSettings";
 import { CiSettings, CiProductFamily, CI_CURRENCIES, CI_CURRENCY_SYMBOLS, phaseNumber } from "../../utils/ciSettings";
 
 interface CiSettingsPanelProps {
+  customerId?: string;
   settings: CiSettings;
   baseCurrencyCode: string; // the customer card's currency (TRY, USD, …)
   onSave: (next: CiSettings) => Promise<{ ok: boolean; error?: string }>;
@@ -12,7 +15,7 @@ interface CiSettingsPanelProps {
 
 const lines = (text: string) => text.split("\n").map(l => l.trim()).filter(Boolean);
 
-export default function CiSettingsPanel({ settings, baseCurrencyCode, onSave }: CiSettingsPanelProps) {
+export default function CiSettingsPanel({ customerId, settings, baseCurrencyCode, onSave }: CiSettingsPanelProps) {
   const [currencies, setCurrencies] = useState<string[]>(settings.currencies);
   const [fxRates, setFxRates] = useState<Record<string, string>>({});
   const [departments, setDepartments] = useState(settings.departments.join("\n"));
@@ -20,6 +23,10 @@ export default function CiSettingsPanel({ settings, baseCurrencyCode, onSave }: 
   const [families, setFamilies] = useState<{ name: string; sharePct: string }[]>([]);
   const [durationDays, setDurationDays] = useState(String(settings.defaultDurationDays));
   const [fishbone, setFishbone] = useState(settings.fishboneCategories.join("\n"));
+  const [followUpDays, setFollowUpDays] = useState(settings.followUpDays.join(", "));
+  const [remindersEnabled, setRemindersEnabled] = useState(settings.remindersEnabled);
+  const [preview, setPreview] = useState<CiDigest[] | null>(null);
+  const [mailStatus, setMailStatus] = useState<string | null>(null);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -32,7 +39,21 @@ export default function CiSettingsPanel({ settings, baseCurrencyCode, onSave }: 
     setFamilies(settings.productFamilies.map(f => ({ name: f.name, sharePct: String(f.sharePct) })));
     setDurationDays(String(settings.defaultDurationDays));
     setFishbone(settings.fishboneCategories.join("\n"));
+    setFollowUpDays(settings.followUpDays.join(", "));
+    setRemindersEnabled(settings.remindersEnabled);
   }, [settings]);
+
+  const headers = () => ({ Authorization: `Bearer ${ciAuthToken()}`, "x-factory-id": customerId || "", "Content-Type": "application/json" });
+  const loadPreview = async () => {
+    setMailStatus(null);
+    const res = await fetch("/api/business/ci/reminders/preview", { headers: headers() }).then(r => r.json()).catch(() => null);
+    if (res?.success) setPreview(res.data); else setMailStatus(res?.error || "Önizleme alınamadı.");
+  };
+  const sendNow = async () => {
+    if (!window.confirm("Bu haftanın CI hatırlatma e-postaları şimdi gönderilsin mi?")) return;
+    const res = await fetch("/api/business/ci/reminders/send", { method: "POST", headers: headers() }).then(r => r.json()).catch(() => null);
+    setMailStatus(res?.success ? (res.data.skipped || `${res.data.sent} kişiye gönderildi.`) : res?.error || "Gönderilemedi.");
+  };
 
   const baseSymbol = CI_CURRENCY_SYMBOLS[baseCurrencyCode] || baseCurrencyCode;
   const otherCurrencies = CI_CURRENCIES.filter(c => c !== baseCurrencyCode);
@@ -60,7 +81,9 @@ export default function CiSettingsPanel({ settings, baseCurrencyCode, onSave }: 
       phases: lines(phases),
       productFamilies,
       defaultDurationDays: Number(durationDays),
-      fishboneCategories: lines(fishbone)
+      fishboneCategories: lines(fishbone),
+      followUpDays: followUpDays.split(/[,;\s]+/).map(Number).filter(n => n > 0),
+      remindersEnabled
     });
     setSaving(false);
     setStatus(result.ok
@@ -152,6 +175,40 @@ export default function CiSettingsPanel({ settings, baseCurrencyCode, onSave }: 
           <label className={label} htmlFor="ci-settings-duration">Varsayılan proje süresi (gün)</label>
           <input id="ci-settings-duration" type="number" min={1} max={1095} value={durationDays} onChange={(e) => setDurationDays(e.target.value)} className={`${input} w-32`} />
           <p className={hint}>Yeni projenin termini, başka tarih seçilmezse bugünden bu kadar gün sonrasıdır.</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className={box}>
+          <label className={label} htmlFor="ci-settings-followups">Sürdürülebilirlik kontrolleri (gün)</label>
+          <p className={hint}>Proje kapandıktan sonra KPI'ın tekrar ölçüleceği günler; en fazla 3, virgülle. Varsayılan 30, 60, 90.</p>
+          <input id="ci-settings-followups" value={followUpDays} onChange={(e) => setFollowUpDays(e.target.value)} className={`${input} md:w-60`} />
+          <p className={hint}>Değişiklik sonraki kapanışlardan itibaren geçerli olur.</p>
+        </div>
+        <div className={box}>
+          <span className={label}>E-posta bildirimleri</span>
+          <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+            <input type="checkbox" checked={remindersEnabled} onChange={(e) => setRemindersEnabled(e.target.checked)} className="mt-0.5" />
+            <span>Açık — adım onaya gönderildiğinde / onaylandığında / geri gönderildiğinde, aksiyon atandığında, proje
+              açıldığında ve sürdürülebilirlik kontrolü tutmadığında e-posta; her Pazartesi kişi başına haftalık özet
+              (geciken ve bu hafta biten aksiyonlar, onay bekleyen ve planı geçen adımlar, zamanı gelen kontroller).</span>
+          </label>
+          <p className={hint}>Yalnızca kullanıcı hesabı olan kişilere gider (hesabı olmayan, isimle kayıtlı lider / sorumlulara gönderilemez).</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={loadPreview} className="flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg cursor-pointer"><Eye className="w-3.5 h-3.5" /> Bu haftanın özetini önizle</button>
+            <button type="button" onClick={sendNow} disabled={!settings.remindersEnabled} className="flex items-center gap-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-700 px-3 py-2 rounded-lg cursor-pointer disabled:opacity-40"><Send className="w-3.5 h-3.5" /> Şimdi gönder</button>
+          </div>
+          {mailStatus && <p className="text-[11px] text-slate-700">{mailStatus}</p>}
+          {preview && (
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {preview.length === 0 ? <p className={hint}>Bu hafta kimseye gönderilecek konu yok.</p> : preview.map(d => (
+                <div key={d.userId} className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-2 text-[11px]">
+                  <p className="font-bold text-slate-800 flex items-center gap-1"><Mail className="w-3 h-3" /> {d.name} · {d.email} · {d.items.length} konu</p>
+                  <ul className="mt-1 space-y-0.5 text-slate-600">{d.items.map((i, k) => <li key={k}>{i.projectTitle}: {i.text}</li>)}</ul>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

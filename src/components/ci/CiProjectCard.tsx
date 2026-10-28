@@ -9,7 +9,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft, Save, FileSpreadsheet, CheckCircle2, Circle, Clock, Lock, Send, Undo2, PauseCircle,
   PlayCircle, XCircle, Users, Paperclip, History, ListChecks, Plus, Trash2, Camera, Download,
-  ShieldCheck, Target, AlertTriangle, ChevronLeft, Layers, BarChart3, RotateCcw, Star, ArrowRightLeft, Presentation
+  ShieldCheck, Target, AlertTriangle, ChevronLeft, Layers, BarChart3, RotateCcw, Star, ArrowRightLeft, Presentation,
+  BellRing, Repeat, X
 } from "lucide-react";
 import type { KaizenCard, BeforeAfterKaizenStudy } from "../../types";
 import {
@@ -43,6 +44,9 @@ interface CiProjectCardProps {
   currencyChoices: (current: string) => { value: string; label: string }[];
   onSave: (changes: Partial<KaizenCard> & { id: string }) => Promise<KaizenCard | undefined>;
   onStageAction: (action: CiStageAction, note?: string) => Promise<{ ok: boolean; error?: string }>;
+  // Sustainability check result (closed projects) and manual reminder e-mail (plan step C9).
+  onFollowUp: (input: { index: number; value: number | null; sustained: boolean; note: string }) => Promise<{ ok: boolean; error?: string }>;
+  onRemind: (to: "leader" | "team", note: string) => Promise<{ ok: boolean; error?: string; sent?: number }>;
   onClose: () => void;
   onExportExcel: () => void;
   onOpenFinancials: () => void;
@@ -104,6 +108,7 @@ export default function CiProjectCard(props: CiProjectCardProps) {
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [note, setNote] = useState("");
   const [showA3, setShowA3] = useState(false);
+  const [showRemind, setShowRemind] = useState(false);
 
   // A fresh project version (after save / action / someone else's change) refreshes the draft but
   // keeps the fields this user changed and hasn't saved yet.
@@ -197,6 +202,9 @@ export default function CiProjectCard(props: CiProjectCardProps) {
                 <div className="text-slate-500">Proje lideri</div>
               </div>
             </div>
+            {(staff || canApprove) && (
+              <Button variant="outline" onClick={() => setShowRemind(true)} title="Lidere ya da ekibe hatırlatma e-postası gönder"><BellRing className="w-4 h-4" /><span className="hidden lg:inline">Hatırlat</span></Button>
+            )}
             <Button variant="outline" onClick={() => setShowA3(true)} title="Tek sayfa A3 sunum kartı (PDF / Excel)"><Presentation className="w-4 h-4" /><span className="hidden sm:inline">A3 sunum</span></Button>
             <Button variant="outline" onClick={props.onExportExcel} title="Proje kartını Excel olarak indir"><FileSpreadsheet className="w-4 h-4" /><span className="hidden sm:inline">Excel</span></Button>
             {canEdit && (
@@ -347,6 +355,14 @@ export default function CiProjectCard(props: CiProjectCardProps) {
                 </Card>
               )}
 
+              {closed && (project.followUps || []).length > 0 && (
+                <FollowUpsCard project={project} kpi={kpi} canRecord={staff || canApprove} onRecord={async (input) => {
+                  const r = await props.onFollowUp(input);
+                  setMessage(r.ok ? { ok: true, text: "Kontrol kaydedildi." } : { ok: false, text: r.error || "Kaydedilemedi." });
+                  return r.ok;
+                }} />
+              )}
+
               {closed && (
                 <Card>
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -368,6 +384,14 @@ export default function CiProjectCard(props: CiProjectCardProps) {
         {view === "files" && <FilesView draft={draft} set={set} canEdit={canEdit} />}
         {view === "history" && <HistoryView project={project} />}
       </div>
+
+      {showRemind && (
+        <RemindDialog project={project} onClose={() => setShowRemind(false)} onSend={async (to, note) => {
+          const r = await props.onRemind(to, note);
+          setMessage(r.ok ? { ok: true, text: `Hatırlatma e-postası gönderildi (${r.sent ?? 0} kişi).` } : { ok: false, text: r.error || "Gönderilemedi." });
+          if (r.ok) setShowRemind(false);
+        }} />
+      )}
 
       {showA3 && (
         <CiA3Dialog
@@ -628,6 +652,85 @@ function RootCauseStep({ draft, set, canEdit, categories }: {
         <textarea className={areaCls} rows={2} value={draft.rootCause || ""} onChange={(e) => set("rootCause", e.target.value)} />
       </FormField>
     </>
+  );
+}
+
+// Sustainability checks after closing: due date, result (KPI value, held / not held, note).
+function FollowUpsCard({ project, kpi, canRecord, onRecord }: {
+  project: KaizenCard; kpi: CiKpi; canRecord: boolean;
+  onRecord: (input: { index: number; value: number | null; sustained: boolean; note: string }) => Promise<boolean>;
+}) {
+  const [open, setOpen] = useState<number | null>(null);
+  const [value, setValue] = useState<number | null>(null);
+  const [sustained, setSustained] = useState<boolean | null>(null);
+  const [note, setNote] = useState("");
+  const today = todayIso();
+  const list = project.followUps || [];
+  return (
+    <Card>
+      <SectionTitle icon={Repeat} title="Sürdürülebilirlik takibi" hint={`Kapanıştan sonra KPI tekrar ölçülür${kpi.target !== null ? ` (hedef ${formatAmount(kpi.target)} ${kpi.unit})` : ""}; sürmeyen iyileştirme Genel Bakış'ta uyarı olarak kalır.`} />
+      <ul className="space-y-2">
+        {list.map((f, i) => {
+          const due = !f.checkedAt && f.dueDate <= today;
+          return (
+            <li key={i} className={`rounded-xl ring-1 p-3 ${f.checkedAt ? (f.sustained ? "ring-emerald-200 bg-emerald-50/40" : "ring-red-200 bg-red-50/40") : due ? "ring-amber-200 bg-amber-50/40" : "ring-slate-200 bg-white"}`}>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-sm font-bold text-slate-900">{f.days}. gün</span>
+                <span className="text-sm text-slate-600 tabular-nums">{fmtDate(f.dueDate)}</span>
+                {f.checkedAt
+                  ? <Pill tone={f.sustained ? "emerald" : "red"}>{f.sustained ? "İyileştirme sürüyor" : "İyileştirme sürmüyor"}{typeof f.value === "number" ? ` · ${formatAmount(f.value)} ${kpi.unit}` : ""}</Pill>
+                  : <Pill tone={due ? "amber" : "slate"}>{due ? "Zamanı geldi" : "Bekliyor"}</Pill>}
+                {f.checkedAt && <span className="text-xs text-slate-500">{f.checkedBy} · {fmtDate(f.checkedAt)}</span>}
+                {!f.checkedAt && canRecord && open !== i && (
+                  <Button variant="outline" className="ml-auto" onClick={() => { setOpen(i); setValue(null); setSustained(null); setNote(""); }}>Sonucu kaydet</Button>
+                )}
+              </div>
+              {f.note && <p className="text-sm text-slate-600 mt-1">{f.note}</p>}
+              {open === i && (
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[180px_auto_1fr_auto] gap-2 items-center">
+                  <AmountInput value={value} onChange={setValue} suffix={kpi.unit} placeholder="KPI değeri" />
+                  <div className="flex gap-2">
+                    <ChoiceChip on={sustained === true} onClick={() => setSustained(true)}>Sürüyor</ChoiceChip>
+                    <ChoiceChip on={sustained === false} onClick={() => setSustained(false)}>Sürmüyor</ChoiceChip>
+                  </div>
+                  <input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Not (isteğe bağlı)" />
+                  <Button variant="brand" disabled={sustained === null} onClick={async () => { if (await onRecord({ index: i, value, sustained: sustained!, note })) setOpen(null); }}>Kaydet</Button>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
+  );
+}
+
+function RemindDialog({ project, onClose, onSend }: { project: KaizenCard; onClose: () => void; onSend: (to: "leader" | "team", note: string) => Promise<void> }) {
+  const [to, setTo] = useState<"leader" | "team">("leader");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="fixed inset-0 z-[70] bg-slate-900/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-label="Hatırlatma gönder">
+      <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl p-5 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">Hatırlatma e-postası</h3>
+            <p className="text-sm text-slate-500">{project.title} — projenin durumu (adım, onay, geciken aksiyonlar) e-postaya eklenir.</p>
+          </div>
+          <button type="button" onClick={onClose} className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer" aria-label="Kapat"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <ChoiceChip on={to === "leader"} onClick={() => setTo("leader")}>Proje lideri ({(project.projectLeader || "—").replace(/\s*\([^)]*\)\s*$/, "")})</ChoiceChip>
+          <ChoiceChip on={to === "team"} onClick={() => setTo("team")}>Tüm ekip ve aksiyon sorumluları</ChoiceChip>
+        </div>
+        <textarea className={areaCls} rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Mesaj (isteğe bağlı)" />
+        <p className="text-xs text-slate-500">Yalnızca kullanıcı hesabı olan kişilere gider.{project.lastEmailSentAt ? ` Son hatırlatma: ${new Date(project.lastEmailSentAt).toLocaleString("tr-TR")}.` : ""}</p>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>Vazgeç</Button>
+          <Button variant="brand" disabled={busy} onClick={async () => { setBusy(true); await onSend(to, note); setBusy(false); }}><BellRing className="w-4 h-4" /> {busy ? "Gönderiliyor…" : "Gönder"}</Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

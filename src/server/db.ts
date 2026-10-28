@@ -1247,6 +1247,14 @@ export class GeminiDb {
     return rows.map(r => ({ orgId: r.organization_id, factoryId: r.factory_id }));
   }
 
+  // Customers that have CI projects (for the weekly CI reminder cron).
+  public async listCiFactories(): Promise<{ orgId: string; factoryId: string }[]> {
+    const { rows } = await getPool().query(
+      `select distinct organization_id, factory_id from records where collection = 'kaizens' and factory_id is not null`
+    );
+    return rows.map(r => ({ orgId: r.organization_id, factoryId: r.factory_id }));
+  }
+
   public async getCustomerName(orgId: string, customerId: string): Promise<string> {
     const c = await this.getRecordById("customers", customerId, orgId);
     return c?.companyName || c?.name || "";

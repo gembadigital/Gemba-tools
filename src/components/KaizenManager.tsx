@@ -229,33 +229,42 @@ export default function KaizenManager({
     return Math.max(1, Math.floor(diffDays / 7));
   };
 
-  // NOTE: No mail provider is integrated (no SMTP/API credentials configured for this workspace).
-  // This does NOT send a real email — it only logs a manual reminder against the project so the
-  // team can track that the responsible person was notified (e.g. in person, by phone, or via an
-  // external mail client). Do not present this as an actual email dispatch.
-  const logManualReminder = (project: KaizenCard, recipientOverride?: { name: string; email?: string }) => {
-    const recipientName = recipientOverride?.name || project.projectLeader || project.originator || "Sorumlu Ekip";
-    const recipientEmail = recipientOverride?.email;
-
-    const updated: KaizenCard = {
-      ...project,
-      emailSentCount: (project.emailSentCount || 0) + 1,
-      lastEmailSentAt: new Date().toLocaleString("tr-TR")
-    };
-
-    onUpdateKaizen(updated);
-    syncWithGantt(updated, 'update');
-
-    // If we are currently editing this in detail modal, sync the modal state too
-    if (editingProject && editingProject.id === project.id) {
-      setEditingProject(updated);
+  // Manual reminder e-mail (POST /api/business/kaizens/:id/remind, plan step C9) — sent for real now;
+  // the server records it in the project's history and counters.
+  const sendReminder = async (project: KaizenCard, to: "leader" | "team" = "leader", note = ""): Promise<{ ok: boolean; error?: string; sent?: number }> => {
+    try {
+      const res = await fetch(`/api/business/kaizens/${project.id}/remind`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "x-factory-id": selectedCustomer?.id || "" },
+        body: JSON.stringify({ to, note })
+      }).then(r => r.json());
+      if (!res.success) return { ok: false, error: res.error || "Hatırlatma gönderilemedi." };
+      onKaizenChanged(res.data);
+      return { ok: true, sent: res.sent };
+    } catch {
+      return { ok: false, error: "Sunucuya ulaşılamadı." };
     }
+  };
+  const logManualReminder = async (project: KaizenCard) => {
+    const r = await sendReminder(project, "leader");
+    setEmailStatusMessage(r.ok ? `Hatırlatma e-postası proje liderine gönderildi: ${project.title}` : (r.error || "Hatırlatma gönderilemedi."));
+    setTimeout(() => setEmailStatusMessage(null), 6000);
+  };
 
-    const recipientLabel = recipientEmail ? `${recipientName} (${recipientEmail})` : recipientName;
-    setEmailStatusMessage(`Hatırlatma kaydedildi. Alıcı: ${recipientLabel}. Bu bir e-posta gönderimi DEĞİLDİR — bu workspace'te mail entegrasyonu yapılandırılmamış. Sorumluyu ayrıca kendi iletişim kanalınızdan bilgilendirin: "CI Proje Gecikme Uyarısı: ${project.title}".`);
-    setTimeout(() => {
-      setEmailStatusMessage(null);
-    }, 6000);
+  // Sustainability check result of a closed project.
+  const recordFollowUp = async (project: KaizenCard, input: { index: number; value: number | null; sustained: boolean; note: string }) => {
+    try {
+      const res = await fetch(`/api/business/kaizens/${project.id}/follow-up`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "x-factory-id": selectedCustomer?.id || "" },
+        body: JSON.stringify(input)
+      }).then(r => r.json());
+      if (!res.success) return { ok: false, error: res.error || "Kaydedilemedi." };
+      onKaizenChanged(res.data);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Sunucuya ulaşılamadı." };
+    }
   };
 
   // The A3 project card (ci/CiProjectCard.tsx) — opened by id so it always shows the live record.
@@ -1568,7 +1577,7 @@ export default function KaizenManager({
       )}
 
       {activeTab === "settings" && isCiStaff && (
-        <CiSettingsPanel settings={ciSettings} baseCurrencyCode={baseCurrencyCode} onSave={saveCiSettings} />
+        <CiSettingsPanel customerId={selectedCustomer?.id} settings={ciSettings} baseCurrencyCode={baseCurrencyCode} onSave={saveCiSettings} />
       )}
 
       {activeTab === "beforeafter" && (
@@ -1884,6 +1893,8 @@ export default function KaizenManager({
             return saved;
           }}
           onStageAction={(action, note) => runStageAction(cardProject, action, note)}
+          onFollowUp={(input) => recordFollowUp(cardProject, input)}
+          onRemind={(to, note) => sendReminder(cardProject, to, note)}
           onClose={() => setCardProjectId(null)}
           onExportExcel={() => exportKaizenCardToExcel(cardProject, selectedCustomer?.companyName, currency)}
           onOpenFinancials={() => handleOpenFinancials(cardProject)}
