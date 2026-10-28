@@ -185,6 +185,8 @@ görünürlük buna dayanır: lider/üye olmayan Customer User projeyi görmez);
 C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
 
 ## 8. İlerleme
+
+> Canlıda denenecekler (tüm C adımları, tek liste): [CI_CANLI_TEST.md](CI_CANLI_TEST.md) — en son birlikte bakılacak.
 | Adım | Durum | Not |
 |---|---|---|
 | C0 | ✅ kod (canlıda doğrulanmadı) | Ayrıntı aşağıda. |
