@@ -611,6 +611,18 @@ export class GeminiDb {
     }
   }
 
+  // Loss Capacity recovery matrix of a customer, saved by the Loss Analysis screen for the CI
+  // opportunity pool (the screen used to keep it only in the browser). One record per customer.
+  public async getCiLossSnapshot(orgId: string, factoryId: string): Promise<any | null> {
+    return this.getRecordById("ci_loss_snapshot", `ci_loss_${factoryId}`, orgId);
+  }
+
+  public async saveCiLossSnapshot(orgId: string, factoryId: string, snapshot: any, userId: string): Promise<void> {
+    await this.upsertMerged("ci_loss_snapshot", orgId, {
+      ...snapshot, id: `ci_loss_${factoryId}`, factory_id: factoryId, organization_id: orgId, updated_by_id: userId
+    });
+  }
+
   // CI settings: one record per customer (utils/ciSettings.ts). Returned raw; callers normalize.
   public async getCiSettingsRecord(orgId: string, factoryId: string): Promise<any | null> {
     return this.getRecordById("ci_settings", ciSettingsId(factoryId), orgId);

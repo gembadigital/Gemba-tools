@@ -195,6 +195,7 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
 | C7 | ✅ kod (canlıda doğrulanmadı) | Genel Bakış açılış panosu, sade başlık/sekmeler, sorumlu performansı. Ayrıntı aşağıda. |
 | C4 | ✅ kod (canlıda doğrulanmadı) | Balık kılçığı (6M) kök neden analizi, ayarlanabilir kategoriler. Ayrıntı aşağıda. |
 | C8 | ✅ kod (canlıda doğrulanmadı) | Tek sayfa A3 sunum kartı, PDF + Excel, isteğe bağlı önce-sonra. Ayrıntı aşağıda. |
+| C5 | ✅ kod (canlıda doğrulanmadı) | Sunucu tarafı fırsat havuzu (5 kaynak), tam ekran yeni proje akışı. Ayrıntı aşağıda. |
 
 ### C0 — yapılanlar
 - **Sunucu (`/api/business/kaizens`):** müşteri gövdeden değil `x-factory-id` kapsamından alınır; güncellemede mevcut
@@ -432,4 +433,35 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
   denenmedi.
 - **Açık kalanlar:** PDF metni görüntü olarak gömülü (seçilebilir/aranabilir değil); sunucu tarafı (Chromium) PDF
   istenirse OpEx rapor altyapısı kullanılabilir. Çok uzun metinler kısaltılır — tam metin proje kartında ve Excel'de.
+
+### C5 — yapılanlar
+- **Fırsat havuzu sunucuda (B2)** — `GET /api/business/ci/opportunities`, dönüştürücüler `src/utils/ciOpportunityPool.ts`:
+  - **Loss Capacity:** iyileştirme matrisi (kayıp + potansiyel kazanç). Loss Analysis ekranı matrisi artık sunucuya da
+    kaydediyor (`POST /api/business/ci/loss-snapshot`, 3 sn gecikmeli, yalnızca matris değişince; koleksiyon
+    `ci_loss_snapshot`). Sunucuda kayıt yoksa ama tarayıcıda eski hesaplanmış matris varsa, başlatma ekranı onu bir
+    kerelik sunucuya aktarır. Önceden fırsatlar yalnızca o tarayıcının belleğinden okunuyordu (cihaza göre farklı).
+  - **Maliyet tablosu:** süreç kayıtlarındaki en büyük kayıtlı kayıplar (yalnız kayıp; eski "%60 kazanılır" varsayımı yok).
+  - **OpEx denetimi:** son tamamlanmış denetimde 0–2 puan alan sorular (puan, rubrik, ideal durum).
+  - **Kaizen önerisi:** Kurul onaylı, uygulanmamış öneriler (TL dışı tahmini kazanç TL gibi gösterilmez).
+  - **PTR aksiyonu:** kritik işaretli, açık saha aksiyonları.
+  - Her fırsat kaynağını ve kaynak referansını taşır; tutar yalnızca kaynak kaydetmişse gösterilir. Eski kimlikler
+    (`opp_lc_…`, `opp_proc_…`) korunur → önceden açılmış projeler fırsatlarıyla eşleşir.
+- **Bir fırsat = bir proje:** projeye dönüşmüş fırsat havuzda kilitli ("CIP… projesine dönüştü"); sunucu aynı fırsattan
+  ikinci projeyi 409 ile reddeder; iptal edilen proje fırsatı serbest bırakır.
+- **Yeni proje ekranı (B1, B3)** `ci/CiNewProject.tsx` (eski küçük sihirbaz + ekip penceresi yerine), tam ekran, 4 adım:
+  1 Kaynak (fırsat havuzu: kaynak filtreleri + sayılar, arama, ürün ailesi ölçeği, yenile; ya da boş proje) ·
+  2 Tanım (ad, problem, departman, faz, kayıp, beklenen kazanç, hedef KPI — kaynaktan gelenler önceden dolu) ·
+  3 Ekip ve plan (lider ve üyeler hesaplardan; hedef tarih ayarlardaki süreyle; **8 adımın planlanan tarihleri hedef
+  tarihe eşit dağıtılır** — C7 performans ölçümü ilk günden çalışır) · 4 Özet → oluştur → proje kartı açılır.
+  Müşteri kullanıcısı varsayılan olarak lider; kendini lider/üye seçmeden ilerleyemez. Telefonda tek sütun.
+- **Kaldırılan uydurmalar:** yeni projede maliyet = kaybın %15'i, otomatik "etki analizi" ve iki hazır görev artık
+  yazılmıyor; kanban ve listede beklenen kazanç yokken gösterilen "gerçekleşen × 1,2" kaldırıldı (beklenen → hedef
+  maliyet azaltımı → fırsat tahmini kuralı). Eski istemci tarafı `ci/ciOpportunities.ts` silindi (KaizenManager 1.923 satır).
+- **Açık kalanlar:** SMED, VSM, Yamazumi ve 5S bulguları henüz havuzda yok (her biri ayrı dönüştürücü); PTR ekranının
+  kendi "CI kartı oluştur" akışı ayrı duruyor (havuzdaki PTR fırsatıyla aynı kaydı bağlamıyor).
+- **Doğrulama:** `tsc`, `npm run build`, native ESM yükleme; C5 testleri 17 kontrol (her kaynak, eski kimlik formülü,
+  tutar uydurmama, dönüştürülmüş işareti, adım planı dağıtımı; uçlar: havuz, Loss kaydı ve alan beyaz listesi, ikinci
+  dönüştürmenin reddi, iptalin fırsatı serbest bırakması) + önceki testler. Yeni proje ekranı yerel önizlemede uçtan uca
+  denendi (ürün ailesi ölçeği, kilitli fırsat, doğrulama mesajları, müşteri kullanıcısı kuralı, telefon görünümü).
+  Canlıda denenmedi.
 

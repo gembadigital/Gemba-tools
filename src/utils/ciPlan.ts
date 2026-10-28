@@ -81,3 +81,16 @@ export function ciMasterPlanRow(p: CiProjectLike & {
     notes: existing?.notes || p.description || p.problemDefinition || p.descriptionBefore || "CI projesi"
   };
 }
+
+// Planned completion date of each of the 8 A3 steps, spread evenly from `startIso` to `endIso`
+// (step 8 = the target date). Used when a project is started, so the step plan — and the
+// on-time performance built on it — exists from day one; the leader can change any date later.
+export function distributeStagePlan(startIso: string, endIso: string, steps = 8): Record<string, { planned: string }> {
+  const start = new Date(`${startIso.slice(0, 10)}T00:00:00Z`).getTime();
+  const end = Math.max(new Date(`${endIso.slice(0, 10)}T00:00:00Z`).getTime(), start);
+  const out: Record<string, { planned: string }> = {};
+  for (let i = 1; i <= steps; i++) {
+    out[i] = { planned: new Date(start + Math.round(((end - start) * i) / steps / 86400000) * 86400000).toISOString().slice(0, 10) };
+  }
+  return out;
+}

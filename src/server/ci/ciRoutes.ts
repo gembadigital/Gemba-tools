@@ -12,6 +12,11 @@ import {
   isCiStaffUser, isClosed, isLeader, stageOf, withHistory
 } from "../../utils/ciLifecycle.js";
 
+import {
+  lossOpportunities, costOpportunities, opexOpportunities, kaizenOpportunities, ptrOpportunities, markConverted
+} from "../../utils/ciOpportunityPool.js";
+import { displayProjectNo } from "../../utils/ciProject.js";
+
 const STAGE_ACTIONS: CiStageAction[] = ["submit", "approve", "return", "stepBack", "reopen", "hold", "cancel", "resume", "confirmGain"];
 // Changing any of these voids an earlier consultant confirmation of the realized gain.
 const GAIN_FIELDS = ["realizedGain", "realizedGainCurrency", "actualSavings"];
@@ -67,6 +72,12 @@ export function registerCiRoutes(app: express.Express, deps: CiRouteDeps) {
       // from their list at once).
       if (!isStaff(user) && !canViewProject(user, payload)) {
         return deny(res, 403, "Proje lideri ya da ekip üyesi olarak kendinizi seçmelisiniz.");
+      }
+      // An opportunity of the pool turns into one project only.
+      if (payload.opportunityId) {
+        const sameCustomer = await db.getKaizens(user.organization_id, payload.factory_id);
+        const taken = sameCustomer.find(k => k.opportunityId === payload.opportunityId && k.holdState !== "cancelled");
+        if (taken) return deny(res, 409, `Bu fırsat zaten ${displayProjectNo(taken, sameCustomer)} projesine dönüştürüldü.`);
       }
       // Every new project starts at step 1, whatever the client sent (status / kanban / stage).
       for (const f of CI_SERVER_OWNED_FIELDS) delete payload[f];
@@ -131,6 +142,54 @@ export function registerCiRoutes(app: express.Express, deps: CiRouteDeps) {
     const existing = await db.getKaizenById(user.organization_id, req.params.id);
     if (!existing || !canAccessFactory(req, factoryOf(existing))) return deny(res);
     await db.deleteKaizen(user.organization_id, req.params.id);
+    res.json({ success: true });
+  });
+
+  // Opportunity pool (plan step C5): improvement points from the other modules, each marked with the
+  // project it was already turned into. Read-only; everyone with CI access to the customer.
+  app.get("/api/business/ci/opportunities", authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+    if (!scope.allowed || !scope.factoryId || isKaizenSession(user)) return deny(res);
+    const org = user.organization_id, fid = scope.factoryId;
+    const [projects, loss, processes, assessments, questions, categories, suggestions, ptr] = await Promise.all([
+      db.getKaizens(org, fid), db.getCiLossSnapshot(org, fid), db.getProcesses(org, fid),
+      db.getOpexAssessments(org, fid), db.getOpexQuestions(org), db.getOpexCategories(org),
+      db.getKaizenRecords("kaizen_suggestions", org, fid), db.getPtrRecords(org, fid)
+    ]);
+    const items = [
+      ...lossOpportunities(loss), ...costOpportunities(processes), ...opexOpportunities(assessments, questions, categories),
+      ...kaizenOpportunities(suggestions), ...ptrOpportunities(ptr)
+    ];
+    res.json({
+      success: true,
+      data: {
+        items: markConverted(items, projects, p => displayProjectNo(p, projects)),
+        lossProductFamily: loss ? { name: loss.productFamilyName || null, ratio: Number(loss.productFamilyRatio) || 1, updatedAt: loss.updatedAt || null } : null
+      }
+    });
+  });
+
+  // Loss Analysis screen saves its computed recovery matrix here (only the fields the pool uses).
+  app.post("/api/business/ci/loss-snapshot", authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+    if (!scope.allowed || !scope.factoryId || isKaizenSession(user)) return deny(res);
+    const rows = Array.isArray(req.body?.recoveryMatrixData) ? req.body.recoveryMatrixData.slice(0, 60) : [];
+    const clean = rows.filter((r: any) => r && typeof r.subject === "string").map((r: any) => ({
+      subject: String(r.subject).slice(0, 120),
+      avgLoss: Number(r.avgLoss) || 0,
+      avgGain: Number(r.avgGain) || 0,
+      severity: typeof r.severity === "string" ? r.severity.slice(0, 20) : undefined,
+      leanTool: typeof r.leanTool === "string" ? r.leanTool.slice(0, 120) : undefined,
+      area: typeof r.area === "string" ? r.area.slice(0, 120) : undefined
+    }));
+    await db.saveCiLossSnapshot(user.organization_id, scope.factoryId, {
+      recoveryMatrixData: clean,
+      productFamilyName: typeof req.body?.productFamilyName === "string" ? req.body.productFamilyName.slice(0, 120) : null,
+      productFamilyRatio: Number(req.body?.productFamilyRatio) > 0 ? Number(req.body.productFamilyRatio) : 1,
+      updatedAt: typeof req.body?.updatedAt === "string" ? req.body.updatedAt : new Date().toISOString()
+    }, user.id);
     res.json({ success: true });
   });
 

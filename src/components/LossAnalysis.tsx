@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   BarChart3, Clock, Sparkles, TrendingUp, HelpCircle, 
   Settings, CheckCircle2, AlertTriangle, Play, RefreshCw, 
@@ -1691,6 +1691,10 @@ export default function LossAnalysis() {
     };
   }, [recoveryMatrixData]);
 
+  // Last Loss Capacity snapshot sent to the server (CI opportunity pool) and its pending debounce.
+  const lossSnapshotSent = useRef<string>("");
+  const lossSnapshotTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Automatically synchronize calculated Loss Capacity Analysis to local storage for CI Project Management & Executive Dashboards
   useEffect(() => {
     if (!selectedCustomerId) return;
@@ -1716,6 +1720,27 @@ export default function LossAnalysis() {
 
     localStorage.setItem(`gemba_loss_capacity_${selectedCustomerId}`, JSON.stringify(dataToSave));
     window.dispatchEvent(new CustomEvent("LossCapacityUpdated", { detail: { customerId: selectedCustomerId } }));
+
+    // Also on the server, for the CI opportunity pool (so every device sees the same opportunities).
+    // Debounced, and only when the matrix itself changed — this effect re-runs on many inputs.
+    const snapshot = {
+      recoveryMatrixData: (recoveryMatrixData || []).map((r: any) => ({
+        subject: r.subject, avgLoss: r.avgLoss, avgGain: r.avgGain, severity: r.severity, leanTool: r.leanTool, area: r.area
+      })),
+      productFamilyName: dataToSave.productFamilyName,
+      productFamilyRatio: dataToSave.productFamilyRatio
+    };
+    const key = `${selectedCustomerId}:${JSON.stringify(snapshot)}`;
+    if (key !== lossSnapshotSent.current) {
+      if (lossSnapshotTimer.current) clearTimeout(lossSnapshotTimer.current);
+      lossSnapshotTimer.current = setTimeout(() => {
+        fetch("/api/business/ci/loss-snapshot", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "x-factory-id": selectedCustomerId },
+          body: JSON.stringify({ ...snapshot, updatedAt: new Date().toISOString() })
+        }).then(r => { if (r.ok) lossSnapshotSent.current = key; }).catch(() => {});
+      }, 3000);
+    }
   }, [
     selectedCustomerId,
     effectiveRevenue,

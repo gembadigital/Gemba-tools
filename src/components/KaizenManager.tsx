@@ -19,7 +19,8 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { CITask, defaultFinancialsInput } from "./ci/ciTypes";
 import { getKaizenCategory, COPQ_CATEGORIES } from "./ci/ciCategory";
-import { generateOpportunities, ALL_FAMILIES, productFamilyLabel } from "./ci/ciOpportunities";
+import CiNewProject from "./ci/CiNewProject";
+import { useCiOpportunities } from "./ci/useCiOpportunities";
 import { displayProjectNo } from "../utils/ciProject";
 import { phaseNumber, choicesWith, CI_CURRENCY_SYMBOLS } from "../utils/ciSettings";
 import { ciMasterPlanRow, masterPlanRowId } from "../utils/ciPlan";
@@ -85,13 +86,10 @@ export default function KaizenManager({
   const [selectedPhaseFilter, setSelectedPhaseFilter] = useState("all");
   
   // Selected Product Family filter for Loss Capacity topics
-  const [selectedProductFamily, setSelectedProductFamily] = useState<string>(ALL_FAMILIES);
 
   // Per-customer CI settings (lists, product families, rates, default duration) — utils/ciSettings.ts.
   const { settings: ciSettings, save: saveCiSettings } = useCiSettings(selectedCustomer?.id);
   const defaultPhase = ciSettings.phases[0];
-  const defaultDepartment = ciSettings.departments[0] || "";
-  const defaultDeadline = () => new Date(Date.now() + ciSettings.defaultDurationDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   // Money fields offer the customer's own currency first, then the configured others. Turkish lira
   // is stored as "TL" (the label the forms always used).
   const baseCurrencyCode = normalizeCurrency(selectedCustomer?.currency, "TRY");
@@ -102,16 +100,6 @@ export default function KaizenManager({
       ? currencyOptions
       : [...currencyOptions, { value: current, label: current }];
 
-  // Team-assignment step, shown before a project is actually created — previously
-  // handleSelectOpportunity/handleSelectNewProjectTheme created the project immediately with
-  // projectTeam permanently [] and no way to assign anyone. This intercepts both entry points.
-  const [pendingCreation, setPendingCreation] = useState<{ mode: "opportunity" | "blank"; opp: any | null } | null>(null);
-  const [assignLeader, setAssignLeader] = useState<string>("");
-  const [assignTeamMembers, setAssignTeamMembers] = useState<string[]>([]);
-  const [assignTeamInput, setAssignTeamInput] = useState<string>("");
-  const [assignDepartment, setAssignDepartment] = useState<string>("");
-  const [assignDeadline, setAssignDeadline] = useState<string>("");
-  const [assignTitle, setAssignTitle] = useState<string>("");
 
   // Edit Project Detail States
   const [editingProject, setEditingProject] = useState<KaizenCard | null>(null);
@@ -220,20 +208,12 @@ export default function KaizenManager({
     else if (JSON.stringify(row) !== JSON.stringify(existing)) onUpdateActivity(row);
   };
 
-  const opportunitiesList = generateOpportunities({
-    customerId: selectedCustomer?.id,
-    processes,
-    productFamilies: ciSettings.productFamilies,
-    selectedFamily: selectedProductFamily
-  });
-  // All items from a single generateOpportunities() call come from the same tier (the function
-  // returns early per tier), so the first item's `source` reflects what's actually active —
-  // previously the wizard banner hardcoded "Loss Capacity Analizi" regardless of which tier
-  // (real Loss Capacity data or real cost-table data) was really serving.
-  const activeOpportunitySource = opportunitiesList[0]?.source || "Veri Kaynağı Yok";
-  const isRealLossCapacityData = activeOpportunitySource === "Loss Capacity Analizi (COPQ & Cost Deployment)";
-  const isAssumedOpportunityData = opportunitiesList.some(o => o.assumed);
-  const isEmptyOpportunityData = opportunitiesList.length === 0;
+  // Opportunity pool (server, plan step C5) — used by the new-project screen and as the expected-gain
+  // fallback of projects opened from an opportunity before they had their own figure.
+  const opportunityPool = useCiOpportunities(selectedCustomer?.id);
+  const opportunityGain = (k: KaizenCard) => opportunityPool.pool.items.find(o => o.id === k.opportunityId)?.expectedGain;
+  // Expected annual gain: own figure → older targetCostReduction → opportunity estimate (as ci/ciFinance.ts).
+  const expectedOf = (k: KaizenCard) => (k.expectedGain || 0) > 0 ? k.expectedGain! : (k.targetCostReduction || 0) > 0 ? k.targetCostReduction! : opportunityGain(k) || 0;
 
   // Project number: stored permanent number, or the legacy date-order number (utils/ciProject.ts).
   const getProjectNo = (proj: KaizenCard) => displayProjectNo(proj, kaizens);
@@ -487,160 +467,6 @@ export default function KaizenManager({
     doc.save(`CI_Portfoy_Raporu_${(selectedCustomer?.companyName || "musteri").replace(/\s+/g, "_")}.pdf`);
   };
 
-  // Wizard Launch Project Handler
-  // These two entry points used to create the project immediately, with projectTeam permanently []
-  // and no way to pick a leader/team/deadline. Now they just open a lightweight assignment step
-  // (handleConfirmProjectCreation below does the actual creation once that step is filled in).
-  const handleSelectOpportunity = (opp: any) => {
-    const defaultDate = defaultDeadline();
-    setPendingCreation({ mode: "opportunity", opp });
-    setAssignTitle(`${opp.type} Entegrasyonu - ${opp.dept}`);
-    setAssignLeader(teamOptions[0] || "");
-    setAssignTeamMembers([]);
-    setAssignTeamInput("");
-    setAssignDepartment(opp.dept || "");
-    setAssignDeadline(defaultDate);
-  };
-
-  const handleSelectNewProjectTheme = () => {
-    const defaultDate = defaultDeadline();
-    setPendingCreation({ mode: "blank", opp: null });
-    setAssignTitle("");
-    setAssignLeader(teamOptions[0] || "");
-    setAssignTeamMembers([]);
-    setAssignTeamInput("");
-    setAssignDepartment(defaultDepartment);
-    setAssignDeadline(defaultDate);
-  };
-
-  const handleAddAssignTeamMember = () => {
-    const name = assignTeamInput.trim();
-    if (!name || assignTeamMembers.includes(name)) return;
-    setAssignTeamMembers(prev => [...prev, name]);
-    setAssignTeamInput("");
-  };
-
-  const handleRemoveAssignTeamMember = (name: string) => {
-    setAssignTeamMembers(prev => prev.filter(m => m !== name));
-  };
-
-  const handleConfirmProjectCreation = async () => {
-    if (!pendingCreation || !assignLeader.trim()) return;
-    const opp = pendingCreation.opp;
-    const leaderName = assignLeader.trim();
-    const deadline = assignDeadline || defaultDeadline();
-    const newId = `kai_${Math.random().toString(36).substring(2, 9)}`;
-
-    let newK: KaizenCard;
-
-    if (pendingCreation.mode === "opportunity" && opp) {
-      // Automatically suggest impact areas based on opportunity type
-      const suggestedImpacts: Record<string, 'Yüksek' | 'Orta' | 'Düşük'> = {};
-      const typeLower = (opp.type || "").toLowerCase();
-      if (typeLower.includes("smed") || typeLower.includes("setup")) {
-        suggestedImpacts["Setup"] = "Yüksek";
-        suggestedImpacts["OEE"] = "Orta";
-        suggestedImpacts["Plansız Duruş"] = "Düşük";
-      } else if (typeLower.includes("hurda") || typeLower.includes("scrap")) {
-        suggestedImpacts["Hurda"] = "Yüksek";
-        suggestedImpacts["Kalite Maliyetleri"] = "Orta";
-      } else if (typeLower.includes("rework")) {
-        suggestedImpacts["Rework"] = "Yüksek";
-        suggestedImpacts["Kalite Maliyetleri"] = "Orta";
-      } else if (typeLower.includes("verimlilik") || typeLower.includes("operatör")) {
-        suggestedImpacts["Operatör Verimliliği"] = "Yüksek";
-        suggestedImpacts["Fazla Mesai"] = "Orta";
-      } else if (typeLower.includes("wip")) {
-        suggestedImpacts["WIP"] = "Yüksek";
-        suggestedImpacts["Lead Time"] = "Orta";
-      } else if (typeLower.includes("duruş") || typeLower.includes("plansız")) {
-        suggestedImpacts["Plansız Duruş"] = "Yüksek";
-        suggestedImpacts["OEE"] = "Yüksek";
-      } else {
-        suggestedImpacts["OEE"] = "Yüksek";
-        suggestedImpacts["Plansız Duruş"] = "Orta";
-      }
-
-      newK = {
-        id: newId,
-        title: assignTitle || `${opp.type} Entegrasyonu - ${opp.dept}`,
-        originator: leaderName,
-        department: assignDepartment || opp.dept,
-        dateProposed: new Date().toISOString().split('T')[0],
-        impactLevel: opp.priority || "Medium",
-        estimatedCost: Math.round(opp.currentCost * 0.15),
-        currentLoss: opp.currentCost || 0,
-        actualSavings: 0,
-        status: "In Progress",
-        descriptionBefore: opp.problem,
-        descriptionAfter: "Aksiyon planı uygulanıyor, standartlaşma hedefleniyor.",
-        description: `${opp.problem} probleminin giderilmesi amacıyla başlatılan sürekli iyileştirme faaliyetidir.`,
-        projectLeader: leaderName,
-        projectTeam: assignTeamMembers,
-        projectSponsor: "",
-        plannedFinishDate: deadline,
-        phase: defaultPhase,
-        opportunityId: opp.id,
-        opportunityType: opp.type,
-        kanbanStatus: "PLAN",
-        tasks: [
-          { id: `tsk_1_${Math.random().toString(36).substring(2, 5)}`, name: "Mevcut Durum Standardizasyon Analizi", responsible: leaderName, deadline, priority: "High", progressPercent: 0 },
-          { id: `tsk_2_${Math.random().toString(36).substring(2, 5)}`, name: "Kök Neden Analizi & Aksiyon Tasarımı", responsible: leaderName, deadline, priority: "High", progressPercent: 0 }
-        ],
-        financialsInput: defaultFinancialsInput(),
-        problemDefinition: opp.problem,
-        problemDetail: "",
-        targetObjective: "",
-        rootCause: "Kök neden 5 Neden analizi yapılması bekleniyor.",
-        improvementActions: "Belirlenen iyileştirme faaliyetleri planlanacaktır.",
-        responsibles: leaderName,
-        actionsTaken: "Proje başlangıç aşamasında.",
-        impactAnalysis: suggestedImpacts
-      };
-    } else {
-      newK = {
-        id: newId,
-        title: assignTitle,
-        originator: leaderName,
-        department: assignDepartment || defaultDepartment,
-        dateProposed: new Date().toISOString().split('T')[0],
-        impactLevel: "Medium",
-        estimatedCost: 0,
-        currentLoss: 0,
-        actualSavings: 0,
-        status: "In Progress",
-        descriptionBefore: "",
-        descriptionAfter: "Aksiyon planı uygulanıyor, standartlaşma hedefleniyor.",
-        description: "",
-        projectLeader: leaderName,
-        projectTeam: assignTeamMembers,
-        projectSponsor: "",
-        plannedFinishDate: deadline,
-        phase: defaultPhase,
-        kanbanStatus: "PLAN",
-        tasks: [],
-        financialsInput: defaultFinancialsInput(),
-        problemDefinition: "",
-        problemDetail: "",
-        targetObjective: "",
-        rootCause: "",
-        improvementActions: "",
-        responsibles: leaderName,
-        actionsTaken: ""
-      };
-    }
-
-    const saved = await onAddKaizen(newK);
-    if (!saved) {
-      alert("CI projesi kaydedilemedi.");
-      return;
-    }
-    syncWithGantt(saved, 'add');
-    setPendingCreation(null);
-    setIsWizardOpen(false);
-    handleOpenProjectDetails(saved);
-  };
-
   // Kanban drop: projects move one A3 step at a time (utils/ciLifecycle.ts). Dropping a card on the
   // next PDCA column finishes the step that leads into it (submit, or approve when the caller is the
   // approver); any other move is refused with the reason. Older projects without a stage are moved
@@ -775,7 +601,7 @@ export default function KaizenManager({
   const expectedSum = sumExpected(filteredProjects, currency, ciSettings.fxRates);
   const totalExpectedFinancialGain = expectedSum.total + filteredProjects
     .filter(k => !((k.expectedGain || 0) > 0) && !((k.targetCostReduction || 0) > 0))
-    .reduce((sum, k) => sum + (opportunitiesList.find(o => o.id === k.opportunityId)?.expectedGain || 0), 0);
+    .reduce((sum, k) => sum + (opportunityGain(k) || 0), 0);
 
   const realizedSum = sumRealized(filteredProjects, currency, ciSettings.fxRates);
   const realizedFinancialGain = realizedSum.total;
@@ -944,8 +770,7 @@ export default function KaizenManager({
                     <div className="text-slate-400 text-center py-12 text-[11px] italic">Sürükleyip bırakarak bu aşamaya proje ekleyin.</div>
                   ) : (
                     list.map(proj => {
-                      const opp = opportunitiesList.find(o => o.id === proj.opportunityId);
-                      const expected = typeof proj.expectedGain === "number" ? proj.expectedGain : opp ? opp.expectedGain : (proj.actualSavings ? proj.actualSavings * 1.2 : 0);
+                      const expected = expectedOf(proj);
                       const realized = proj.actualSavings || 0;
                       const hasTasks = proj.tasks && proj.tasks.length > 0;
                       const completedTasks = hasTasks ? proj.tasks?.filter((t: any) => t.progressPercent === 100).length : 0;
@@ -1199,8 +1024,7 @@ export default function KaizenManager({
             {[...filteredProjects]
               .sort((a, b) => getProjectNo(a).localeCompare(getProjectNo(b), undefined, { numeric: true, sensitivity: 'base' }))
               .map(proj => {
-                const opp = opportunitiesList.find(o => o.id === proj.opportunityId);
-                const expected = typeof proj.expectedGain === "number" ? proj.expectedGain : opp ? opp.expectedGain : (proj.actualSavings ? proj.actualSavings * 1.2 : 0);
+                const expected = expectedOf(proj);
                 const realized = proj.actualSavings || 0;
                 const successPct = expected > 0 ? Math.round((realized / expected) * 100) : 0;
                 const isOverdue = proj.status !== "Completed" && proj.plannedFinishDate && (new Date(proj.plannedFinishDate) < new Date());
@@ -1280,8 +1104,7 @@ export default function KaizenManager({
                 {[...filteredProjects]
                   .sort((a, b) => getProjectNo(a).localeCompare(getProjectNo(b), undefined, { numeric: true, sensitivity: 'base' }))
                   .map(proj => {
-                    const opp = opportunitiesList.find(o => o.id === proj.opportunityId);
-                    const expected = typeof proj.expectedGain === "number" ? proj.expectedGain : opp ? opp.expectedGain : (proj.actualSavings ? proj.actualSavings * 1.2 : 0);
+                    const expected = expectedOf(proj);
                     const realized = proj.actualSavings || 0;
                     const successPct = expected > 0 ? Math.round((realized / expected) * 100) : 0;
 
@@ -1720,7 +1543,7 @@ export default function KaizenManager({
           currencySymbol={currency}
           baseCurrency={currency}
           fxRates={ciSettings.fxRates}
-          opportunityGain={(k) => opportunitiesList.find(o => o.id === k.opportunityId)?.expectedGain}
+          opportunityGain={opportunityGain}
           projectNo={getProjectNo}
           onOpenProject={handleOpenProjectDetails}
         />
@@ -1829,309 +1652,33 @@ export default function KaizenManager({
         </div>
       )}
 
-      {/* LAUNCH CI PROJECT WIZARD MODAL */}
+      {/* NEW PROJECT — ci/CiNewProject.tsx (full-screen, opportunity pool or blank) */}
       {isWizardOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl overflow-hidden border border-slate-200">
-            
-            {/* Wizard Header */}
-            <div className="bg-slate-50 px-5 py-4 border-b border-slate-200 flex justify-between items-center">
-              <div className="flex items-center space-x-2">
-                <Sparkles className="w-5 h-5 text-indigo-500" />
-                <h3 className="font-bold text-slate-900 text-sm uppercase tracking-tight">
-                  CI Proje Başlatma ve Fırsat Seçim Paneli
-                </h3>
-              </div>
-              <button 
-                onClick={() => { setIsWizardOpen(false); }} 
-                className="text-slate-400 hover:text-slate-600 font-bold text-lg cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="p-0 flex flex-col">
-              {pendingCreation ? (
-                <>
-                  {/* TEAM ASSIGNMENT STEP — shown before the project is actually created, so it
-                      never ends up with an empty projectTeam and no leader picked. */}
-                  <div className="p-6 space-y-4 max-h-[520px] overflow-y-auto">
-                    <div className="bg-indigo-50/80 border border-indigo-200/90 rounded-2xl p-4">
-                      <h4 className="text-xs font-black text-indigo-900 uppercase mb-1">
-                        {pendingCreation.mode === "opportunity" ? `Fırsat: ${pendingCreation.opp?.type}` : "Yeni Proje"}
-                      </h4>
-                      <p className="text-[11px] text-slate-600">
-                        Proje oluşturulmadan önce sorumlu lider, ekip ve termin bilgilerini girin.
-                      </p>
-                    </div>
-
-                    {pendingCreation.mode === "blank" && (
-                      <div className="space-y-1">
-                        <label className="block text-slate-500 font-bold text-xs mb-1">Proje Başlığı *</label>
-                        <input
-                          type="text"
-                          value={assignTitle}
-                          onChange={(e) => setAssignTitle(e.target.value)}
-                          className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
-                      </div>
-                    )}
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="block text-slate-500 font-bold text-xs mb-1">Proje Lideri *</label>
-                        <input
-                          type="text"
-                          list="ci-team-directory"
-                          value={assignLeader}
-                          onChange={(e) => setAssignLeader(e.target.value)}
-                          placeholder="Lider seçin veya yazın"
-                          className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="block text-slate-500 font-bold text-xs mb-1">Departman</label>
-                        <input
-                          type="text"
-                          list="ci-departments"
-                          value={assignDepartment}
-                          onChange={(e) => setAssignDepartment(e.target.value)}
-                          className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="block text-slate-500 font-bold text-xs mb-1">Proje Ekibi</label>
-                      <div className="flex gap-1.5">
-                        <input
-                          type="text"
-                          list="ci-team-directory"
-                          value={assignTeamInput}
-                          onChange={(e) => setAssignTeamInput(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddAssignTeamMember(); } }}
-                          placeholder="Ekip üyesi seçin veya yazın, Enter'a basın"
-                          className="flex-1 text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleAddAssignTeamMember}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-2 rounded-lg cursor-pointer"
-                        >
-                          Ekle
-                        </button>
-                      </div>
-                      {assignTeamMembers.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {assignTeamMembers.map(member => (
-                            <span key={member} className="text-[11px] bg-slate-100 border border-slate-200 text-slate-700 px-2 py-1 rounded-lg flex items-center gap-1.5">
-                              {member}
-                              <button type="button" onClick={() => handleRemoveAssignTeamMember(member)} className="text-slate-400 hover:text-rose-600 cursor-pointer font-bold">✕</button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="block text-slate-500 font-bold text-xs mb-1">Hedef Bitiş Tarihi</label>
-                      <input
-                        type="date"
-                        value={assignDeadline}
-                        onChange={(e) => setAssignDeadline(e.target.value)}
-                        className="w-full sm:w-1/2 text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-50 px-5 py-3 border-t border-slate-200 flex justify-between">
-                    <button
-                      type="button"
-                      onClick={() => setPendingCreation(null)}
-                      className="bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition-colors"
-                    >
-                      Geri
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleConfirmProjectCreation}
-                      disabled={!assignLeader.trim() || (pendingCreation.mode === "blank" && !assignTitle.trim())}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-xl text-xs font-bold cursor-pointer transition-colors disabled:opacity-50"
-                    >
-                      Projeyi Oluştur ve Ata
-                    </button>
-                  </div>
-                </>
-              ) : (
-              <>
-              {/* Selection Tabs */}
-              <div className="flex border-b border-slate-200 bg-slate-50/50">
-                <button
-                  type="button"
-                  className="flex-1 py-4 text-center text-xs font-bold transition-all border-b-2 border-indigo-600 text-indigo-600 bg-white flex items-center justify-center space-x-2"
-                >
-                  <span>📂 Fırsat Havuzu Konuları (VSM & Loss Capacity)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectNewProjectTheme()}
-                  className="flex-1 py-4 text-center text-xs font-bold transition-all border-b-2 border-transparent text-slate-500 hover:text-indigo-600 hover:bg-slate-50 flex items-center justify-center space-x-2 cursor-pointer"
-                  title="Boş bir CI Proje Tanımlama formu başlatır."
-                >
-                  <span>✨ Yeni Proje Teması (Boş Form)</span>
-                </button>
-              </div>
-
-              <div className="p-5 space-y-4 max-h-[520px] overflow-y-auto">
-                {/* Data Source & Product Family Selector Banner */}
-                <div className="bg-indigo-50/80 border border-indigo-200/90 rounded-2xl p-4 space-y-3 shadow-2xs">
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-200/60 pb-3">
-                    <div className="flex items-center space-x-2">
-                      <span className={`font-bold px-2.5 py-1 rounded-md text-[10px] font-mono border flex items-center gap-1.5 shadow-3xs ${
-                        isRealLossCapacityData
-                          ? "text-emerald-700 bg-emerald-100 border-emerald-300"
-                          : isEmptyOpportunityData
-                            ? "text-slate-500 bg-slate-100 border-slate-300"
-                            : isAssumedOpportunityData
-                              ? "text-amber-700 bg-amber-100 border-amber-300"
-                              : "text-slate-700 bg-slate-100 border-slate-300"
-                      }`}>
-                        {isRealLossCapacityData ? <CheckCircle className="w-3.5 h-3.5 text-emerald-600" /> : <AlertTriangle className="w-3.5 h-3.5" />}
-                        <span>Veri Kaynağı: {activeOpportunitySource}</span>
-                      </span>
-                      <span className="text-xs text-indigo-900 font-bold hidden sm:inline">
-                        — CI Proje Yönetimi Fırsat Havuzu
-                      </span>
-                    </div>
-
-                    {/* Product Family Dropdown Selector */}
-                    <div className="flex items-center space-x-2">
-                      <label htmlFor="product-family-select" className="font-bold text-slate-700 text-xs flex items-center gap-1">
-                        <Filter className="w-3.5 h-3.5 text-indigo-600" />
-                        <span>Ürün Ailesi Kapsamı:</span>
-                      </label>
-                      <select
-                        id="product-family-select"
-                        value={selectedProductFamily}
-                        onChange={(e) => setSelectedProductFamily(e.target.value)}
-                        className="bg-white border border-indigo-300 rounded-xl text-xs font-bold px-3 py-1.5 text-indigo-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-2xs cursor-pointer hover:border-indigo-400 transition-colors"
-                      >
-                        <option value={ALL_FAMILIES}>Tüm Fabrika Ürün Aileleri (%100 Hacim Payı)</option>
-                        {ciSettings.productFamilies.map(p => (
-                          <option key={p.name} value={p.name}>{productFamilyLabel(p)}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <p className="text-[11px] text-slate-600 leading-relaxed">
-                    {isRealLossCapacityData ? (
-                      <>Sistem, <strong>Loss Capacity Analizi (COPQ & Cost Deployment)</strong> modülünden elde edilen finansal kayıp konularını ve yalın gelişim potansiyellerini listelemektedir. <strong>Seçili Ürün Ailesi</strong> değiştiğinde, ilgili ürün grubunun üretim ve hacim payı oranına göre mevcut maliyet kayıpları ve kazanç potansiyelleri <strong>otomatik olarak ölçeklenmektedir</strong>.</>
-                    ) : isEmptyOpportunityData ? (
-                      <>Bu müşteri için henüz kayıtlı bir <strong>Loss Capacity Analizi</strong> ya da <strong>Maliyet Tablosu (İşlem Kayıtları)</strong> verisi bulunmuyor, bu yüzden gösterilecek bir fırsat listesi yok. Fırsat havuzunun oluşması için önce İşlem Kayıtları'na maliyet verisi girin veya bu müşteri için Loss Capacity Analizi çalıştırın — ya da sağdaki <strong>"Yeni Proje Teması (Boş Form)"</strong> sekmesinden boş bir proje başlatın.</>
-                    ) : (
-                      <>Sistem, saha maliyet kayıtlarından (İşlem Kayıtları / Maliyet Tablosu) türetilen <strong>gerçek maliyet tutarlarını</strong> listelemektedir; bu müşteri için henüz Loss Capacity Analizi çalıştırılmadığından, geri kazanım potansiyeli %60'lık standart bir Kaizen varsayımıyla hesaplanmıştır (gerçek geri kazanım oranı değildir). Daha detaylı ve doğru bir kırılım için <strong>Loss Capacity Analizi</strong> modülünün bu müşteri için çalıştırılması önerilir.</>
-                    )}
-                  </p>
-                </div>
-
-                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-3xs bg-white">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[11px] tracking-wider">
-                        <th className="py-2.5 px-3">Kayıp Konusu / Metot</th>
-                        <th className="py-2.5 px-3">Loss Capacity Problem Açıklaması</th>
-                        <th className="py-2.5 px-3">Ürün Ailesi Kapsamı</th>
-                        <th className="py-2.5 px-3 text-right">Mevcut Kayıp</th>
-                        <th className="py-2.5 px-3 text-right">Geri Kazanım Potansiyeli</th>
-                        <th className="py-2.5 px-3 text-center">Önem</th>
-                        <th className="py-2.5 px-3 text-right">Eylem</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-slate-700 font-sans">
-                      {isEmptyOpportunityData && (
-                        <tr>
-                          <td colSpan={7} className="py-8 px-3 text-center text-slate-400 italic">
-                            Gösterilecek fırsat kaydı yok — Loss Capacity Analizi veya Maliyet Tablosu verisi bekleniyor.
-                          </td>
-                        </tr>
-                      )}
-                      {opportunitiesList.map(opp => (
-                        <tr key={opp.id} className="hover:bg-indigo-50/40 transition-colors">
-                          <td className="py-3 px-3">
-                            <div className="font-bold text-indigo-700">{opp.type}</div>
-                            {opp.leanTool && (
-                              <div className="text-[10px] text-emerald-700 font-medium font-mono bg-emerald-50 border border-emerald-200/80 px-1.5 py-0.5 rounded mt-0.5 inline-block">
-                                🛠️ {opp.leanTool}
-                              </div>
-                            )}
-                            {(opp as any).assumed && (
-                              <div
-                                className="text-[11px] text-amber-700 font-bold bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded mt-0.5 inline-block ml-1"
-                                title={(opp as any).source}
-                              >
-                                ⚠️ Tahmini/Varsayım Verisi
-                              </div>
-                            )}
-                          </td>
-                          <td className="py-3 px-3 max-w-[280px]">
-                            <div className="font-medium text-slate-900 text-[11px] leading-snug">{opp.problem}</div>
-                            <div className="text-[10px] text-slate-400 mt-0.5">Sorumlu Birim: {opp.dept}</div>
-                          </td>
-                          <td className="py-3 px-3">
-                            <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md block text-center">
-                              {opp.productFamily}
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono font-semibold text-slate-600">
-                            {currency}{opp.currentCost.toLocaleString("tr-TR")}
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono font-bold text-emerald-600">
-                            {currency}{opp.expectedGain.toLocaleString("tr-TR")}
-                            <span className="text-[10px] text-emerald-700 font-semibold block font-sans">
-                              (%{opp.potential} Kazanım)
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 text-center">
-                            <span className={`px-1.5 py-0.5 rounded text-[11px] font-bold ${
-                              opp.priority === "High" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"
-                            }`}>
-                              {opp.priority}
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 text-right">
-                            <button
-                              onClick={() => handleSelectOpportunity(opp)}
-                              className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-[10px] px-3 py-1.5 rounded-lg flex items-center space-x-1 ml-auto cursor-pointer transition-all hover:scale-102 shadow-xs"
-                            >
-                              <span>Projeye Dönüştür</span>
-                              <ArrowRight className="w-3 h-3" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Simple Footer */}
-              <div className="bg-slate-50 px-5 py-3 border-t border-slate-200 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setIsWizardOpen(false)}
-                  className="bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition-colors"
-                >
-                  Kapat
-                </button>
-              </div>
-              </>
-              )}
-
-            </div>
-
-          </div>
-        </div>
+        <CiNewProject
+          companyName={selectedCustomer?.companyName}
+          currentUser={currentUser}
+          people={teamPeople}
+          departments={ciSettings.departments}
+          phases={ciSettings.phases}
+          defaultDurationDays={ciSettings.defaultDurationDays}
+          productFamilies={ciSettings.productFamilies}
+          currencySymbol={currency}
+          currencyOptions={currencyOptions}
+          pool={opportunityPool.pool}
+          poolLoading={opportunityPool.loading}
+          poolError={opportunityPool.error}
+          onReloadPool={opportunityPool.reload}
+          onCreate={async (project) => {
+            const saved = await onAddKaizen(project);
+            if (!saved) { opportunityPool.reload(); return undefined; }
+            syncWithGantt(saved, 'add');
+            setIsWizardOpen(false);
+            opportunityPool.reload();
+            handleOpenProjectDetails(saved);
+            return saved;
+          }}
+          onClose={() => setIsWizardOpen(false)}
+        />
       )}
 
 
