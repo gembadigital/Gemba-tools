@@ -6,6 +6,7 @@ import { KaizenSettings, currencyChoices, toBaseCurrency, waitingSeverityFor, re
 
 const fmtReward = (r: { amount: number; currency: string }) => `${r.amount.toLocaleString("tr-TR")} ${r.currency}`;
 import { KaizenApi, useFullRecord } from "./KaizenSuggestionSystem";
+import { perPieceText } from "../../utils/kaizenSaving";
 import { Card, StatusBadge, Button, EmptyState, KpiCard, PageHeader, TabBar, Avatar, inputCls, areaCls, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 
 interface Props {
@@ -445,11 +446,12 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
           <Fact label="Önerilen İyileştirme">{s.improvementSuggestion}</Fact>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="rounded-xl bg-emerald-50 p-3"><p className="text-xs font-semibold text-emerald-700">Tahmini Kazanç</p><p className="font-black text-emerald-900 tabular-nums mt-0.5">{s.estimatedSaving.toLocaleString("tr-TR")} {s.estimatedSavingCurrency}</p></div>
+          <div className="rounded-xl bg-emerald-50 p-3"><p className="text-xs font-semibold text-emerald-700">Tahmini Kazanç{perPieceText(s) ? " (yıllık)" : ""}</p><p className="font-black text-emerald-900 tabular-nums mt-0.5">{s.estimatedSaving.toLocaleString("tr-TR")} {s.estimatedSavingCurrency}</p></div>
           <div className="rounded-xl bg-slate-100 p-3"><p className="text-xs font-semibold text-slate-600">Tahmini Maliyet</p><p className="font-black text-slate-900 tabular-nums mt-0.5">{s.estimatedCost.toLocaleString("tr-TR")} {s.estimatedCostCurrency}</p></div>
           <div className="rounded-xl bg-slate-100 p-3"><p className="text-xs font-semibold text-slate-600">Aşama</p><p className="font-bold text-slate-900 mt-0.5 text-sm">{s.stage || "—"}</p></div>
           <div className="rounded-xl bg-slate-100 p-3"><p className="text-xs font-semibold text-slate-600">Kazanç Süresi</p><p className="font-bold text-slate-900 mt-0.5 text-sm">{s.paybackPeriod || "—"}</p></div>
         </div>
+        {perPieceText(s) && <p className="text-sm text-emerald-800 bg-emerald-50/60 ring-1 ring-emerald-200/60 rounded-xl px-3.5 py-2.5 -mt-2 tabular-nums">Parça başı hesap: {perPieceText(s)}</p>}
         {photoCount > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {photos.length

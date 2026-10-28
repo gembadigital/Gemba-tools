@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { KaizenPersonnel, KaizenSuggestion, KaizenSuggestionPhoto } from "./kaizenTypes";
 import { KaizenSettings, currencyChoices, optionChoices, requiredStagesFor } from "../../utils/kaizenSettings";
+import { isPerPiece, perPieceSaving, parsePerPiece } from "../../utils/kaizenSaving";
 import { KaizenApi } from "./KaizenSuggestionSystem";
 import { readAndShrink } from "./kaizenImage";
 import { Card, Button, FormField, ChoiceChip, inputCls, areaCls, errCls } from "./kaizenUi";
@@ -35,6 +36,10 @@ interface FormState {
   paybackPeriod: string;
   estimatedSaving: string;
   estimatedSavingCurrency: string;
+  // Parça başı: saving per piece × annual volume (× years for the lifetime total)
+  unitSaving: string;
+  annualVolume: string;
+  productionYears: string;
   estimatedCost: string;
   estimatedCostCurrency: string;
   isg: boolean;
@@ -46,6 +51,7 @@ const blank: FormState = {
   onBehalfOfId: "", suggestionTypes: [], subject: "", currentState: "", photosCurrent: [],
   improvementSuggestion: "", photosPropose: [], stage: "", paybackPeriod: "",
   estimatedSaving: "", estimatedSavingCurrency: "", estimatedCost: "", estimatedCostCurrency: "",
+  unitSaving: "", annualVolume: "", productionYears: "",
   isg: false, cevre: false, motivasyon: false
 };
 
@@ -98,6 +104,9 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
         stage: editingSuggestion.stage,
         paybackPeriod: editingSuggestion.paybackPeriod,
         estimatedSaving: String(editingSuggestion.estimatedSaving || ""),
+        unitSaving: editingSuggestion.unitSaving ? String(editingSuggestion.unitSaving) : "",
+        annualVolume: editingSuggestion.annualVolume ? String(editingSuggestion.annualVolume) : "",
+        productionYears: editingSuggestion.productionYears ? String(editingSuggestion.productionYears) : "",
         estimatedSavingCurrency: editingSuggestion.estimatedSavingCurrency || settings.baseCurrency,
         estimatedCost: String(editingSuggestion.estimatedCost || ""),
         estimatedCostCurrency: editingSuggestion.estimatedCostCurrency || settings.baseCurrency,
@@ -142,7 +151,8 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
     form.suggestionTypes.length > 0 && form.subject.trim().length > 0,
     form.currentState.trim().length > 0,
     form.improvementSuggestion.trim().length > 0,
-    !!form.stage && !!form.paybackPeriod && !!form.estimatedSavingCurrency && !!form.estimatedCostCurrency,
+    !!form.stage && !!form.paybackPeriod && !!form.estimatedSavingCurrency && !!form.estimatedCostCurrency
+      && (!isPerPiece(form.paybackPeriod) || !parsePerPiece(form).error),
     true
   ];
 
@@ -185,7 +195,8 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
       photosPropose: form.photosPropose,
       stage: form.stage,
       paybackPeriod: form.paybackPeriod,
-      estimatedSaving: Number(form.estimatedSaving) || 0,
+      estimatedSaving: savingNum,
+      ...(perPiece ? { unitSaving: Number(form.unitSaving), annualVolume: Number(form.annualVolume), productionYears: Number(form.productionYears) } : {}),
       estimatedSavingCurrency: form.estimatedSavingCurrency,
       estimatedCost: Number(form.estimatedCost) || 0,
       estimatedCostCurrency: form.estimatedCostCurrency,
@@ -212,7 +223,10 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
     }));
   };
 
-  const savingNum = Number(form.estimatedSaving) || 0;
+  // Parça başı: the annual saving is derived; otherwise it is what was typed.
+  const perPiece = isPerPiece(form.paybackPeriod);
+  const perPieceCalc = perPieceSaving({ unitSaving: Number(form.unitSaving), annualVolume: Number(form.annualVolume), productionYears: Number(form.productionYears) });
+  const savingNum = perPiece ? perPieceCalc.annual : Number(form.estimatedSaving) || 0;
   const costNum = Number(form.estimatedCost) || 0;
   const sameCurrency = form.estimatedSavingCurrency === form.estimatedCostCurrency && form.estimatedSavingCurrency !== "Eş Değer Ürün";
   const net = savingNum - costNum;
@@ -367,18 +381,58 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
 
           {step === 4 && (
             <div className="space-y-6">
+              <FormField label="Kazanç ne sıklıkla oluşuyor?" required error={attempted && !form.paybackPeriod ? "Seçiniz." : undefined}
+                hint={perPiece ? "Parça başı kazancı, yıllık üretim adedini ve ürünün kaç yıl daha üretileceğini girin; sistem hesaplar." : undefined}>
+                <div className="flex flex-wrap gap-2">
+                  {optionChoices(settings.paybackPeriods, editingSuggestion?.paybackPeriod).map(p => (
+                    <ChoiceChip key={p} on={form.paybackPeriod === p} onClick={() => setForm(f => ({ ...f, paybackPeriod: p }))}>{p}</ChoiceChip>
+                  ))}
+                </div>
+              </FormField>
+
+              {perPiece && (
+                <div className="rounded-2xl bg-gradient-to-br from-emerald-50/70 to-teal-50/40 ring-1 ring-emerald-200/70 p-4 sm:p-5 space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <MoneyField label="Parça başı kazanç *" icon={PiggyBank} value={form.unitSaving} currency={form.estimatedSavingCurrency} currencies={currencyChoices(settings, form.estimatedSavingCurrency)}
+                      onValue={v => setForm(f => ({ ...f, unitSaving: v }))} onCurrency={c => setForm(f => ({ ...f, estimatedSavingCurrency: c }))} />
+                    <FormField label="Yıllık üretim hacmi *" error={attempted && !(Number(form.annualVolume) > 0) ? "Adet giriniz." : undefined}>
+                      <div className="flex items-center rounded-xl bg-white ring-1 ring-inset ring-slate-200 focus-within:ring-2 focus-within:ring-emerald-600/40">
+                        <input type="number" inputMode="numeric" min={1} value={form.annualVolume} onChange={e => setForm(f => ({ ...f, annualVolume: e.target.value }))} placeholder="0"
+                          className="flex-1 min-w-0 h-12 px-4 bg-transparent text-sm font-semibold tabular-nums focus:outline-none" />
+                        <span className="pr-4 text-sm text-slate-500">adet/yıl</span>
+                      </div>
+                    </FormField>
+                    <FormField label="Üretim süresi *" error={attempted && !(Number(form.productionYears) > 0 && Number(form.productionYears) <= 50) ? "1–50 yıl." : undefined}>
+                      <div className="flex items-center rounded-xl bg-white ring-1 ring-inset ring-slate-200 focus-within:ring-2 focus-within:ring-emerald-600/40">
+                        <input type="number" inputMode="decimal" min={0.5} max={50} step="0.5" value={form.productionYears} onChange={e => setForm(f => ({ ...f, productionYears: e.target.value }))} placeholder="0"
+                          className="flex-1 min-w-0 h-12 px-4 bg-transparent text-sm font-semibold tabular-nums focus:outline-none" />
+                        <span className="pr-4 text-sm text-slate-500">yıl</span>
+                      </div>
+                    </FormField>
+                  </div>
+                  {attempted && !(Number(form.unitSaving) > 0) && <p className="text-xs font-medium text-red-600">Parça başı kazancı giriniz.</p>}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="rounded-xl bg-white ring-1 ring-emerald-200/70 p-3.5">
+                      <p className="text-xs font-semibold text-emerald-700">Yıllık kazanç</p>
+                      <p className="text-xl font-bold text-emerald-900 tabular-nums mt-0.5">{perPieceCalc.annual.toLocaleString("tr-TR")} <span className="text-sm">{form.estimatedSavingCurrency}</span></p>
+                      <p className="text-xs text-slate-500 mt-1 tabular-nums">{(Number(form.unitSaving) || 0).toLocaleString("tr-TR")} × {(Number(form.annualVolume) || 0).toLocaleString("tr-TR")} adet</p>
+                    </div>
+                    <div className="rounded-xl bg-white ring-1 ring-emerald-200/70 p-3.5">
+                      <p className="text-xs font-semibold text-emerald-700">Toplam kazanç ({Number(form.productionYears) || 0} yıl)</p>
+                      <p className="text-xl font-bold text-emerald-900 tabular-nums mt-0.5">{perPieceCalc.lifetime.toLocaleString("tr-TR")} <span className="text-sm">{form.estimatedSavingCurrency}</span></p>
+                      <p className="text-xs text-slate-500 mt-1">Değerlendirme ve raporlarda yıllık kazanç kullanılır.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                <MoneyField label="Tahmini kazanç" icon={PiggyBank} value={form.estimatedSaving} currency={form.estimatedSavingCurrency} currencies={currencyChoices(settings, form.estimatedSavingCurrency)}
-                  onValue={v => setForm(f => ({ ...f, estimatedSaving: v }))} onCurrency={c => setForm(f => ({ ...f, estimatedSavingCurrency: c }))} />
+                {!perPiece && (
+                  <MoneyField label="Tahmini kazanç" icon={PiggyBank} value={form.estimatedSaving} currency={form.estimatedSavingCurrency} currencies={currencyChoices(settings, form.estimatedSavingCurrency)}
+                    onValue={v => setForm(f => ({ ...f, estimatedSaving: v }))} onCurrency={c => setForm(f => ({ ...f, estimatedSavingCurrency: c }))} />
+                )}
                 <MoneyField label="Tahmini maliyet / yatırım" icon={Wrench} value={form.estimatedCost} currency={form.estimatedCostCurrency} currencies={currencyChoices(settings, form.estimatedCostCurrency)}
                   onValue={v => setForm(f => ({ ...f, estimatedCost: v }))} onCurrency={c => setForm(f => ({ ...f, estimatedCostCurrency: c }))} />
-                <FormField label="Kazanç ne sıklıkla oluşuyor?" required error={attempted && !form.paybackPeriod ? "Seçiniz." : undefined}>
-                  <div className="flex flex-wrap gap-2">
-                    {optionChoices(settings.paybackPeriods, editingSuggestion?.paybackPeriod).map(p => (
-                      <ChoiceChip key={p} on={form.paybackPeriod === p} onClick={() => setForm(f => ({ ...f, paybackPeriod: p }))}>{p}</ChoiceChip>
-                    ))}
-                  </div>
-                </FormField>
                 <FormField label="Öneri aşaması (PDCA)" required error={attempted && !form.stage ? "Seçiniz." : undefined}>
                   <select value={form.stage} onChange={e => setForm(f => ({ ...f, stage: e.target.value }))} className={`${inputCls} ${attempted && !form.stage ? errCls : ""}`}>
                     <option value="">Seçiniz…</option>
@@ -407,7 +461,7 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
                 { n: 1, title: "Konu", body: <><p className="font-semibold text-slate-900">{form.subject}</p><p className="text-slate-500 mt-0.5">{form.suggestionTypes.join(", ")} · {resolvedPersonnel.name}</p></> },
                 { n: 2, title: "Mevcut durum", body: <p className="text-slate-700 whitespace-pre-wrap line-clamp-4">{form.currentState}</p>, photos: form.photosCurrent.length },
                 { n: 3, title: "Öneri", body: <p className="text-slate-700 whitespace-pre-wrap line-clamp-4">{form.improvementSuggestion}</p>, photos: form.photosPropose.length },
-                { n: 4, title: "Kazanç", body: <p className="text-slate-700">{savingNum.toLocaleString("tr-TR")} {form.estimatedSavingCurrency} kazanç · {costNum.toLocaleString("tr-TR")} {form.estimatedCostCurrency} maliyet · {form.paybackPeriod} · {form.stage}</p> }
+                { n: 4, title: "Kazanç", body: <p className="text-slate-700">{perPiece && <>{(Number(form.unitSaving) || 0).toLocaleString("tr-TR")} {form.estimatedSavingCurrency}/parça × {(Number(form.annualVolume) || 0).toLocaleString("tr-TR")} adet/yıl × {Number(form.productionYears) || 0} yıl = <b>{perPieceCalc.lifetime.toLocaleString("tr-TR")} {form.estimatedSavingCurrency}</b> toplam · </>}{savingNum.toLocaleString("tr-TR")} {form.estimatedSavingCurrency} {perPiece ? "yıllık " : ""}kazanç · {costNum.toLocaleString("tr-TR")} {form.estimatedCostCurrency} maliyet · {form.paybackPeriod} · {form.stage}</p> }
               ].map(sec => (
                 <div key={sec.n} className="rounded-2xl ring-1 ring-slate-200/80 p-4 text-sm flex gap-4">
                   <div className="min-w-0 flex-1">
@@ -460,7 +514,7 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
               </div>
             )}
             <div className="grid grid-cols-2 gap-3 mt-4">
-              <div className="rounded-xl bg-emerald-50 p-3"><p className="text-xs font-semibold text-emerald-700">Kazanç</p><p className="font-bold text-emerald-900 mt-0.5 tabular-nums">{savingNum.toLocaleString("tr-TR")} <span className="text-xs">{form.estimatedSavingCurrency}</span></p></div>
+              <div className="rounded-xl bg-emerald-50 p-3"><p className="text-xs font-semibold text-emerald-700">{perPiece ? "Yıllık kazanç" : "Kazanç"}</p><p className="font-bold text-emerald-900 mt-0.5 tabular-nums">{savingNum.toLocaleString("tr-TR")} <span className="text-xs">{form.estimatedSavingCurrency}</span></p>{perPiece && perPieceCalc.lifetime > 0 && <p className="text-[11px] text-emerald-700 mt-0.5 tabular-nums">{Number(form.productionYears)} yılda {perPieceCalc.lifetime.toLocaleString("tr-TR")}</p>}</div>
               <div className="rounded-xl bg-slate-100 p-3"><p className="text-xs font-semibold text-slate-600">Maliyet</p><p className="font-bold text-slate-900 mt-0.5 tabular-nums">{costNum.toLocaleString("tr-TR")} <span className="text-xs">{form.estimatedCostCurrency}</span></p></div>
             </div>
             {sameCurrency && (savingNum > 0 || costNum > 0) && (

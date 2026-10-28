@@ -12,6 +12,7 @@ import { applyFinding, canWriteFinding } from "./opexFindings.js";
 import { renderReportHtml } from "./opexReport/render.js";
 import { KNOWN_CURRENCIES, normalizeKaizenSettings, KaizenSettings, rewardFor, requiredStagesFor, stagesOf, afterManagerApprovalStatus } from "../utils/kaizenSettings.js";
 import { preparePersonnel, buildOrg, effectiveManagerId, managerChain, visibleSuggestionIds, planPersonnelImport } from "../utils/kaizenOrg.js";
+import { isPerPiece, parsePerPiece, perPieceSaving } from "../utils/kaizenSaving.js";
 import { pinRequired, findBySicil, pinProblem, newPinCode, isLocked, failedAttempt, codeValid, pinValid, hashSecret, publicPersonnel, stripSecretInput, virtualEmail, isAuthorizedRole, PIN_LOCK_MINUTES, PIN_CODE_DAYS, KIOSK_SESSION, PHONE_SESSION } from "./kaizenAuth.js";
 import * as XLSX from "xlsx";
 
@@ -3041,6 +3042,16 @@ app.post("/api/business/kaizen/settings", authenticateToken, async (req, res) =>
   res.json({ success: true, data: settings });
 });
 
+// Parça başı kazanç: the server derives the annual saving (per piece × annual volume) and the
+// lifetime total itself; any other recurrence clears the per-piece fields.
+function savingFields(paybackPeriod: string, body: any): { fields?: Record<string, number>; error?: string } {
+  if (!isPerPiece(paybackPeriod)) return { fields: { unitSaving: 0, annualVolume: 0, productionYears: 0, estimatedLifetimeSaving: 0 } };
+  const parsed = parsePerPiece(body);
+  if (!parsed.value) return { error: parsed.error };
+  const { annual, lifetime } = perPieceSaving(parsed.value);
+  return { fields: { ...parsed.value, estimatedSaving: annual, estimatedLifetimeSaving: lifetime } };
+}
+
 app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res) => {
   const user = (req as any).user;
   const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
@@ -3084,6 +3095,8 @@ app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res)
       subjectRecord = other;
     }
   }
+  const perPieceCreate = savingFields(clip(req.body.paybackPeriod, 60), req.body);
+  if (perPieceCreate.error) return denyKaizen(res, 400, perPieceCreate.error);
   const payload = {
     authorPersonnelId: myRecord?.id || "",
     // 1st-degree supervisor by id too, so a supervisor without e-mail can still approve (Faz 3.5).
@@ -3105,13 +3118,14 @@ app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res)
     stage: clip(req.body.stage, 60),
     paybackPeriod: clip(req.body.paybackPeriod, 60),
     estimatedSaving: asAmount(req.body.estimatedSaving),
+    ...perPieceCreate.fields,
     estimatedSavingCurrency: asCurrency(req.body.estimatedSavingCurrency, settings.baseCurrency),
     estimatedCost: asAmount(req.body.estimatedCost),
     estimatedCostCurrency: asCurrency(req.body.estimatedCostCurrency, settings.baseCurrency),
     isg: !!req.body.isg, cevre: !!req.body.cevre, motivasyon: !!req.body.motivasyon,
     photosCurrent: cur.photos, photosPropose: prop.photos,
     // Which stages (Amir / Kurul) this suggestion needs is decided now and frozen on the record.
-    requiredStages: requiredStagesFor(asAmount(req.body.estimatedSaving), asCurrency(req.body.estimatedSavingCurrency, settings.baseCurrency), settings)
+    requiredStages: requiredStagesFor(perPieceCreate.fields?.estimatedSaving ?? asAmount(req.body.estimatedSaving), asCurrency(req.body.estimatedSavingCurrency, settings.baseCurrency), settings)
   };
   const suggestion = await db.createKaizenSuggestion(user.organization_id, scope.factoryId, payload, user.id, user.email, user.full_name);
 
@@ -3156,6 +3170,12 @@ app.post("/api/business/kaizen/suggestions/:id", authenticateToken, async (req, 
   const b = req.body;
   const settings = await loadKaizenSettings(user.organization_id, existing.factory_id);
   const { baseCurrency } = settings;
+  const effectivePeriod = b.paybackPeriod !== undefined ? clip(b.paybackPeriod, 60) : existing.paybackPeriod;
+  // Per-piece numbers not resent keep their stored values.
+  const perPieceEdit = savingFields(effectivePeriod, {
+    unitSaving: b.unitSaving ?? existing.unitSaving, annualVolume: b.annualVolume ?? existing.annualVolume, productionYears: b.productionYears ?? existing.productionYears
+  });
+  if (perPieceEdit.error) return denyKaizen(res, 400, perPieceEdit.error);
   const payload = {
     subject: b.subject !== undefined ? clip(b.subject, 200) : undefined,
     suggestionTypes: Array.isArray(b.suggestionTypes) ? b.suggestionTypes.filter((t: any) => typeof t === "string").slice(0, 10) : undefined,
@@ -3164,6 +3184,7 @@ app.post("/api/business/kaizen/suggestions/:id", authenticateToken, async (req, 
     stage: b.stage !== undefined ? clip(b.stage, 60) : undefined,
     paybackPeriod: b.paybackPeriod !== undefined ? clip(b.paybackPeriod, 60) : undefined,
     estimatedSaving: b.estimatedSaving !== undefined ? asAmount(b.estimatedSaving) : undefined,
+    ...perPieceEdit.fields,
     estimatedSavingCurrency: b.estimatedSavingCurrency !== undefined ? asCurrency(b.estimatedSavingCurrency, baseCurrency) : undefined,
     estimatedCost: b.estimatedCost !== undefined ? asAmount(b.estimatedCost) : undefined,
     estimatedCostCurrency: b.estimatedCostCurrency !== undefined ? asCurrency(b.estimatedCostCurrency, baseCurrency) : undefined,
@@ -3171,7 +3192,7 @@ app.post("/api/business/kaizen/suggestions/:id", authenticateToken, async (req, 
     photosCurrent: cur.photos, photosPropose: prop.photos,
     // Stages are decided again from the (possibly edited) estimate and the current settings.
     requiredStages: requiredStagesFor(
-      b.estimatedSaving !== undefined ? asAmount(b.estimatedSaving) : Number(existing.estimatedSaving) || 0,
+      perPieceEdit.fields?.estimatedSaving ?? (b.estimatedSaving !== undefined ? asAmount(b.estimatedSaving) : Number(existing.estimatedSaving) || 0),
       b.estimatedSavingCurrency !== undefined ? asCurrency(b.estimatedSavingCurrency, baseCurrency) : existing.estimatedSavingCurrency,
       settings
     )
@@ -3519,13 +3540,14 @@ app.get("/api/business/kaizen/suggestions/export-excel", authenticateToken, asyn
   const suggestions = await db.getKaizenRecords("kaizen_suggestions", user.organization_id, scope.factoryId);
   // Amounts are real numeric cells with their own currency column (they used to be "1000 TL" text,
   // which Excel cannot sum, and mixed currencies were indistinguishable).
-  const tableHeader = ["Tarih", "Sicil No", "Ad Soyad", "Bölüm", "Konu", "Kategori", "Durum", "Tahmini Kazanç", "Kazanç Para Birimi", "Tahmini Maliyet", "Maliyet Para Birimi"];
+  const tableHeader = ["Tarih", "Sicil No", "Ad Soyad", "Bölüm", "Konu", "Kategori", "Durum", "Kazanç Süresi", "Tahmini Kazanç (yıllık / tek)", "Kazanç Para Birimi", "Parça Başı Kazanç", "Yıllık Üretim (adet)", "Üretim Süresi (yıl)", "Toplam Kazanç", "Tahmini Maliyet", "Maliyet Para Birimi"];
   const tableRows = suggestions
     .sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || ""))
     .map((s: any) => [
       (s.createdAt || "").slice(0, 10), s.personnelEmployeeNo || "", s.personnelName, s.personnelDepartment, s.subject,
       (s.suggestionTypes || []).join(", "), s.approvalStatus,
-      Number(s.estimatedSaving) || 0, s.estimatedSavingCurrency || "TL",
+      s.paybackPeriod || "", Number(s.estimatedSaving) || 0, s.estimatedSavingCurrency || "TL",
+      Number(s.unitSaving) || "", Number(s.annualVolume) || "", Number(s.productionYears) || "", Number(s.estimatedLifetimeSaving) || "",
       Number(s.estimatedCost) || 0, s.estimatedCostCurrency || "TL"
     ]);
   const wb = XLSX.utils.book_new();

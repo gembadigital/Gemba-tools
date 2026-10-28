@@ -74,8 +74,12 @@ export interface KaizenSuggestion {
   stage: string;                   // Öneri Aşaması — PDCA cycle stage (Plan/Do/Check/Action)
   paybackPeriod: string;           // Kazanç Süresi — how the saving recurs (Parça Başı/Senelik/Bir Sefer)
 
-  estimatedSaving: number;
+  estimatedSaving: number;          // annual saving when paybackPeriod is per piece (see kaizenSaving.ts)
   estimatedSavingCurrency: string;
+  unitSaving?: number;              // Parça başı: saving per piece
+  annualVolume?: number;            // pieces per year
+  productionYears?: number;         // remaining production years
+  estimatedLifetimeSaving?: number; // annual × years
   estimatedCost: number;
   estimatedCostCurrency: string;
 

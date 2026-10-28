@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Printer, X, ArrowRight } from "lucide-react";
 import { KaizenSuggestion, KaizenImplementation, KaizenEvaluation } from "./kaizenTypes";
 import { percentChange } from "./kaizenCalc";
+import { perPieceText } from "../../utils/kaizenSaving";
 import { Button } from "./kaizenUi";
 
 // Yatay (A4 landscape) "Öncesi / Sonrası İyileştirme Çalışmaları" formu. Düzen, Gemba Tools CI Proje
@@ -100,7 +101,7 @@ export default function KaizenOnePager({ suggestion: s, implementation: impl, ev
   const benefitText = [
     impl?.benefitDescription,
     hasMetric ? `${bm!.label || "Ölçüt"}: ${bm!.value} ${bm!.unit} → ${am!.value} ${am!.unit || bm!.unit}${change !== null ? ` (${change > 0 ? "+" : ""}${change.toFixed(1).replace(".", ",")}%)` : ""}` : "",
-    `Tahmini kazanç: ${estimated} · Gerçekleşen: ${actual}${verified ? " (Kurul doğruladı)" : impl ? " (doğrulama bekliyor)" : ""}`
+    `Tahmini kazanç: ${estimated}${perPieceText(s) ? ` (yıllık; ${perPieceText(s)})` : ""} · Gerçekleşen: ${actual}${verified ? " (Kurul doğruladı)" : impl ? " (doğrulama bekliyor)" : ""}`
   ].filter(Boolean).join("  |  ");
   const followText = (impl?.followUps || []).map(f => `${f.days}. gün: ${f.result === "Sürüyor" ? "yerinde" : f.result === "Bozuldu" ? "bozuldu" : "bekliyor"}`).join(" · ");
 

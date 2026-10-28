@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { KaizenSuggestion, KaizenApproval, KaizenEvaluation, KaizenPersonnel } from "./kaizenTypes";
 import { personOfSuggestion } from "../../utils/kaizenOrg";
+import { perPieceText } from "../../utils/kaizenSaving";
 import { canEditSuggestion, isRejected, journeyOf } from "./kaizenCalc";
 import { KaizenApi, useFullRecord } from "./KaizenSuggestionSystem";
 import { KaizenSettings, rewardFor, awaitingFirstDecision } from "../../utils/kaizenSettings";
@@ -279,7 +280,7 @@ function DetailDrawer({ suggestion: listItem, approvals, evaluations, canEdit, c
 
           {/* Money + facts */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-2xl bg-white ring-1 ring-slate-200/70 p-4"><p className="text-xs font-semibold text-slate-500 flex items-center gap-1.5"><Coins className="w-3.5 h-3.5 text-emerald-600" />Tahmini kazanç</p><p className="text-xl font-bold text-slate-900 tabular-nums mt-1">{money(s.estimatedSaving, s.estimatedSavingCurrency)}</p></div>
+            <div className="rounded-2xl bg-white ring-1 ring-slate-200/70 p-4"><p className="text-xs font-semibold text-slate-500 flex items-center gap-1.5"><Coins className="w-3.5 h-3.5 text-emerald-600" />Tahmini kazanç{perPieceText(s) ? " (yıllık)" : ""}</p><p className="text-xl font-bold text-slate-900 tabular-nums mt-1">{money(s.estimatedSaving, s.estimatedSavingCurrency)}</p>{perPieceText(s) && <p className="text-xs text-slate-500 mt-1">{perPieceText(s)}</p>}</div>
             <div className="rounded-2xl bg-white ring-1 ring-slate-200/70 p-4"><p className="text-xs font-semibold text-slate-500 flex items-center gap-1.5"><Wrench className="w-3.5 h-3.5 text-slate-500" />Tahmini maliyet</p><p className="text-xl font-bold text-slate-900 tabular-nums mt-1">{money(s.estimatedCost, s.estimatedCostCurrency)}</p></div>
           </div>
           <Card>

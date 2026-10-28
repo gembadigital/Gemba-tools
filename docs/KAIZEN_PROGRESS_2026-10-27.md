@@ -32,6 +32,8 @@
 
 - **Faz 3.6 ek (2026-10-28):** Kurulum → Ayarlar'da ayrı **Kiosk modu** kartı: kurulum adımları, kiosk bağlantısı, "Kiosku yeni sekmede aç", müşteri bazında süreler (`kioskIdleSeconds` 30–900, varsayılan 120; `kioskAfterSubmitSeconds` 5–120, varsayılan 15). Kiosk çıkışı yalnızca sekme oturumunu siler; uygulama ve `getAuthToken` sekme oturumunu (sessionStorage) önce okur, süresi dolan kiosk token'ı aynı cihazdaki "Beni hatırla" oturumunu kapatmaz.
 
+- **Parça başı kazanç hesabı** — 2026-10-28, canlıda denenmedi. Yeni Öneri → Kazanç adımında "Kazanç Süresi" parça başı seçilince (etiket müşteriye göre değişebildiği için "parça" geçen seçenek) **parça başı kazanç**, **yıllık üretim hacmi (adet)** ve **üretim süresi (yıl, en fazla 50)** zorunlu; sistem yıllık kazancı (parça × adet) ve toplamı (× yıl) canlı hesaplar. `estimatedSaving` = **yıllık** kazanç (raporlar, Kurul eşiği, kademe önerisi bunu kullanır); toplam `estimatedLifetimeSaving`; girdiler `unitSaving`, `annualVolume`, `productionYears`. Hesap sunucuda yeniden yapılır (istemcinin gönderdiği tutar yok sayılır); başka bir kazanç süresine geçilince bu alanlar sıfırlanır. Döküm Önerilerim detayında, Kurul karar panelinde, tek sayfa Önce/Sonra'da ve Excel'de (yeni sütunlar). Kod: `src/utils/kaizenSaving.ts`.
+
 ## Öneriler / Sıradaki işler
 - **Ana iş planı:** [KAIZEN_IS_PLANI.md](KAIZEN_IS_PLANI.md) — kullanıcının gereksinim dosyasıyla karşılaştırma ve
   Faz 3 (kimlik/roller/görünürlük, sicil+PIN, kiosk, QR) → Faz 4 (fizibilite durumu, mesajlaşma, bildirim, fırsat havuzu)
