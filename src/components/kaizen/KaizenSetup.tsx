@@ -76,6 +76,23 @@ function PersonnelTab({ personnel, personnelCrud, onChanged, canGrantBoardAdmin,
   const org = useMemo(() => buildOrg(personnel), [personnel]);
   const byId = useMemo(() => new Map(personnel.map(p => [p.id, p])), [personnel]);
   const missingNo = personnel.filter(p => !p.employeeNo).length;
+  // Quick start / demo: give everyone without a sicil no the next free numbers (largest numeric + 1,
+  // starting at 1001). Real numbers can be typed over later or loaded from Excel.
+  const nextNo = Math.max(1000, ...personnel.map(p => Number(p.employeeNo)).filter(n => Number.isInteger(n) && n > 0)) + 1;
+  const [assigning, setAssigning] = useState(false);
+  const assignMissing = async () => {
+    const missing = personnel.filter(p => !p.employeeNo).sort((a, b) => a.name.localeCompare(b.name, "tr"));
+    if (!window.confirm(`${missing.length} kişiye ${nextNo}–${nextNo + missing.length - 1} arası sicil no verilsin mi? (Ada göre sırayla; sonra değiştirebilirsiniz.)`)) return;
+    setAssigning(true);
+    let no = nextNo, failed = 0;
+    for (const p of missing) {
+      const res = await personnelCrud.save({ ...p, employeeNo: String(no) });
+      if (res?.success) no += 1; else failed += 1;
+    }
+    setAssigning(false);
+    onChanged();
+    showToast(failed ? `Hata: ${failed} kişiye sicil verilemedi (ad soyad eksik olabilir).` : `${missing.length} kişiye sicil no verildi.`);
+  };
 
   const list = useMemo(() => {
     const q = query.trim().toLocaleLowerCase("tr");
@@ -113,9 +130,10 @@ function PersonnelTab({ personnel, personnelCrud, onChanged, canGrantBoardAdmin,
   return (
     <div className="space-y-4">
       {missingNo > 0 && (
-        <p className="text-sm bg-amber-50 text-amber-800 ring-1 ring-amber-200/70 rounded-xl px-4 py-3 flex gap-2.5">
-          <IdCard className="w-4 h-4 shrink-0 mt-0.5" />{missingNo} personelin sicil no'su eksik. Kayıt düzenlenirken sicil no girilmesi zorunludur.
-        </p>
+        <div className="text-sm bg-amber-50 text-amber-800 ring-1 ring-amber-200/70 rounded-xl px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <span className="flex gap-2.5 flex-1 min-w-[16rem]"><IdCard className="w-4 h-4 shrink-0 mt-0.5" />{missingNo} personelin sicil no'su eksik. Sicil no olmadan sisteme giriş yapılamaz; kişiyi seçip "Sicil no" alanını doldurun ya da hepsine sıradan numara verin.</span>
+          <Button variant="outline" className="h-9 shrink-0" disabled={assigning} onClick={assignMissing}>{assigning ? "Veriliyor…" : `Eksiklere otomatik sicil ver (${nextNo}'den)`}</Button>
+        </div>
       )}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
         <Card padded={false} className="xl:col-span-2 overflow-hidden">
