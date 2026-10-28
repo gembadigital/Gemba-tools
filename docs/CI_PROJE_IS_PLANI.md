@@ -163,6 +163,8 @@ Boyut: S (≤ yarım gün) · M (1–2 gün) · L (3+ gün). Her adım ayrı com
 
 ### C11 — Ayırma / Opx Suite (L)
 Kaizen Faz 7 ile birlikte: tek "İyileştirme" programı (Kaizen öneri + CI proje) ya da ayrı modüller; ortak personel, ayar, bildirim, giriş adaptörleri.
+**Karar (2026-10-28):** ayırma tek tek değil, **bütün modüller birlikte** yapılacak (Kaizen Faz 7, CI C11 ve diğer
+Gemba Tools modülleri aynı çalışmada). O zamana kadar her yeni parça ayrılabilir yazılmaya devam eder.
 
 ## 6. Önerilen sıra
 C0 → C1 → C2 → C3 → C6 → C7 → C4 → C8 → C5 → C9 → C10 → C11.
