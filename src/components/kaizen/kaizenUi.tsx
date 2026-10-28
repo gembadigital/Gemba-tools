@@ -74,15 +74,15 @@ export function KpiCard({ label, value, icon: Icon, tone = "slate", hint, onClic
   );
 }
 
-export function StatusBadge({ status, requiredStages }: { status: ApprovalStatus; requiredStages?: unknown }) {
-  const color = APPROVAL_STATUS_COLORS[status];
+export function StatusBadge({ status, requiredStages, feasibility }: { status: ApprovalStatus; requiredStages?: unknown; feasibility?: boolean }) {
+  const color = status === "First Approval" && feasibility ? "#8b5cf6" : APPROVAL_STATUS_COLORS[status];
   return (
     <span
       className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap"
       style={{ backgroundColor: `${color}1f`, color: status === "Pending" ? "#a16207" : color }}
     >
       <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} />
-      {statusLabel(status, requiredStages)}
+      {statusLabel(status, requiredStages, feasibility)}
     </span>
   );
 }

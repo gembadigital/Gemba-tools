@@ -1365,6 +1365,8 @@ export class GeminiDb {
     const updatedSuggestion = {
       ...suggestion,
       approvalStatus: approved ? "Second Approval" : "Rejected 2nd",
+      // A Kurul decision ends an open feasibility study (Faz 4.1); its record is kept for history.
+      ...(suggestion.feasibility?.status === "open" ? { feasibility: { ...suggestion.feasibility, status: "closed", closedAt: nowIso, result: approved ? "accepted" : "rejected" } } : {}),
       updatedAt: nowIso
     };
     await this.upsertMerged("kaizen_suggestions", orgId, updatedSuggestion);

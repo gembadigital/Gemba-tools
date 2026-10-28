@@ -49,6 +49,22 @@ export interface KaizenSuggestionPhoto {
   caption?: string;
 }
 
+// Değerlendiriliyor / fizibilite (Faz 4.1). Open while the suggestion waits in the Kurul queue;
+// the next Kurul decision closes it (result accepted / rejected).
+export interface KaizenFeasibility {
+  status: "open" | "closed";
+  ownerId: string;
+  ownerName: string;
+  ownerEmail?: string;
+  dueDate: string;   // YYYY-MM-DD
+  note?: string;
+  startedAt: string;
+  startedBy?: string;
+  updatedAt?: string;
+  closedAt?: string;
+  result?: "accepted" | "rejected";
+}
+
 export interface KaizenSuggestion {
   id: string;
   authorEmail: string;   // logged-in submitter (Personel person field) — preserved across edits
@@ -95,6 +111,7 @@ export interface KaizenSuggestion {
 
   approvalStatus: ApprovalStatus;
   requiredStages?: ("Manager" | "Board")[]; // Faz 2-B.3 snapshot at submit; missing = both stages
+  feasibility?: KaizenFeasibility;          // Faz 4.1 — Kurul put it under a feasibility study
   completed: boolean; // Uygulandı — set once the approved improvement is actually implemented
 
   createdBy: string;

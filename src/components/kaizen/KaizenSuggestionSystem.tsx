@@ -128,14 +128,18 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
     }
   };
 
+  // The skeleton is shown only for the first load of a customer; later reloads (after a decision,
+  // a feasibility, a save) refresh in place so the open tab / selection is not thrown away.
+  const loadedFor = React.useRef<string | null>(null);
   const loadAll = useCallback(async () => {
-    setLoading(true);
+    if (loadedFor.current !== factoryId) setLoading(true);
     const [per, cri, sug, apr, evl, imp, set] = await Promise.all([
       api.get("personnel"), api.get("criteria"), api.get("suggestions"), api.get("approvals"), api.get("evaluations"), api.get("implementations"),
       api.get("settings")
     ]);
     setPersonnel(per); setCriteria(cri); setSuggestions(sug); setApprovals(apr); setEvaluations(evl); setImplementations(imp);
     setSettings(normalizeKaizenSettings(set));
+    loadedFor.current = factoryId;
     setLoading(false);
   }, [factoryId]);
 
@@ -377,6 +381,7 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
           showToast={showToast}
           onReload={loadAll}
           settings={settings}
+          personnel={personnel}
         />
       )}
 

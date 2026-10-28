@@ -161,7 +161,7 @@ export default function KaizenMySuggestions({ currentUser, suggestions, approval
                           {(s.suggestionTypes || []).length > 0 && <span>{(s.suggestionTypes || []).join(" · ")}</span>}
                         </p>
                       </div>
-                      <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} />
+                      <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} feasibility={s.feasibility?.status === "open"} />
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-center gap-4 text-sm">
@@ -233,7 +233,7 @@ function DetailDrawer({ suggestion: listItem, approvals, evaluations, canEdit, c
                 <h3 className="text-lg font-bold text-slate-900 leading-snug">{s.subject}</h3>
                 <p className="text-xs text-slate-500 mt-0.5">{s.personnelName} · {fmtDate(s.createdAt)}</p>
                 <div className="mt-2 flex flex-wrap gap-1.5 items-center">
-                  <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} />
+                  <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} feasibility={s.feasibility?.status === "open"} />
                   {(s.suggestionTypes || []).map(t => <span key={t} className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">{t}</span>)}
                 </div>
               </div>

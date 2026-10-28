@@ -243,7 +243,7 @@ export default function KaizenHome({
                     </span>
                     <span className="flex items-center gap-3 shrink-0">
                       <MiniJourney steps={journeyOf(s)} />
-                      <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} />
+                      <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} feasibility={s.feasibility?.status === "open"} />
                     </span>
                   </button>
                 </li>

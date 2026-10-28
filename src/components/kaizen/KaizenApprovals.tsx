@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { CheckCircle2, XCircle, Download, Share2, Gift, Clock, Inbox, ClipboardCheck, Users, Award, Sparkles, MessageSquare, LayoutPanelLeft, TableProperties, ChevronLeft, ChevronRight, X, ArrowUp, ArrowDown, ArrowUpDown, RotateCcw, Filter } from "lucide-react";
-import { KaizenSuggestion, KaizenCriteria, KaizenApproval, KaizenEvaluation } from "./kaizenTypes";
-import { canDecideAsManager, daysWaiting, WAITING_SEVERITY_COLORS, statusLabel } from "./kaizenCalc";
+import { CheckCircle2, XCircle, Download, Share2, Gift, Clock, Inbox, ClipboardCheck, Users, Award, Sparkles, MessageSquare, LayoutPanelLeft, TableProperties, ChevronLeft, ChevronRight, X, ArrowUp, ArrowDown, ArrowUpDown, RotateCcw, Filter, FlaskConical } from "lucide-react";
+import { KaizenSuggestion, KaizenCriteria, KaizenApproval, KaizenEvaluation, KaizenPersonnel } from "./kaizenTypes";
+import { canDecideAsManager, daysWaiting, WAITING_SEVERITY_COLORS, statusLabel, feasibilityOverdue } from "./kaizenCalc";
 import { KaizenSettings, currencyChoices, toBaseCurrency, waitingSeverityFor, rewardFor, stagesOf } from "../../utils/kaizenSettings";
 
 const fmtReward = (r: { amount: number; currency: string }) => `${r.amount.toLocaleString("tr-TR")} ${r.currency}`;
@@ -20,12 +20,13 @@ interface Props {
   showToast: (msg: string) => void;
   onReload: () => void;
   settings: KaizenSettings;
+  personnel: KaizenPersonnel[];
 }
 
 type Tab = "manager" | "board" | "yokoten" | "reward";
 
 
-export default function KaizenApprovals({ currentUser, suggestions, approvals, evaluations, criteria, isBoardMember, api, showToast, onReload, settings }: Props) {
+export default function KaizenApprovals({ currentUser, suggestions, approvals, evaluations, criteria, isBoardMember, api, showToast, onReload, settings, personnel }: Props) {
   const [tab, setTab] = useState<Tab>("manager");
   const myEmail = currentUser?.email || "";
   const myRole = currentUser?.role || "";
@@ -75,6 +76,7 @@ export default function KaizenApprovals({ currentUser, suggestions, approvals, e
       {tab === "manager" && (
         <DecisionWorkspace
           settings={settings}
+          personnel={personnel}
           stage="manager" queue={managerQueue} history={managerHistory} criteria={criteria}
           approvals={approvals} evaluations={evaluations}
           waitingSince={s => s.createdAt}
@@ -84,6 +86,7 @@ export default function KaizenApprovals({ currentUser, suggestions, approvals, e
       {tab === "board" && isBoardMember && (
         <DecisionWorkspace
           settings={settings}
+          personnel={personnel}
           stage="board" queue={boardQueue} history={boardHistory} criteria={criteria}
           approvals={approvals} evaluations={evaluations}
           waitingSince={s => managerApprovalBySuggestion.get(s.id) || s.createdAt}
@@ -108,8 +111,8 @@ function WaitingBadge({ since, settings }: { since: string; settings: KaizenSett
 
 // ---------- Master/detail workspace: queue on the left, decision form on the right ----------
 
-function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluations, waitingSince, api, showToast, onReload, settings }: {
-  settings: KaizenSettings;
+function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluations, waitingSince, api, showToast, onReload, settings, personnel }: {
+  settings: KaizenSettings; personnel: KaizenPersonnel[];
   stage: "manager" | "board"; queue: KaizenSuggestion[]; history: KaizenSuggestion[]; criteria: KaizenCriteria[];
   approvals: KaizenApproval[]; evaluations: KaizenEvaluation[]; waitingSince: (s: KaizenSuggestion) => string;
   api: KaizenApi; showToast: (m: string) => void; onReload: () => void;
@@ -145,6 +148,7 @@ function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluat
   const panel = selected && (
     <DecisionPanel
       settings={settings}
+      personnel={personnel}
       key={selected.id} suggestion={selected} stage={stage} criteria={criteria}
       approvals={approvals.filter(a => a.suggestionId === selected.id)}
       evaluations={evaluations.filter(e => e.suggestionId === selected.id)}
@@ -212,8 +216,8 @@ function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluat
                   <Avatar name={s.personnelName} size="sm" />
                   <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-3">
-                    <p className="text-sm font-semibold text-slate-900 leading-snug">{s.subject}</p>
-                    {view === "queue" ? <WaitingBadge since={waitingSince(s)} settings={settings} /> : <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} />}
+                    <p className="text-sm font-semibold text-slate-900 leading-snug">{s.subject}{s.feasibility?.status === "open" && <FeasTag s={s} />}</p>
+                    {view === "queue" ? <WaitingBadge since={waitingSince(s)} settings={settings} /> : <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} feasibility={s.feasibility?.status === "open"} />}
                   </div>
                   <p className="text-sm text-slate-500 mt-1">{s.personnelName} · {s.personnelDepartment || "—"}</p>
                   <p className="text-xs text-slate-400 mt-1 tabular-nums">{(s.createdAt || "").slice(0, 10)} · {(s.suggestionTypes || []).join(", ")}</p>
@@ -264,7 +268,7 @@ function QueueTable({ list, view, settings, evaluations, waitingSince, selectedI
       case "subject": return s.subject || "";
       case "saving": { const v = saving(s); return toBaseCurrency(v.n, v.cur, settings) ?? -1; }
       case "stage": return s.stage || "";
-      case "status": return statusLabel(s.approvalStatus, s.requiredStages);
+      case "status": return statusLabel(s.approvalStatus, s.requiredStages, s.feasibility?.status === "open");
     }
   };
 
@@ -362,10 +366,10 @@ function QueueTable({ list, view, settings, evaluations, waitingSince, selectedI
                   <td className={`${tdCls} whitespace-nowrap font-medium text-slate-900`}>{s.personnelName}</td>
                   <td className={`${tdCls} whitespace-nowrap`}>{s.personnelDepartment || "—"}</td>
                   <td className={tdCls}><div className="flex flex-wrap gap-1">{(s.suggestionTypes || []).map(t => <span key={t} className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 whitespace-nowrap">{t}</span>)}</div></td>
-                  <td className={`${tdCls} font-semibold text-slate-900`}><span className="line-clamp-2">{s.subject}</span></td>
+                  <td className={`${tdCls} font-semibold text-slate-900`}><span className="line-clamp-2">{s.subject}{s.feasibility?.status === "open" && <FeasTag s={s} />}</span></td>
                   <td className={`${tdCls} text-right whitespace-nowrap tabular-nums`}>{v.n ? `${v.n.toLocaleString("tr-TR")} ${v.cur}` : "—"}</td>
                   <td className={`${tdCls} whitespace-nowrap`}>{s.stage || "—"}</td>
-                  <td className={`${tdCls} whitespace-nowrap`}>{view === "queue" ? <WaitingBadge since={waitingSince(s)} settings={settings} /> : <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} />}</td>
+                  <td className={`${tdCls} whitespace-nowrap`}>{view === "queue" ? <WaitingBadge since={waitingSince(s)} settings={settings} /> : <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} feasibility={s.feasibility?.status === "open"} />}</td>
                 </tr>
               );
             })}
@@ -380,8 +384,8 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   return <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p><div className="text-sm text-slate-800 mt-1 whitespace-pre-wrap">{children || "—"}</div></div>;
 }
 
-function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations, readOnly, api, showToast, onDone, settings }: {
-  settings: KaizenSettings;
+function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations, readOnly, api, showToast, onDone, settings, personnel }: {
+  settings: KaizenSettings; personnel: KaizenPersonnel[];
   suggestion: KaizenSuggestion; stage: "manager" | "board"; criteria: KaizenCriteria[]; approvals: KaizenApproval[]; evaluations: KaizenEvaluation[];
   readOnly: boolean; api: KaizenApi; showToast: (m: string) => void; onDone: () => void;
 }) {
@@ -397,6 +401,20 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
   const [incomeCurrency, setIncomeCurrency] = useState(s.estimatedSaving && s.estimatedSavingCurrency ? s.estimatedSavingCurrency : settings.baseCurrency);
   const [yokoten, setYokoten] = useState(false);
   const [yokotenDescription, setYokotenDescription] = useState("");
+  // Fizibilite (Faz 4.1)
+  const feas = s.feasibility?.status === "open" ? s.feasibility : undefined;
+  const [feasOpen, setFeasOpen] = useState(false);
+  const [feasOwner, setFeasOwner] = useState(feas?.ownerId || "");
+  const [feasDue, setFeasDue] = useState(feas?.dueDate || "");
+  const [feasNote, setFeasNote] = useState(feas?.note || "");
+  const saveFeasibility = async () => {
+    if (!feasOwner || !feasDue) { showToast("Sorumlu ve hedef tarih seçiniz."); return; }
+    setSaving(true);
+    const res = await api.post(`suggestions/${s.id}/feasibility`, { ownerId: feasOwner, dueDate: feasDue, note: feasNote });
+    setSaving(false);
+    if (res.success) { showToast(feas ? "Fizibilite güncellendi." : "Öneri fizibiliteye alındı."); setFeasOpen(false); onDone(); }
+    else showToast(`Hata: ${res.error || "Kaydedilemedi."}`);
+  };
 
   const sortedCriteria = useMemo(() => [...criteria].sort((a, b) => a.point - b.point), [criteria]);
   const incomeNum = Number(income) || 0;
@@ -437,7 +455,7 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
             <p className="text-xs font-semibold text-slate-600 bg-slate-100 rounded-full px-3 py-1 mt-2 inline-block">Amir aşaması olmadan doğrudan Kurul'a geldi</p>
           )}
         </div>
-        <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} />
+        <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} feasibility={s.feasibility?.status === "open"} />
       </header>
 
       <div className="p-6 space-y-6">
@@ -476,6 +494,33 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
         {evaluations.length > 0 && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 text-sm space-y-1">
             {evaluations.map(e => <p key={e.id}><span className="font-bold">{e.criteriaLabel || "Kriter seçilmedi"}</span> — {e.point} puan{e.estimatedIncome ? ` · Getiri ${e.estimatedIncome.toLocaleString("tr-TR")} ${e.estimatedIncomeCurrency}` : ""}{e.yokoten ? " · Yokoten uygulanabilir" : ""}</p>)}
+          </div>
+        )}
+
+        {stage === "board" && feas && (
+          <div className={`rounded-xl ring-1 px-4 py-3 text-sm ${feasibilityOverdue(s) ? "bg-red-50 ring-red-200 text-red-800" : "bg-violet-50 ring-violet-200 text-violet-900"}`}>
+            <p className="font-semibold flex items-center gap-2"><FlaskConical className="w-4 h-4" />Fizibilitede · Sorumlu: {feas.ownerName} · Hedef: {feas.dueDate.split("-").reverse().join(".")}{feasibilityOverdue(s) ? " · Gecikti" : ""}</p>
+            {feas.note && <p className="mt-1 opacity-90">{feas.note}</p>}
+            <p className="text-xs opacity-70 mt-1">Başlatan {feas.startedBy || "—"} · {new Date(feas.startedAt).toLocaleDateString("tr-TR")} — Kurul kararı verildiğinde çalışma kapanır.</p>
+          </div>
+        )}
+
+        {!readOnly && stage === "board" && feasOpen && (
+          <div className="rounded-2xl ring-1 ring-violet-200 bg-violet-50/40 p-4 space-y-3">
+            <p className="text-sm font-bold text-slate-900 flex items-center gap-2"><FlaskConical className="w-4 h-4 text-violet-600" />{feas ? "Fizibiliteyi güncelle" : "Fizibiliteye al"}</p>
+            <p className="text-xs text-slate-500">Karar vermeden önce öneri incelensin: sorumlu ve hedef tarih belirleyin. Öneri Kurul kuyruğunda "Fizibilitede" olarak bekler.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <select value={feasOwner} onChange={e => setFeasOwner(e.target.value)} className={inputCls} aria-label="Fizibilite sorumlusu">
+                <option value="">Sorumlu seçin…</option>
+                {[...personnel].sort((a, b) => a.name.localeCompare(b.name, "tr")).map(p => <option key={p.id} value={p.id}>{p.name}{p.department ? ` — ${p.department}` : ""}</option>)}
+              </select>
+              <input type="date" value={feasDue} min={new Date().toISOString().slice(0, 10)} onChange={e => setFeasDue(e.target.value)} className={inputCls} aria-label="Hedef tarih" />
+            </div>
+            <textarea value={feasNote} onChange={e => setFeasNote(e.target.value)} rows={2} placeholder="Ne incelenecek? (maliyet teklifi, deneme, ölçüm…)" className={areaCls} />
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setFeasOpen(false)}>Vazgeç</Button>
+              <Button variant="primary" onClick={saveFeasibility} disabled={saving}>{feas ? "Güncelle" : "Fizibiliteye al"}</Button>
+            </div>
           </div>
         )}
 
@@ -536,6 +581,11 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
               <Button variant="brand" onClick={() => decide(true)} disabled={saving} className="flex-1 h-12"><CheckCircle2 className="w-5 h-5" />Onayla</Button>
               <Button variant="danger" onClick={() => decide(false)} disabled={saving} className="flex-1 h-12"><XCircle className="w-5 h-5" />Reddet</Button>
             </div>
+            {stage === "board" && !feasOpen && (
+              <button onClick={() => setFeasOpen(true)} className="w-full h-11 rounded-xl text-sm font-semibold text-violet-700 ring-1 ring-inset ring-violet-200 hover:bg-violet-50 flex items-center justify-center gap-2 cursor-pointer">
+                <FlaskConical className="w-4 h-4" />{feas ? "Fizibiliteyi güncelle" : "Karar vermeden önce fizibiliteye al"}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -620,4 +670,9 @@ function RewardTab({ suggestions, evaluations, api, showToast, onReload, setting
       )}
     </Card>
   );
+}
+
+function FeasTag({ s }: { s: KaizenSuggestion }) {
+  const late = feasibilityOverdue(s);
+  return <span className={`ml-2 align-middle inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full ${late ? "bg-red-50 text-red-600" : "bg-violet-50 text-violet-700"}`} title={`Sorumlu: ${s.feasibility?.ownerName} · Hedef: ${s.feasibility?.dueDate}`}><FlaskConical className="w-3 h-3" />{late ? "Fizibilite gecikti" : "Fizibilitede"}</span>;
 }

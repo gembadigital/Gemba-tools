@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from "react";
-import { Download, ShieldAlert, Leaf, Sparkles, Trophy, Lightbulb, BadgeCheck, Award, Coins, RotateCcw } from "lucide-react";
+import { Gem, Download, ShieldAlert, Leaf, Sparkles, Trophy, Lightbulb, BadgeCheck, Award, Coins, RotateCcw } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, LineChart, Line, Treemap,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, RadialBarChart, RadialBar, PolarAngleAxis
 } from "recharts";
 import { KaizenSuggestion, KaizenEvaluation, KaizenPersonnel, KaizenImplementation, ApprovalStatus } from "./kaizenTypes";
-import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, actionProgress, statusLabel } from "./kaizenCalc";
+import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, actionProgress, statusLabel, opportunityPool } from "./kaizenCalc";
 import { KaizenApi } from "./KaizenSuggestionSystem";
 import { KaizenSettings, toBaseCurrency, optionChoices, stagesOf, awaitingFirstDecision } from "../../utils/kaizenSettings";
 import { Card, KpiCard, Button, EmptyState, PageHeader, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
@@ -103,6 +103,8 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
   const verifiedActualBase = verifiedConverted.reduce<number>((sum, v) => sum + (v ?? 0), 0);
   const verifiedExcluded = verifiedConverted.filter(v => v === null).length;
 
+  // Fırsat havuzu (Faz 4.5) for the filtered set.
+  const pool = useMemo(() => opportunityPool(filtered, evaluations, implementations, settings), [filtered, evaluations, implementations, settings]);
   const decided = filtered.filter(s => s.approvalStatus !== "Pending");
   const acceptedCount = decided.filter(s => statusBucket(s) === "approved").length;
   const acceptanceRate = decided.length > 0 ? Math.round((acceptedCount / decided.length) * 100) : 0;
@@ -199,11 +201,12 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
       </Card>
 
       {/* KPI row */}
-      <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <KpiCard label="Toplam Öneri" value={filtered.length} icon={Lightbulb} tone="slate" />
         <KpiCard label="Uygulanan" value={completedCount} icon={BadgeCheck} tone="teal" />
         <KpiCard label="Toplam Kaizen Puanı" value={totalPoints} icon={Award} tone="amber" />
         <KpiCard label={`Tahmini Getiri (${base})`} value={Math.round(approvedIncomeBase).toLocaleString("tr-TR")} icon={Coins} tone="emerald" hint={approvedIncomeExcluded > 0 ? `${approvedIncomeExcluded} kayıt çevrilemeyen para birimiyle, toplama dahil değil` : "Onaylanan öneriler"} />
+        <KpiCard label={`Bekleyen Potansiyel (${base})`} value={Math.round(pool.total).toLocaleString("tr-TR")} icon={Gem} tone="amber" hint={`${pool.count} kabul edilmiş, uygulanmamış öneri${pool.buckets[2].count ? ` · ${pool.buckets[2].count} tanesi 90+ gün` : ""}`} />
         <KpiCard label={`Doğrulanmış Gerçek Kazanç (${base})`} value={Math.round(verifiedActualBase).toLocaleString("tr-TR")} icon={BadgeCheck} tone="teal" hint={verifiedExcluded > 0 ? `${verifiedExcluded} kayıt çevrilemeyen para birimiyle, toplama dahil değil` : "Uygulama sonrası Kurul tarafından doğrulanan"} />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -294,7 +297,7 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
                   return (
                     <tr key={s.id} className={trCls}>
                       <td className={`${tdCls} font-semibold text-slate-900`}>{s.personnelName}</td><td className={tdCls}>{s.personnelDepartment}</td><td className={tdCls}>{s.personnelJobTitle}</td>
-                      <td className={`${tdCls} tabular-nums whitespace-nowrap`}>{(s.createdAt || "").slice(0, 10)}</td><td className={tdCls}>{(s.suggestionTypes || []).join(", ")}</td><td className={tdCls}>{statusLabel(s.approvalStatus, s.requiredStages)}</td>
+                      <td className={`${tdCls} tabular-nums whitespace-nowrap`}>{(s.createdAt || "").slice(0, 10)}</td><td className={tdCls}>{(s.suggestionTypes || []).join(", ")}</td><td className={tdCls}>{statusLabel(s.approvalStatus, s.requiredStages, s.feasibility?.status === "open")}</td>
                       <td className={`${tdCls} tabular-nums whitespace-nowrap`}>{e?.createdAt ? e.createdAt.slice(0, 10) : "—"}</td>
                       <td className={`${tdCls} text-right tabular-nums`}>{e?.estimatedIncome ? `${e.estimatedIncome.toLocaleString("tr-TR")} ${e.estimatedIncomeCurrency}` : "—"}</td>
                       <td className={`${tdCls} text-right tabular-nums`}>{impl && impl.verification?.status === "Doğrulandı" ? `${impl.actualSaving.toLocaleString("tr-TR")} ${impl.actualSavingCurrency}` : "—"}</td>

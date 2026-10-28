@@ -3247,6 +3247,41 @@ app.post("/api/business/kaizen/suggestions/:id/manager-decision", authenticateTo
   res.json({ success: true, data: result });
 });
 
+// Değerlendiriliyor / fizibilite (Faz 4.1): instead of deciding at once, the Kurul can put a
+// suggestion under a feasibility study with an owner and a due date. The suggestion stays in the
+// Kurul queue ("First Approval") and the next Kurul decision closes the study.
+app.post("/api/business/kaizen/suggestions/:id/feasibility", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const suggestion = await loadKaizenSuggestion(req, res);
+  if (!suggestion) return;
+  if (!(await isKaizenBoardMember(user, suggestion.factory_id))) return denyKaizen(res, 403, "Fizibilite kararı Kaizen Kurulu yetkisi gerektirir.");
+  if (suggestion.approvalStatus !== "First Approval") return denyKaizen(res, 400, "Yalnızca Kurul değerlendirmesindeki öneriler fizibiliteye alınabilir.");
+  const roster = await db.getKaizenRecords("kaizen_personnel", user.organization_id, suggestion.factory_id);
+  const owner = roster.find((p: any) => p.id === req.body.ownerId);
+  if (!owner) return denyKaizen(res, 400, "Fizibilite sorumlusunu personel listesinden seçiniz.");
+  const dueDate = asDate(req.body.dueDate);
+  if (!dueDate) return denyKaizen(res, 400, "Hedef tarih giriniz.");
+  const nowIso = new Date().toISOString();
+  const prev = suggestion.feasibility?.status === "open" ? suggestion.feasibility : null;
+  const feasibility = {
+    status: "open",
+    ownerId: owner.id, ownerName: owner.name || "", ownerEmail: (owner.email || "").toLowerCase(),
+    dueDate, note: clip(req.body.note, 1000),
+    startedAt: prev?.startedAt || nowIso, startedBy: prev?.startedBy || user.full_name || user.email,
+    updatedAt: nowIso
+  };
+  const updated = { ...suggestion, feasibility, updatedAt: nowIso };
+  await db.saveKaizenRecord("kaizen_suggestions", user.organization_id, suggestion.factory_id, updated, user.id);
+  if (owner.email && (!prev || prev.ownerId !== owner.id)) {
+    sendMail({
+      to: owner.email,
+      subject: `Fizibilite sorumlusu oldunuz: ${suggestion.subject}`,
+      text: `${suggestion.subject} konulu Kaizen önerisinin fizibilite çalışması size atandı.\nHedef tarih: ${dueDate}${feasibility.note ? `\n\nNot: ${feasibility.note}` : ""}`
+    }).catch(() => {});
+  }
+  res.json({ success: true, data: withoutPhotos("kaizen_suggestions", updated) });
+});
+
 app.post("/api/business/kaizen/suggestions/:id/board-decision", authenticateToken, async (req, res) => {
   const user = (req as any).user;
   const suggestion = await loadKaizenSuggestion(req, res);

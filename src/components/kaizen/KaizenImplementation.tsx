@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Hammer, CalendarClock, CheckCircle2, AlertTriangle, ShieldCheck, Plus, Trash2, Camera, FileText, Search, Clock } from "lucide-react";
+import { Gem, Hammer, CalendarClock, CheckCircle2, AlertTriangle, ShieldCheck, Plus, Trash2, Camera, FileText, Search, Clock } from "lucide-react";
 import {
   KaizenSuggestion, KaizenImplementation as Impl, KaizenEvaluation, KaizenPersonnel, KaizenAction, ImplementationStatus
 } from "./kaizenTypes";
@@ -8,6 +8,7 @@ import {
 } from "./kaizenCalc";
 import { readAndShrink } from "./kaizenImage";
 import { KaizenSettings, currencyChoices } from "../../utils/kaizenSettings";
+import { opportunityPool, PoolBucket } from "./kaizenCalc";
 import { KaizenApi, useFullRecord } from "./KaizenSuggestionSystem";
 import KaizenOnePager from "./KaizenOnePager";
 import { Card, KpiCard, SectionTitle, Button, EmptyState, PageHeader, inputCls as baseInputCls } from "./kaizenUi";
@@ -122,6 +123,12 @@ export default function KaizenImplementation({
 
   const selected = rows.find(r => r.s.id === selectedId);
 
+  // Fırsat havuzu (Faz 4.5): accepted but not yet implemented → unrealised savings, aged.
+  const pool = useMemo(() => opportunityPool(suggestions, evaluations, implementations, settings), [suggestions, evaluations, implementations, settings]);
+  const [poolBucket, setPoolBucket] = useState<PoolBucket | null>(null);
+  const poolIds = useMemo(() => new Set(pool.items.filter(i => !poolBucket || i.bucket === poolBucket).map(i => i.suggestion.id)), [pool, poolBucket]);
+  const shown = poolBucket ? visible.filter(r => poolIds.has(r.s.id)) : visible;
+
   const chips: { key: Filter; label: string; n?: number }[] = [
     { key: "all", label: "Tümü", n: rows.length },
     { key: "noplan", label: "Plan bekliyor", n: counts.noplan },
@@ -134,6 +141,32 @@ export default function KaizenImplementation({
   return (
     <div className="space-y-6">
       <PageHeader title="Uygulama takibi" subtitle="Kabul edilen önerilerin planı, önce/sonra ölçümü, gerçekleşen kazancı ve kalıcılığı." />
+      {pool.count > 0 && (
+        <section aria-label="Fırsat havuzu" className="rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-900 text-white p-5 sm:p-6 shadow-[0_24px_48px_-24px_rgba(6,78,59,0.5)]">
+          <div className="flex flex-col lg:flex-row lg:items-center gap-5">
+            <div className="lg:flex-1 min-w-0">
+              <p className="text-sm font-semibold text-emerald-200 flex items-center gap-2"><Gem className="w-4 h-4" />Fırsat havuzu</p>
+              <p className="text-3xl sm:text-4xl font-bold tabular-nums mt-1">{Math.round(pool.total).toLocaleString("tr-TR")} <span className="text-lg text-white/70">{settings.baseCurrency}/yıl</span></p>
+              <p className="text-sm text-white/70 mt-1">Kabul edilmiş ama henüz uygulanmamış {pool.count} öneri{pool.unconverted ? ` (${pool.unconverted} tanesi çevrilemeyen para biriminde, toplama dahil değil)` : ""}. Uygulandıkça gerçek kazanca dönüşür.</p>
+            </div>
+            <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:w-[30rem]">
+              {pool.buckets.map(b => {
+                const tone = b.bucket === "0-30" ? "ring-white/15" : b.bucket === "31-90" ? "ring-amber-300/60" : "ring-red-400/70";
+                const active = poolBucket === b.bucket;
+                return (
+                  <button key={b.bucket} onClick={() => setPoolBucket(active ? null : b.bucket)} aria-pressed={active}
+                    className={`text-left rounded-2xl p-3 ring-1 backdrop-blur cursor-pointer transition-all ${tone} ${active ? "bg-white text-slate-900" : "bg-white/10 hover:bg-white/15"}`}>
+                    <p className={`text-xs font-semibold ${active ? "text-slate-500" : "text-white/70"}`}>{b.bucket === "90+" ? "90+ gün" : `${b.bucket} gün`}</p>
+                    <p className="text-xl font-bold tabular-nums mt-0.5">{b.count}</p>
+                    <p className={`text-xs tabular-nums ${active ? "text-slate-500" : "text-white/60"}`}>{Math.round(b.value).toLocaleString("tr-TR")} {settings.baseCurrency}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {pool.buckets[2].count > 0 && <p className="mt-4 text-sm font-semibold text-red-200 flex items-center gap-2"><AlertTriangle className="w-4 h-4" />{pool.buckets[2].count} öneri 90 günden uzun süredir kabul edilmiş halde bekliyor.</p>}
+        </section>
+      )}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <KpiCard label="Plan Bekleyen" value={counts.noplan} icon={Clock} tone="amber" hint="Onaylandı, uygulama planı yok" onClick={() => setFilter("noplan")} />
         <KpiCard label="Devam Eden" value={counts.active} icon={Hammer} tone="blue" onClick={() => setFilter("active")} />
@@ -164,11 +197,11 @@ export default function KaizenImplementation({
               ))}
             </div>
           </div>
-          {visible.length === 0 ? (
+          {shown.length === 0 ? (
             <EmptyState icon={Hammer} title="Kayıt yok" text="Yalnızca Kurulca onaylanan öneriler bu listede görünür." />
           ) : (
             <ul>
-              {visible.map(({ s, impl }) => {
+              {shown.map(({ s, impl }) => {
                 const p = actionProgress(impl);
                 const active = s.id === selectedId;
                 return (

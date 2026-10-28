@@ -4,8 +4,8 @@
 // live "Yeni Öneri" wizard and Criteria/Ayarlar screen were checked directly to get these exact
 // values, replacing an earlier best-guess version of this file).
 import { ApprovalStatus, ImplementationStatus, KaizenImplementation } from "./kaizenTypes";
-import { stagesOf } from "../../utils/kaizenSettings";
-import type { KaizenSuggestion } from "./kaizenTypes";
+import { stagesOf, toBaseCurrency, KaizenSettings } from "../../utils/kaizenSettings";
+import type { KaizenSuggestion, KaizenEvaluation } from "./kaizenTypes";
 
 // Öneri Sınıfı / Öneri Aşaması (PDCA) / Kazanç Süresi choices are per customer since Faz 2-B —
 // see DEFAULT_KAIZEN_SETTINGS in src/utils/kaizenSettings.ts for the legacy-confirmed defaults.
@@ -32,7 +32,8 @@ export const APPROVAL_STATUS_COLORS: Record<ApprovalStatus, string> = {
 
 // Per-record label: an approval that needed no Kurul (below the customer's Kurul threshold) must not
 // read as "Kurul Onayladı".
-export function statusLabel(status: ApprovalStatus, requiredStages?: unknown): string {
+export function statusLabel(status: ApprovalStatus, requiredStages?: unknown, inFeasibility?: boolean): string {
+  if (status === "First Approval" && inFeasibility) return "Fizibilitede";
   if (status === "Second Approval" && !stagesOf({ requiredStages }).includes("Board")) return "Amir Onayladı";
   return APPROVAL_STATUS_LABELS[status] || status;
 }
@@ -138,7 +139,54 @@ export function journeyOf(s: KaizenSuggestion): { key: string; label: string; st
   return [
     { key: "sent", label: "Gönderildi", state: "done" },
     ...(stages.includes("Manager") ? [{ key: "manager", label: "Amir Onayı", state: managerState }] : []),
-    ...(stages.includes("Board") ? [{ key: "board", label: "Kurul Değerlendirmesi", state: st === "Rejected" ? "todo" as StepState : boardState }] : []),
+    ...(stages.includes("Board") ? [{ key: "board", label: st === "First Approval" && s.feasibility?.status === "open" ? "Kurul · fizibilite" : "Kurul Değerlendirmesi", state: st === "Rejected" ? "todo" as StepState : boardState }] : []),
     { key: "impl", label: "Uygulama", state: implState }
   ];
+}
+
+// Feasibility study past its due date and still open.
+export const feasibilityOverdue = (s: Pick<KaizenSuggestion, "feasibility">) =>
+  s.feasibility?.status === "open" && !!s.feasibility.dueDate && s.feasibility.dueDate < todayIso();
+
+// ---- Fırsat havuzu (Faz 4.5) ----
+// Accepted suggestions that are not implemented yet are unrealised savings. Each is valued at the
+// Kurul-approved income (else the suggestion's own estimate, annual for per-piece) in the base
+// currency and aged from its acceptance date. Not convertible amounts are counted, not summed.
+export type PoolStage = "noplan" | "planned" | "active";
+export type PoolBucket = "0-30" | "31-90" | "90+";
+export interface PoolItem { suggestion: KaizenSuggestion; value: number | null; ageDays: number; bucket: PoolBucket; stage: PoolStage }
+
+export function opportunityPool(
+  suggestions: KaizenSuggestion[],
+  evaluations: KaizenEvaluation[],
+  implementations: Pick<KaizenImplementation, "suggestionId" | "status">[],
+  settings: KaizenSettings,
+  now = Date.now()
+) {
+  const evalBy = new Map(evaluations.map(e => [e.suggestionId, e]));
+  const implBy = new Map(implementations.map(i => [i.suggestionId, i]));
+  const items: PoolItem[] = [];
+  for (const s of suggestions) {
+    if (s.approvalStatus !== "Second Approval" || s.completed) continue;
+    const impl = implBy.get(s.id);
+    if (impl && (impl.status === "Tamamlandı" || impl.status === "İptal")) continue;
+    const e = evalBy.get(s.id);
+    const value = e && e.estimatedIncome
+      ? toBaseCurrency(e.estimatedIncome, e.estimatedIncomeCurrency, settings)
+      : toBaseCurrency(s.estimatedSaving || 0, s.estimatedSavingCurrency, settings);
+    const since = Date.parse(e?.createdAt || s.updatedAt || s.createdAt || "") || now;
+    const ageDays = Math.max(0, Math.floor((now - since) / 86_400_000));
+    items.push({
+      suggestion: s, value, ageDays,
+      bucket: ageDays <= 30 ? "0-30" : ageDays <= 90 ? "31-90" : "90+",
+      stage: !impl ? "noplan" : impl.status === "Sürüyor" ? "active" : "planned"
+    });
+  }
+  items.sort((a, b) => b.ageDays - a.ageDays);
+  const sum = (list: PoolItem[]) => list.reduce((t, i) => t + (i.value ?? 0), 0);
+  const buckets = (["0-30", "31-90", "90+"] as PoolBucket[]).map(b => {
+    const list = items.filter(i => i.bucket === b);
+    return { bucket: b, count: list.length, value: sum(list) };
+  });
+  return { items, total: sum(items), count: items.length, unconverted: items.filter(i => i.value === null).length, buckets };
 }
