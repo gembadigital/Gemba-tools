@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Gem, Download, ShieldAlert, Leaf, Sparkles, Trophy, Lightbulb, BadgeCheck, Award, Coins, RotateCcw } from "lucide-react";
+import { Gem, Download, ShieldAlert, Leaf, Sparkles, Trophy, Lightbulb, BadgeCheck, Award, Coins, RotateCcw, Users, Wallet, TrendingUp, Building2, ArrowUpDown } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, LineChart, Line, Treemap,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, RadialBarChart, RadialBar, PolarAngleAxis
@@ -122,6 +122,50 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
   const roiExpected = portfolio("expected");
   const roiActual = portfolio("actual");
 
+  // Faz 5.3 göstergeleri — all from the filtered set, amounts in the base currency.
+  // Kazançlı: accepted with a positive current expected saving (convertible or not).
+  const accepted = filtered.filter(s => s.approvalStatus === "Second Approval");
+  const profitableCount = accepted.filter(s => expectedSaving(s, evaluationBySuggestion.get(s.id)).amount > 0).length;
+  const verifiedProfitableCount = filtered.filter(s => { const i = implBySuggestion.get(s.id); return i?.verification?.status === "Doğrulandı" && (i.actualSaving || 0) > 0; }).length;
+  const submitters = new Set(filtered.map(s => s.personnelId || s.personnelName).filter(Boolean)).size;
+  const perPerson = submitters ? Math.round((filtered.length / submitters) * 10) / 10 : 0;
+  const perRoster = personnel.length ? Math.round((filtered.length / personnel.length) * 10) / 10 : 0;
+  // Yatırım: accepted suggestions — the actual investment once entered on the implementation, else the estimate.
+  const investment = accepted.reduce((acc, s) => {
+    const i = implBySuggestion.get(s.id);
+    const actual = (i?.actualCost || 0) > 0;
+    const v = actual ? toBaseCurrency(i!.actualCost!, i!.actualCostCurrency || base, settings) : toBaseCurrency(s.estimatedCost || 0, s.estimatedCostCurrency, settings);
+    if (v === null) return { ...acc, skipped: acc.skipped + 1 };
+    return { total: acc.total + v, actual: acc.actual + (actual ? 1 : 0), skipped: acc.skipped };
+  }, { total: 0, actual: 0, skipped: 0 });
+
+  // Bölüm sıralaması: one row per department of the filtered suggestions.
+  const [deptSort, setDeptSort] = useState<DeptKey>("count");
+  const departmentRows = useMemo(() => {
+    const headcount = new Map<string, number>();
+    personnel.forEach(p => { const d = p.department || "Belirtilmemiş"; headcount.set(d, (headcount.get(d) || 0) + 1); });
+    const rows = new Map<string, DeptRow>();
+    for (const s of filtered) {
+      const d = s.personnelDepartment || "Belirtilmemiş";
+      const r = rows.get(d) || { department: d, count: 0, people: new Set<string>(), accepted: 0, decided: 0, completed: 0, points: 0, expected: 0, actual: 0, headcount: headcount.get(d) || 0, perPerson: 0, rate: 0 };
+      r.count++;
+      r.people.add(s.personnelId || s.personnelName);
+      if (s.approvalStatus !== "Pending" && !awaitingFirstDecision(s)) r.decided++;
+      if (s.approvalStatus === "Second Approval") {
+        r.accepted++;
+        const x = expectedSaving(s, evaluationBySuggestion.get(s.id));
+        r.expected += toBaseCurrency(x.amount, x.currency, settings) ?? 0;
+      }
+      if (s.completed) r.completed++;
+      r.points += evaluationBySuggestion.get(s.id)?.point || 0;
+      const i = implBySuggestion.get(s.id);
+      if (i?.verification?.status === "Doğrulandı") r.actual += toBaseCurrency(i.actualSaving || 0, i.actualSavingCurrency, settings) ?? 0;
+      rows.set(d, r);
+    }
+    const list = Array.from(rows.values()).map(r => ({ ...r, perPerson: r.headcount ? r.count / r.headcount : 0, rate: r.decided ? Math.round((r.accepted / r.decided) * 100) : 0 }));
+    return list.sort((a, b) => (b[deptSort] as number) - (a[deptSort] as number) || b.count - a.count);
+  }, [filtered, personnel, evaluationBySuggestion, implBySuggestion, settings, deptSort]);
+
   // Fırsat havuzu (Faz 4.5) for the filtered set.
   const pool = useMemo(() => opportunityPool(filtered, evaluations, implementations, settings), [filtered, evaluations, implementations, settings]);
   const decided = filtered.filter(s => s.approvalStatus !== "Pending");
@@ -220,12 +264,16 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
       </Card>
 
       {/* KPI row */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         <KpiCard label="Toplam Öneri" value={filtered.length} icon={Lightbulb} tone="slate" />
         <KpiCard label="Uygulanan" value={completedCount} icon={BadgeCheck} tone="teal" />
         <KpiCard label="Toplam Kaizen Puanı" value={totalPoints} icon={Award} tone="amber" />
         <KpiCard label={`Tahmini Getiri (${base})`} value={Math.round(approvedIncomeBase).toLocaleString("tr-TR")} icon={Coins} tone="emerald" hint={approvedIncomeExcluded > 0 ? `${approvedIncomeExcluded} kayıt çevrilemeyen para birimiyle, toplama dahil değil` : "Onaylanan öneriler"} />
         <KpiCard label={`Bekleyen Potansiyel (${base})`} value={Math.round(pool.total).toLocaleString("tr-TR")} icon={Gem} tone="amber" hint={`${pool.count} kabul edilmiş, uygulanmamış öneri${pool.buckets[2].count ? ` · ${pool.buckets[2].count} tanesi 90+ gün` : ""}`} />
+        <KpiCard label="Kazançlı Öneri" value={profitableCount} icon={TrendingUp} tone="emerald" hint={`Kabul edilen ve beklenen kazancı olan · ${verifiedProfitableCount} tanesi doğrulanmış gerçek kazançlı`} />
+        <KpiCard label="Kişi Başı Öneri" value={perPerson.toLocaleString("tr-TR")} icon={Users} tone="slate" hint={`${submitters} öneri veren kişi · tüm personele göre ${perRoster.toLocaleString("tr-TR")}`} />
+        <KpiCard label={`Toplam Yatırım (${base})`} value={Math.round(investment.total).toLocaleString("tr-TR")} icon={Wallet} tone="slate" hint={`Kabul edilen öneriler · ${investment.actual} tanesi gerçekleşen tutar, diğerleri tahmini${investment.skipped ? ` · ${investment.skipped} kayıt çevrilemedi` : ""}`} />
+        <KpiCard label={`Net Gerçek Kazanç (${base})`} value={Math.round(roiActual.net).toLocaleString("tr-TR")} icon={Coins} tone="teal" hint={`Doğrulanmış uygulamalar, ilk yıl: kazanç − yatırım · beklenen ${Math.round(roiExpected.net).toLocaleString("tr-TR")}`} />
         <KpiCard label={`Doğrulanmış Gerçek Kazanç (${base})`} value={Math.round(verifiedActualBase).toLocaleString("tr-TR")} icon={BadgeCheck} tone="teal" hint={verifiedExcluded > 0 ? `${verifiedExcluded} kayıt çevrilemeyen para birimiyle, toplama dahil değil` : "Uygulama sonrası Kurul tarafından doğrulanan"} />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -233,6 +281,7 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
         <Gauge label="Katılım Oranı" hint={`${participants} / ${personnel.length} personel`} value={participationRate} color="#00A280" />
       </div>
       <RoiSummary base={base} expected={roiExpected} actual={roiActual} />
+      {departmentRows.length > 0 && <DepartmentRanking rows={departmentRows} base={base} sort={deptSort} onSort={setDeptSort} />}
 
       {filtered.length === 0 ? (
         <Card><EmptyState icon={Lightbulb} title="Seçili filtrelerle öneri bulunamadı" /></Card>
@@ -425,6 +474,51 @@ function RoiSummary({ base, expected, actual }: { base: string; expected: Portfo
         <li>Geri ödeme: tek seferlik kazançların karşılamadığı yatırım ÷ yıllık kazanç × 12. Gerçekleşende yatırım girilmemişse tahmini maliyet kullanılır.</li>
         {expected.skipped + actual.skipped > 0 && <li className="text-amber-700">{expected.skipped + actual.skipped} kayıt çevrilemeyen para birimiyle, hesaba dahil değil.</li>}
       </ul>
+    </Card>
+  );
+}
+
+// Bölüm sıralama tablosu (Faz 5.3). Kişi başı öneri uses the department's roster headcount.
+type DeptRow = { department: string; count: number; people: Set<string>; accepted: number; decided: number; completed: number; points: number; expected: number; actual: number; headcount: number; perPerson: number; rate: number };
+type DeptKey = "count" | "perPerson" | "rate" | "completed" | "points" | "expected" | "actual";
+function DepartmentRanking({ rows, base, sort, onSort }: { rows: DeptRow[]; base: string; sort: DeptKey; onSort: (k: DeptKey) => void }) {
+  const money = (n: number) => Math.round(n).toLocaleString("tr-TR");
+  const cols: [DeptKey, string, (r: DeptRow) => string][] = [
+    ["count", "Öneri", r => String(r.count)],
+    ["perPerson", "Kişi başı", r => (r.headcount ? (Math.round(r.perPerson * 10) / 10).toLocaleString("tr-TR") : "—")],
+    ["rate", "Kabul oranı", r => (r.decided ? `%${r.rate}` : "—")],
+    ["completed", "Uygulanan", r => String(r.completed)],
+    ["points", "Puan", r => String(r.points)],
+    ["expected", `Beklenen kazanç (${base})`, r => money(r.expected)],
+    ["actual", `Gerçek kazanç (${base})`, r => money(r.actual)]
+  ];
+  return (
+    <Card padded={false} className="overflow-hidden">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 px-5 pt-5 pb-3">
+        <h3 className="text-base font-bold text-slate-900 flex items-center gap-2"><Building2 className="w-4 h-4 text-slate-500" />Bölüm Sıralaması</h3>
+        <p className="text-xs text-slate-500">Sütun başlığına basarak sıralayın · kişi başı = öneri ÷ bölümdeki personel</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className={tableCls}>
+          <thead className={theadCls}><tr>
+            <th className={thCls}>#</th><th className={thCls}>Bölüm</th>
+            {cols.map(([k, l]) => (
+              <th key={k} className={`${thCls} text-right`} aria-sort={sort === k ? "descending" : "none"}>
+                <button onClick={() => onSort(k)} className={`inline-flex items-center gap-1 cursor-pointer hover:text-slate-900 ${sort === k ? "text-slate-900" : ""}`}>{l}<ArrowUpDown className="w-3 h-3" /></button>
+              </th>
+            ))}
+          </tr></thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.department} className={trCls}>
+                <td className={`${tdCls} tabular-nums text-slate-400`}>{i + 1}</td>
+                <td className={`${tdCls} font-semibold text-slate-900`}>{r.department}<span className="block text-[11px] font-normal text-slate-400">{r.people.size} kişi öneri verdi{r.headcount ? ` / ${r.headcount}` : ""}</span></td>
+                {cols.map(([k, , f]) => <td key={k} className={`${tdCls} text-right tabular-nums ${sort === k ? "font-bold text-slate-900" : ""}`}>{f(r)}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </Card>
   );
 }
