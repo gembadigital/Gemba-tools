@@ -236,3 +236,18 @@ export interface KaizenImplementation {
   createdAt: string;
   updatedAt: string;
 }
+
+// Öneri altı yazışma (Faz 4.2). kind "request" = ready-made request from the submitter.
+export type KaizenRequestType = "evaluation" | "approval" | "status";
+export interface KaizenMessage {
+  id: string;
+  suggestionId: string;
+  authorName: string;
+  authorEmail?: string;
+  authorPersonnelId?: string;
+  authorRole: string;            // Öneri sahibi / Amir / Kurul / Danışman / Ekip (server-set)
+  kind: "message" | "request";
+  requestType?: KaizenRequestType | "";
+  text: string;
+  createdAt: string;
+}

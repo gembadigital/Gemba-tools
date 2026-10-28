@@ -71,7 +71,7 @@ type FiveSCollection = typeof FIVE_S_COLLECTIONS[number];
 
 // Kaizen Suggestions module — same generic collection-CRUD pattern as FIVE_S_COLLECTIONS above.
 const KAIZEN_COLLECTIONS = [
-  "kaizen_personnel", "kaizen_criteria", "kaizen_suggestions", "kaizen_approvals", "kaizen_evaluations", "kaizen_implementations", "kaizen_settings"
+  "kaizen_personnel", "kaizen_criteria", "kaizen_suggestions", "kaizen_approvals", "kaizen_evaluations", "kaizen_implementations", "kaizen_settings", "kaizen_messages"
 ] as const;
 type KaizenCollection = typeof KAIZEN_COLLECTIONS[number];
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Home, Plus, ListChecks, Star, BarChart3, Settings, Hammer, AlertCircle, CheckCircle2, X, LogOut } from "lucide-react";
 import { useFactory } from "../../context/FactoryContext";
-import { KaizenPersonnel, KaizenCriteria, KaizenSuggestion, KaizenApproval, KaizenEvaluation, KaizenImplementation as KaizenImpl } from "./kaizenTypes";
+import { KaizenPersonnel, KaizenCriteria, KaizenSuggestion, KaizenApproval, KaizenEvaluation, KaizenImplementation as KaizenImpl, KaizenMessage } from "./kaizenTypes";
 import { canDecideAsManager } from "./kaizenCalc";
 import KaizenHome from "./KaizenHome";
 import KaizenNewSuggestion from "./KaizenNewSuggestion";
@@ -81,6 +81,8 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
   const [evaluations, setEvaluations] = useState<KaizenEvaluation[]>([]);
   const [implementations, setImplementations] = useState<KaizenImpl[]>([]);
   const [settings, setSettings] = useState<KaizenSettings>(DEFAULT_KAIZEN_SETTINGS);
+  const [messages, setMessages] = useState<KaizenMessage[]>([]);
+  const addMessage = (m: KaizenMessage) => setMessages(prev => [...prev, m]);
 
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -133,10 +135,11 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
   const loadedFor = React.useRef<string | null>(null);
   const loadAll = useCallback(async () => {
     if (loadedFor.current !== factoryId) setLoading(true);
-    const [per, cri, sug, apr, evl, imp, set] = await Promise.all([
+    const [per, cri, sug, apr, evl, imp, set, msg] = await Promise.all([
       api.get("personnel"), api.get("criteria"), api.get("suggestions"), api.get("approvals"), api.get("evaluations"), api.get("implementations"),
-      api.get("settings")
+      api.get("settings"), api.get("messages")
     ]);
+    setMessages(Array.isArray(msg) ? msg : []);
     setPersonnel(per); setCriteria(cri); setSuggestions(sug); setApprovals(apr); setEvaluations(evl); setImplementations(imp);
     setSettings(normalizeKaizenSettings(set));
     loadedFor.current = factoryId;
@@ -366,6 +369,8 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
           settings={settings}
           personnel={personnel}
           teamIds={myTeamIds}
+          messages={messages}
+          onMessagePosted={addMessage}
         />
       )}
 
@@ -382,6 +387,8 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
           onReload={loadAll}
           settings={settings}
           personnel={personnel}
+          messages={messages}
+          onMessagePosted={addMessage}
         />
       )}
 

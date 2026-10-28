@@ -2913,7 +2913,7 @@ function withoutPhotos(collection: string, record: any) {
   return out;
 }
 
-for (const [path, collection] of [["suggestions", "kaizen_suggestions"], ["approvals", "kaizen_approvals"], ["evaluations", "kaizen_evaluations"], ["implementations", "kaizen_implementations"]] as const) {
+for (const [path, collection] of [["suggestions", "kaizen_suggestions"], ["approvals", "kaizen_approvals"], ["evaluations", "kaizen_evaluations"], ["implementations", "kaizen_implementations"], ["messages", "kaizen_messages"]] as const) {
   app.get(`/api/business/kaizen/${path}`, authenticateToken, async (req, res) => {
     const user = (req as any).user;
     const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
@@ -3245,6 +3245,96 @@ app.post("/api/business/kaizen/suggestions/:id/manager-decision", authenticateTo
     }).catch(() => {});
   }
   res.json({ success: true, data: result });
+});
+
+// ---- Öneri altı yazışma ve hazır talepler (Faz 4.2) ----
+// Everyone who can see a suggestion can read and write its thread. The submitter can also send a
+// ready-made request (değerlendirme / onay / durum teyidi) — at most once per type per 24 hours —
+// which notifies whoever holds the suggestion now: the Amir while it waits for them, the Kurul
+// (and the feasibility owner) in the Kurul stage, the implementation owner once accepted.
+const REQUEST_TYPES: Record<string, string> = {
+  evaluation: "Değerlendirme talebi",
+  approval: "Onay talebi",
+  status: "Durum teyidi talebi"
+};
+const REQUEST_TEXT: Record<string, string> = {
+  evaluation: "Önerimin değerlendirilmesini rica ediyorum.",
+  approval: "Önerim için onay kararınızı bekliyorum.",
+  status: "Önerimin şu anki durumu hakkında bilgi verebilir misiniz?"
+};
+
+async function kaizenThreadRole(user: any, suggestion: any): Promise<string> {
+  if (isAuthorOf(user, suggestion)) return "Öneri sahibi";
+  if (await isSuggestionManager(user, suggestion)) return "Amir";
+  if (isStaff(user)) return "Danışman";
+  if (await isKaizenBoardMember(user, suggestion.factory_id)) return "Kurul";
+  return "Ekip";
+}
+
+// Who should hear about new activity on this suggestion, given its stage (never the writer).
+async function kaizenThreadRecipients(orgId: string, suggestion: any, writer: any, toResponsible: boolean): Promise<string[]> {
+  const roster = await db.getKaizenRecords("kaizen_personnel", orgId, suggestion.factory_id);
+  const emails = new Set<string>();
+  const add = (e?: string) => { const v = (e || "").trim().toLowerCase(); if (v && !v.endsWith("@kaizen.local")) emails.add(v); };
+  if (!toResponsible) {
+    add(suggestion.authorEmail);
+  } else if (suggestion.approvalStatus === "Pending") {
+    add(suggestion.teamLeaderEmail);
+    if (suggestion.teamLeaderId) add(roster.find((p: any) => p.id === suggestion.teamLeaderId)?.email);
+  } else if (suggestion.approvalStatus === "First Approval") {
+    roster.filter((p: any) => p.isBoardMember || p.isBoardAdmin).forEach((p: any) => add(p.email));
+    if (suggestion.feasibility?.status === "open") add(suggestion.feasibility.ownerEmail);
+  } else {
+    const impl = (await db.getKaizenRecords("kaizen_implementations", orgId, suggestion.factory_id)).find((i: any) => i.suggestionId === suggestion.id);
+    add(impl?.ownerEmail || suggestion.teamLeaderEmail);
+  }
+  emails.delete((writer.email || "").toLowerCase());
+  return Array.from(emails);
+}
+
+app.post("/api/business/kaizen/suggestions/:id/messages", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const suggestion = await loadKaizenSuggestion(req, res);
+  if (!suggestion) return;
+  if (!(await canSeeKaizenSuggestion(user, suggestion))) return denyKaizen(res, 404, "Öneri bulunamadı.");
+  const requestType = typeof req.body.requestType === "string" && REQUEST_TYPES[req.body.requestType] ? req.body.requestType : "";
+  const text = clip(req.body.text, 2000) || (requestType ? REQUEST_TEXT[requestType] : "");
+  if (!text) return denyKaizen(res, 400, "Mesaj boş olamaz.");
+  const isAuthor = isAuthorOf(user, suggestion);
+  if (requestType && !isAuthor) return denyKaizen(res, 403, "Hazır talepleri yalnızca öneri sahibi gönderebilir.");
+
+  const thread = (await db.getKaizenRecords("kaizen_messages", user.organization_id, suggestion.factory_id)).filter((m: any) => m.suggestionId === suggestion.id);
+  if (requestType) {
+    const last = thread.filter((m: any) => m.requestType === requestType).sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || ""))[0];
+    if (last && Date.now() - Date.parse(last.createdAt) < 24 * 3600_000) {
+      return denyKaizen(res, 429, `${REQUEST_TYPES[requestType]} son 24 saat içinde zaten gönderildi.`);
+    }
+  }
+  const nowIso = new Date().toISOString();
+  const message = {
+    id: `kaizen_messages_${crypto.randomUUID().slice(0, 12)}`,
+    suggestionId: suggestion.id,
+    authorName: user.full_name || user.email,
+    authorEmail: (user.email || "").toLowerCase(),
+    authorPersonnelId: user.kaizenPersonnelId || (await myKaizenPersonnel(user, suggestion.factory_id))?.id || "",
+    authorRole: await kaizenThreadRole(user, suggestion),
+    kind: requestType ? "request" : "message",
+    requestType,
+    text,
+    createdAt: nowIso
+  };
+  const saved = await db.saveKaizenRecord("kaizen_messages", user.organization_id, suggestion.factory_id, message, user.id);
+
+  // Author writes / requests → the party holding the suggestion; anyone else → the author.
+  const to = await kaizenThreadRecipients(user.organization_id, suggestion, user, isAuthor);
+  if (to.length) {
+    sendMail({
+      to,
+      subject: `${requestType ? REQUEST_TYPES[requestType] : "Yeni mesaj"}: ${suggestion.subject}`,
+      text: `${message.authorName} (${message.authorRole}) "${suggestion.subject}" konulu Kaizen önerisine yazdı:\n\n${text}\n\nYanıtlamak için: ${getBaseUrl(req)}`
+    }).catch(() => {});
+  }
+  res.json({ success: true, data: saved, notified: to.length });
 });
 
 // Değerlendiriliyor / fizibilite (Faz 4.1): instead of deciding at once, the Kurul can put a

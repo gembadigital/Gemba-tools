@@ -3,7 +3,8 @@ import {
   Edit3, X, Undo2, Search, Check, Circle, XCircle, Lightbulb, MessageSquare, Trophy, ChevronRight,
   Users, User, Coins, Wrench, Calendar, ImageIcon, ArrowRight, ShieldAlert, Leaf, Smile
 } from "lucide-react";
-import { KaizenSuggestion, KaizenApproval, KaizenEvaluation, KaizenPersonnel } from "./kaizenTypes";
+import { KaizenSuggestion, KaizenApproval, KaizenEvaluation, KaizenPersonnel, KaizenMessage } from "./kaizenTypes";
+import KaizenThread from "./KaizenThread";
 import { personOfSuggestion } from "../../utils/kaizenOrg";
 import { perPieceText } from "../../utils/kaizenSaving";
 import { canEditSuggestion, isRejected, journeyOf } from "./kaizenCalc";
@@ -23,6 +24,8 @@ interface Props {
   settings: KaizenSettings;
   personnel: KaizenPersonnel[];
   teamIds: Set<string>; // everyone below me in the hierarchy, any depth
+  messages: KaizenMessage[];
+  onMessagePosted: (m: KaizenMessage) => void;
 }
 
 // Status groups in plain words — what people actually ask: "is it waiting, accepted, done?"
@@ -38,7 +41,7 @@ const GROUPS: { key: string; label: string; test: (s: KaizenSuggestion) => boole
 const fmtDate = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric" }) : "—");
 const money = (n: number, cur: string) => `${(n || 0).toLocaleString("tr-TR")} ${cur || ""}`.trim();
 
-export default function KaizenMySuggestions({ currentUser, suggestions, approvals, evaluations, onEdit, api, showToast, onReload, settings, personnel, teamIds }: Props) {
+export default function KaizenMySuggestions({ currentUser, suggestions, approvals, evaluations, onEdit, api, showToast, onReload, settings, personnel, teamIds, messages, onMessagePosted }: Props) {
   const myEmail = (currentUser?.email || "").toLowerCase();
   // A suggestion shows here if I authored it, I am its direct supervisor, or its person is anywhere
   // in my team (Faz 3.1, any depth). The scope switch separates mine from my team's.
@@ -168,6 +171,13 @@ export default function KaizenMySuggestions({ currentUser, suggestions, approval
                         <MiniJourney steps={journeyOf(s)} />
                         {s.estimatedSaving > 0 && <span className="text-slate-600 tabular-nums"><span className="text-slate-400">Kazanç </span><b className="text-slate-900">{money(s.estimatedSaving, s.estimatedSavingCurrency)}</b></span>}
                         {!!pts && <span className="inline-flex items-center gap-1 text-amber-600 font-semibold tabular-nums"><Trophy className="w-3.5 h-3.5" />{pts} p</span>}
+                        {(() => {
+                          const thread = messages.filter(m => m.suggestionId === s.id);
+                          if (!thread.length) return null;
+                          const last = thread.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
+                          const pendingRequest = last.kind === "request" && !isMine;
+                          return <span className={`inline-flex items-center gap-1 font-semibold tabular-nums ${pendingRequest ? "text-amber-700" : "text-slate-500"}`} title={pendingRequest ? "Öneri sahibinden yanıt bekleyen talep" : "Yazışma"}><MessageSquare className="w-3.5 h-3.5" />{thread.length}{pendingRequest ? " · talep" : ""}</span>;
+                        })()}
                       </div>
                       <div className="flex items-center gap-1">
                         {canEditSuggestion(s.approvalStatus) && isMine && (
@@ -192,6 +202,11 @@ export default function KaizenMySuggestions({ currentUser, suggestions, approval
       {detail && (
         <DetailDrawer
           api={api}
+          currentUser={currentUser}
+          messages={messages.filter(m => m.suggestionId === detail.id)}
+          onMessagePosted={onMessagePosted}
+          showToast={showToast}
+          isAuthor={(detail.authorEmail || "").toLowerCase() === myEmail}
           settings={settings}
           suggestion={detail}
           approvals={approvals.filter(a => a.suggestionId === detail.id).sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""))}
@@ -207,8 +222,8 @@ export default function KaizenMySuggestions({ currentUser, suggestions, approval
   );
 }
 
-function DetailDrawer({ suggestion: listItem, approvals, evaluations, canEdit, canWithdraw, onEdit, onWithdraw, onClose, settings, api }: {
-  settings: KaizenSettings; api: KaizenApi;
+function DetailDrawer({ suggestion: listItem, approvals, evaluations, canEdit, canWithdraw, onEdit, onWithdraw, onClose, settings, api, currentUser, messages, onMessagePosted, showToast, isAuthor }: {
+  settings: KaizenSettings; api: KaizenApi; currentUser: any; messages: KaizenMessage[]; onMessagePosted: (m: KaizenMessage) => void; showToast: (m: string) => void; isAuthor: boolean;
   suggestion: KaizenSuggestion; approvals: KaizenApproval[]; evaluations: KaizenEvaluation[];
   canEdit: boolean; canWithdraw: boolean; onEdit: () => void; onWithdraw: () => void; onClose: () => void;
 }) {
@@ -338,6 +353,10 @@ function DetailDrawer({ suggestion: listItem, approvals, evaluations, canEdit, c
               </ol>
             </Card>
           )}
+        </div>
+
+        <div className="px-5 sm:px-6 pb-6 -mt-2">
+          <Card><KaizenThread suggestion={s} messages={messages} api={api} currentUser={currentUser} isAuthor={isAuthor} onPosted={onMessagePosted} showToast={showToast} /></Card>
         </div>
 
         {(canEdit || canWithdraw) && (

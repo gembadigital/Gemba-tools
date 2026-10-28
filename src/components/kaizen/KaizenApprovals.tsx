@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { CheckCircle2, XCircle, Download, Share2, Gift, Clock, Inbox, ClipboardCheck, Users, Award, Sparkles, MessageSquare, LayoutPanelLeft, TableProperties, ChevronLeft, ChevronRight, X, ArrowUp, ArrowDown, ArrowUpDown, RotateCcw, Filter, FlaskConical } from "lucide-react";
-import { KaizenSuggestion, KaizenCriteria, KaizenApproval, KaizenEvaluation, KaizenPersonnel } from "./kaizenTypes";
+import { KaizenSuggestion, KaizenCriteria, KaizenApproval, KaizenEvaluation, KaizenPersonnel, KaizenMessage } from "./kaizenTypes";
+import KaizenThread from "./KaizenThread";
 import { canDecideAsManager, daysWaiting, WAITING_SEVERITY_COLORS, statusLabel, feasibilityOverdue } from "./kaizenCalc";
 import { KaizenSettings, currencyChoices, toBaseCurrency, waitingSeverityFor, rewardFor, stagesOf } from "../../utils/kaizenSettings";
 
@@ -21,12 +22,14 @@ interface Props {
   onReload: () => void;
   settings: KaizenSettings;
   personnel: KaizenPersonnel[];
+  messages: KaizenMessage[];
+  onMessagePosted: (m: KaizenMessage) => void;
 }
 
 type Tab = "manager" | "board" | "yokoten" | "reward";
 
 
-export default function KaizenApprovals({ currentUser, suggestions, approvals, evaluations, criteria, isBoardMember, api, showToast, onReload, settings, personnel }: Props) {
+export default function KaizenApprovals({ currentUser, suggestions, approvals, evaluations, criteria, isBoardMember, api, showToast, onReload, settings, personnel, messages, onMessagePosted }: Props) {
   const [tab, setTab] = useState<Tab>("manager");
   const myEmail = currentUser?.email || "";
   const myRole = currentUser?.role || "";
@@ -77,6 +80,9 @@ export default function KaizenApprovals({ currentUser, suggestions, approvals, e
         <DecisionWorkspace
           settings={settings}
           personnel={personnel}
+          messages={messages}
+          onMessagePosted={onMessagePosted}
+          currentUser={currentUser}
           stage="manager" queue={managerQueue} history={managerHistory} criteria={criteria}
           approvals={approvals} evaluations={evaluations}
           waitingSince={s => s.createdAt}
@@ -87,6 +93,9 @@ export default function KaizenApprovals({ currentUser, suggestions, approvals, e
         <DecisionWorkspace
           settings={settings}
           personnel={personnel}
+          messages={messages}
+          onMessagePosted={onMessagePosted}
+          currentUser={currentUser}
           stage="board" queue={boardQueue} history={boardHistory} criteria={criteria}
           approvals={approvals} evaluations={evaluations}
           waitingSince={s => managerApprovalBySuggestion.get(s.id) || s.createdAt}
@@ -111,8 +120,8 @@ function WaitingBadge({ since, settings }: { since: string; settings: KaizenSett
 
 // ---------- Master/detail workspace: queue on the left, decision form on the right ----------
 
-function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluations, waitingSince, api, showToast, onReload, settings, personnel }: {
-  settings: KaizenSettings; personnel: KaizenPersonnel[];
+function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluations, waitingSince, api, showToast, onReload, settings, personnel, messages, onMessagePosted, currentUser }: {
+  settings: KaizenSettings; personnel: KaizenPersonnel[]; messages: KaizenMessage[]; onMessagePosted: (m: KaizenMessage) => void; currentUser: any;
   stage: "manager" | "board"; queue: KaizenSuggestion[]; history: KaizenSuggestion[]; criteria: KaizenCriteria[];
   approvals: KaizenApproval[]; evaluations: KaizenEvaluation[]; waitingSince: (s: KaizenSuggestion) => string;
   api: KaizenApi; showToast: (m: string) => void; onReload: () => void;
@@ -149,6 +158,9 @@ function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluat
     <DecisionPanel
       settings={settings}
       personnel={personnel}
+      messages={messages.filter(m => m.suggestionId === selected.id)}
+      onMessagePosted={onMessagePosted}
+      currentUser={currentUser}
       key={selected.id} suggestion={selected} stage={stage} criteria={criteria}
       approvals={approvals.filter(a => a.suggestionId === selected.id)}
       evaluations={evaluations.filter(e => e.suggestionId === selected.id)}
@@ -216,7 +228,7 @@ function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluat
                   <Avatar name={s.personnelName} size="sm" />
                   <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-3">
-                    <p className="text-sm font-semibold text-slate-900 leading-snug">{s.subject}{s.feasibility?.status === "open" && <FeasTag s={s} />}</p>
+                    <p className="text-sm font-semibold text-slate-900 leading-snug">{s.subject}{s.feasibility?.status === "open" && <FeasTag s={s} />}<RequestTag thread={messages.filter(m => m.suggestionId === s.id)} /></p>
                     {view === "queue" ? <WaitingBadge since={waitingSince(s)} settings={settings} /> : <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} feasibility={s.feasibility?.status === "open"} />}
                   </div>
                   <p className="text-sm text-slate-500 mt-1">{s.personnelName} · {s.personnelDepartment || "—"}</p>
@@ -384,8 +396,8 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   return <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p><div className="text-sm text-slate-800 mt-1 whitespace-pre-wrap">{children || "—"}</div></div>;
 }
 
-function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations, readOnly, api, showToast, onDone, settings, personnel }: {
-  settings: KaizenSettings; personnel: KaizenPersonnel[];
+function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations, readOnly, api, showToast, onDone, settings, personnel, messages, onMessagePosted, currentUser }: {
+  settings: KaizenSettings; personnel: KaizenPersonnel[]; messages: KaizenMessage[]; onMessagePosted: (m: KaizenMessage) => void; currentUser: any;
   suggestion: KaizenSuggestion; stage: "manager" | "board"; criteria: KaizenCriteria[]; approvals: KaizenApproval[]; evaluations: KaizenEvaluation[];
   readOnly: boolean; api: KaizenApi; showToast: (m: string) => void; onDone: () => void;
 }) {
@@ -496,6 +508,10 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
             {evaluations.map(e => <p key={e.id}><span className="font-bold">{e.criteriaLabel || "Kriter seçilmedi"}</span> — {e.point} puan{e.estimatedIncome ? ` · Getiri ${e.estimatedIncome.toLocaleString("tr-TR")} ${e.estimatedIncomeCurrency}` : ""}{e.yokoten ? " · Yokoten uygulanabilir" : ""}</p>)}
           </div>
         )}
+
+        <div className="rounded-2xl ring-1 ring-slate-200/80 p-4">
+          <KaizenThread suggestion={s} messages={messages} api={api} currentUser={currentUser} isAuthor={false} onPosted={onMessagePosted} showToast={showToast} compact />
+        </div>
 
         {stage === "board" && feas && (
           <div className={`rounded-xl ring-1 px-4 py-3 text-sm ${feasibilityOverdue(s) ? "bg-red-50 ring-red-200 text-red-800" : "bg-violet-50 ring-violet-200 text-violet-900"}`}>
@@ -675,4 +691,12 @@ function RewardTab({ suggestions, evaluations, api, showToast, onReload, setting
 function FeasTag({ s }: { s: KaizenSuggestion }) {
   const late = feasibilityOverdue(s);
   return <span className={`ml-2 align-middle inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full ${late ? "bg-red-50 text-red-600" : "bg-violet-50 text-violet-700"}`} title={`Sorumlu: ${s.feasibility?.ownerName} · Hedef: ${s.feasibility?.dueDate}`}><FlaskConical className="w-3 h-3" />{late ? "Fizibilite gecikti" : "Fizibilitede"}</span>;
+}
+
+// The submitter's last word was a ready-made request → show it on the queue item.
+function RequestTag({ thread }: { thread: KaizenMessage[] }) {
+  if (!thread.length) return null;
+  const last = thread.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
+  if (last.kind !== "request") return null;
+  return <span className="ml-2 align-middle inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700" title={last.text}><MessageSquare className="w-3 h-3" />Talep</span>;
 }
