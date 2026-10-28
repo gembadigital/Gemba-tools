@@ -7,8 +7,8 @@
 //   Finishing step 8 closes the project.
 // - Approver = the project leader (a user account). A project whose leader has no account (older
 //   projects stored only a name) is approved by Admin / Consultant instead.
-// - Customer users see and edit only projects they lead or are a member of; they never delete a
-//   project. Admin / Consultant see and edit everything.
+// - Customer users see and edit only projects they lead, are a member of or own an action in; they
+//   never delete a project. Admin / Consultant see and edit everything.
 // - Gains: the system reports the entered realized gain, a consultant (Admin / Consultant) confirms
 //   it, and the leader approves step 7 with the confirmed figure.
 //
@@ -247,8 +247,18 @@ export function isMember(u: CiUserLike | null | undefined, p: CiProjectLike): bo
   return !!me && (p.projectTeam || []).some(n => personKey(n) === me);
 }
 
+// Someone with an action assigned in the project (by account, or by name on older actions).
+export function isTaskOwner(u: CiUserLike | null | undefined, p: CiProjectLike): boolean {
+  if (!u) return false;
+  const me = personKey(u.full_name);
+  return (Array.isArray(p.tasks) ? p.tasks : []).some(t =>
+    t?.responsibleId ? t.responsibleId === u.id : !!me && personKey(t?.responsible) === me);
+}
+
+// Leader, member or action owner: sees and edits the project (but only leader / staff change the
+// leader and team — see ciRoutes).
 export const canViewProject = (u: CiUserLike | null | undefined, p: CiProjectLike) =>
-  isCiStaffUser(u) || isLeader(u, p) || isMember(u, p);
+  isCiStaffUser(u) || isLeader(u, p) || isMember(u, p) || isTaskOwner(u, p);
 
 export const canEditProject = canViewProject;
 

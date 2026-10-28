@@ -190,6 +190,7 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
 | C0 | ✅ kod (canlıda doğrulanmadı) | Ayrıntı aşağıda. |
 | C1 | ✅ kod (canlıda doğrulanmadı) | Ayrıntı aşağıda. Sekme bileşenlerinin bölünmesi C2/C3/C6/C7'ye bırakıldı (gerekçe aşağıda). |
 | C2 | ✅ kod (canlıda doğrulanmadı) | 8 adımlı A3 kartı, lider onayı, lider/üye yetkileri, geçmiş. Ayrıntı aşağıda. |
+| C3 | ✅ kod (canlıda doğrulanmadı) | Uygulama planı (Gantt, başlangıç/ilerleme, önce-sonra bağı), Görevlerim, tek hafta bazlı Master Plan bağı. Ayrıntı aşağıda. |
 
 ### C0 — yapılanlar
 - **Sunucu (`/api/business/kaizens`):** müşteri gövdeden değil `x-factory-id` kapsamından alınır; güncellemede mevcut
@@ -288,4 +289,42 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
   teyidinin düşmesi, damga koruması, silme) — test yeni projenin istemcinin gönderdiği adımda açılabildiği bir açığı
   yakaladı, düzeltildi. Kart yerel önizlemede (sahte veri) masaüstü ve telefon genişliğinde denendi; aksiyon satırı
   ve telefon başlığı düzeltildi. Canlıda denenmedi.
+
+### C3 — yapılanlar
+- **Aksiyon modeli** (`ci/ciTypes.ts` `CITask`): `startDate`, `progressPercent` (0/25/50/75/100), `status`,
+  `responsibleId`, `beforeAfterIds`. Durum ile ilerleme birbirini günceller (100 → Yapıldı; >0 → Devam Ediyor).
+- **Uygulama planı (A3 adım 5–6):** proje içi Gantt (`ci/CiTaskGantt.tsx`: başlangıç→termin çubuğu, ilerleme dolgusu,
+  bugün çizgisi, hedef bitiş işareti, geciken kırmızı; başlangıcı olmayan eski aksiyonlar termine kadar 1 hafta),
+  genel ilerleme çubuğu, satırda sorumlu (hesaplardan) / başlangıç / termin / durum / ilerleme; "başlangıç terminden
+  sonra" ve "termin geçti" uyarıları.
+- **Önce-sonra ↔ aksiyon (B8):** 6. adımda her aksiyon projedeki önce-sonra kayıtlarına bağlanabilir (çoklu) ya da
+  "Bu aksiyon için önce-sonra" ile o aksiyona bağlı yeni kayıt açılır (form aksiyon adıyla dolar). Kayıt listesinde
+  hangi aksiyondan geldiği yazar; kayıt silinince aksiyonlardaki bağ da silinir. Önce-sonra kaydetme/silme artık
+  yalnızca değişen alanları gönderir.
+- **Görevlerim** sekmesi (`ci/CiMyTasks.tsx`): müşterinin tüm projelerindeki aksiyonlar kişiye göre — termini geçmiş /
+  bu hafta / sonra / terminsiz / tamamlanan; durum ve ilerleme buradan da değişir (yalnızca `tasks` gönderilir).
+  Admin/Danışman kişi seçebilir ya da tüm aksiyonları görebilir. Sekmede açık görev sayısı rozeti. Askıdaki/iptal
+  projeler gösterilmez.
+- **Yetki:** aksiyon sorumlusu da proje katılımcısıdır — ekipte olmasa da projeyi görür ve düzenler (lider/ekip
+  değiştiremez). Önceden ekip dışı bir müşteri kullanıcısına aksiyon atanırsa projeyi hiç göremiyordu.
+- **Master Plan tek bağ (hafta bazlı):** CI satırı (`gantt_sync_<projeId>`) artık `utils/ciPlan.ts`
+  `ciMasterPlanRow` ile yazılır: ISO hafta (`plannedStartWeek` = açılış, `plannedFinishWeek` = hedef bitiş; yıl
+  geçişinde 52'de kesilir), `relatedModule: "Kaizen Projects"` + `linkedItemId`, lider, ilerleme ve durum; Master
+  Plan'da elle düzenlenen alanlar (faaliyet no, faz, alt faaliyet, gerçekleşen haftalar, adam-gün) korunur; satır
+  yalnızca gösterdiği bir şey değiştiyse yazılır. Master Plan'ın bağlı satır senkronu CI için aynı fonksiyonları
+  (`ciProjectProgress`, `ciPlanStatus`) kullanır → iki taraf artık farklı ilerleme yazıp birbirini ezmez.
+- **Düzeltilen hatalar:** (1) eski CI satırları yalnızca ay taşıyordu ve Master Plan ay→hafta çevirisi yalnızca
+  Haziran–Ağustos'u tanıdığından tüm CI projeleri 24.–32. haftalarda görünüyordu → eski satırlar ekranda projenin
+  gerçek tarihlerinden haftaya çevrilir (veri yazılmaz; proje bir sonraki kayıtta satırı yeniden yazar).
+  (2) Her CI satırı Master Plan'ın varsayılan 5 adam-gününü alıp toplamları şişiriyordu → CI satırları varsayılan 0
+  (Master Plan ve Opex Proje Dashboard). (3) Kart açıkken proje güncellenince (ör. önce-sonra eklenince) kaydedilmemiş
+  değişiklikler siliniyordu → artık korunur.
+- **Proje ilerlemesi:** kapalı → %100; aksiyon varsa iptal edilmeyenlerin ortalaması; yoksa tamamlanan adım oranı.
+  Plan durumu: kapalı → Completed; hedef bitiş geçtiyse → Delayed; başladıysa → In Progress; değilse Planned.
+- **Açık kalanlar:** kanban kartındaki eski "görevler" penceresi ve portföy "Timeline (Gantt)" sekmesi eski tasarımda
+  (aynı `tasks` alanını kullanırlar, uyumlu); görev bağımlılıkları yok; aksiyon atama/termin bildirimi C9'da.
+- **Doğrulama:** `tsc`, `npm run build`, native ESM yükleme; C3 testleri 16 kontrol (ISO hafta, yıl geçişi, ilerleme,
+  plan durumu, Master Plan satırı ve korunan alanlar, aksiyon sorumlusu erişimi) + C2'nin 37 kontrolü yeniden geçti.
+  Test, paylaşılan `ciPlan.ts`'teki uzantısız göreli importu yakaladı (sunucu kuralı) → düzeltildi. Kart ve
+  Görevlerim yerel önizlemede (sahte veri) denendi; dar ekranda aksiyon satırı yerleşimi düzeltildi. Canlıda denenmedi.
 

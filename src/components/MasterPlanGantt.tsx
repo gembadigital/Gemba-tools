@@ -1,3 +1,4 @@
+import { ciProjectProgress, ciPlanStatus, ciMasterPlanRow } from "../utils/ciPlan";
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { GanttActivity } from "../types";
 import * as XLSX from "xlsx";
@@ -745,6 +746,19 @@ export default function MasterPlanGantt({
     // Determine weeks based on startDate/endDate month strings if missing
     let pStart = (act as any).plannedStartWeek;
     let pFinish = (act as any).plannedFinishWeek;
+    // Older CI project rows stored only months; show them at the project's real weeks (the row is
+    // rewritten with weeks the next time the project is saved).
+    // (Rows written before C3 carry no relatedModule/linkedItemId — only the id gantt_sync_<projectId>.)
+    const ciProjectId = (act as any).relatedModule === "Kaizen Projects" ? (act as any).linkedItemId
+      : act.id.startsWith("gantt_sync_") ? act.id.slice("gantt_sync_".length) : "";
+    if ((!pStart || !pFinish) && ciProjectId) {
+      const kaizen = kaizens.find(k => k.id === ciProjectId);
+      if (kaizen) {
+        const ciRow = ciMasterPlanRow(kaizen);
+        pStart = pStart || ciRow.plannedStartWeek;
+        pFinish = pFinish || ciRow.plannedFinishWeek;
+      }
+    }
     if (!pStart || !pFinish) {
       const sDate = act.startDate || "2026-06";
       const eDate = act.endDate || "2026-08";
@@ -802,7 +816,8 @@ export default function MasterPlanGantt({
       actualStartWeek: resolvedActualStart,
       actualFinishWeek: resolvedActualFinish,
       actualWeeks: rawActualWeeks,
-      plannedManDays: (act as any).plannedManDays ?? 5,
+      // CI project rows default to 0 man-days (the project's effort isn't planned here); others keep 5.
+      plannedManDays: (act as any).plannedManDays ?? (ciProjectId ? 0 : 5),
       consumedManDays: (act as any).consumedManDays || 0,
       responsibleConsultant: resolvedConsultant,
       // "Müşteri Sahibi" segment was removed — `owner` now always mirrors the responsible
@@ -919,10 +934,17 @@ export default function MasterPlanGantt({
           targetCompleted = audit.status === "Tamamlandı" && targetProgress >= 80;
         }
       } else if (act.relatedModule === "Kaizen Projects") {
+        // CI project: same progress / status the CI module writes (utils/ciPlan.ts), so the two never
+        // overwrite each other with different values.
         const kaizen = kaizens.find(k => k.id === act.linkedItemId);
         if (kaizen) {
-          targetCompleted = kaizen.status === "Completed";
-          targetProgress = targetCompleted ? 100 : kaizen.status === "In Progress" ? 50 : 10;
+          targetProgress = ciProjectProgress(kaizen);
+          const ciStatus = ciPlanStatus(kaizen);
+          if (act.progressPercent !== targetProgress || act.status !== ciStatus) {
+            changed = true;
+            return { ...act, progressPercent: targetProgress, status: ciStatus };
+          }
+          return act;
         }
       } else if (act.relatedModule === "OEE Improvement" || act.relatedModule === "Capacity Analysis") {
         const proc = processes.find(p => p.id === act.linkedItemId);

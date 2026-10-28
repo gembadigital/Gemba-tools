@@ -1,13 +1,18 @@
 // CI project shapes that live inside a KaizenCard (tasks, 17-line financial breakdown). Moved out of
 // KaizenManager (plan step C1).
 
+// One action of the project's implementation plan (A3 steps 5–6).
 export interface CITask {
   id: string;
   name: string;
-  responsible: string;
-  deadline: string;
+  responsible: string;        // display name
+  responsibleId?: string;     // user account (C2+); older actions have only the name
+  startDate?: string;         // YYYY-MM-DD (C3+)
+  deadline: string;           // YYYY-MM-DD
   priority: "High" | "Medium" | "Low";
-  progressPercent: number;
+  progressPercent: number;    // 0–100
+  status?: "Açık" | "Devam Ediyor" | "Yapıldı" | "İptal";
+  beforeAfterIds?: string[];  // before-after studies this action produced (C3+)
 }
 
 export interface CIFinancialsInput {

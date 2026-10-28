@@ -5,7 +5,7 @@
 //
 // Editing works on a local draft; "Kaydet" sends only the fields that changed, so two people
 // editing different parts of the same project don't overwrite each other.
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft, Save, FileSpreadsheet, CheckCircle2, Circle, Clock, Lock, Send, Undo2, PauseCircle,
   PlayCircle, XCircle, Users, Paperclip, History, ListChecks, Plus, Trash2, Camera, Download,
@@ -18,6 +18,8 @@ import {
   CiUserLike
 } from "../../utils/ciLifecycle";
 import { choicesWith } from "../../utils/ciSettings";
+import { taskProgress } from "../../utils/ciPlan";
+import CiTaskGantt from "./CiTaskGantt";
 import {
   Card, SectionTitle, Button, FormField, ChoiceChip, Avatar, EmptyState, TabBar, AmountInput, Pill, inputCls, areaCls,
   readAndShrink, formatAmount
@@ -40,7 +42,7 @@ interface CiProjectCardProps {
   onClose: () => void;
   onExportExcel: () => void;
   onOpenFinancials: () => void;
-  onCreateBeforeAfter: () => void;
+  onCreateBeforeAfter: (taskId?: string) => void; // optional: link the new study to this action
   onExportBeforeAfter: (study: BeforeAfterKaizenStudy) => void;
   onDeleteBeforeAfter: (studyId: string) => void;
 }
@@ -97,8 +99,20 @@ export default function CiProjectCard(props: CiProjectCardProps) {
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [note, setNote] = useState("");
 
-  // A fresh project version (after save / action / someone else's change) resets the draft.
-  useEffect(() => { setDraft(draftFrom(project)); }, [project]);
+  // A fresh project version (after save / action / someone else's change) refreshes the draft but
+  // keeps the fields this user changed and hasn't saved yet.
+  const lastOriginal = useRef<Draft>(draftFrom(project));
+  useEffect(() => {
+    const fresh = draftFrom(project);
+    setDraft(prev => {
+      const next: any = { ...fresh };
+      for (const f of EDITABLE_FIELDS) {
+        if (!same((prev as any)[f], (lastOriginal.current as any)[f])) next[f] = (prev as any)[f];
+      }
+      return next;
+    });
+    lastOriginal.current = fresh;
+  }, [project]);
   useEffect(() => { setSelected(stageOf(project)); }, [project.id, project.stage]);
   // Phones: keep the selected step's chip visible in the horizontal strip.
   useEffect(() => {
@@ -635,52 +649,115 @@ function TasksEditor({ step, draft, set, people, canEdit, props, project }: {
   const tasks: any[] = draft.tasks || [];
   const update = (id: string, patch: any) => set("tasks", tasks.map(t => t.id === id ? { ...t, ...patch } : t));
   const today = todayIso();
-  const doneCount = tasks.filter(t => taskStatusOf(t) === "Yapıldı").length;
+  const active = tasks.filter(t => taskStatusOf(t) !== "İptal");
+  const overall = active.length ? Math.round(active.reduce((s2, t) => s2 + taskProgress(t), 0) / active.length) : 0;
+  const studies = project.beforeAfterStudies || [];
   const legacyText = [project.improvementActions, project.responsibles, project.actionsTaken].filter(t => (t || "").trim());
+  const setStatus = (t: any, status: string) =>
+    update(t.id, { status, progressPercent: status === "Yapıldı" ? 100 : status === "Açık" ? 0 : Math.min(Math.max(t.progressPercent || 0, 25), 75) });
+  const setProgress = (t: any, pct: number) => {
+    const status = taskStatusOf(t) === "İptal" ? "İptal" : pct >= 100 ? "Yapıldı" : pct > 0 ? "Devam Ediyor" : "Açık";
+    update(t.id, { progressPercent: pct, status });
+  };
+  const toggleStudy = (t: any, studyId: string) => {
+    const ids: string[] = t.beforeAfterIds || [];
+    update(t.id, { beforeAfterIds: ids.includes(studyId) ? ids.filter(x => x !== studyId) : [...ids, studyId] });
+  };
+
   return (
     <>
-      {step === 6 && tasks.length > 0 && (
-        <div>
-          <div className="flex justify-between text-sm mb-1.5"><span className="font-semibold text-slate-700">Aksiyon ilerlemesi</span><span className="tabular-nums text-slate-600">{doneCount}/{tasks.length}</span></div>
-          <div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-emerald-500 transition-all" style={{ width: `${Math.round((doneCount / tasks.length) * 100)}%` }} /></div>
+      {tasks.length > 0 && (
+        <div className="space-y-3">
+          <div>
+            <div className="flex justify-between text-sm mb-1.5">
+              <span className="font-semibold text-slate-700">Uygulama planı ilerlemesi</span>
+              <span className="tabular-nums text-slate-600">%{overall} · {tasks.filter(t => taskStatusOf(t) === "Yapıldı").length}/{tasks.length} aksiyon</span>
+            </div>
+            <div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-emerald-500 transition-all" style={{ width: `${overall}%` }} /></div>
+          </div>
+          <CiTaskGantt tasks={tasks} projectStart={project.dateProposed} targetDate={draft.plannedFinishDate} />
         </div>
       )}
       {tasks.length === 0 ? (
-        <EmptyState icon={ListChecks} title="Henüz aksiyon yok" text={step === 5 ? "Kök nedeni gideren karşı önlemleri ekleyin." : "Aksiyonlar 5. adımda planlanır."} />
+        <EmptyState icon={ListChecks} title="Henüz aksiyon yok" text={step === 5 ? "Kök nedeni gideren karşı önlemleri ekleyin; her birine sorumlu, başlangıç ve termin verin." : "Aksiyonlar 5. adımda planlanır."} />
       ) : (
         <div className="space-y-2">
-          {tasks.map(t => {
+          {tasks.map((t, idx) => {
             const status = taskStatusOf(t);
             const overdue = t.deadline && t.deadline < today && !["Yapıldı", "İptal"].includes(status);
+            const badDates = t.startDate && t.deadline && t.startDate > t.deadline;
+            const linked: string[] = t.beforeAfterIds || [];
             return (
               <div key={t.id} className={`rounded-xl ring-1 p-3 space-y-2 ${overdue ? "ring-red-200 bg-red-50/40" : "ring-slate-200 bg-white"}`}>
-                <input className={inputCls} value={t.name || ""} placeholder="Aksiyon" onChange={(e) => update(t.id, { name: e.target.value })} />
-                <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 items-center">
-                <select className={inputCls} value={t.responsibleId || ""} onChange={(e) => {
-                  const p = people.find(x => x.id === e.target.value);
-                  update(t.id, { responsibleId: p?.id || undefined, responsible: p?.name || t.responsible || "" });
-                }}>
-                  <option value="">{t.responsible && !t.responsibleId ? t.responsible : "Sorumlu seçin"}</option>
-                  {people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-                <input type="date" className={inputCls} value={t.deadline || ""} onChange={(e) => update(t.id, { deadline: e.target.value })} />
-                <select className={inputCls} value={status} onChange={(e) => update(t.id, { status: e.target.value, progressPercent: e.target.value === "Yapıldı" ? 100 : e.target.value === "Devam Ediyor" ? 50 : 0 })}>
-                  {TASK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                {canEdit && (
-                  <button type="button" onClick={() => set("tasks", tasks.filter(x => x.id !== t.id))} className="p-2 text-slate-400 hover:text-red-600 cursor-pointer justify-self-end" aria-label="Aksiyonu sil">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 text-xs font-bold flex items-center justify-center shrink-0">{idx + 1}</span>
+                  <input className={inputCls} value={t.name || ""} placeholder="Aksiyon" onChange={(e) => update(t.id, { name: e.target.value })} />
+                  {canEdit && (
+                    <button type="button" onClick={() => set("tasks", tasks.filter(x => x.id !== t.id))} className="p-2 text-slate-400 hover:text-red-600 cursor-pointer shrink-0" aria-label="Aksiyonu sil">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
-                {overdue && <p className="text-xs font-semibold text-red-600">Termin geçti</p>}
+                <div className="grid grid-cols-2 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.7fr)] gap-2 items-end">
+                  <label className="col-span-2 xl:col-span-1 text-xs font-semibold text-slate-500 space-y-1">
+                    <span>Sorumlu</span>
+                    <select className={inputCls} value={t.responsibleId || ""} onChange={(e) => {
+                      const p = people.find(x => x.id === e.target.value);
+                      update(t.id, { responsibleId: p?.id || undefined, responsible: p?.name || (e.target.value ? t.responsible : "") });
+                    }}>
+                      <option value="">{t.responsible && !t.responsibleId ? t.responsible : "Seçin"}</option>
+                      {people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="text-xs font-semibold text-slate-500 space-y-1">
+                    <span>Başlangıç</span>
+                    <input type="date" className={inputCls} value={t.startDate || ""} onChange={(e) => update(t.id, { startDate: e.target.value })} />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-500 space-y-1">
+                    <span>Termin</span>
+                    <input type="date" className={inputCls} value={t.deadline || ""} onChange={(e) => update(t.id, { deadline: e.target.value })} />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-500 space-y-1">
+                    <span>Durum</span>
+                    <select className={inputCls} value={status} onChange={(e) => setStatus(t, e.target.value)}>
+                      {TASK_STATUSES.map(st => <option key={st} value={st}>{st}</option>)}
+                    </select>
+                  </label>
+                  <label className="text-xs font-semibold text-slate-500 space-y-1">
+                    <span>İlerleme</span>
+                    <select className={inputCls} value={String(taskProgress(t))} disabled={status === "İptal"} onChange={(e) => setProgress(t, Number(e.target.value))}>
+                      {[0, 25, 50, 75, 100].concat([taskProgress(t)]).filter((v, i, a) => a.indexOf(v) === i).sort((x, y) => x - y)
+                        .map(v => <option key={v} value={v}>%{v}</option>)}
+                    </select>
+                  </label>
+                </div>
+                {(overdue || badDates) && (
+                  <p className="text-xs font-semibold text-red-600">{badDates ? "Başlangıç terminden sonra." : "Termin geçti."}</p>
+                )}
+                {step === 6 && (
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <span className="text-xs font-semibold text-slate-500">Önce-sonra:</span>
+                    {studies.map(st => (
+                      <button key={st.id} type="button" disabled={!canEdit} onClick={() => toggleStudy(t, st.id)} aria-pressed={linked.includes(st.id)}
+                        className={`h-8 px-3 rounded-full text-xs font-semibold ring-1 ring-inset cursor-pointer ${linked.includes(st.id) ? "bg-emerald-600 text-white ring-emerald-600" : "bg-white text-slate-600 ring-slate-200 hover:ring-slate-300"}`}>
+                        {st.subject}
+                      </button>
+                    ))}
+                    {canEdit && (
+                      <button type="button" onClick={() => props.onCreateBeforeAfter(t.id)}
+                        className="h-8 px-3 rounded-full text-xs font-semibold border border-dashed border-slate-300 text-slate-600 hover:bg-slate-50 cursor-pointer flex items-center gap-1">
+                        <Plus className="w-3.5 h-3.5" /> Bu aksiyon için önce-sonra
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       )}
       {canEdit && (
-        <Button type="button" variant="outline" onClick={() => set("tasks", [...tasks, { id: newId("tsk"), name: "", responsible: "", deadline: "", priority: "Medium", progressPercent: 0, status: "Açık" }])}>
+        <Button type="button" variant="outline" onClick={() => set("tasks", [...tasks, { id: newId("tsk"), name: "", responsible: "", startDate: todayIso(), deadline: "", priority: "Medium", progressPercent: 0, status: "Açık" }])}>
           <Plus className="w-4 h-4" /> Aksiyon ekle
         </Button>
       )}
@@ -696,19 +773,25 @@ function TasksEditor({ step, draft, set, people, canEdit, props, project }: {
             <AmountInput value={draft.estimatedCost ?? null} onChange={(v) => set("estimatedCost", v ?? 0)} suffix={props.currencySymbol} />
           </FormField>
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <span className="text-sm font-semibold text-slate-800">Önce-sonra kayıtları</span>
-              {canEdit && <Button type="button" variant="outline" onClick={props.onCreateBeforeAfter}><Plus className="w-4 h-4" /> Önce-sonra formu</Button>}
+              {canEdit && <Button type="button" variant="outline" onClick={() => props.onCreateBeforeAfter()}><Plus className="w-4 h-4" /> Önce-sonra formu</Button>}
             </div>
-            {(project.beforeAfterStudies || []).length === 0 && <p className="text-sm text-slate-500">Henüz önce-sonra kaydı yok.</p>}
-            {(project.beforeAfterStudies || []).map(st => (
-              <div key={st.id} className="flex items-center gap-3 rounded-xl ring-1 ring-slate-200 bg-white px-4 py-2.5 text-sm">
-                <span className="flex-1 font-semibold text-slate-800 truncate">{st.subject}</span>
-                <span className="text-slate-500">{fmtDate(st.date)}</span>
-                <button type="button" onClick={() => props.onExportBeforeAfter(st)} className="p-2 text-slate-500 hover:text-emerald-700 cursor-pointer" aria-label="Excel indir"><Download className="w-4 h-4" /></button>
-                {canEdit && <button type="button" onClick={() => props.onDeleteBeforeAfter(st.id)} className="p-2 text-slate-400 hover:text-red-600 cursor-pointer" aria-label="Sil"><Trash2 className="w-4 h-4" /></button>}
-              </div>
-            ))}
+            {studies.length === 0 && <p className="text-sm text-slate-500">Henüz önce-sonra kaydı yok. Bir aksiyonun altındaki düğmeyle o aksiyona bağlı kayıt açabilirsiniz.</p>}
+            {studies.map(st => {
+              const byTasks = tasks.filter(t => (t.beforeAfterIds || []).includes(st.id)).map(t => t.name || "Adsız aksiyon");
+              return (
+                <div key={st.id} className="flex items-center gap-3 rounded-xl ring-1 ring-slate-200 bg-white px-4 py-2.5 text-sm">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-slate-800 truncate">{st.subject}</p>
+                    <p className="text-xs text-slate-500 truncate">{byTasks.length ? `Aksiyon: ${byTasks.join(", ")}` : "Aksiyona bağlı değil"}</p>
+                  </div>
+                  <span className="text-slate-500 shrink-0">{fmtDate(st.date)}</span>
+                  <button type="button" onClick={() => props.onExportBeforeAfter(st)} className="p-2 text-slate-500 hover:text-emerald-700 cursor-pointer" aria-label="Excel indir"><Download className="w-4 h-4" /></button>
+                  {canEdit && <button type="button" onClick={() => props.onDeleteBeforeAfter(st.id)} className="p-2 text-slate-400 hover:text-red-600 cursor-pointer" aria-label="Sil"><Trash2 className="w-4 h-4" /></button>}
+                </div>
+              );
+            })}
           </div>
         </>
       )}

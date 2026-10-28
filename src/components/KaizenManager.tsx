@@ -22,12 +22,15 @@ import { getKaizenCategory, COPQ_CATEGORIES } from "./ci/ciCategory";
 import { generateOpportunities, ALL_FAMILIES, productFamilyLabel } from "./ci/ciOpportunities";
 import { displayProjectNo } from "../utils/ciProject";
 import { phaseNumber, choicesWith, CI_CURRENCY_SYMBOLS } from "../utils/ciSettings";
+import { ciMasterPlanRow, masterPlanRowId } from "../utils/ciPlan";
 import { normalizeCurrency } from "./ci/ciMoney";
 import { useCiSettings } from "./ci/useCiSettings";
 import CiSettingsPanel from "./ci/CiSettingsPanel";
 import CiProjectCard, { CiPerson, StageBadge } from "./ci/CiProjectCard";
+import CiMyTasks from "./ci/CiMyTasks";
 import {
-  CI_STEPS, CiStageAction, CiUserLike, stageOf, isClosed, pdcaOfStage, stageRequirements, canApproveStage, isCiStaffUser
+  CI_STEPS, CiStageAction, CiUserLike, stageOf, isClosed, pdcaOfStage, stageRequirements, canApproveStage, isCiStaffUser,
+  isTaskFinished, personKey
 } from "../utils/ciLifecycle";
 import { sumExpected, sumRealized, realizedInCurrency, excludedNote } from "./ci/ciMoney";
 import { exportKaizenCardToExcel as exportCiProjectCardExcel, exportBeforeAfterKaizenToExcel as exportCiBeforeAfterExcel } from "./ci/ciExcelExport";
@@ -51,7 +54,7 @@ interface KaizenManagerProps {
   currentUser?: CiUserLike | null;
 }
 
-type TabType = "kanban" | "list" | "timeline" | "dashboard" | "beforeafter" | "settings";
+type TabType = "kanban" | "list" | "timeline" | "mytasks" | "dashboard" | "beforeafter" | "settings";
 
 
 export default function KaizenManager({
@@ -199,62 +202,19 @@ export default function KaizenManager({
   // Currency helper
   const currency = selectedCustomer?.currency || "₺";
 
-  // Bi-directional sync with Gantt Master Plan
+  // Master Plan row of a CI project (utils/ciPlan.ts): week-based dates, leader, link, progress.
+  // One row per project (id gantt_sync_<projectId>); fields edited in the Master Plan itself are kept.
+  // Written only when something it shows actually changed.
   const syncWithGantt = (project: KaizenCard, action: 'add' | 'update' | 'delete') => {
-    const activityId = `gantt_sync_${project.id}`;
-    const existingGantt = activities.find(a => a.id === activityId);
-    
+    const rowId = masterPlanRowId(project.id);
+    const existing = activities.find(a => a.id === rowId);
     if (action === 'delete') {
-      if (existingGantt) {
-        onDeleteActivity(activityId);
-      }
+      if (existing) onDeleteActivity(rowId);
       return;
     }
-    
-    const formatGanttDate = (dateStr?: string) => {
-      if (!dateStr) return new Date().toISOString().slice(0, 7);
-      return dateStr.slice(0, 7); // YYYY-MM
-    };
-    
-    const ganttStatusMap = {
-      "Draft": "Planned",
-      "Approved": "Planned",
-      "In Progress": "In Progress",
-      "Completed": "Completed"
-    } as const;
-
-    const progressMap = {
-      "Draft": 15,
-      "Approved": 30,
-      "In Progress": 65,
-      "Completed": 100
-    };
-
-    // Calculate dynamic progress if tasks exist
-    let progress = progressMap[project.status];
-    if (project.tasks && project.tasks.length > 0) {
-      const completedCount = project.tasks.filter((t: any) => t.progressPercent === 100).length;
-      progress = Math.round((completedCount / project.tasks.length) * 100);
-    }
-    if (project.status === "Completed") progress = 100;
-
-    const ganttPayload: GanttActivity = {
-      id: activityId,
-      name: `[CI] ${project.title}`,
-      owner: project.projectLeader || project.originator || "CI Ekibi",
-      startDate: formatGanttDate(project.dateProposed),
-      endDate: formatGanttDate(project.plannedFinishDate || project.dateProposed),
-      progressPercent: progress,
-      priority: project.impactLevel,
-      status: (project.status === "Completed") ? "Completed" : (project.plannedFinishDate && new Date(project.plannedFinishDate) < new Date()) ? "Delayed" : ganttStatusMap[project.status] || "In Progress",
-      notes: project.description || project.descriptionBefore || "CI Proje Portföyü Entegrasyonu"
-    };
-
-    if (existingGantt) {
-      onUpdateActivity(ganttPayload);
-    } else {
-      onAddActivity(ganttPayload);
-    }
+    const row = ciMasterPlanRow(project, existing) as unknown as GanttActivity;
+    if (!existing) onAddActivity(row);
+    else if (JSON.stringify(row) !== JSON.stringify(existing)) onUpdateActivity(row);
   };
 
   const opportunitiesList = generateOpportunities({
@@ -321,6 +281,13 @@ export default function KaizenManager({
   const handleOpenProjectDetails = (proj: KaizenCard) => setCardProjectId(proj.id);
   const handleOpenProjectFullScreen = handleOpenProjectDetails;
 
+  // Open actions assigned to the signed-in user (badge on the Görevlerim tab).
+  const myOpenTaskCount = kaizens
+    .filter(k => !k.holdState && !isClosed(k))
+    .flatMap(k => k.tasks || [])
+    .filter((t: any) => !isTaskFinished(t) && (t.responsibleId ? t.responsibleId === currentUser?.id
+      : !!currentUser?.full_name && personKey(t.responsible) === personKey(currentUser.full_name))).length;
+
   // Lifecycle action on the server (submit / approve / return / …), then refresh the app's copy and
   // the linked Master Plan row.
   const runStageAction = async (project: KaizenCard, action: CiStageAction, note?: string): Promise<{ ok: boolean; error?: string }> => {
@@ -341,9 +308,13 @@ export default function KaizenManager({
 
   // Prefill the Before-After Kaizen form from what's already on the CI card, so the consultant only
   // has to fill in what the form actually needs beyond that (category/area, benefit breakdown).
-  const handleOpenBeforeAfterModal = (proj: KaizenCard) => {
+  // Action the before-after form was opened from (A3 step 6); the new study is linked to it.
+  const [baTaskId, setBaTaskId] = useState<string | null>(null);
+  const handleOpenBeforeAfterModal = (proj: KaizenCard, taskId?: string) => {
     setEditingProject(proj);
-    setBaSubject(proj.title || "");
+    setBaTaskId(taskId || null);
+    const task = taskId ? (proj.tasks || []).find((t: any) => t.id === taskId) : null;
+    setBaSubject(task?.name || proj.title || "");
     setBaTarget(proj.targetObjective || "");
     setBaDoneBy(proj.projectLeader || proj.originator || "");
     setBaDepartment(proj.department || "");
@@ -390,12 +361,18 @@ export default function KaizenManager({
       createdAt: new Date().toISOString()
     };
 
-    const updated: KaizenCard = {
-      ...liveProject,
+    // Only the changed fields are sent, so unrelated unsaved edits elsewhere aren't overwritten.
+    const changes: Partial<KaizenCard> & { id: string } = {
+      id: liveProject.id,
       beforeAfterStudies: [...(liveProject.beforeAfterStudies || []), newStudy]
     };
-    onUpdateKaizen(updated);
-    setEditingProject(updated);
+    if (baTaskId && (liveProject.tasks || []).some((t: any) => t.id === baTaskId)) {
+      changes.tasks = (liveProject.tasks || []).map((t: any) =>
+        t.id === baTaskId ? { ...t, beforeAfterIds: [...(t.beforeAfterIds || []), newStudy.id] } : t);
+    }
+    onUpdateKaizen(changes);
+    setEditingProject({ ...liveProject, ...changes });
+    setBaTaskId(null);
 
     exportBeforeAfterKaizenToExcel(newStudy, selectedCustomer?.companyName, currency);
     setIsBeforeAfterModalOpen(false);
@@ -406,13 +383,17 @@ export default function KaizenManager({
     if (!targetId) return;
     const liveProject = kaizens.find(k => k.id === targetId);
     if (!liveProject) return;
-    const updated: KaizenCard = {
-      ...liveProject,
+    if (!window.confirm("Bu önce-sonra kaydı silinsin mi?")) return;
+    // Also drop the study from the actions linked to it; only these two fields are sent.
+    const changes: Partial<KaizenCard> & { id: string } = {
+      id: liveProject.id,
       beforeAfterStudies: (liveProject.beforeAfterStudies || []).filter(s => s.id !== studyId)
     };
-    onUpdateKaizen(updated);
-    if (editingProject?.id === targetId) setEditingProject(updated);
-    setEditingProject(updated);
+    if ((liveProject.tasks || []).some((t: any) => (t.beforeAfterIds || []).includes(studyId))) {
+      changes.tasks = (liveProject.tasks || []).map((t: any) => ({ ...t, beforeAfterIds: (t.beforeAfterIds || []).filter((x: string) => x !== studyId) }));
+    }
+    onUpdateKaizen(changes);
+    if (editingProject?.id === targetId) setEditingProject({ ...liveProject, ...changes });
   };
 
   // Excel exports live in ci/ciExcelExport.ts; these wrappers supply the project number.
@@ -1278,6 +1259,17 @@ export default function KaizenManager({
             }`}
           >
             Timeline (Gantt)
+          </button>
+          <button
+            onClick={() => setActiveTab("mytasks")}
+            className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeTab === "mytasks" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            Görevlerim
+            {myOpenTaskCount > 0 && (
+              <span className={`min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center ${activeTab === "mytasks" ? "bg-white text-slate-900" : "bg-amber-400 text-slate-900"}`}>{myOpenTaskCount}</span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab("dashboard")}
@@ -2537,6 +2529,21 @@ export default function KaizenManager({
       {/* 5. ÖNCE-SONRA (BEFORE-AFTER) KAIZEN GALLERY — every saved "Kaizen Öncesi Sonrası"
           one-pager across all CI projects, browsable in one place instead of buried one-by-one
           inside each project's own detail modal. */}
+      {activeTab === "mytasks" && (
+        <CiMyTasks
+          projects={kaizens}
+          currentUser={currentUser}
+          people={teamPeople}
+          projectNo={getProjectNo}
+          onOpenProject={handleOpenProjectDetails}
+          onUpdateTasks={async (project, tasks) => {
+            const saved = await onUpdateKaizen({ id: project.id, tasks });
+            if (saved) syncWithGantt(saved, 'update');
+            return saved;
+          }}
+        />
+      )}
+
       {activeTab === "settings" && isCiStaff && (
         <CiSettingsPanel settings={ciSettings} baseCurrencyCode={baseCurrencyCode} onSave={saveCiSettings} />
       )}
@@ -3616,7 +3623,7 @@ export default function KaizenManager({
           onClose={() => setCardProjectId(null)}
           onExportExcel={() => exportKaizenCardToExcel(cardProject, selectedCustomer?.companyName, currency)}
           onOpenFinancials={() => handleOpenFinancials(cardProject)}
-          onCreateBeforeAfter={() => handleOpenBeforeAfterModal(cardProject)}
+          onCreateBeforeAfter={(taskId) => handleOpenBeforeAfterModal(cardProject, taskId)}
           onExportBeforeAfter={(study) => exportBeforeAfterKaizenToExcel(study, selectedCustomer?.companyName, currency)}
           onDeleteBeforeAfter={(studyId) => handleDeleteBeforeAfterStudy(studyId, cardProject.id)}
         />

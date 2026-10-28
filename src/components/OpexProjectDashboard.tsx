@@ -218,7 +218,8 @@ export default function OpexProjectDashboard({
     // `?? 5` (not `|| 5`) so an intentionally-entered 0 stays 0 instead of being overridden back to 5.
     // Activities flagged "Paralel Faaliyet" (parallelWith set) don't add their man-days again — that
     // capacity was already counted on the activity they run parallel to (mirrors MasterPlanGantt.tsx).
-    const totalPlannedManDays = filteredData.activities.reduce((sum, a) => sum + ((a as any).parallelWith ? 0 : ((a as any).plannedManDays ?? 5)), 0);
+    // CI project rows (gantt_sync_<id>) default to 0, as in the Master Plan.
+    const totalPlannedManDays = filteredData.activities.reduce((sum, a) => sum + ((a as any).parallelWith ? 0 : ((a as any).plannedManDays ?? (a.id.startsWith("gantt_sync_") ? 0 : 5))), 0);
     const totalCompletedManDays = filteredData.activities.reduce((sum, a) => sum + ((a as any).consumedManDays || 0), 0);
     const projectProgress = totalPlannedManDays > 0 ? Math.min(100, Math.round((totalCompletedManDays / totalPlannedManDays) * 100)) : null;
 
