@@ -529,3 +529,17 @@ kodunu Kaizen çağırmaz; ortak veritabanı koleksiyonları üzerinden).
   istemci testleri. Kaizen sergisi yerel önizlemede (sahte veri) denendi. Kaizen sergi uçları (`app.ts`) yalnızca tip
   kontrolü ve önizleme ile doğrulandı. Canlıda denenmedi.
 
+### Örnek proje (2026-10-28, kullanıcı onayıyla canlı veriye yazıldı)
+- ACME (`cust_acmedemo1`, "Acme Şirket Grubu") müşterisinde **CIP2605-05 "Örnek A3 – P3 presinde kalıp değişim süresinin
+  düşürülmesi (SMED)"** (`kai_ornek_smed_a3`): 8 adımın tamamı plan / onay tarihleriyle dolu, kapanmış proje — problem +
+  kayıp, Pareto'lu mevcut durum, KPI 74 → 30 dk hedef ve 5 ölçüm (son 26 dk), 5 Neden, 6M balık kılçığı (12 neden, 2 kök
+  neden ★), 6 aksiyon (Gantt), önce-sonra (aksiyonlara bağlı), kazanç kırılımı + danışman teyidi (₺1.120.000), 5
+  standartlaştırma, yaygınlaştırma, dersler, 30/60 gün kontrolleri kaydedilmiş, 90. gün bekliyor; 12 geçmiş kaydı.
+  Master Plan satırı `gantt_sync_kai_ornek_smed_a3` (19.–35. hafta). Lider/onaylayan: Atakan Zehir (ACME ekibindeki tek
+  kullanıcı); diğer ekip üyeleri ve aksiyon sorumluları gerçek kişi değil, görev unvanı olarak yazıldı.
+- Uygulamanın kendi `createKaizenWithNumber` / `saveActivity` fonksiyonlarıyla eklendi; tüm adım şartları yazmadan önce
+  kontrol edildi. Önceki hal yedeği: `/Users/atakanzehir/Claude/5SAudit/yedekler/ci-ornek-2026-10-28/acme-kaizens-ve-aktiviteler-yedek.json`.
+  Geri almak için: proje kartından (Admin) sil — Master Plan satırı da kalkar.
+- Örnekle bulunan hata: kapanmış (salt okunur) projede "5 Neden / Balık Kılçığı" geçişi de kilitleniyordu, balık
+  kılçığı görüntülenemiyordu → düzeltildi.
+

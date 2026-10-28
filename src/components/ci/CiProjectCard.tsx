@@ -603,6 +603,18 @@ function StepFields({ step, draft, set, kpi, setKpi, props, canEdit, staff, busy
   return null;
 }
 
+// Toggle chip that keeps working inside a disabled <fieldset> (same look as ChoiceChip).
+function ViewChip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <span role="tab" tabIndex={0} aria-selected={on} onClick={onClick} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
+      className={`inline-flex items-center gap-2 h-11 px-4 rounded-xl text-sm font-semibold cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/40 ${
+        on ? "bg-emerald-600 text-white shadow-sm shadow-emerald-900/20" : "bg-white text-slate-700 ring-1 ring-inset ring-slate-200 hover:ring-slate-300 hover:bg-slate-50"
+      }`}>
+      {children}
+    </span>
+  );
+}
+
 // A3 step 4: 5-Why chain and / or fishbone (6M). Both are kept; the toggle only picks the view.
 function RootCauseStep({ draft, set, canEdit, categories }: {
   draft: Draft; set: <K extends keyof KaizenCard>(k: K, v: KaizenCard[K]) => void; canEdit: boolean; categories: string[];
@@ -620,8 +632,9 @@ function RootCauseStep({ draft, set, canEdit, categories }: {
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        <ChoiceChip on={method === "why"} onClick={() => setMethod("why")}>5 Neden{whys.some(w => w.trim()) ? ` · ${whys.filter(w => w.trim()).length}` : ""}</ChoiceChip>
-        <ChoiceChip on={method === "fishbone"} onClick={() => setMethod("fishbone")}>Balık Kılçığı (6M){fishbone.length ? ` · ${fishbone.length}` : ""}</ChoiceChip>
+        {/* View switch, not an edit: plain elements so the read-only fieldset (closed project) doesn't disable it. */}
+        <ViewChip on={method === "why"} onClick={() => setMethod("why")}>5 Neden{whys.some(w => w.trim()) ? ` · ${whys.filter(w => w.trim()).length}` : ""}</ViewChip>
+        <ViewChip on={method === "fishbone"} onClick={() => setMethod("fishbone")}>Balık Kılçığı (6M){fishbone.length ? ` · ${fishbone.length}` : ""}</ViewChip>
         <span className="text-xs text-slate-500">İkisi birlikte kullanılabilir; ikisinin verisi de saklanır.</span>
       </div>
       {method === "why" ? (

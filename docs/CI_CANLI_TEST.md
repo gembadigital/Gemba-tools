@@ -31,6 +31,15 @@ Test kullanıcıları:
 
 Cihazlar: bilgisayar + telefon. Masaüstü testleri en az bir kez 1440 px genişlikte yapın (balık kılçığı diyagramı).
 
+## 0b. Örnek proje (ACME)
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| 0b.1 | ACME müşterisi → CI → CIP2605-05 "Örnek A3 – P3 presinde kalıp değişim süresinin düşürülmesi (SMED)" kartını açın. | 8 adımın hepsi yeşil, onay tarihleriyle; Kapandı. |
+| 0b.2 | 4. adım → "Balık Kılçığı (6M)". | Diyagram, 12 neden, 2 ★ kök neden (kapanmış projede de görüntülenir). |
+| 0b.3 | 6. adım, 7. adım, Sürdürülebilirlik takibi, Geçmiş. | Gantt (6 aksiyon), önce-sonra, KPI ölçümleri, teyitli kazanç, 30/60 gün kontrolleri, 12 geçmiş kaydı. |
+| 0b.4 | A3 sunum kartı → PDF; Finans ve Genel Bakış; Master Plan. | Örnek tek sayfada; finans ve performans tablosunda; Master Plan'da 19.–35. hafta. |
+
 ## 1. C0 — Güvenlik, proje no, para birimi
 
 | # | Ne yapılır | Ne görülmeli |
