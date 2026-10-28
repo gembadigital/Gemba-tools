@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, IdCard, Download, Upload, Copy, KeyRound, MonitorSmartphone, QrCode, SlidersHorizontal, Coins, Clock, ListChecks, Gift, GitBranch, BellRing, Send, Eye, Loader2 } from "lucide-react";
+import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, IdCard, Download, Upload, Copy, KeyRound, MonitorSmartphone, QrCode, SlidersHorizontal, Coins, Clock, ListChecks, Gift, GitBranch, BellRing, Send, Eye, Loader2, Sparkles } from "lucide-react";
 import { REMINDER_LABELS, ReminderDigest } from "../../utils/kaizenReminders";
 import { KaizenPersonnel, KaizenCriteria } from "./kaizenTypes";
 import { buildOrg, subordinateIds, managerChain } from "../../utils/kaizenOrg";
@@ -327,7 +327,8 @@ function SettingsTab({ settings, onSave, loginLink, companyName, api, showToast,
     kioskIdle: String(st.kioskIdleSeconds),
     kioskAfter: String(st.kioskAfterSubmitSeconds),
     remindersEnabled: st.remindersEnabled,
-    noPlanDays: String(st.noPlanReminderDays)
+    noPlanDays: String(st.noPlanReminderDays),
+    aiSimilarity: st.aiSimilarity
   });
   const [d, setD] = useState(() => fromSettings(settings));
   const [saving, setSaving] = useState(false);
@@ -353,7 +354,8 @@ function SettingsTab({ settings, onSave, loginLink, companyName, api, showToast,
     kioskIdleSeconds: d.kioskIdle,
     kioskAfterSubmitSeconds: d.kioskAfter,
     remindersEnabled: d.remindersEnabled,
-    noPlanReminderDays: d.noPlanDays
+    noPlanReminderDays: d.noPlanDays,
+    aiSimilarity: d.aiSimilarity
   });
   const foreign = next.currencies.filter(c => c !== next.baseCurrency && c !== IN_KIND_CURRENCY);
 
@@ -514,6 +516,22 @@ function SettingsTab({ settings, onSave, loginLink, companyName, api, showToast,
       </Card>
 
       <Card className="xl:col-span-2">
+        <SectionTitle icon={Sparkles} title="Yapay zekâ ile benzer öneri" hint="Farklı kelimelerle yazılmış aynı fikri de bulur" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+          <div className="space-y-3">
+            <Toggle checked={d.aiSimilarity} onChange={v => setD(x => ({ ...x, aiSimilarity: v }))} title="Anlam benzerliği açık"
+              text={d.aiSimilarity ? "Benzer öneri aramasına yapay zekâ ile anlam karşılaştırması eklenir." : "Yalnızca kelime benzerliği kullanılır; öneri metinleri dışarı gönderilmez."} />
+            <ul className="text-xs text-slate-500 space-y-1.5 list-disc list-inside">
+              <li>Açıkken öneri konusu, mevcut durum ve öneri metni benzerlik hesabı için Google Gemini'ye gönderilir (kişi adı, sicil no ve fotoğraf gönderilmez).</li>
+              <li>Hesaplanan değerler bu müşterinin kaydında saklanır ve yalnızca bu müşterinin önerileriyle karşılaştırılır.</li>
+              <li>Servise ulaşılamazsa sistem kendiliğinden kelime benzerliğine döner.</li>
+            </ul>
+          </div>
+          <EmbeddingBackfill api={api} showToast={showToast} enabled={settings.aiSimilarity} />
+        </div>
+      </Card>
+
+      <Card className="xl:col-span-2">
         <SectionTitle icon={GitBranch} title="Onay Akışı" hint="Yeni gönderilen önerilere uygulanır; süreçteki öneriler gönderildikleri andaki akışla devam eder" />
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
           <Toggle
@@ -605,6 +623,31 @@ function OptionListEditor({ label, items, defaults, onChange }: { label: string;
         <Button variant="ghost" onClick={add} disabled={!canAdd} className="shrink-0"><Plus className="w-4 h-4" />Ekle</Button>
       </div>
       {exists && value && <p className="text-xs text-amber-700 mt-1">Bu seçenek zaten listede.</p>}
+    </div>
+  );
+}
+
+// Ayarlar → existing suggestions get their vectors in batches of 100 until none remain.
+function EmbeddingBackfill({ api, showToast, enabled }: { api: KaizenApi; showToast: (m: string) => void; enabled: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<{ total: number; ready: number; remaining: number } | null>(null);
+  const run = async () => {
+    setBusy(true);
+    for (let i = 0; i < 30; i++) {
+      const res = await api.post("suggestions/embeddings/backfill", {});
+      if (!res?.success) { showToast(res?.error || "Hazırlanamadı."); break; }
+      setStatus(res.data);
+      if (!res.data.remaining) { showToast("Tüm öneriler yapay zekâ araması için hazır."); break; }
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+      <p className="text-sm font-semibold text-slate-800">Mevcut öneriler</p>
+      <p className="text-xs text-slate-500">Yeni ve düzenlenen öneriler kendiliğinden hazırlanır. Açtıktan sonra eski önerileri bir kez hazırlayın; arama sırasında da azar azar hazırlanırlar.</p>
+      {status && <p className="text-sm text-slate-700 tabular-nums">{status.ready} / {status.total} öneri hazır{status.remaining ? ` · ${status.remaining} kaldı` : ""}</p>}
+      <Button variant="outline" onClick={run} disabled={busy || !enabled}>{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}Mevcut önerileri hazırla</Button>
+      {!enabled && <p className="text-xs text-amber-700">Önce yukarıdan açıp ayarları kaydedin.</p>}
     </div>
   );
 }

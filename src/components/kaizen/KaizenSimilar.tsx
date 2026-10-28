@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Copy, Loader2 } from "lucide-react";
+import { Copy, Loader2, Sparkles } from "lucide-react";
 import type { KaizenApi } from "./KaizenSuggestionSystem";
 import type { ApprovalStatus } from "./kaizenTypes";
 import { statusLabel } from "./kaizenCalc";
@@ -10,7 +10,7 @@ import { statusLabel } from "./kaizenCalc";
 
 export interface SimilarQuery { subject: string; currentState?: string; improvementSuggestion?: string; department?: string; suggestionTypes?: string[] }
 interface Hit {
-  score: number; subject: string; department: string; createdAt: string; approvalStatus: ApprovalStatus;
+  score: number; semantic?: boolean; subject: string; department: string; createdAt: string; approvalStatus: ApprovalStatus;
   requiredStages?: ("Manager" | "Board")[]; feasibilityOpen: boolean; completed: boolean; id?: string; personnelName?: string;
 }
 
@@ -43,9 +43,9 @@ export default function KaizenSimilar({ api, query, excludeId, hint }: { api: Ka
       <ul className="mt-2.5 space-y-2">
         {hits.map((h, i) => (
           <li key={h.id || i} className="flex items-start gap-3 text-sm">
-            <span className="shrink-0 mt-0.5 text-[11px] font-bold text-sky-800 bg-white ring-1 ring-sky-200 rounded-full px-2 py-0.5 tabular-nums" title="Metin benzerliği">%{Math.round(h.score * 100)}</span>
+            <span className="shrink-0 mt-0.5 text-[11px] font-bold text-sky-800 bg-white ring-1 ring-sky-200 rounded-full px-2 py-0.5 tabular-nums" title="Benzerlik">%{Math.round(h.score * 100)}</span>
             <span className="min-w-0">
-              <span className="block font-semibold text-slate-900">{h.subject}</span>
+              <span className="block font-semibold text-slate-900">{h.subject}{h.semantic && <span className="ml-1.5 inline-flex items-center gap-0.5 align-middle text-[10px] font-semibold text-violet-700 bg-violet-50 ring-1 ring-violet-200 rounded-full px-1.5 py-0.5" title="Farklı kelimelerle aynı fikir (yapay zekâ)"><Sparkles className="w-3 h-3" />anlamca</span>}</span>
               <span className="block text-xs text-slate-600">
                 {[h.personnelName, h.department, h.createdAt ? new Date(h.createdAt).toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric" }) : ""].filter(Boolean).join(" · ")}
                 {" · "}<b className={h.completed ? "text-emerald-700" : "text-slate-800"}>{h.completed ? "Uygulandı" : statusLabel(h.approvalStatus, h.requiredStages, h.feasibilityOpen)}</b>

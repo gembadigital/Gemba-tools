@@ -15,7 +15,7 @@ import { preparePersonnel, buildOrg, effectiveManagerId, managerChain, visibleSu
 import { isPerPiece, parsePerPiece, perPieceSaving } from "../utils/kaizenSaving.js";
 import { buildReminders, reminderText } from "../utils/kaizenReminders.js";
 import { championsFor, championMonths } from "../utils/kaizenChampions.js";
-import { findSimilar } from "../utils/kaizenSimilar.js";
+import { findSimilar, mergeSimilar, cosineVec, embeddingText, textHash } from "../utils/kaizenSimilar.js";
 import { pinRequired, findBySicil, pinProblem, newPinCode, isLocked, failedAttempt, codeValid, pinValid, hashSecret, publicPersonnel, stripSecretInput, virtualEmail, isAuthorizedRole, PIN_LOCK_MINUTES, PIN_CODE_DAYS, KIOSK_SESSION, PHONE_SESSION } from "./kaizenAuth.js";
 import * as XLSX from "xlsx";
 
@@ -3152,6 +3152,7 @@ app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res)
     requiredStages: requiredStagesFor(perPieceCreate.fields?.estimatedSaving ?? asAmount(req.body.estimatedSaving), asCurrency(req.body.estimatedSavingCurrency, settings.baseCurrency), settings)
   };
   const suggestion = await db.createKaizenSuggestion(user.organization_id, scope.factoryId, payload, user.id, user.email, user.full_name);
+  await refreshKaizenEmbedding(user.organization_id, scope.factoryId, suggestion);
 
   if (suggestion.approvalStatus === "First Approval") {
     // No Amir stage for this customer: the suggestion goes straight to the Kurul.
@@ -3172,6 +3173,63 @@ app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res)
 });
 
 // Edit + resubmit a rejected suggestion: only its author (or staff), and only the content fields.
+// ---- Anlamsal benzerlik (Faz 6.2) ----
+// Opt-in per customer (Ayarlar → aiSimilarity): suggestion texts are sent to Gemini for embeddings.
+// Vectors live in kaizen_embeddings (one row per suggestion, never in list responses) and are only
+// ever compared with the same customer's suggestions. Any AI failure falls back to text similarity.
+// `kaizenAi.embed` is swappable so tests run without the network.
+export const kaizenAi = {
+  model: "gemini-embedding-001",
+  async embed(texts: string[]): Promise<number[][]> {
+    const out: number[][] = [];
+    for (let i = 0; i < texts.length; i += 100) {
+      const r = await getGeminiClient().models.embedContent({
+        model: kaizenAi.model, contents: texts.slice(i, i + 100), config: { taskType: "SEMANTIC_SIMILARITY", outputDimensionality: 768 }
+      });
+      (r.embeddings || []).forEach(e => out.push((e.values || []).map(v => Math.round(v * 1e5) / 1e5)));
+    }
+    if (out.length !== texts.length) throw new Error("embedding count mismatch");
+    return out;
+  }
+};
+const embeddingId = (suggestionId: string) => `kaizen_embeddings_${suggestionId}`;
+const withTimeout = <T>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+
+// Make sure up to `max` of these suggestions have a current vector; returns suggestionId → vector.
+async function ensureKaizenEmbeddings(orgId: string, factoryId: string, suggestions: any[], max = 40): Promise<Map<string, number[]>> {
+  const stored = new Map<string, any>((await db.getKaizenRecords("kaizen_embeddings", orgId, factoryId)).map((r: any) => [r.suggestionId, r]));
+  const vectors = new Map<string, number[]>();
+  const todo: { s: any; text: string; hash: string }[] = [];
+  for (const s of suggestions) {
+    const text = embeddingText(s);
+    if (!text) continue;
+    const hash = textHash(text);
+    const row = stored.get(s.id);
+    if (row && row.hash === hash && row.model === kaizenAi.model && Array.isArray(row.v)) vectors.set(s.id, row.v);
+    else if (todo.length < max) todo.push({ s, text, hash });
+  }
+  if (todo.length) {
+    const vs = await kaizenAi.embed(todo.map(t => t.text));
+    for (let i = 0; i < todo.length; i++) {
+      vectors.set(todo[i].s.id, vs[i]);
+      await db.saveKaizenRecord("kaizen_embeddings", orgId, factoryId, {
+        id: embeddingId(todo[i].s.id), suggestionId: todo[i].s.id, model: kaizenAi.model, hash: todo[i].hash, v: vs[i], createdAt: new Date().toISOString()
+      }, "system");
+    }
+  }
+  return vectors;
+}
+
+// After a suggestion is created or edited: refresh its vector (best effort, never blocks the save).
+async function refreshKaizenEmbedding(orgId: string, factoryId: string, suggestion: any) {
+  try {
+    if (!process.env.GEMINI_API_KEY || !(await loadKaizenSettings(orgId, factoryId)).aiSimilarity) return;
+    await withTimeout(ensureKaizenEmbeddings(orgId, factoryId, [suggestion], 1), 5000);
+  } catch (e: any) {
+    console.warn("[kaizen-ai] embedding refresh failed:", e.message);
+  }
+}
+
 // Benzer öneriler (Faz 6.1). Registered before POST suggestions/:id so "similar" is not taken as an
 // id. Everyone in the customer may learn THAT a similar idea exists (subject, department, date,
 // status) so ideas are not submitted twice; who wrote it and the record itself are only returned
@@ -3186,17 +3244,50 @@ app.post("/api/business/kaizen/suggestions/similar", authenticateToken, async (r
     personnelDepartment: clip(b.department, 120), suggestionTypes: Array.isArray(b.suggestionTypes) ? b.suggestionTypes.filter((t: any) => typeof t === "string").slice(0, 10) : []
   };
   const corpus = await db.getKaizenRecords("kaizen_suggestions", user.organization_id, scope.factoryId);
-  const hits = findSimilar(query, corpus as any[], { excludeId: clip(b.excludeId, 120) || undefined, limit: 5 });
+  const excludeId = clip(b.excludeId, 120) || undefined;
+  const textHits = findSimilar(query, corpus as any[], { excludeId, limit: 5 });
+  // Faz 6.2: add meaning-based hits when the customer turned it on; any failure → text only.
+  let semHits: { item: any; cos: number }[] = [];
+  const settings = await loadKaizenSettings(user.organization_id, scope.factoryId);
+  if (settings.aiSimilarity && process.env.GEMINI_API_KEY && embeddingText(query).length >= 12) {
+    try {
+      const others = (corpus as any[]).filter(x => x.id !== excludeId);
+      const [qv] = await withTimeout(kaizenAi.embed([embeddingText(query)]), 5000);
+      const vectors = await withTimeout(ensureKaizenEmbeddings(user.organization_id, scope.factoryId, others, 40), 8000);
+      semHits = others.filter(x => vectors.has(x.id)).map(x => ({ item: x, cos: cosineVec(qv, vectors.get(x.id)!) }));
+    } catch (e: any) {
+      console.warn("[kaizen-ai] semantic similarity skipped:", e.message);
+    }
+  }
+  const hits = mergeSimilar(textHits as any[], semHits, 5);
   const data = [];
-  for (const { item: x, score } of hits as { item: any; score: number }[]) {
+  for (const { item: x, score, semantic } of hits as { item: any; score: number; semantic: boolean }[]) {
     const visible = await canSeeKaizenSuggestion(user, x);
     data.push({
-      score, subject: x.subject, department: x.personnelDepartment || "", createdAt: x.createdAt || "",
+      score, semantic, subject: x.subject, department: x.personnelDepartment || "", createdAt: x.createdAt || "",
       approvalStatus: x.approvalStatus, requiredStages: x.requiredStages, feasibilityOpen: x.feasibility?.status === "open", completed: !!x.completed,
       ...(visible ? { id: x.id, personnelName: x.personnelName || "" } : {})
     });
   }
   res.json({ success: true, data });
+});
+
+// Ayarlar → "Mevcut önerileri hazırla": vectors for older suggestions, 100 per call (Kurul Yöneticisi).
+app.post("/api/business/kaizen/suggestions/embeddings/backfill", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed || !scope.factoryId) return denyKaizen(res);
+  if (!(await isKaizenAdmin(user, scope.factoryId))) return denyKaizen(res, 403, "Bu işlem için Kurul Yöneticisi yetkisi gereklidir.");
+  if (!(await loadKaizenSettings(user.organization_id, scope.factoryId)).aiSimilarity) return denyKaizen(res, 400, "Önce Ayarlar'da yapay zekâ ile benzerliği açıp kaydedin.");
+  if (!process.env.GEMINI_API_KEY) return denyKaizen(res, 503, "Yapay zekâ servisi yapılandırılmamış (GEMINI_API_KEY).");
+  const corpus = (await db.getKaizenRecords("kaizen_suggestions", user.organization_id, scope.factoryId)).filter((s: any) => embeddingText(s));
+  try {
+    const vectors = await ensureKaizenEmbeddings(user.organization_id, scope.factoryId, corpus, 100);
+    res.json({ success: true, data: { total: corpus.length, ready: vectors.size, remaining: corpus.length - vectors.size } });
+  } catch (e: any) {
+    console.warn("[kaizen-ai] backfill failed:", e.message);
+    res.status(502).json({ success: false, error: "Yapay zekâ servisine ulaşılamadı, biraz sonra tekrar deneyin." });
+  }
 });
 
 app.post("/api/business/kaizen/suggestions/:id", authenticateToken, async (req, res) => {
@@ -3247,6 +3338,7 @@ app.post("/api/business/kaizen/suggestions/:id", authenticateToken, async (req, 
     )
   };
   const updated = await db.updateKaizenSuggestion(user.organization_id, req.params.id, payload, user.id);
+  if (updated) await refreshKaizenEmbedding(user.organization_id, existing.factory_id, updated);
   res.json({ success: true, data: updated });
 });
 

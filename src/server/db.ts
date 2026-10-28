@@ -71,7 +71,7 @@ type FiveSCollection = typeof FIVE_S_COLLECTIONS[number];
 
 // Kaizen Suggestions module — same generic collection-CRUD pattern as FIVE_S_COLLECTIONS above.
 const KAIZEN_COLLECTIONS = [
-  "kaizen_personnel", "kaizen_criteria", "kaizen_suggestions", "kaizen_approvals", "kaizen_evaluations", "kaizen_implementations", "kaizen_settings", "kaizen_messages", "kaizen_notifications"
+  "kaizen_personnel", "kaizen_criteria", "kaizen_suggestions", "kaizen_approvals", "kaizen_evaluations", "kaizen_implementations", "kaizen_settings", "kaizen_messages", "kaizen_notifications", "kaizen_embeddings"
 ] as const;
 type KaizenCollection = typeof KAIZEN_COLLECTIONS[number];
 
@@ -1434,6 +1434,7 @@ export class GeminiDb {
       return { success: false, error: "Sadece kendi öneriniz geri çekebilirsiniz." };
     }
     await this.removeOne("kaizen_suggestions", orgId, suggestionId);
+    await this.removeOne("kaizen_embeddings", orgId, `kaizen_embeddings_${suggestionId}`); // Faz 6.2 vector, if any
     return { success: true };
   }
 

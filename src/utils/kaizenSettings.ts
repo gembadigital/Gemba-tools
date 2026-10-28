@@ -33,6 +33,7 @@ export interface KaizenSettings {
   kioskAfterSubmitSeconds: number;   // kiosk: auto sign-out countdown after a submitted suggestion
   remindersEnabled: boolean;         // weekly reminder digests (Faz 4.4)
   noPlanReminderDays: number;        // accepted but no implementation plan for this many days → remind
+  aiSimilarity: boolean;             // Faz 6.2 — semantic similar-suggestion search via Gemini embeddings (opt-in: texts leave for Google)
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -56,7 +57,8 @@ export const DEFAULT_KAIZEN_SETTINGS: KaizenSettings = {
   kioskIdleSeconds: 120,
   kioskAfterSubmitSeconds: 15,
   remindersEnabled: true,
-  noPlanReminderDays: 14
+  noPlanReminderDays: 14,
+  aiSimilarity: false
 };
 
 export const MAX_OPTIONS = 30;
@@ -127,6 +129,7 @@ export function normalizeKaizenSettings(input: any): KaizenSettings {
     kioskAfterSubmitSeconds: intIn(src.kioskAfterSubmitSeconds, 5, 120) ?? d.kioskAfterSubmitSeconds,
     remindersEnabled: typeof src.remindersEnabled === "boolean" ? src.remindersEnabled : d.remindersEnabled,
     noPlanReminderDays: intIn(src.noPlanReminderDays, 1, 365) ?? d.noPlanReminderDays,
+    aiSimilarity: typeof src.aiSimilarity === "boolean" ? src.aiSimilarity : d.aiSimilarity,
     ...(typeof src.updatedAt === "string" ? { updatedAt: src.updatedAt } : {}),
     ...(typeof src.updatedBy === "string" ? { updatedBy: src.updatedBy } : {})
   };

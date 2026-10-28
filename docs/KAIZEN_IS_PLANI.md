@@ -102,7 +102,7 @@ kazanç/rapor, en son ayırma. Boyut: S ≈ 1 oturum, M ≈ 2–3, L ≈ 4+.
 2. ~~Eskalasyon~~ — yapıldı (2026-10-28).
 3. Faz 5: ~~5.1 kazanç revizyonu + gerçekleşen yatırım~~ (2026-10-28) → ~~5.2 ROI/geri ödeme~~ (2026-10-28) → ~~5.3 rapor KPI'ları~~ (2026-10-28) →
    ~~5.5 Şampiyonlar sekmesi~~ (2026-10-28) → ~~5.6 amir raporu~~ (2026-10-28) → ~~5.7 PDF/Excel rapor~~ (2026-10-28). **Faz 5 tamamlandı.** (5.4 iptal.)
-4. Faz 6: ~~6.1 benzer öneri (metin)~~ (2026-10-28) → ~~6.3 PWA~~ (2026-10-28) → 6.2 anlamsal benzerlik.
+4. Faz 6: ~~6.1 benzer öneri (metin)~~ (2026-10-28) → ~~6.3 PWA~~ (2026-10-28) → ~~6.2 anlamsal benzerlik~~ (2026-10-28). **Faz 6 tamamlandı.**
 5. Faz 7: 7.1 modül ayırma → 7.3 Opx Suite entegrasyonu → 7.2 stand-alone (madde 5 kararıyla).
 
 **Canlıda yapılacak:** Vercel'de `CRON_SECRET` tanımlı olmalı (haftalık hatırlatmalar); 4.x özellikleri canlıda uçtan uca denenmedi.

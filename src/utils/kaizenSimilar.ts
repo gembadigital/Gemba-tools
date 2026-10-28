@@ -68,3 +68,44 @@ export function findSimilar<T extends SimilarInput & { id: string }>(
     .sort((a, b) => b.score - a.score)
     .slice(0, opts.limit ?? 5);
 }
+
+// ---- Anlamsal benzerlik (Faz 6.2) ----
+// Gemini embeddings (gemini-embedding-001, 768 dims, SEMANTIC_SIMILARITY). Calibrated on Turkish
+// suggestion texts: the same idea in other words scores ~0.87–0.89, unrelated ideas ~0.72–0.77.
+// Raw cosine is mapped to 0..1 from SEMANTIC_FLOOR so it sits next to the text score.
+export const SEMANTIC_THRESHOLD = 0.83;
+const SEMANTIC_FLOOR = 0.78;
+const SEMANTIC_CEIL = 0.95;
+
+export function cosineVec(a: number[], b: number[]): number {
+  let dot = 0, na = 0, nb = 0;
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  return na && nb ? dot / Math.sqrt(na * nb) : 0;
+}
+export const semanticScore = (cos: number) => Math.round(Math.max(0, Math.min(1, (cos - SEMANTIC_FLOOR) / (SEMANTIC_CEIL - SEMANTIC_FLOOR))) * 100) / 100;
+
+export const embeddingText = (s: SimilarInput) =>
+  [s.subject || "", s.currentState || "", s.improvementSuggestion || ""].map(t => t.trim()).filter(Boolean).join("\n").slice(0, 4000);
+
+// Stable short hash of the embedded text, to notice when a stored vector is stale.
+export function textHash(t: string): string {
+  let h = 5381;
+  for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
+// Text hits and semantic hits for the same corpus, merged: one row per suggestion, the higher of the
+// two scores, flagged when the semantic side found it.
+export function mergeSimilar<T extends { id: string }>(
+  text: { item: T; score: number }[], semantic: { item: T; cos: number }[], limit = 5
+): { item: T; score: number; semantic: boolean }[] {
+  const out = new Map<string, { item: T; score: number; semantic: boolean }>();
+  text.forEach(h => out.set(h.item.id, { item: h.item, score: h.score, semantic: false }));
+  semantic.filter(h => h.cos >= SEMANTIC_THRESHOLD).forEach(h => {
+    const sc = semanticScore(h.cos);
+    const prev = out.get(h.item.id);
+    out.set(h.item.id, { item: h.item, score: Math.max(prev?.score ?? 0, sc), semantic: true });
+  });
+  return [...out.values()].sort((a, b) => b.score - a.score).slice(0, limit);
+}
