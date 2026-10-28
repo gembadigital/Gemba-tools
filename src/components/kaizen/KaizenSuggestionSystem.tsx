@@ -151,7 +151,8 @@ export default function KaizenSuggestionSystem() {
   const personnelCrud = makeCrud<KaizenPersonnel>(api, "personnel", setPersonnel, showToast);
   const criteriaCrud = makeCrud<KaizenCriteria>(api, "criteria", setCriteria, showToast);
 
-  const myPersonnelRecord = personnel.find(p => (p.email || "").toLowerCase() === (appUser?.email || "").toLowerCase());
+  // Sicil no sessions (Faz 3.5) are tied to their personnel record by id; others by e-mail.
+  const myPersonnelRecord = personnel.find(p => (appUser?.kaizenPersonnelId && p.id === appUser.kaizenPersonnelId) || (!!p.email && p.email.toLowerCase() === (appUser?.email || "").toLowerCase()));
   // Kurul Yöneticisi (Faz 3.3): inside this module a personnel record flagged isBoardAdmin acts with
   // Admin powers (the server enforces the same rule). Screens below receive this Kaizen-effective
   // user, so their existing Admin/Consultant checks cover the Kurul Yöneticisi too.
@@ -165,11 +166,11 @@ export default function KaizenSuggestionSystem() {
   // My whole team at any depth (Faz 3.1): a hat yöneticisi also sees the takım liderleri's teams.
   const org = React.useMemo(() => buildOrg(personnel), [personnel]);
   const myTeamIds = React.useMemo(() => (myPersonnelRecord ? subordinateIds(myPersonnelRecord.id, org) : new Set<string>()), [myPersonnelRecord?.id, org]);
-  const isTeamLeader = myTeamIds.size > 0 || suggestions.some(s => canDecideAsManager(currentUser?.email || "", currentUser?.role || "", s.teamLeaderEmail));
+  const isTeamLeader = myTeamIds.size > 0 || suggestions.some(s => canDecideAsManager(currentUser?.email || "", currentUser?.role || "", s.teamLeaderEmail, s.teamLeaderId, myPersonnelRecord?.id));
   const canSeeApprovals = isBoardMember || isTeamLeader || currentUser?.role === "Admin" || currentUser?.role === "Consultant";
 
   // Queue sizes drive the nav badge and the Home to-do card.
-  const managerQueue = suggestions.filter(s => s.approvalStatus === "Pending" && canDecideAsManager(currentUser?.email || "", currentUser?.role || "", s.teamLeaderEmail));
+  const managerQueue = suggestions.filter(s => s.approvalStatus === "Pending" && canDecideAsManager(currentUser?.email || "", currentUser?.role || "", s.teamLeaderEmail, s.teamLeaderId, myPersonnelRecord?.id));
   const boardQueue = isBoardMember ? suggestions.filter(s => s.approvalStatus === "First Approval") : [];
   const managerApprovalDate = new Map<string, string>();
   approvals.filter(a => a.stage === "Manager" && a.approved).forEach(a => managerApprovalDate.set(a.suggestionId, a.createdAt));
@@ -363,6 +364,7 @@ export default function KaizenSuggestionSystem() {
           canGrantBoardAdmin={isStaffUser}
           api={api}
           showToast={showToast}
+          loginLink={`${window.location.origin}${window.location.pathname}?kaizen=${encodeURIComponent(factoryId)}`}
           personnel={personnel}
           criteria={criteria}
           personnelCrud={personnelCrud}

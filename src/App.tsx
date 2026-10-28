@@ -25,6 +25,7 @@ import OpexAssessment from "./components/OpexAssessment";
 
 // New Auth and Admin modules
 import AuthScreen from "./components/AuthScreen";
+import KaizenLogin, { KAIZEN_LINK_KEY } from "./components/kaizen/KaizenLogin";
 import UserProfileModal from "./components/UserProfileModal";
 import PlatformAdminConsole from "./components/PlatformAdminConsole";
 
@@ -143,6 +144,8 @@ export default function App() {
   const [moduleVisibility, setModuleVisibility] = useState<RoleModuleVisibility>(DEFAULT_ROLE_MODULE_VISIBILITY);
   const isModuleVisible = (moduleKey: string): boolean => {
     if (currentUser?.role === "Admin") return true;
+    // Sicil no sessions (Faz 3.5) always get the Kaizen module, plus whatever Customer User has.
+    if (currentUser?.authType === "kaizen" && moduleKey === "kaizen-suggestions") return true;
     if (currentUser?.role === "Consultant") return moduleVisibility.Consultant[moduleKey] !== false;
     if (currentUser?.role === "Customer User") return moduleVisibility["Customer User"][moduleKey] === true;
     return true;
@@ -303,6 +306,7 @@ export default function App() {
   // the default "dashboard" tab — which may be hidden for their role per the Admin's settings.
   useEffect(() => {
     if (!currentUser || currentUser.role === "Admin") return;
+    if (currentUser.authType === "kaizen") { setActiveTab("kaizen-suggestions"); return; }
     if (isModuleVisible(activeTab)) return;
     const firstVisible = SIDEBAR_MODULE_KEYS.find(k => isModuleVisible(k));
     if (firstVisible) setActiveTab(firstVisible as MenuTab);
@@ -376,6 +380,13 @@ export default function App() {
     // of ending the session, so there was no real way to log out of this app.
     localStorage.removeItem("gemba_token");
     sessionStorage.removeItem("gemba_token");
+    // A sicil no session goes back to its own login link (phone / kiosk), not the e-mail login.
+    if (currentUser?.authType === "kaizen" && currentUser.assigned_customer_ids?.[0]) {
+      let kiosk = false;
+      try { kiosk = !!JSON.parse(localStorage.getItem(KAIZEN_LINK_KEY) || "{}").kiosk; } catch { /* default phone */ }
+      window.location.href = `${window.location.pathname}?kaizen=${encodeURIComponent(currentUser.assigned_customer_ids[0])}${kiosk ? "&kiosk=1" : ""}`;
+      return;
+    }
     window.location.reload();
   };
 
@@ -557,6 +568,14 @@ export default function App() {
         <img src={gembaGIcon} alt="Gemba Tools" className="h-14 w-auto object-contain animate-pulse" />
       </div>
     );
+  }
+
+  // Kaizen login link / QR (Faz 3.5): /?kaizen=<customerId>[&kiosk=1]. Shown unless this browser is
+  // already signed in as a sicil no session of that same customer.
+  const kaizenLinkParams = new URLSearchParams(window.location.search);
+  const kaizenLinkId = kaizenLinkParams.get("kaizen");
+  if (kaizenLinkId && !(isAuthorized && currentUser?.authType === "kaizen" && currentUser.assigned_customer_ids?.[0] === kaizenLinkId)) {
+    return <KaizenLogin customerId={kaizenLinkId} kiosk={kaizenLinkParams.get("kiosk") === "1"} onAuthSuccess={handleAuthSuccess} />;
   }
 
   if (!isAuthorized) {

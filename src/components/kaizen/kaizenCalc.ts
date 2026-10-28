@@ -49,7 +49,9 @@ export function canEditSuggestion(status: ApprovalStatus): boolean {
 // Manager (team-leader) decision stage — the assigned team leader for this suggestion, or an org
 // Admin/Consultant. Replaces the legacy app's commented-out (i.e. never actually enforced)
 // P_TeamLeader_Mail restriction with a real server-side-checkable rule.
-export function canDecideAsManager(userEmail: string, userRole: string, teamLeaderEmail: string): boolean {
+// teamLeaderId / myPersonnelId (Faz 3.5): supervisors signed in with sicil no may have no e-mail.
+export function canDecideAsManager(userEmail: string, userRole: string, teamLeaderEmail: string, teamLeaderId?: string, myPersonnelId?: string): boolean {
+  if (teamLeaderId && myPersonnelId && teamLeaderId === myPersonnelId) return true;
   if (userRole === "Admin" || userRole === "Consultant") return true;
   return !!teamLeaderEmail && teamLeaderEmail.toLowerCase() === userEmail.toLowerCase();
 }

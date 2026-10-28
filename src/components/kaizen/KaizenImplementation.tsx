@@ -262,7 +262,8 @@ function ImplementationDetail({
 
   const email = (currentUser?.email || "").toLowerCase();
   const isStaffUser = currentUser?.role === "Admin" || currentUser?.role === "Consultant";
-  const canEdit = isBoardMember || isStaffUser || (s.teamLeaderEmail || "").toLowerCase() === email || (impl?.ownerEmail || "").toLowerCase() === email;
+  const canEdit = isBoardMember || isStaffUser || (s.teamLeaderEmail || "").toLowerCase() === email || (impl?.ownerEmail || "").toLowerCase() === email
+    || (!!currentUser?.kaizenPersonnelId && s.teamLeaderId === currentUser.kaizenPersonnelId);
   const canVerify = isBoardMember && (isStaffUser || ((impl?.ownerEmail || "").toLowerCase() !== email && (s.authorEmail || "").toLowerCase() !== email));
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft(d => ({ ...d, [key]: value }));

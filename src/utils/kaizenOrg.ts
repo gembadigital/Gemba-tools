@@ -166,10 +166,11 @@ export function visibleSuggestionIds(
   email: string,
   roster: OrgPerson[],
   suggestions: { id: string; authorEmail?: string; teamLeaderEmail?: string; personnelId?: string; personnelName?: string; authorName?: string }[],
-  implementations: { suggestionId: string; ownerEmail?: string }[]
+  implementations: { suggestionId: string; ownerEmail?: string }[],
+  myPersonnelId?: string // sicil session (Faz 3.5): identity by record id, e-mail may be absent
 ): Set<string> {
   const e = lc(email);
-  const me = findByEmail(roster, e);
+  const me = (myPersonnelId && roster.find(p => p.id === myPersonnelId)) || findByEmail(roster, e);
   const team = me ? subordinateIds(me.id, buildOrg(roster)) : new Set<string>();
   const ownedImpl = new Set(implementations.filter(i => e && lc(i.ownerEmail) === e).map(i => i.suggestionId));
   const out = new Set<string>();

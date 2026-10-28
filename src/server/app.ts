@@ -12,6 +12,7 @@ import { applyFinding, canWriteFinding } from "./opexFindings.js";
 import { renderReportHtml } from "./opexReport/render.js";
 import { KNOWN_CURRENCIES, normalizeKaizenSettings, KaizenSettings, rewardFor, requiredStagesFor, stagesOf, afterManagerApprovalStatus } from "../utils/kaizenSettings.js";
 import { preparePersonnel, buildOrg, effectiveManagerId, managerChain, visibleSuggestionIds, planPersonnelImport } from "../utils/kaizenOrg.js";
+import { pinRequired, findBySicil, pinProblem, newPinCode, isLocked, failedAttempt, codeValid, pinValid, hashSecret, publicPersonnel, stripSecretInput, virtualEmail, isAuthorizedRole, PIN_LOCK_MINUTES, PIN_CODE_DAYS, KIOSK_SESSION, PHONE_SESSION } from "./kaizenAuth.js";
 import * as XLSX from "xlsx";
 
 // This module only builds and configures the Express app (all /api/* routes) and exports it —
@@ -225,11 +226,27 @@ export async function authenticateToken(req: express.Request, res: express.Respo
 
   const token = authHeader.replace("Bearer ", "").trim();
   let userId: string;
+  let payload: any;
   try {
-    const payload = jwt.verify(token, getJwtSecret()) as { userId: string };
+    payload = jwt.verify(token, getJwtSecret());
     userId = payload.userId;
   } catch (e) {
     res.status(401).json({ success: false, error: "Invalid or expired session. Please sign in again." });
+    return;
+  }
+
+  // Sicil no session (Faz 3.5): no user account behind it — the request runs as a virtual
+  // "Customer User" scoped to that one customer and tied to the personnel record.
+  if (payload?.kind === "kaizen") {
+    const session = await kaizenSessionUser(payload);
+    if ("error" in session) {
+      res.status(401).json({ success: false, error: session.error });
+      return;
+    }
+    (req as any).user = session.user;
+    (req as any).organization = (await db.getOrganizations()).find(o => o.id === session.user.organization_id);
+    (req as any).allowedCustomerIds = [payload.fid];
+    next();
     return;
   }
 
@@ -388,6 +405,93 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
+// ---- Sicil no ile giriş (Faz 3.5) ----
+async function kaizenSessionUser(payload: any): Promise<{ user: any } | { error: string }> {
+  const roster = await db.getKaizenRecords("kaizen_personnel", payload.org, payload.fid);
+  const person = roster.find((p: any) => p.id === payload.pid);
+  if (!person) return { error: "Personel kaydı bulunamadı. Lütfen yeniden giriş yapın." };
+  const settings = await loadKaizenSettings(payload.org, payload.fid);
+  // A PIN reset ends existing PIN sessions; a role that now needs a PIN needs a fresh login.
+  if (payload.pin && (Number(person.pinVersion) || 0) !== payload.pv) return { error: "PIN değişti. Lütfen yeniden giriş yapın." };
+  if (!payload.pin && pinRequired(person, roster, settings.pinPolicy)) return { error: "Bu hesap için artık PIN gerekiyor. Lütfen yeniden giriş yapın." };
+  return {
+    user: {
+      id: `kaizen:${person.id}`,
+      organization_id: payload.org,
+      full_name: person.name,
+      email: (person.email || virtualEmail(person.id)).toLowerCase(),
+      role: "Customer User",
+      status: "Active",
+      last_login: null,
+      assigned_customer_ids: [payload.fid],
+      authType: "kaizen",
+      kaizenPersonnelId: person.id,
+      employeeNo: person.employeeNo || ""
+    }
+  };
+}
+
+// Public: tells the login page which company the link belongs to (nothing else).
+app.get("/api/auth/kaizen-login-info", async (req, res) => {
+  const fid = typeof req.query.c === "string" ? req.query.c.slice(0, 100) : "";
+  const found = fid ? await db.findKaizenPersonnelByFactory(fid) : null;
+  if (!found) return res.status(404).json({ success: false, error: "Giriş bağlantısı geçersiz." });
+  res.json({ success: true, data: { companyName: await db.getCustomerName(found.orgId, fid) } });
+});
+
+app.post("/api/auth/kaizen-login", async (req, res) => {
+  try {
+    const fid = typeof req.body.c === "string" ? req.body.c.slice(0, 100) : "";
+    const found = fid ? await db.findKaizenPersonnelByFactory(fid) : null;
+    if (!found) return res.status(404).json({ success: false, error: "Giriş bağlantısı geçersiz." });
+    const { orgId, personnel } = found;
+    const person = findBySicil(personnel, req.body.employeeNo);
+    if (!person) return res.status(401).json({ success: false, error: "Bu sicil no kayıtlı değil. Kurul Yöneticinize başvurun." });
+    if (isLocked(person)) return res.status(429).json({ success: false, error: `Çok fazla hatalı deneme. ${PIN_LOCK_MINUTES} dakika sonra tekrar deneyin.` });
+
+    const settings = await loadKaizenSettings(orgId, fid);
+    const needPin = pinRequired(person, personnel, settings.pinPolicy);
+    // Successive saves in one request build on each other (a stale copy would undo the new PIN).
+    let current = person;
+    const save = async (patch: Record<string, any>) => {
+      current = { ...current, ...patch };
+      await db.saveKaizenRecord("kaizen_personnel", orgId, fid, current, `kaizen:${person.id}`);
+    };
+    let pinVersion = Number(person.pinVersion) || 0;
+
+    if (needPin) {
+      if (person.pinHash) {
+        if (!req.body.pin) return res.json({ success: true, step: "pin", name: person.name });
+        if (!pinValid(person, req.body.pin)) {
+          await save(failedAttempt(person));
+          return res.status(401).json({ success: false, step: "pin", error: "PIN hatalı." });
+        }
+      } else {
+        // First login (or after a reset): one-time code from the Kurul Yöneticisi + own new PIN.
+        if (!req.body.code) return res.json({ success: true, step: "setup", name: person.name });
+        if (!codeValid(person, req.body.code)) {
+          await save(failedAttempt(person));
+          return res.status(401).json({ success: false, step: "setup", error: "Giriş kodu hatalı ya da süresi dolmuş. Kurul Yöneticinizden yeni kod isteyin." });
+        }
+        const problem = pinProblem(req.body.newPin);
+        if (problem) return res.status(400).json({ success: false, step: "setup", error: problem });
+        pinVersion += 1;
+        await save({ pinHash: hashSecret(req.body.newPin), pinCodeHash: "", pinCodeExpires: "", pinVersion, pinSetAt: new Date().toISOString(), pinFailed: 0, pinLockedUntil: "" });
+      }
+    }
+    if (current.pinFailed || current.pinLockedUntil) await save({ pinFailed: 0, pinLockedUntil: "" });
+
+    const kiosk = req.body.device === "kiosk";
+    const token = jwt.sign({ kind: "kaizen", pid: person.id, org: orgId, fid, pin: needPin, pv: pinVersion }, getJwtSecret(), { expiresIn: kiosk ? KIOSK_SESSION : PHONE_SESSION });
+    const session = await kaizenSessionUser({ pid: person.id, org: orgId, fid, pin: needPin, pv: pinVersion });
+    if ("error" in session) return res.status(401).json({ success: false, error: session.error });
+    const organization = (await db.getOrganizations()).find(o => o.id === orgId);
+    res.json({ success: true, step: "done", token, user: session.user, organization });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.get("/api/auth/me", authenticateToken, async (req, res) => {
   try {
     const user = (req as any).user;
@@ -401,7 +505,8 @@ app.get("/api/auth/me", authenticateToken, async (req, res) => {
         role: user.role,
         status: user.status,
         organization_id: user.organization_id,
-        last_login: user.last_login
+        last_login: user.last_login,
+        ...(user.authType === "kaizen" ? { authType: "kaizen", kaizenPersonnelId: user.kaizenPersonnelId, employeeNo: user.employeeNo, assigned_customer_ids: user.assigned_customer_ids } : {})
       },
       organization
     });
@@ -413,6 +518,10 @@ app.get("/api/auth/me", authenticateToken, async (req, res) => {
 app.post("/api/auth/edit-profile", authenticateToken, async (req, res) => {
   try {
     const user = (req as any).user;
+    if (user.authType === "kaizen") {
+      res.status(403).json({ success: false, error: "Sicil no ile giriş yapan hesaplarda bu bilgiler Kurulum > Personel'den değiştirilir. Kurul Yöneticinize başvurun." });
+      return;
+    }
     const { fullName, email } = req.body;
 
     if (!fullName || !email) {
@@ -453,6 +562,10 @@ app.post("/api/auth/edit-profile", authenticateToken, async (req, res) => {
 app.post("/api/auth/change-password", authenticateToken, async (req, res) => {
   try {
     const user = (req as any).user;
+    if (user.authType === "kaizen") {
+      res.status(403).json({ success: false, error: "Sicil no ile giriş yapan hesaplarda bu bilgiler Kurulum > Personel'den değiştirilir. Kurul Yöneticinize başvurun." });
+      return;
+    }
     const { currentPassword, newPassword } = req.body;
 
     if (!currentPassword || !newPassword) {
@@ -2620,10 +2733,25 @@ async function loadKaizenSuggestion(req: express.Request, res: express.Response)
   return suggestion;
 }
 
+// "Is this personnel record me?" — by the sicil session's personnel id, else by account e-mail.
+const isMe = (user: any, p: any) => (!!user.kaizenPersonnelId && p?.id === user.kaizenPersonnelId) || sameEmail(p?.email, user.email);
+async function myKaizenPersonnel(user: any, factoryId?: string): Promise<any | undefined> {
+  return (await db.getKaizenRecords("kaizen_personnel", user.organization_id, factoryId)).find((p: any) => isMe(user, p));
+}
+// Is the caller this suggestion's 1st-degree supervisor? By the stored e-mail, or (supervisors
+// without e-mail, Faz 3.5) by the supervisor's personnel id stored on the suggestion.
+async function isSuggestionManager(user: any, suggestion: any): Promise<boolean> {
+  if (sameEmail(suggestion.teamLeaderEmail, user.email)) return true;
+  if (!suggestion.teamLeaderId) return false;
+  return (await myKaizenPersonnel(user, suggestion.factory_id))?.id === suggestion.teamLeaderId;
+}
+const isAuthorOf = (user: any, suggestion: any) =>
+  sameEmail(suggestion.authorEmail, user.email) || (!!user.kaizenPersonnelId && suggestion.authorPersonnelId === user.kaizenPersonnelId);
+
 async function isKaizenBoardMember(user: any, factoryId?: string): Promise<boolean> {
   if (isStaff(user)) return true;
   const personnel = await db.getKaizenRecords("kaizen_personnel", user.organization_id, factoryId);
-  return personnel.some((p: any) => sameEmail(p.email, user.email) && (!!p.isBoardMember || !!p.isBoardAdmin));
+  return personnel.some((p: any) => isMe(user, p) && (!!p.isBoardMember || !!p.isBoardAdmin));
 }
 
 // Kurul Yöneticisi (Faz 3.3): the customer's own Kaizen administrator — a personnel record flagged
@@ -2632,7 +2760,7 @@ async function isKaizenBoardMember(user: any, factoryId?: string): Promise<boole
 async function isKaizenAdmin(user: any, factoryId?: string): Promise<boolean> {
   if (isStaff(user)) return true;
   const personnel = await db.getKaizenRecords("kaizen_personnel", user.organization_id, factoryId);
-  return personnel.some((p: any) => sameEmail(p.email, user.email) && !!p.isBoardAdmin);
+  return personnel.some((p: any) => isMe(user, p) && !!p.isBoardAdmin);
 }
 
 const MAX_PHOTOS_PER_GROUP = 8;
@@ -2678,7 +2806,8 @@ for (const { path, collection } of KAIZEN_SIMPLE_ENTITIES) {
     const user = (req as any).user;
     const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
     if (!scope.allowed) return denyKaizen(res);
-    res.json({ success: true, data: await db.getKaizenRecords(collection, user.organization_id, scope.factoryId) });
+    const rows = await db.getKaizenRecords(collection, user.organization_id, scope.factoryId);
+    res.json({ success: true, data: collection === "kaizen_personnel" ? rows.map(publicPersonnel) : rows });
   });
 
   app.post(`/api/business/kaizen/${path}`, authenticateToken, async (req, res) => {
@@ -2686,7 +2815,8 @@ for (const { path, collection } of KAIZEN_SIMPLE_ENTITIES) {
     const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
     if (!scope.allowed || !scope.factoryId) return denyKaizen(res);
     if (!(await isKaizenAdmin(user, scope.factoryId))) return denyKaizen(res, 403, "Bu işlem için Kurul Yöneticisi yetkisi gereklidir.");
-    let body = { ...req.body };
+    // PIN secrets are only ever written by the login / PIN-code routes.
+    let body = stripSecretInput({ ...req.body });
     // Personnel (Faz 3.1): sicil no required + unique, supervisor by record id, no loops.
     const roster = collection === "kaizen_personnel" ? await db.getKaizenRecords("kaizen_personnel", user.organization_id, scope.factoryId) : [];
     if (collection === "kaizen_personnel") {
@@ -2721,7 +2851,7 @@ for (const { path, collection } of KAIZEN_SIMPLE_ENTITIES) {
         await db.saveKaizenRecord(collection, user.organization_id, scope.factoryId, { ...p, managerId: saved.id, teamLeaderName: saved.name, teamLeaderEmail: email }, user.id);
       }
     }
-    res.json({ success: true, data: saved });
+    res.json({ success: true, data: collection === "kaizen_personnel" ? publicPersonnel(saved) : saved });
   });
 
   app.delete(`/api/business/kaizen/${path}/:id`, authenticateToken, async (req, res) => {
@@ -2756,7 +2886,7 @@ async function kaizenVisibleIds(user: any, factoryId?: string): Promise<Set<stri
     db.getKaizenRecords("kaizen_suggestions", user.organization_id, factoryId),
     db.getKaizenRecords("kaizen_implementations", user.organization_id, factoryId)
   ]);
-  return visibleSuggestionIds(user.email, roster, suggestions, implementations);
+  return visibleSuggestionIds(user.email, roster, suggestions, implementations, user.kaizenPersonnelId);
 }
 
 async function canSeeKaizenSuggestion(user: any, suggestion: any): Promise<boolean> {
@@ -2839,6 +2969,28 @@ app.get("/api/business/kaizen/implementations/:id", authenticateToken, async (re
   res.json({ success: true, data: loaded.impl });
 });
 
+// İlk giriş / PIN sıfırlama kodu (Faz 3.5): the Kurul Yöneticisi creates a one-time 6-digit code
+// (valid PIN_CODE_DAYS days) and hands it to the person, who then chooses their own PIN at login.
+// Creating a code also clears any existing PIN and ends that person's PIN sessions.
+app.post("/api/business/kaizen/personnel/:id/pin-code", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const person = (await db.getKaizenRecords("kaizen_personnel", user.organization_id)).find((p: any) => p.id === req.params.id);
+  if (!person || !canAccessFactory(req, person.factory_id)) return denyKaizen(res, 404, "Kayıt bulunamadı.");
+  if (!(await isKaizenAdmin(user, person.factory_id))) return denyKaizen(res, 403, "Bu işlem için Kurul Yöneticisi yetkisi gereklidir.");
+  if (!person.employeeNo) return denyKaizen(res, 400, "Önce bu kişiye sicil no girin.");
+  if (person.isBoardAdmin && !isStaff(user) && person.id !== (user.kaizenPersonnelId || "")) {
+    return denyKaizen(res, 403, "Kurul Yöneticisinin PIN'ini yalnızca kendisi ya da Gemba danışmanı sıfırlayabilir.");
+  }
+  const code = newPinCode();
+  const expires = new Date(Date.now() + PIN_CODE_DAYS * 86_400_000).toISOString();
+  await db.saveKaizenRecord("kaizen_personnel", user.organization_id, person.factory_id, {
+    ...person, pinHash: "", pinCodeHash: hashSecret(code), pinCodeExpires: expires,
+    pinVersion: (Number(person.pinVersion) || 0) + 1, pinFailed: 0, pinLockedUntil: ""
+  }, user.id);
+  console.info(`[kaizen-audit] PIN code issued for ${person.employeeNo} by ${user.email}`);
+  res.json({ success: true, data: { code, expires } });
+});
+
 // Excel ile personel yükleme (Faz 3.2). dryRun:true returns the per-row plan without saving, so
 // the screen can show exactly what will happen; the same body without dryRun applies it.
 app.post("/api/business/kaizen/personnel/import", authenticateToken, async (req, res) => {
@@ -2908,7 +3060,7 @@ app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res)
   // never from the request body (a client could otherwise name itself as its own team leader).
   const personnel = await db.getKaizenRecords("kaizen_personnel", user.organization_id, scope.factoryId);
   const settings = await loadKaizenSettings(user.organization_id, scope.factoryId);
-  const myRecord = personnel.find((p: any) => sameEmail(p.email, user.email));
+  const myRecord = personnel.find((p: any) => isMe(user, p));
   const kaizenAdmin = isStaff(user) || !!myRecord?.isBoardAdmin;
   // On behalf of someone else: picked by roster id (Faz 3.1; older clients send the name). Allowed
   // for staff and for any supervisor above that person — not only the direct one.
@@ -2930,6 +3082,9 @@ app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res)
     }
   }
   const payload = {
+    authorPersonnelId: myRecord?.id || "",
+    // 1st-degree supervisor by id too, so a supervisor without e-mail can still approve (Faz 3.5).
+    teamLeaderId: subjectRecord ? effectiveManagerId(subjectRecord, personnel) || "" : "",
     personnelId: subjectRecord?.id || "",
     personnelEmployeeNo: subjectRecord?.employeeNo || "",
     personnelName: subjectRecord?.name || user.full_name,
@@ -2982,7 +3137,7 @@ app.post("/api/business/kaizen/suggestions/:id", authenticateToken, async (req, 
   const user = (req as any).user;
   const existing = await loadKaizenSuggestion(req, res);
   if (!existing) return;
-  if (!sameEmail(existing.authorEmail, user.email) && !(await isKaizenAdmin(user, existing.factory_id))) {
+  if (!isAuthorOf(user, existing) && !(await isKaizenAdmin(user, existing.factory_id))) {
     return denyKaizen(res, 403, "Sadece kendi öneriniz düzenleyebilirsiniz.");
   }
   if (existing.approvalStatus !== "Rejected" && existing.approvalStatus !== "Rejected 2nd") {
@@ -3027,9 +3182,9 @@ app.post("/api/business/kaizen/suggestions/:id/manager-decision", authenticateTo
   const suggestion = await loadKaizenSuggestion(req, res);
   if (!suggestion) return;
   // The direct supervisor decides; a Kurul Yöneticisi (or staff) can step in for any suggestion.
-  const isManager = sameEmail(suggestion.teamLeaderEmail, user.email) || (await isKaizenAdmin(user, suggestion.factory_id));
+  const isManager = (await isSuggestionManager(user, suggestion)) || (await isKaizenAdmin(user, suggestion.factory_id));
   if (!isManager) return denyKaizen(res, 403, "Bu öneriyi onaylama/reddetme yetkiniz yok.");
-  if (!isStaff(user) && sameEmail(suggestion.authorEmail, user.email)) {
+  if (!isStaff(user) && isAuthorOf(user, suggestion)) {
     return denyKaizen(res, 403, "Kendi önerinizi onaylayamazsınız.");
   }
   const approved = req.body.approved === true;
@@ -3075,7 +3230,7 @@ app.post("/api/business/kaizen/suggestions/:id/board-decision", authenticateToke
   if (!(await isKaizenBoardMember(user, suggestion.factory_id))) {
     return denyKaizen(res, 403, "Kurul değerlendirmesi yapma yetkiniz yok.");
   }
-  if (!isStaff(user) && sameEmail(suggestion.authorEmail, user.email)) {
+  if (!isStaff(user) && isAuthorOf(user, suggestion)) {
     return denyKaizen(res, 403, "Kendi önerinizi değerlendiremezsiniz.");
   }
   const approved = req.body.approved === true;
@@ -3130,7 +3285,7 @@ app.post("/api/business/kaizen/suggestions/:id/complete", authenticateToken, asy
   const user = (req as any).user;
   const suggestion = await loadKaizenSuggestion(req, res);
   if (!suggestion) return;
-  if (!sameEmail(suggestion.teamLeaderEmail, user.email) && !(await isKaizenBoardMember(user, suggestion.factory_id))) {
+  if (!(await isSuggestionManager(user, suggestion)) && !(await isKaizenBoardMember(user, suggestion.factory_id))) {
     return denyKaizen(res, 403, "Bu işlem için yetkiniz yok.");
   }
   const updated = await db.markKaizenCompleted(user.organization_id, req.params.id);
@@ -3229,7 +3384,7 @@ async function loadKaizenImplementation(req: express.Request, res: express.Respo
 }
 
 async function canManageKaizenImplementation(user: any, suggestion: any, impl?: any): Promise<boolean> {
-  return sameEmail(suggestion.teamLeaderEmail, user.email) || sameEmail(impl?.ownerEmail, user.email) || (await isKaizenBoardMember(user, suggestion.factory_id));
+  return (await isSuggestionManager(user, suggestion)) || sameEmail(impl?.ownerEmail, user.email) || (await isKaizenBoardMember(user, suggestion.factory_id));
 }
 
 app.post("/api/business/kaizen/suggestions/:id/implementation", authenticateToken, async (req, res) => {
@@ -3321,7 +3476,7 @@ app.post("/api/business/kaizen/implementations/:id/verify", authenticateToken, a
   if (!loaded) return;
   const { impl, suggestion } = loaded;
   if (!(await isKaizenBoardMember(user, impl.factory_id))) return denyKaizen(res, 403, "Doğrulama için Kaizen Kurulu yetkisi gereklidir.");
-  if (!isStaff(user) && (sameEmail(impl.ownerEmail, user.email) || sameEmail(suggestion.authorEmail, user.email))) {
+  if (!isStaff(user) && (sameEmail(impl.ownerEmail, user.email) || isAuthorOf(user, suggestion))) {
     return denyKaizen(res, 403, "Kendi uygulamanızı doğrulayamazsınız.");
   }
   if (impl.status !== "Tamamlandı") return denyKaizen(res, 400, "Yalnızca tamamlanmış uygulamalar doğrulanabilir.");

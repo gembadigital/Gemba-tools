@@ -44,6 +44,7 @@ export default function KaizenMySuggestions({ currentUser, suggestions, approval
   const mineAll = useMemo(
     () => suggestions.filter(s => {
       if ((s.authorEmail || "").toLowerCase() === myEmail || (s.teamLeaderEmail || "").toLowerCase() === myEmail) return true;
+      if (currentUser?.kaizenPersonnelId && s.teamLeaderId === currentUser.kaizenPersonnelId) return true;
       const person = teamIds.size ? personOfSuggestion(s, personnel) : undefined;
       return !!person && teamIds.has(person.id);
     }),

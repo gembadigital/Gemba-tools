@@ -40,6 +40,8 @@ export interface KaizenPersonnel {
   machineLeaderEmail: string;
   isBoardMember: boolean;     // KaizenBoard üyesi — evaluator + Rapor access
   isBoardAdmin?: boolean;     // Kurul Yöneticisi (Faz 3.3) — Kaizen admin of this customer; staff-granted only
+  hasPin?: boolean;           // Faz 3.5 — server-computed; the PIN itself never reaches the client
+  pinCodeActive?: boolean;    // an unused first-login / reset code is outstanding
 }
 
 export interface KaizenSuggestionPhoto {
@@ -52,6 +54,8 @@ export interface KaizenSuggestion {
   authorEmail: string;   // logged-in submitter (Personel person field) — preserved across edits
   authorName: string;
   personnelId?: string;          // roster record the suggestion is about (Faz 3.1)
+  authorPersonnelId?: string;    // submitter's roster record (Faz 3.5)
+  teamLeaderId?: string;         // 1st-degree supervisor's roster record (Faz 3.5; supervisors without e-mail)
   personnelEmployeeNo?: string;  // its sicil no at submit time
 
   personnelName: string;        // Ad Soyad — who the suggestion is about (may be a subordinate)

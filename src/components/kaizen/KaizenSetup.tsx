@@ -1,11 +1,11 @@
 import React, { useState, useMemo } from "react";
-import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, IdCard, Download, Upload, SlidersHorizontal, Coins, Clock, ListChecks, Gift, GitBranch } from "lucide-react";
+import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, IdCard, Download, Upload, Copy, KeyRound, SlidersHorizontal, Coins, Clock, ListChecks, Gift, GitBranch } from "lucide-react";
 import { KaizenPersonnel, KaizenCriteria } from "./kaizenTypes";
 import { buildOrg, subordinateIds, managerChain } from "../../utils/kaizenOrg";
 import KaizenPersonnelImport, { exportPersonnel, downloadPersonnelTemplate } from "./KaizenPersonnelImport";
 import type { KaizenApi } from "./KaizenSuggestionSystem";
 import { Card, SectionTitle, Button, EmptyState, PageHeader, TabBar, Avatar, inputCls, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
-import { KaizenSettings, KNOWN_CURRENCIES, IN_KIND_CURRENCY, normalizeKaizenSettings, DEFAULT_KAIZEN_SETTINGS, MAX_OPTIONS, MAX_OPTION_LENGTH } from "../../utils/kaizenSettings";
+import { KaizenSettings, PinPolicy, KNOWN_CURRENCIES, IN_KIND_CURRENCY, normalizeKaizenSettings, DEFAULT_KAIZEN_SETTINGS, MAX_OPTIONS, MAX_OPTION_LENGTH } from "../../utils/kaizenSettings";
 
 interface Crud<T> {
   save: (record: Partial<T> & { id?: string }) => Promise<any>;
@@ -23,6 +23,7 @@ interface Props {
   canGrantBoardAdmin: boolean; // only Gemba staff may grant/revoke Kurul Yöneticisi
   api: KaizenApi;
   showToast: (m: string) => void;
+  loginLink: string; // this customer's sicil no login URL (Faz 3.5)
 }
 
 
@@ -30,7 +31,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">{label}</label>{children}</div>;
 }
 
-export default function KaizenSetup({ personnel, criteria, personnelCrud, criteriaCrud, settings, onSaveSettings, onPersonnelChanged, canGrantBoardAdmin, api, showToast }: Props) {
+export default function KaizenSetup({ personnel, criteria, personnelCrud, criteriaCrud, settings, onSaveSettings, onPersonnelChanged, canGrantBoardAdmin, api, showToast, loginLink }: Props) {
   const [tab, setTab] = useState<"personnel" | "criteria" | "settings">("personnel");
   return (
     <div className="space-y-6">
@@ -44,9 +45,9 @@ export default function KaizenSetup({ personnel, criteria, personnelCrud, criter
         value={tab}
         onChange={setTab}
       />
-      {tab === "personnel" && <PersonnelTab personnel={personnel} personnelCrud={personnelCrud} onChanged={onPersonnelChanged} canGrantBoardAdmin={canGrantBoardAdmin} api={api} showToast={showToast} />}
+      {tab === "personnel" && <PersonnelTab personnel={personnel} personnelCrud={personnelCrud} onChanged={onPersonnelChanged} canGrantBoardAdmin={canGrantBoardAdmin} api={api} showToast={showToast} pinPolicy={settings.pinPolicy} loginLink={loginLink} />}
       {tab === "criteria" && <CriteriaTab criteria={criteria} criteriaCrud={criteriaCrud} baseCurrency={settings.baseCurrency} />}
-      {tab === "settings" && <SettingsTab settings={settings} onSave={onSaveSettings} />}
+      {tab === "settings" && <SettingsTab settings={settings} onSave={onSaveSettings} loginLink={loginLink} />}
     </div>
   );
 }
@@ -58,8 +59,16 @@ const blankPersonnel: Partial<KaizenPersonnel> = {
 
 // Personel listesi (Faz 3.1): sicil no is the identity; the supervisor is picked from the roster
 // (no more typing a name + e-mail), which gives an unlimited-depth hierarchy.
-function PersonnelTab({ personnel, personnelCrud, onChanged, canGrantBoardAdmin, api, showToast }: { personnel: KaizenPersonnel[]; personnelCrud: Crud<KaizenPersonnel>; onChanged: () => void; canGrantBoardAdmin: boolean; api: KaizenApi; showToast: (m: string) => void }) {
+function PersonnelTab({ personnel, personnelCrud, onChanged, canGrantBoardAdmin, api, showToast, pinPolicy, loginLink }: { personnel: KaizenPersonnel[]; personnelCrud: Crud<KaizenPersonnel>; onChanged: () => void; canGrantBoardAdmin: boolean; api: KaizenApi; showToast: (m: string) => void; pinPolicy: PinPolicy; loginLink: string }) {
   const [importOpen, setImportOpen] = useState(false);
+  const [issued, setIssued] = useState<{ name: string; employeeNo: string; code: string; expires: string } | null>(null);
+  // One-time code for first login / PIN reset (Faz 3.5); shown once, never stored in clear.
+  const issueCode = async (p: KaizenPersonnel) => {
+    if (p.hasPin && !window.confirm(`${p.name} için yeni giriş kodu üretilsin mi? Mevcut PIN'i silinir ve açık oturumları kapanır.`)) return;
+    const res = await api.post(`personnel/${p.id}/pin-code`, {});
+    if (res.success) { setIssued({ name: p.name, employeeNo: p.employeeNo || "", code: res.data.code, expires: res.data.expires }); onChanged(); }
+    else showToast(`Hata: ${res.error || "Kod üretilemedi."}`);
+  };
   const [form, setForm] = useState<Partial<KaizenPersonnel> | null>(null);
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
@@ -124,7 +133,7 @@ function PersonnelTab({ personnel, personnelCrud, onChanged, canGrantBoardAdmin,
           {list.length === 0 ? <EmptyState icon={Users} title="Personel bulunamadı" text="Personel ekleyerek sicil no, amir ve Kurul üyeliği ilişkilerini tanımlayın." /> : (
             <div className="overflow-x-auto max-h-[70vh]">
               <table className={tableCls}>
-                <thead className={`${theadCls} sticky top-0`}><tr><th className={thCls}>Sicil</th><th className={thCls}>Ad Soyad</th><th className={thCls}>Bölüm / Görev</th><th className={thCls}>Amir</th><th className={`${thCls} text-right`}>Ekip</th><th className={thCls}>Rol</th><th className={thCls}></th></tr></thead>
+                <thead className={`${theadCls} sticky top-0`}><tr><th className={thCls}>Sicil</th><th className={thCls}>Ad Soyad</th><th className={thCls}>Bölüm / Görev</th><th className={thCls}>Amir</th><th className={`${thCls} text-right`}>Ekip</th><th className={thCls}>Rol</th><th className={thCls}>Giriş</th><th className={thCls}></th></tr></thead>
                 <tbody>{list.map(p => {
                   const manager = byId.get(org.managerOf.get(p.id) || "");
                   const direct = (org.reportsOf.get(p.id) || []).length;
@@ -137,6 +146,19 @@ function PersonnelTab({ personnel, personnelCrud, onChanged, canGrantBoardAdmin,
                       <td className={tdCls}>{manager ? manager.name : p.teamLeaderName ? <span className="text-amber-700" title="Eski kayıt: amir listede bulunamadı">{p.teamLeaderName} ⚠</span> : "—"}</td>
                       <td className={`${tdCls} text-right tabular-nums`}>{direct ? <span title={`${direct} doğrudan, ${total} toplam`}><b className="text-slate-900">{direct}</b>{total > direct && <span className="text-slate-400"> / {total}</span>}</span> : <span className="text-slate-300">—</span>}</td>
                       <td className={tdCls}><RoleChip person={p} isManager={direct > 0} /></td>
+                      <td className={tdCls} onClick={e => e.stopPropagation()}>
+                        {(() => {
+                          const needs = pinPolicy === "all" || (pinPolicy === "authorized" && (p.isBoardMember || p.isBoardAdmin || direct > 0));
+                          if (!p.employeeNo) return <span className="text-xs text-slate-400">Sicil gerekli</span>;
+                          if (!needs) return <span className="text-xs text-slate-500" title="Bu kişi yalnızca sicil no ile girer">Sicil no</span>;
+                          return (
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${p.hasPin ? "bg-emerald-50 text-emerald-700" : p.pinCodeActive ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-600"}`}>{p.hasPin ? "PIN var" : p.pinCodeActive ? "Kod verildi" : "PIN yok"}</span>
+                              <button onClick={() => issueCode(p)} className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer whitespace-nowrap">{p.hasPin ? "Sıfırla" : "Kod üret"}</button>
+                            </div>
+                          );
+                        })()}
+                      </td>
                       <td className={`${tdCls} text-right whitespace-nowrap`}>
                         <button className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 cursor-pointer" title="Düzenle"><Pencil className="w-4 h-4" /></button>
                         <button onClick={e => { e.stopPropagation(); remove(p); }} className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-red-500 hover:bg-red-50 cursor-pointer" title="Sil"><Trash2 className="w-4 h-4" /></button>
@@ -149,6 +171,7 @@ function PersonnelTab({ personnel, personnelCrud, onChanged, canGrantBoardAdmin,
           )}
         </Card>
 
+        {issued && <PinCodeDialog issued={issued} loginLink={loginLink} onClose={() => setIssued(null)} />}
         {importOpen && <KaizenPersonnelImport api={api} showToast={showToast} onDone={onChanged} onClose={() => setImportOpen(false)} />}
         <Card className="xl:sticky xl:top-20">
           {!form ? (
@@ -262,7 +285,7 @@ function CriteriaTab({ criteria, criteriaCrud, baseCurrency }: { criteria: Kaize
 
 // Müşteri bazında ayarlar (Faz 2-B). Inputs are kept as strings while editing; the shared
 // normalizeKaizenSettings() (same one the server runs) decides what is actually valid on save.
-function SettingsTab({ settings, onSave }: { settings: KaizenSettings; onSave: (s: KaizenSettings) => Promise<any> }) {
+function SettingsTab({ settings, onSave, loginLink }: { settings: KaizenSettings; onSave: (s: KaizenSettings) => Promise<any>; loginLink: string }) {
   const fromSettings = (st: KaizenSettings) => ({
     baseCurrency: st.baseCurrency,
     currencies: st.currencies,
@@ -277,7 +300,8 @@ function SettingsTab({ settings, onSave }: { settings: KaizenSettings; onSave: (
     reward: st.rewardPerPoint ? String(st.rewardPerPoint) : "",
     managerStageEnabled: st.managerStageEnabled,
     boardThreshold: st.boardThreshold ? String(st.boardThreshold) : "",
-    boardScoreRequired: st.boardScoreRequired
+    boardScoreRequired: st.boardScoreRequired,
+    pinPolicy: st.pinPolicy
   });
   const [d, setD] = useState(() => fromSettings(settings));
   const [saving, setSaving] = useState(false);
@@ -298,7 +322,8 @@ function SettingsTab({ settings, onSave }: { settings: KaizenSettings; onSave: (
     rewardPerPoint: d.reward,
     managerStageEnabled: d.managerStageEnabled,
     boardThreshold: d.boardThreshold,
-    boardScoreRequired: d.boardScoreRequired
+    boardScoreRequired: d.boardScoreRequired,
+    pinPolicy: d.pinPolicy
   });
   const foreign = next.currencies.filter(c => c !== next.baseCurrency && c !== IN_KIND_CURRENCY);
 
@@ -366,6 +391,31 @@ function SettingsTab({ settings, onSave }: { settings: KaizenSettings; onSave: (
             <Field label="2. kontrol (gün, boş = yok)"><input type="number" min={1} value={d.follow2} onChange={e => setD(x => ({ ...x, follow2: e.target.value }))} className={inputCls} /></Field>
           </div>
           <p className="text-xs text-slate-500 -mt-2">Uygulama tamamlandıktan sonra sayılır. Yeni günler yalnızca bundan sonra tamamlanan uygulamalara uygulanır. Kaydedilecek: {next.followUpDays.join(" ve ")}. gün.</p>
+        </div>
+      </Card>
+
+      <Card className="xl:col-span-2">
+        <SectionTitle icon={IdCard} title="Sicil no ile giriş" hint="Saha çalışanları hesap açmadan bu bağlantıdan girer; bağlantıyı QR olarak panoya asabilirsiniz" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-4">
+          <div className="space-y-3">
+            <LinkRow label="Telefon / bilgisayar" url={loginLink} />
+            <LinkRow label="Kiosk (ortak tablet, kısa oturum)" url={`${loginLink}&kiosk=1`} />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-800 mb-2">PIN kimden istensin?</p>
+            <div className="space-y-2">
+              {([
+                ["authorized", "Yalnızca yetkili rollerden (önerilen)", "Amir, Kurul üyesi ve Kurul Yöneticisi PIN girer; diğer personel yalnızca sicil no ile."],
+                ["all", "Herkesten", "Her çalışan ilk girişte kendi PIN'ini belirler."],
+                ["none", "Hiç kimseden", "Yalnızca sicil no. Sicil no'yu bilen başkası adına giriş yapabilir; onay yetkisi olan roller için önerilmez."]
+              ] as const).map(([k, l, t]) => (
+                <label key={k} className={`flex items-start gap-3 rounded-xl p-3 cursor-pointer ${d.pinPolicy === k ? "ring-2 ring-emerald-500 bg-emerald-50/50" : "ring-1 ring-slate-200"}`}>
+                  <input type="radio" name="pinPolicy" className="mt-0.5 accent-emerald-600" checked={d.pinPolicy === k} onChange={() => setD(x => ({ ...x, pinPolicy: k }))} />
+                  <span><span className="block text-sm font-semibold text-slate-800">{l}</span><span className="block text-xs text-slate-500 mt-0.5">{t}</span></span>
+                </label>
+              ))}
+            </div>
+          </div>
         </div>
       </Card>
 
@@ -482,4 +532,42 @@ function RoleChip({ person, isManager }: { person: KaizenPersonnel; isManager: b
       ? ["Kurul üyesi", "bg-amber-50 text-amber-700"]
       : isManager ? ["Amir", "bg-blue-50 text-blue-700"] : ["Personel", "bg-slate-100 text-slate-600"];
   return <span className={`text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap ${cls}`}>{label}</span>;
+}
+
+function LinkRow({ label, url }: { label: string; url: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { window.prompt("Bağlantıyı kopyalayın:", url); }
+  };
+  return (
+    <div>
+      <p className="text-xs font-semibold text-slate-500 mb-1">{label}</p>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 min-w-0 truncate text-xs bg-slate-50 ring-1 ring-slate-200 rounded-lg px-3 py-2.5 text-slate-700">{url}</code>
+        <Button variant="outline" className="h-10 shrink-0" onClick={copy}><Copy className="w-4 h-4" />{copied ? "Kopyalandı" : "Kopyala"}</Button>
+      </div>
+    </div>
+  );
+}
+
+// Shown once after issuing a first-login / reset code: the clear code is not stored anywhere.
+function PinCodeDialog({ issued, loginLink, onClose }: { issued: { name: string; employeeNo: string; code: string; expires: string }; loginLink: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-[2px] p-4" role="dialog" aria-modal="true" aria-label="Giriş kodu">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 sm:p-7 text-center">
+        <span className="mx-auto w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center"><KeyRound className="w-6 h-6" /></span>
+        <h3 className="text-lg font-bold text-slate-900 mt-4">{issued.name} için giriş kodu</h3>
+        <p className="text-sm text-slate-500 mt-1">Sicil no {issued.employeeNo}</p>
+        <p className="font-mono text-4xl font-bold tracking-[0.3em] text-slate-900 bg-slate-50 ring-1 ring-slate-200 rounded-2xl py-4 mt-5 select-all">{issued.code}</p>
+        <p className="text-xs text-slate-500 mt-3">Tek kullanımlık · {new Date(issued.expires).toLocaleDateString("tr-TR")} tarihine kadar geçerli · bu pencere kapanınca kod bir daha gösterilmez</p>
+        <ol className="text-left text-sm text-slate-600 bg-slate-50 rounded-2xl p-4 mt-5 space-y-1.5 list-decimal list-inside">
+          <li>Kişi giriş bağlantısını açar ve sicil no'sunu girer.</li>
+          <li>Bu kodu girer ve kendi PIN'ini belirler.</li>
+          <li>Sonraki girişlerde sicil no + PIN yeterlidir.</li>
+        </ol>
+        <p className="text-xs text-slate-400 mt-3 truncate">{loginLink}</p>
+        <Button variant="primary" className="w-full h-11 mt-5" onClick={onClose}>Not aldım, kapat</Button>
+      </div>
+    </div>
+  );
 }

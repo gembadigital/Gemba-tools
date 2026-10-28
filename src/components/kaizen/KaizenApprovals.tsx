@@ -28,6 +28,7 @@ export default function KaizenApprovals({ currentUser, suggestions, approvals, e
   const [tab, setTab] = useState<Tab>("manager");
   const myEmail = currentUser?.email || "";
   const myRole = currentUser?.role || "";
+  const myPersonnelId = currentUser?.kaizenPersonnelId as string | undefined;
 
   const managerApprovalBySuggestion = useMemo(() => {
     const map = new Map<string, string>();
@@ -35,8 +36,8 @@ export default function KaizenApprovals({ currentUser, suggestions, approvals, e
     return map;
   }, [approvals]);
 
-  const managerQueue = useMemo(() => suggestions.filter(s => s.approvalStatus === "Pending" && canDecideAsManager(myEmail, myRole, s.teamLeaderEmail)), [suggestions, myEmail, myRole]);
-  const managerHistory = useMemo(() => suggestions.filter(s => s.approvalStatus !== "Pending" && canDecideAsManager(myEmail, myRole, s.teamLeaderEmail)), [suggestions, myEmail, myRole]);
+  const managerQueue = useMemo(() => suggestions.filter(s => s.approvalStatus === "Pending" && canDecideAsManager(myEmail, myRole, s.teamLeaderEmail, s.teamLeaderId, myPersonnelId)), [suggestions, myEmail, myRole]);
+  const managerHistory = useMemo(() => suggestions.filter(s => s.approvalStatus !== "Pending" && canDecideAsManager(myEmail, myRole, s.teamLeaderEmail, s.teamLeaderId, myPersonnelId)), [suggestions, myEmail, myRole]);
   const boardQueue = useMemo(() => suggestions.filter(s => s.approvalStatus === "First Approval"), [suggestions]);
   const boardHistory = useMemo(() => suggestions.filter(s => s.approvalStatus === "Second Approval" || s.approvalStatus === "Rejected 2nd"), [suggestions]);
 

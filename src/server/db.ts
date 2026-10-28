@@ -1146,6 +1146,23 @@ export class GeminiDb {
   // factory-scoped rosters (generic CRUD, same shape as the 5S module); Suggestions/Approvals/
   // Evaluations get their own routes below since the approve/reject actions involve real
   // server-side state transitions + authorization, not a plain upsert.
+  // Sicil no girişi (Faz 3.5): an employee logs in with only a customer id + sicil no, before any
+  // organization is known. Customer (factory) ids are globally unique, so look them up across orgs.
+  public async findKaizenPersonnelByFactory(factoryId: string): Promise<{ orgId: string; personnel: any[] } | null> {
+    const { rows } = await getPool().query(
+      `select organization_id, data from records where collection = 'kaizen_personnel' and factory_id = $1`,
+      [factoryId]
+    );
+    if (!rows.length) return null;
+    const orgId = rows[0].organization_id;
+    return { orgId, personnel: rows.filter(r => r.organization_id === orgId).map(r => r.data) };
+  }
+
+  public async getCustomerName(orgId: string, customerId: string): Promise<string> {
+    const c = await this.getRecordById("customers", customerId, orgId);
+    return c?.companyName || c?.name || "";
+  }
+
   public async getKaizenRecords(collection: KaizenCollection, orgId: string, factoryId?: string): Promise<any[]> {
     const all = await this.listCollection(collection, orgId);
     return all.filter(r => !factoryId || r.factory_id === factoryId);
@@ -1184,6 +1201,8 @@ export class GeminiDb {
       // Faz 3.1: the roster record the suggestion is about (stable even if the name is edited later).
       personnelId: payload.personnelId || "",
       personnelEmployeeNo: payload.personnelEmployeeNo || "",
+      authorPersonnelId: payload.authorPersonnelId || "",
+      teamLeaderId: payload.teamLeaderId || "",
       personnelName: payload.personnelName || userName,
       personnelDepartment: payload.personnelDepartment || "",
       personnelJobTitle: payload.personnelJobTitle || "",

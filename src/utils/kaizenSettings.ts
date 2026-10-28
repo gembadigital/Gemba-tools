@@ -9,6 +9,11 @@
 export const KNOWN_CURRENCIES = ["TL", "USD", "EUR", "GBP", "CHF", "Eş Değer Ürün"] as const;
 export const IN_KIND_CURRENCY = "Eş Değer Ürün"; // in-kind saving — never converted or summed
 
+// "authorized": only people with approval/evaluation/admin power (amir, Kurul, Kurul Yöneticisi);
+// "all": everyone; "none": sicil no alone. Default "authorized" (decided with the user, 2026-10-28).
+export type PinPolicy = "authorized" | "all" | "none";
+export const PIN_POLICIES: PinPolicy[] = ["authorized", "all", "none"];
+
 export interface KaizenSettings {
   baseCurrency: string;              // reports sum in this currency
   currencies: string[];              // offered in the forms (always includes baseCurrency)
@@ -23,6 +28,7 @@ export interface KaizenSettings {
   managerStageEnabled: boolean;      // Amir onayı aşaması var mı
   boardThreshold: number;            // in baseCurrency; estimate below this needs no Kurul (0 = Kurul always)
   boardScoreRequired: boolean;       // Kurul must pick a criteria (score) to approve
+  pinPolicy: PinPolicy;              // sicil no girişinde PIN kimden istenir (Faz 3.5)
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -41,7 +47,8 @@ export const DEFAULT_KAIZEN_SETTINGS: KaizenSettings = {
   rewardPerPoint: 0,
   managerStageEnabled: true,
   boardThreshold: 0,
-  boardScoreRequired: true
+  boardScoreRequired: true,
+  pinPolicy: "authorized"
 };
 
 export const MAX_OPTIONS = 30;
@@ -107,6 +114,7 @@ export function normalizeKaizenSettings(input: any): KaizenSettings {
     managerStageEnabled: typeof src.managerStageEnabled === "boolean" ? src.managerStageEnabled : d.managerStageEnabled,
     boardThreshold: Number.isFinite(threshold) && threshold > 0 ? Math.round(threshold * 100) / 100 : 0,
     boardScoreRequired: typeof src.boardScoreRequired === "boolean" ? src.boardScoreRequired : d.boardScoreRequired,
+    pinPolicy: (PIN_POLICIES as string[]).includes(src.pinPolicy) ? src.pinPolicy : d.pinPolicy,
     ...(typeof src.updatedAt === "string" ? { updatedAt: src.updatedAt } : {}),
     ...(typeof src.updatedBy === "string" ? { updatedBy: src.updatedBy } : {})
   };
