@@ -39,6 +39,7 @@ export interface KaizenPersonnel {
   machineLeaderName: string;  // Makine Lideri
   machineLeaderEmail: string;
   isBoardMember: boolean;     // KaizenBoard üyesi — evaluator + Rapor access
+  isBoardAdmin?: boolean;     // Kurul Yöneticisi (Faz 3.3) — Kaizen admin of this customer; staff-granted only
 }
 
 export interface KaizenSuggestionPhoto {

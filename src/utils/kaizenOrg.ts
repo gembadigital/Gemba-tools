@@ -114,7 +114,9 @@ export function preparePersonnel<T extends OrgPerson & Record<string, any>>(
     shift: str(input.shift, 40),
     machineLeaderName: str(input.machineLeaderName, 120),
     machineLeaderEmail: str(input.machineLeaderEmail, 160).toLowerCase(),
-    isBoardMember: input.isBoardMember === true
+    // A Kurul Yöneticisi is always also a Kurul member.
+    isBoardAdmin: input.isBoardAdmin === true,
+    isBoardMember: input.isBoardMember === true || input.isBoardAdmin === true
   };
   if (input.managerId !== undefined) {
     const managerId = typeof input.managerId === "string" ? input.managerId : "";

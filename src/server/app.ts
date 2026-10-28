@@ -2623,7 +2623,16 @@ async function loadKaizenSuggestion(req: express.Request, res: express.Response)
 async function isKaizenBoardMember(user: any, factoryId?: string): Promise<boolean> {
   if (isStaff(user)) return true;
   const personnel = await db.getKaizenRecords("kaizen_personnel", user.organization_id, factoryId);
-  return personnel.some((p: any) => sameEmail(p.email, user.email) && !!p.isBoardMember);
+  return personnel.some((p: any) => sameEmail(p.email, user.email) && (!!p.isBoardMember || !!p.isBoardAdmin));
+}
+
+// Kurul Yöneticisi (Faz 3.3): the customer's own Kaizen administrator — a personnel record flagged
+// isBoardAdmin. Inside the Kaizen module they have the same powers as Gemba staff (all screens,
+// Kurulum, Ayarlar, any decision stage) without being a Gemba Tools Admin. Only staff can grant it.
+async function isKaizenAdmin(user: any, factoryId?: string): Promise<boolean> {
+  if (isStaff(user)) return true;
+  const personnel = await db.getKaizenRecords("kaizen_personnel", user.organization_id, factoryId);
+  return personnel.some((p: any) => sameEmail(p.email, user.email) && !!p.isBoardAdmin);
 }
 
 const MAX_PHOTOS_PER_GROUP = 8;
@@ -2674,13 +2683,18 @@ for (const { path, collection } of KAIZEN_SIMPLE_ENTITIES) {
 
   app.post(`/api/business/kaizen/${path}`, authenticateToken, async (req, res) => {
     const user = (req as any).user;
-    if (!isStaff(user)) return denyKaizen(res, 403, "Bu işlem için yönetici yetkisi gereklidir.");
     const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
     if (!scope.allowed || !scope.factoryId) return denyKaizen(res);
+    if (!(await isKaizenAdmin(user, scope.factoryId))) return denyKaizen(res, 403, "Bu işlem için Kurul Yöneticisi yetkisi gereklidir.");
     let body = { ...req.body };
     // Personnel (Faz 3.1): sicil no required + unique, supervisor by record id, no loops.
     const roster = collection === "kaizen_personnel" ? await db.getKaizenRecords("kaizen_personnel", user.organization_id, scope.factoryId) : [];
     if (collection === "kaizen_personnel") {
+      // Only Gemba staff grant or revoke Kurul Yöneticisi; a Kurul Yöneticisi cannot escalate anyone.
+      if (!isStaff(user)) {
+        const prev = roster.find((p: any) => p.id === body.id);
+        body.isBoardAdmin = !!prev?.isBoardAdmin;
+      }
       const prepared = preparePersonnel(body, roster);
       if (!prepared.record) return denyKaizen(res, 400, prepared.error);
       body = prepared.record;
@@ -2712,9 +2726,12 @@ for (const { path, collection } of KAIZEN_SIMPLE_ENTITIES) {
 
   app.delete(`/api/business/kaizen/${path}/:id`, authenticateToken, async (req, res) => {
     const user = (req as any).user;
-    if (!isStaff(user)) return denyKaizen(res, 403, "Bu işlem için yönetici yetkisi gereklidir.");
     const existing = (await db.getKaizenRecords(collection, user.organization_id)).find((r: any) => r.id === req.params.id);
     if (!existing || !canAccessFactory(req, existing.factory_id)) return denyKaizen(res, 404, "Kayıt bulunamadı.");
+    if (!(await isKaizenAdmin(user, existing.factory_id))) return denyKaizen(res, 403, "Bu işlem için Kurul Yöneticisi yetkisi gereklidir.");
+    if (collection === "kaizen_personnel" && existing.isBoardAdmin && !isStaff(user)) {
+      return denyKaizen(res, 403, "Kurul Yöneticisi kaydını yalnızca Gemba danışmanı silebilir.");
+    }
     if (collection === "kaizen_personnel") {
       // Deleting a supervisor would silently orphan their team (and its approval routing).
       const people = await db.getKaizenRecords("kaizen_personnel", user.organization_id, existing.factory_id);
@@ -2832,9 +2849,9 @@ app.get("/api/business/kaizen/settings", authenticateToken, async (req, res) => 
 
 app.post("/api/business/kaizen/settings", authenticateToken, async (req, res) => {
   const user = (req as any).user;
-  if (!isStaff(user)) return denyKaizen(res, 403, "Bu işlem için yönetici yetkisi gereklidir.");
   const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
   if (!scope.allowed || !scope.factoryId) return denyKaizen(res);
+  if (!(await isKaizenAdmin(user, scope.factoryId))) return denyKaizen(res, 403, "Bu işlem için Kurul Yöneticisi yetkisi gereklidir.");
   const settings = normalizeKaizenSettings({ ...req.body, updatedAt: new Date().toISOString(), updatedBy: user.email });
   await db.saveKaizenRecord("kaizen_settings", user.organization_id, scope.factoryId, { id: kaizenSettingsId(scope.factoryId), ...settings }, user.id);
   res.json({ success: true, data: settings });
@@ -2863,6 +2880,7 @@ app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res)
   const personnel = await db.getKaizenRecords("kaizen_personnel", user.organization_id, scope.factoryId);
   const settings = await loadKaizenSettings(user.organization_id, scope.factoryId);
   const myRecord = personnel.find((p: any) => sameEmail(p.email, user.email));
+  const kaizenAdmin = isStaff(user) || !!myRecord?.isBoardAdmin;
   // On behalf of someone else: picked by roster id (Faz 3.1; older clients send the name). Allowed
   // for staff and for any supervisor above that person — not only the direct one.
   const wantedId = clip(req.body.personnelId, 80);
@@ -2875,8 +2893,8 @@ app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res)
       : undefined;
   if ((wantedId || (wantedName && wantedName !== (myRecord?.name || user.full_name || "").toLowerCase())) && other?.id !== myRecord?.id) {
     if (!other) {
-      if (!isStaff(user)) return denyKaizen(res, 403, "Seçilen personel kayıtlı değil.");
-    } else if (!isStaff(user) && !(myRecord && managerChain(other.id, buildOrg(personnel)).includes(myRecord.id))) {
+      if (!kaizenAdmin) return denyKaizen(res, 403, "Seçilen personel kayıtlı değil.");
+    } else if (!kaizenAdmin && !(myRecord && managerChain(other.id, buildOrg(personnel)).includes(myRecord.id))) {
       return denyKaizen(res, 403, "Sadece ekibinizdeki personel adına öneri girebilirsiniz.");
     } else {
       subjectRecord = other;
@@ -2935,7 +2953,7 @@ app.post("/api/business/kaizen/suggestions/:id", authenticateToken, async (req, 
   const user = (req as any).user;
   const existing = await loadKaizenSuggestion(req, res);
   if (!existing) return;
-  if (!isStaff(user) && !sameEmail(existing.authorEmail, user.email)) {
+  if (!sameEmail(existing.authorEmail, user.email) && !(await isKaizenAdmin(user, existing.factory_id))) {
     return denyKaizen(res, 403, "Sadece kendi öneriniz düzenleyebilirsiniz.");
   }
   if (existing.approvalStatus !== "Rejected" && existing.approvalStatus !== "Rejected 2nd") {
@@ -2979,7 +2997,8 @@ app.post("/api/business/kaizen/suggestions/:id/manager-decision", authenticateTo
   const user = (req as any).user;
   const suggestion = await loadKaizenSuggestion(req, res);
   if (!suggestion) return;
-  const isManager = isStaff(user) || sameEmail(suggestion.teamLeaderEmail, user.email);
+  // The direct supervisor decides; a Kurul Yöneticisi (or staff) can step in for any suggestion.
+  const isManager = sameEmail(suggestion.teamLeaderEmail, user.email) || (await isKaizenAdmin(user, suggestion.factory_id));
   if (!isManager) return denyKaizen(res, 403, "Bu öneriyi onaylama/reddetme yetkiniz yok.");
   if (!isStaff(user) && sameEmail(suggestion.authorEmail, user.email)) {
     return denyKaizen(res, 403, "Kendi önerinizi onaylayamazsınız.");

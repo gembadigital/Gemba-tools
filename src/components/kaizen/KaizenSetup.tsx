@@ -18,6 +18,7 @@ interface Props {
   settings: KaizenSettings;
   onSaveSettings: (s: KaizenSettings) => Promise<any>;
   onPersonnelChanged: () => void;
+  canGrantBoardAdmin: boolean; // only Gemba staff may grant/revoke Kurul Yöneticisi
 }
 
 
@@ -25,7 +26,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">{label}</label>{children}</div>;
 }
 
-export default function KaizenSetup({ personnel, criteria, personnelCrud, criteriaCrud, settings, onSaveSettings, onPersonnelChanged }: Props) {
+export default function KaizenSetup({ personnel, criteria, personnelCrud, criteriaCrud, settings, onSaveSettings, onPersonnelChanged, canGrantBoardAdmin }: Props) {
   const [tab, setTab] = useState<"personnel" | "criteria" | "settings">("personnel");
   return (
     <div className="space-y-6">
@@ -39,7 +40,7 @@ export default function KaizenSetup({ personnel, criteria, personnelCrud, criter
         value={tab}
         onChange={setTab}
       />
-      {tab === "personnel" && <PersonnelTab personnel={personnel} personnelCrud={personnelCrud} onChanged={onPersonnelChanged} />}
+      {tab === "personnel" && <PersonnelTab personnel={personnel} personnelCrud={personnelCrud} onChanged={onPersonnelChanged} canGrantBoardAdmin={canGrantBoardAdmin} />}
       {tab === "criteria" && <CriteriaTab criteria={criteria} criteriaCrud={criteriaCrud} baseCurrency={settings.baseCurrency} />}
       {tab === "settings" && <SettingsTab settings={settings} onSave={onSaveSettings} />}
     </div>
@@ -53,7 +54,7 @@ const blankPersonnel: Partial<KaizenPersonnel> = {
 
 // Personel listesi (Faz 3.1): sicil no is the identity; the supervisor is picked from the roster
 // (no more typing a name + e-mail), which gives an unlimited-depth hierarchy.
-function PersonnelTab({ personnel, personnelCrud, onChanged }: { personnel: KaizenPersonnel[]; personnelCrud: Crud<KaizenPersonnel>; onChanged: () => void }) {
+function PersonnelTab({ personnel, personnelCrud, onChanged, canGrantBoardAdmin }: { personnel: KaizenPersonnel[]; personnelCrud: Crud<KaizenPersonnel>; onChanged: () => void; canGrantBoardAdmin: boolean }) {
   const [form, setForm] = useState<Partial<KaizenPersonnel> | null>(null);
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
@@ -114,7 +115,7 @@ function PersonnelTab({ personnel, personnelCrud, onChanged }: { personnel: Kaiz
           {list.length === 0 ? <EmptyState icon={Users} title="Personel bulunamadı" text="Personel ekleyerek sicil no, amir ve Kurul üyeliği ilişkilerini tanımlayın." /> : (
             <div className="overflow-x-auto max-h-[70vh]">
               <table className={tableCls}>
-                <thead className={`${theadCls} sticky top-0`}><tr><th className={thCls}>Sicil</th><th className={thCls}>Ad Soyad</th><th className={thCls}>Bölüm / Görev</th><th className={thCls}>Amir</th><th className={`${thCls} text-right`}>Ekip</th><th className={thCls}></th></tr></thead>
+                <thead className={`${theadCls} sticky top-0`}><tr><th className={thCls}>Sicil</th><th className={thCls}>Ad Soyad</th><th className={thCls}>Bölüm / Görev</th><th className={thCls}>Amir</th><th className={`${thCls} text-right`}>Ekip</th><th className={thCls}>Rol</th><th className={thCls}></th></tr></thead>
                 <tbody>{list.map(p => {
                   const manager = byId.get(org.managerOf.get(p.id) || "");
                   const direct = (org.reportsOf.get(p.id) || []).length;
@@ -122,10 +123,11 @@ function PersonnelTab({ personnel, personnelCrud, onChanged }: { personnel: Kaiz
                   return (
                     <tr key={p.id} className={`${trCls} cursor-pointer ${form?.id === p.id ? "bg-emerald-50/60" : ""}`} onClick={() => open(p)}>
                       <td className={`${tdCls} font-mono text-xs`}>{p.employeeNo || <span className="font-sans font-semibold text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">eksik</span>}</td>
-                      <td className={tdCls}><div className="flex items-center gap-3"><Avatar name={p.name} size="sm" /><div className="min-w-0"><p className="font-semibold text-slate-900 flex items-center gap-1.5">{p.name}{p.isBoardMember && <span title="Kurul üyesi" className="text-amber-500">★</span>}</p><p className="text-xs text-slate-500">{p.email || "e-posta yok"}</p></div></div></td>
+                      <td className={tdCls}><div className="flex items-center gap-3"><Avatar name={p.name} size="sm" /><div className="min-w-0"><p className="font-semibold text-slate-900">{p.name}</p><p className="text-xs text-slate-500">{p.email || "e-posta yok"}</p></div></div></td>
                       <td className={tdCls}>{p.department || "—"}<span className="text-slate-400"> · {p.jobTitle || "—"}</span></td>
                       <td className={tdCls}>{manager ? manager.name : p.teamLeaderName ? <span className="text-amber-700" title="Eski kayıt: amir listede bulunamadı">{p.teamLeaderName} ⚠</span> : "—"}</td>
                       <td className={`${tdCls} text-right tabular-nums`}>{direct ? <span title={`${direct} doğrudan, ${total} toplam`}><b className="text-slate-900">{direct}</b>{total > direct && <span className="text-slate-400"> / {total}</span>}</span> : <span className="text-slate-300">—</span>}</td>
+                      <td className={tdCls}><RoleChip person={p} isManager={direct > 0} /></td>
                       <td className={`${tdCls} text-right whitespace-nowrap`}>
                         <button className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 cursor-pointer" title="Düzenle"><Pencil className="w-4 h-4" /></button>
                         <button onClick={e => { e.stopPropagation(); remove(p); }} className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-red-500 hover:bg-red-50 cursor-pointer" title="Sil"><Trash2 className="w-4 h-4" /></button>
@@ -169,10 +171,18 @@ function PersonnelTab({ personnel, personnelCrud, onChanged }: { personnel: Kaiz
                 <Field label="Makine lideri"><input value={form.machineLeaderName || ""} onChange={e => set("machineLeaderName", e.target.value)} className={inputCls} /></Field>
                 <Field label="Makine lideri e-posta"><input value={form.machineLeaderEmail || ""} onChange={e => set("machineLeaderEmail", e.target.value)} className={inputCls} /></Field>
               </div>
-              <label className={`flex items-start gap-3 rounded-xl p-3.5 cursor-pointer ${form.isBoardMember ? "ring-2 ring-amber-400 bg-amber-50" : "ring-1 ring-slate-200"}`}>
-                <input type="checkbox" className="w-4 h-4 mt-0.5 accent-amber-600" checked={!!form.isBoardMember} onChange={e => set("isBoardMember", e.target.checked)} />
-                <span><span className="block text-sm font-bold text-slate-800">Kaizen Kurulu üyesi</span><span className="block text-xs text-slate-500 mt-0.5">Değerlendirme, yaygınlaştırma/ödül takibi ve rapor erişimi verir.</span></span>
-              </label>
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-slate-800">Kaizen rolü</p>
+                <label className={`flex items-start gap-3 rounded-xl p-3.5 ${form.isBoardAdmin ? "ring-1 ring-slate-200 opacity-60" : "cursor-pointer"} ${form.isBoardMember && !form.isBoardAdmin ? "ring-2 ring-amber-400 bg-amber-50" : "ring-1 ring-slate-200"}`}>
+                  <input type="checkbox" className="w-4 h-4 mt-0.5 accent-amber-600" disabled={!!form.isBoardAdmin} checked={!!form.isBoardMember || !!form.isBoardAdmin} onChange={e => set("isBoardMember", e.target.checked)} />
+                  <span><span className="block text-sm font-bold text-slate-800">Kurul üyesi</span><span className="block text-xs text-slate-500 mt-0.5">Kurul değerlendirmesi, yaygınlaştırma/ödül takibi ve tüm önerileri görme.</span></span>
+                </label>
+                <label className={`flex items-start gap-3 rounded-xl p-3.5 ${canGrantBoardAdmin ? "cursor-pointer" : "opacity-70"} ${form.isBoardAdmin ? "ring-2 ring-violet-400 bg-violet-50" : "ring-1 ring-slate-200"}`}>
+                  <input type="checkbox" className="w-4 h-4 mt-0.5 accent-violet-600" disabled={!canGrantBoardAdmin} checked={!!form.isBoardAdmin} onChange={e => set("isBoardAdmin", e.target.checked)} />
+                  <span><span className="block text-sm font-bold text-slate-800">Kurul Yöneticisi</span><span className="block text-xs text-slate-500 mt-0.5">Kaizen modülünde tam yetki: Kurulum, Ayarlar, personel ve kriterler, her karar aşaması.{!canGrantBoardAdmin && " Yalnızca Gemba danışmanı atayabilir."}</span></span>
+                </label>
+                <p className="text-xs text-slate-500">Amir rolü otomatik: başkalarının amiri olarak seçilen kişi ekibinin önerilerini görür ve 1. derece onay verir.</p>
+              </div>
               <Button variant="brand" onClick={save} disabled={!canSave || saving} className="w-full h-11"><Save className="w-4 h-4" />{saving ? "Kaydediliyor…" : form.id ? "Güncelle" : "Ekle"}</Button>
             </div>
           )}
@@ -452,4 +462,14 @@ function Toggle({ checked, onChange, title, text }: { checked: boolean; onChange
       <span><span className="block text-sm font-bold text-slate-800">{title}</span><span className="block text-xs text-slate-500 mt-0.5">{text}</span></span>
     </label>
   );
+}
+
+// Kaizen role of a person, shown as one chip (highest wins).
+function RoleChip({ person, isManager }: { person: KaizenPersonnel; isManager: boolean }) {
+  const [label, cls] = person.isBoardAdmin
+    ? ["Kurul Yöneticisi", "bg-violet-50 text-violet-700"]
+    : person.isBoardMember
+      ? ["Kurul üyesi", "bg-amber-50 text-amber-700"]
+      : isManager ? ["Amir", "bg-blue-50 text-blue-700"] : ["Personel", "bg-slate-100 text-slate-600"];
+  return <span className={`text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap ${cls}`}>{label}</span>;
 }

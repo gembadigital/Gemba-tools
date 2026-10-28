@@ -61,7 +61,7 @@ function makeCrud<T extends { id: string }>(
 
 export default function KaizenSuggestionSystem() {
   const { selectedCustomer, globalState } = useFactory();
-  const currentUser = globalState?.CurrentUser;
+  const appUser = globalState?.CurrentUser;
   const factoryId = selectedCustomer?.id || "default";
 
   const [section, setSection] = useState<"home" | "new" | "mine" | "approvals" | "impl" | "reports" | "setup">("home");
@@ -151,8 +151,17 @@ export default function KaizenSuggestionSystem() {
   const personnelCrud = makeCrud<KaizenPersonnel>(api, "personnel", setPersonnel, showToast);
   const criteriaCrud = makeCrud<KaizenCriteria>(api, "criteria", setCriteria, showToast);
 
-  const myPersonnelRecord = personnel.find(p => (p.email || "").toLowerCase() === (currentUser?.email || "").toLowerCase());
-  const isBoardMember = currentUser?.role === "Admin" || currentUser?.role === "Consultant" || !!myPersonnelRecord?.isBoardMember;
+  const myPersonnelRecord = personnel.find(p => (p.email || "").toLowerCase() === (appUser?.email || "").toLowerCase());
+  // Kurul Yöneticisi (Faz 3.3): inside this module a personnel record flagged isBoardAdmin acts with
+  // Admin powers (the server enforces the same rule). Screens below receive this Kaizen-effective
+  // user, so their existing Admin/Consultant checks cover the Kurul Yöneticisi too.
+  const isStaffUser = appUser?.role === "Admin" || appUser?.role === "Consultant";
+  const isKaizenAdmin = isStaffUser || !!myPersonnelRecord?.isBoardAdmin;
+  const currentUser = React.useMemo(
+    () => (appUser && isKaizenAdmin && !isStaffUser ? { ...appUser, role: "Admin", kaizenRole: "Kurul Yöneticisi" } : appUser),
+    [appUser, isKaizenAdmin, isStaffUser]
+  );
+  const isBoardMember = isKaizenAdmin || !!myPersonnelRecord?.isBoardMember;
   // My whole team at any depth (Faz 3.1): a hat yöneticisi also sees the takım liderleri's teams.
   const org = React.useMemo(() => buildOrg(personnel), [personnel]);
   const myTeamIds = React.useMemo(() => (myPersonnelRecord ? subordinateIds(myPersonnelRecord.id, org) : new Set<string>()), [myPersonnelRecord?.id, org]);
@@ -187,7 +196,7 @@ export default function KaizenSuggestionSystem() {
     ...(canSeeApprovals ? [{ key: "approvals" as const, label: "Değerlendirmeler", icon: Star, badge: approvalsBadge }] : []),
     { key: "impl", label: "Uygulama", icon: Hammer },
     ...(isBoardMember ? [{ key: "reports" as const, label: "Rapor", icon: BarChart3 }] : []),
-    ...(currentUser?.role === "Admin" || currentUser?.role === "Consultant" ? [{ key: "setup" as const, label: "Kurulum", icon: Settings }] : [])
+    ...(isKaizenAdmin ? [{ key: "setup" as const, label: "Kurulum", icon: Settings }] : [])
   ];
 
   if (loading) {
@@ -349,8 +358,9 @@ export default function KaizenSuggestionSystem() {
         <KaizenReports suggestions={suggestions} evaluations={evaluations} personnel={personnel} implementations={implementations} api={api} settings={settings} />
       )}
 
-      {section === "setup" && (currentUser?.role === "Admin" || currentUser?.role === "Consultant") && (
+      {section === "setup" && isKaizenAdmin && (
         <KaizenSetup
+          canGrantBoardAdmin={isStaffUser}
           personnel={personnel}
           criteria={criteria}
           personnelCrud={personnelCrud}
