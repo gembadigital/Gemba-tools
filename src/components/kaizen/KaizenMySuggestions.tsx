@@ -3,7 +3,8 @@ import {
   Edit3, X, Undo2, Search, Check, Circle, XCircle, Lightbulb, MessageSquare, Trophy, ChevronRight,
   Users, User, Coins, Wrench, Calendar, ImageIcon, ArrowRight, ShieldAlert, Leaf, Smile
 } from "lucide-react";
-import { KaizenSuggestion, KaizenApproval, KaizenEvaluation } from "./kaizenTypes";
+import { KaizenSuggestion, KaizenApproval, KaizenEvaluation, KaizenPersonnel } from "./kaizenTypes";
+import { personOfSuggestion } from "../../utils/kaizenOrg";
 import { canEditSuggestion, isRejected, journeyOf } from "./kaizenCalc";
 import { KaizenApi } from "./KaizenSuggestionSystem";
 import { KaizenSettings, rewardFor, awaitingFirstDecision } from "../../utils/kaizenSettings";
@@ -19,6 +20,8 @@ interface Props {
   showToast: (msg: string) => void;
   onReload: () => void;
   settings: KaizenSettings;
+  personnel: KaizenPersonnel[];
+  teamIds: Set<string>; // everyone below me in the hierarchy, any depth
 }
 
 // Status groups in plain words — what people actually ask: "is it waiting, accepted, done?"
@@ -34,13 +37,17 @@ const GROUPS: { key: string; label: string; test: (s: KaizenSuggestion) => boole
 const fmtDate = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric" }) : "—");
 const money = (n: number, cur: string) => `${(n || 0).toLocaleString("tr-TR")} ${cur || ""}`.trim();
 
-export default function KaizenMySuggestions({ currentUser, suggestions, approvals, evaluations, onEdit, api, showToast, onReload, settings }: Props) {
+export default function KaizenMySuggestions({ currentUser, suggestions, approvals, evaluations, onEdit, api, showToast, onReload, settings, personnel, teamIds }: Props) {
   const myEmail = (currentUser?.email || "").toLowerCase();
-  // A suggestion shows here if I authored it OR I am its team leader (team leaders track their
-  // team's submissions in the same list; the scope switch separates the two).
+  // A suggestion shows here if I authored it, I am its direct supervisor, or its person is anywhere
+  // in my team (Faz 3.1, any depth). The scope switch separates mine from my team's.
   const mineAll = useMemo(
-    () => suggestions.filter(s => (s.authorEmail || "").toLowerCase() === myEmail || (s.teamLeaderEmail || "").toLowerCase() === myEmail),
-    [suggestions, myEmail]
+    () => suggestions.filter(s => {
+      if ((s.authorEmail || "").toLowerCase() === myEmail || (s.teamLeaderEmail || "").toLowerCase() === myEmail) return true;
+      const person = teamIds.size ? personOfSuggestion(s, personnel) : undefined;
+      return !!person && teamIds.has(person.id);
+    }),
+    [suggestions, myEmail, teamIds, personnel]
   );
   const hasTeam = mineAll.some(s => (s.authorEmail || "").toLowerCase() !== myEmail);
 
@@ -203,7 +210,7 @@ function DetailDrawer({ suggestion: s, approvals, evaluations, canEdit, canWithd
 }) {
   const steps = journeyOf(s);
   const facts: [string, string | undefined][] = [
-    ["Bölüm", s.personnelDepartment], ["Görev", s.personnelJobTitle], ["Vardiya", s.shift], ["Amir", s.teamLeaderName],
+    ["Sicil no", s.personnelEmployeeNo], ["Bölüm", s.personnelDepartment], ["Görev", s.personnelJobTitle], ["Vardiya", s.shift], ["Amir", s.teamLeaderName],
     ["Aşama", s.stage], ["Kazanç süresi", s.paybackPeriod]
   ];
 

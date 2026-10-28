@@ -115,7 +115,7 @@ export default function KaizenHome({
     { key: "done", label: "Uygulandı", value: pipeline.done, icon: CheckCircle2, color: "text-emerald-600 bg-emerald-50" }
   ];
 
-  const facts = [personnelRecord?.department, personnelRecord?.jobTitle, personnelRecord?.shift && `${personnelRecord.shift} vardiyası`].filter(Boolean) as string[];
+  const facts = [personnelRecord?.employeeNo && `Sicil ${personnelRecord.employeeNo}`, personnelRecord?.department, personnelRecord?.jobTitle, personnelRecord?.shift && `${personnelRecord.shift} vardiyası`].filter(Boolean) as string[];
 
   return (
     <div className="space-y-6">

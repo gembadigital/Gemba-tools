@@ -1181,6 +1181,9 @@ export class GeminiDb {
       factory_id: factoryId,
       authorEmail: userEmail,
       authorName: userName,
+      // Faz 3.1: the roster record the suggestion is about (stable even if the name is edited later).
+      personnelId: payload.personnelId || "",
+      personnelEmployeeNo: payload.personnelEmployeeNo || "",
       personnelName: payload.personnelName || userName,
       personnelDepartment: payload.personnelDepartment || "",
       personnelJobTitle: payload.personnelJobTitle || "",

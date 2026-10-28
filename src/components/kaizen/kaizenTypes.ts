@@ -27,6 +27,8 @@ export type ApprovalStatus =
 
 export interface KaizenPersonnel {
   id: string;
+  employeeNo?: string;       // Sicil no — unique per customer; required since Faz 3.1 (older records may lack it)
+  managerId?: string;        // direct supervisor's personnel id (Faz 3.1); older records link via teamLeaderEmail
   name: string;              // Ad Soyad
   email: string;             // kişinin kendi e-postası — used to match the logged-in user
   department: string;        // Bölüm
@@ -48,6 +50,8 @@ export interface KaizenSuggestion {
   id: string;
   authorEmail: string;   // logged-in submitter (Personel person field) — preserved across edits
   authorName: string;
+  personnelId?: string;          // roster record the suggestion is about (Faz 3.1)
+  personnelEmployeeNo?: string;  // its sicil no at submit time
 
   personnelName: string;        // Ad Soyad — who the suggestion is about (may be a subordinate)
   personnelDepartment: string;  // Bölüm

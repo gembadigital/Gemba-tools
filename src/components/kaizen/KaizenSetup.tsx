@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
-import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, SlidersHorizontal, Coins, Clock, ListChecks, Gift, GitBranch } from "lucide-react";
+import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, IdCard, SlidersHorizontal, Coins, Clock, ListChecks, Gift, GitBranch } from "lucide-react";
 import { KaizenPersonnel, KaizenCriteria } from "./kaizenTypes";
+import { buildOrg, subordinateIds, managerChain } from "../../utils/kaizenOrg";
 import { Card, SectionTitle, Button, EmptyState, PageHeader, TabBar, Avatar, inputCls, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 import { KaizenSettings, KNOWN_CURRENCIES, IN_KIND_CURRENCY, normalizeKaizenSettings, DEFAULT_KAIZEN_SETTINGS, MAX_OPTIONS, MAX_OPTION_LENGTH } from "../../utils/kaizenSettings";
 
@@ -16,6 +17,7 @@ interface Props {
   criteriaCrud: Crud<KaizenCriteria>;
   settings: KaizenSettings;
   onSaveSettings: (s: KaizenSettings) => Promise<any>;
+  onPersonnelChanged: () => void;
 }
 
 
@@ -23,7 +25,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">{label}</label>{children}</div>;
 }
 
-export default function KaizenSetup({ personnel, criteria, personnelCrud, criteriaCrud, settings, onSaveSettings }: Props) {
+export default function KaizenSetup({ personnel, criteria, personnelCrud, criteriaCrud, settings, onSaveSettings, onPersonnelChanged }: Props) {
   const [tab, setTab] = useState<"personnel" | "criteria" | "settings">("personnel");
   return (
     <div className="space-y-6">
@@ -37,7 +39,7 @@ export default function KaizenSetup({ personnel, criteria, personnelCrud, criter
         value={tab}
         onChange={setTab}
       />
-      {tab === "personnel" && <PersonnelTab personnel={personnel} personnelCrud={personnelCrud} />}
+      {tab === "personnel" && <PersonnelTab personnel={personnel} personnelCrud={personnelCrud} onChanged={onPersonnelChanged} />}
       {tab === "criteria" && <CriteriaTab criteria={criteria} criteriaCrud={criteriaCrud} baseCurrency={settings.baseCurrency} />}
       {tab === "settings" && <SettingsTab settings={settings} onSave={onSaveSettings} />}
     </div>
@@ -45,89 +47,137 @@ export default function KaizenSetup({ personnel, criteria, personnelCrud, criter
 }
 
 const blankPersonnel: Partial<KaizenPersonnel> = {
-  name: "", email: "", department: "", jobTitle: "", shift: "",
-  teamLeaderName: "", teamLeaderEmail: "", machineLeaderName: "", machineLeaderEmail: "", isBoardMember: false
+  employeeNo: "", name: "", email: "", department: "", jobTitle: "", shift: "", managerId: "",
+  machineLeaderName: "", machineLeaderEmail: "", isBoardMember: false
 };
 
-function PersonnelTab({ personnel, personnelCrud }: { personnel: KaizenPersonnel[]; personnelCrud: Crud<KaizenPersonnel> }) {
+// Personel listesi (Faz 3.1): sicil no is the identity; the supervisor is picked from the roster
+// (no more typing a name + e-mail), which gives an unlimited-depth hierarchy.
+function PersonnelTab({ personnel, personnelCrud, onChanged }: { personnel: KaizenPersonnel[]; personnelCrud: Crud<KaizenPersonnel>; onChanged: () => void }) {
   const [form, setForm] = useState<Partial<KaizenPersonnel> | null>(null);
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const org = useMemo(() => buildOrg(personnel), [personnel]);
+  const byId = useMemo(() => new Map(personnel.map(p => [p.id, p])), [personnel]);
+  const missingNo = personnel.filter(p => !p.employeeNo).length;
+
   const list = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return personnel.filter(p => !q || `${p.name} ${p.email} ${p.department} ${p.jobTitle}`.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name, "tr"));
-  }, [personnel, query]);
+    const q = query.trim().toLocaleLowerCase("tr");
+    return personnel
+      .filter(p => !q || `${p.employeeNo || ""} ${p.name} ${p.email} ${p.department} ${p.jobTitle} ${byId.get(org.managerOf.get(p.id) || "")?.name || ""}`.toLocaleLowerCase("tr").includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name, "tr"));
+  }, [personnel, query, org, byId]);
 
   const set = (k: keyof KaizenPersonnel, v: any) => setForm(f => ({ ...(f || {}), [k]: v }));
-  const canSave = !!form?.name?.trim() && !!form?.email?.trim();
+  const open = (p: KaizenPersonnel) => setForm({ ...p, managerId: p.managerId ?? org.managerOf.get(p.id) ?? "" });
+
+  // Supervisor choices: anyone except the person and their own team (that would make a loop).
+  const managerOptions = useMemo(() => {
+    if (!form) return [];
+    const blocked = form.id ? subordinateIds(form.id, org) : new Set<string>();
+    return personnel.filter(p => p.id !== form.id && !blocked.has(p.id)).sort((a, b) => a.name.localeCompare(b.name, "tr"));
+  }, [form?.id, personnel, org]);
+  const legacyUnmatched = !!form && !form.managerId && !!form.teamLeaderEmail && !personnel.some(p => (p.email || "").toLowerCase() === (form.teamLeaderEmail || "").toLowerCase());
+
+  const canSave = !!form?.name?.trim() && !!form?.employeeNo?.trim();
 
   const save = async () => {
     if (!form || !canSave) return;
     setSaving(true);
     const res = await personnelCrud.save(form);
     setSaving(false);
-    if (res?.success) setForm(null);
+    if (res?.success) { setForm(null); onChanged(); }
+  };
+  const remove = async (p: KaizenPersonnel) => {
+    if (!window.confirm(`"${p.name}" kaydını silmek istediğinizden emin misiniz?`)) return;
+    const res = await personnelCrud.remove(p.id);
+    if (res?.success && form?.id === p.id) setForm(null);
   };
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
-      <Card padded={false} className="xl:col-span-2 overflow-hidden">
-        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 flex-wrap">
-          <div className="relative w-full sm:w-80">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Ad, e-posta veya bölüm ara…" className={`${inputCls} !pl-10`} />
+    <div className="space-y-4">
+      {missingNo > 0 && (
+        <p className="text-sm bg-amber-50 text-amber-800 ring-1 ring-amber-200/70 rounded-xl px-4 py-3 flex gap-2.5">
+          <IdCard className="w-4 h-4 shrink-0 mt-0.5" />{missingNo} personelin sicil no'su eksik. Kayıt düzenlenirken sicil no girilmesi zorunludur.
+        </p>
+      )}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
+        <Card padded={false} className="xl:col-span-2 overflow-hidden">
+          <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 flex-wrap">
+            <div className="relative w-full sm:w-80">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Sicil, ad, bölüm veya amir ara…" className={`${inputCls} !h-11 !pl-10`} />
+            </div>
+            <Button variant="primary" onClick={() => setForm({ ...blankPersonnel })}><Plus className="w-4 h-4" />Personel ekle</Button>
           </div>
-          <Button variant="primary" onClick={() => setForm({ ...blankPersonnel })}><Plus className="w-4 h-4" />Personel Ekle</Button>
-        </div>
-        {list.length === 0 ? <EmptyState icon={Users} title="Personel bulunamadı" text="Personel ekleyerek amir ve Kurul üyeliği ilişkilerini tanımlayın." /> : (
-          <div className="overflow-x-auto max-h-[70vh]">
-            <table className={tableCls}>
-              <thead className={`${theadCls} sticky top-0`}><tr><th className={thCls}>Ad Soyad</th><th className={thCls}>Bölüm / Görev</th><th className={thCls}>Amir</th><th className={thCls}>Rol</th><th className={thCls}></th></tr></thead>
-              <tbody>{list.map(p => (
-                <tr key={p.id} className={`${trCls} cursor-pointer`} onClick={() => setForm(p)}>
-                  <td className={tdCls}><div className="flex items-center gap-3"><Avatar name={p.name} size="sm" /><div className="min-w-0"><p className="font-semibold text-slate-900">{p.name}</p><p className="text-xs text-slate-500">{p.email}</p></div></div></td>
-                  <td className={tdCls}>{p.department || "—"}<span className="text-slate-400"> · {p.jobTitle || "—"}</span></td>
-                  <td className={tdCls}>{p.teamLeaderName || "—"}</td>
-                  <td className={tdCls}>{p.isBoardMember && <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 whitespace-nowrap">★ Kurul Üyesi</span>}</td>
-                  <td className={`${tdCls} text-right whitespace-nowrap`}>
-                    <button className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 cursor-pointer" title="Düzenle"><Pencil className="w-4 h-4" /></button>
-                    <button onClick={e => { e.stopPropagation(); if (window.confirm(`"${p.name}" kaydını silmek istediğinizden emin misiniz?`)) personnelCrud.remove(p.id); }} className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-red-500 hover:bg-red-50 cursor-pointer" title="Sil"><Trash2 className="w-4 h-4" /></button>
-                  </td>
-                </tr>
-              ))}</tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+          {list.length === 0 ? <EmptyState icon={Users} title="Personel bulunamadı" text="Personel ekleyerek sicil no, amir ve Kurul üyeliği ilişkilerini tanımlayın." /> : (
+            <div className="overflow-x-auto max-h-[70vh]">
+              <table className={tableCls}>
+                <thead className={`${theadCls} sticky top-0`}><tr><th className={thCls}>Sicil</th><th className={thCls}>Ad Soyad</th><th className={thCls}>Bölüm / Görev</th><th className={thCls}>Amir</th><th className={`${thCls} text-right`}>Ekip</th><th className={thCls}></th></tr></thead>
+                <tbody>{list.map(p => {
+                  const manager = byId.get(org.managerOf.get(p.id) || "");
+                  const direct = (org.reportsOf.get(p.id) || []).length;
+                  const total = direct ? subordinateIds(p.id, org).size : 0;
+                  return (
+                    <tr key={p.id} className={`${trCls} cursor-pointer ${form?.id === p.id ? "bg-emerald-50/60" : ""}`} onClick={() => open(p)}>
+                      <td className={`${tdCls} font-mono text-xs`}>{p.employeeNo || <span className="font-sans font-semibold text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">eksik</span>}</td>
+                      <td className={tdCls}><div className="flex items-center gap-3"><Avatar name={p.name} size="sm" /><div className="min-w-0"><p className="font-semibold text-slate-900 flex items-center gap-1.5">{p.name}{p.isBoardMember && <span title="Kurul üyesi" className="text-amber-500">★</span>}</p><p className="text-xs text-slate-500">{p.email || "e-posta yok"}</p></div></div></td>
+                      <td className={tdCls}>{p.department || "—"}<span className="text-slate-400"> · {p.jobTitle || "—"}</span></td>
+                      <td className={tdCls}>{manager ? manager.name : p.teamLeaderName ? <span className="text-amber-700" title="Eski kayıt: amir listede bulunamadı">{p.teamLeaderName} ⚠</span> : "—"}</td>
+                      <td className={`${tdCls} text-right tabular-nums`}>{direct ? <span title={`${direct} doğrudan, ${total} toplam`}><b className="text-slate-900">{direct}</b>{total > direct && <span className="text-slate-400"> / {total}</span>}</span> : <span className="text-slate-300">—</span>}</td>
+                      <td className={`${tdCls} text-right whitespace-nowrap`}>
+                        <button className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 cursor-pointer" title="Düzenle"><Pencil className="w-4 h-4" /></button>
+                        <button onClick={e => { e.stopPropagation(); remove(p); }} className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-red-500 hover:bg-red-50 cursor-pointer" title="Sil"><Trash2 className="w-4 h-4" /></button>
+                      </td>
+                    </tr>
+                  );
+                })}</tbody>
+              </table>
+            </div>
+          )}
+        </Card>
 
-      <Card className="xl:sticky xl:top-2">
-        {!form ? (
-          <EmptyState icon={Pencil} title="Bir kayıt seçin veya yeni ekleyin" text="Seçtiğiniz personelin bilgileri burada düzenlenir." />
-        ) : (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between"><h3 className="font-black text-slate-900">{form.id ? "Personeli Düzenle" : "Yeni Personel"}</h3><button onClick={() => setForm(null)} className="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer"><X className="w-4 h-4" /></button></div>
-            <Field label="Ad Soyad *"><input value={form.name || ""} onChange={e => set("name", e.target.value)} className={inputCls} /></Field>
-            <Field label="E-posta *"><input value={form.email || ""} onChange={e => set("email", e.target.value)} className={inputCls} /></Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Bölüm"><input value={form.department || ""} onChange={e => set("department", e.target.value)} className={inputCls} /></Field>
-              <Field label="Görev"><input value={form.jobTitle || ""} onChange={e => set("jobTitle", e.target.value)} className={inputCls} /></Field>
+        <Card className="xl:sticky xl:top-20">
+          {!form ? (
+            <EmptyState icon={Pencil} title="Bir kayıt seçin veya yeni ekleyin" text="Seçtiğiniz personelin bilgileri burada düzenlenir." />
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between"><h3 className="text-base font-bold text-slate-900">{form.id ? "Personeli düzenle" : "Yeni personel"}</h3><button onClick={() => setForm(null)} aria-label="Kapat" className="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 cursor-pointer"><X className="w-4 h-4" /></button></div>
+              <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-3">
+                <Field label="Sicil no *"><input value={form.employeeNo || ""} onChange={e => set("employeeNo", e.target.value)} className={`${inputCls} font-mono uppercase`} placeholder="Örn. 10452" /></Field>
+                <Field label="Ad soyad *"><input value={form.name || ""} onChange={e => set("name", e.target.value)} className={inputCls} /></Field>
+              </div>
+              <Field label="E-posta"><input type="email" value={form.email || ""} onChange={e => set("email", e.target.value)} className={inputCls} placeholder="Sisteme giriş yapacaksa gerekli" /></Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Bölüm"><input value={form.department || ""} onChange={e => set("department", e.target.value)} className={inputCls} /></Field>
+                <Field label="Görev"><input value={form.jobTitle || ""} onChange={e => set("jobTitle", e.target.value)} className={inputCls} /></Field>
+              </div>
+              <Field label="Vardiya"><input value={form.shift || ""} onChange={e => set("shift", e.target.value)} className={inputCls} /></Field>
+              <Field label="Amir (1. derece)">
+                <select value={form.managerId || ""} onChange={e => set("managerId", e.target.value)} className={inputCls}>
+                  <option value="">Amiri yok (en üst kademe)</option>
+                  {managerOptions.map(p => <option key={p.id} value={p.id}>{p.name}{p.employeeNo ? ` · ${p.employeeNo}` : ""}{p.department ? ` — ${p.department}` : ""}</option>)}
+                </select>
+                {legacyUnmatched && <p className="text-xs text-amber-700 mt-1.5">Eski kayıtta amir "{form.teamLeaderName || form.teamLeaderEmail}" ({form.teamLeaderEmail}) listede yok; listeden seçin.</p>}
+                {form.managerId && (() => {
+                  const chain = [form.managerId, ...managerChain(form.managerId, org)].map(id => byId.get(id)?.name).filter(Boolean);
+                  return chain.length > 1 ? <p className="text-xs text-slate-500 mt-1.5">Kademe: {chain.join(" → ")}</p> : null;
+                })()}
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Makine lideri"><input value={form.machineLeaderName || ""} onChange={e => set("machineLeaderName", e.target.value)} className={inputCls} /></Field>
+                <Field label="Makine lideri e-posta"><input value={form.machineLeaderEmail || ""} onChange={e => set("machineLeaderEmail", e.target.value)} className={inputCls} /></Field>
+              </div>
+              <label className={`flex items-start gap-3 rounded-xl p-3.5 cursor-pointer ${form.isBoardMember ? "ring-2 ring-amber-400 bg-amber-50" : "ring-1 ring-slate-200"}`}>
+                <input type="checkbox" className="w-4 h-4 mt-0.5 accent-amber-600" checked={!!form.isBoardMember} onChange={e => set("isBoardMember", e.target.checked)} />
+                <span><span className="block text-sm font-bold text-slate-800">Kaizen Kurulu üyesi</span><span className="block text-xs text-slate-500 mt-0.5">Değerlendirme, yaygınlaştırma/ödül takibi ve rapor erişimi verir.</span></span>
+              </label>
+              <Button variant="brand" onClick={save} disabled={!canSave || saving} className="w-full h-11"><Save className="w-4 h-4" />{saving ? "Kaydediliyor…" : form.id ? "Güncelle" : "Ekle"}</Button>
             </div>
-            <Field label="Vardiya"><input value={form.shift || ""} onChange={e => set("shift", e.target.value)} className={inputCls} /></Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Amir Adı"><input value={form.teamLeaderName || ""} onChange={e => set("teamLeaderName", e.target.value)} className={inputCls} /></Field>
-              <Field label="Amir E-posta"><input value={form.teamLeaderEmail || ""} onChange={e => set("teamLeaderEmail", e.target.value)} className={inputCls} /></Field>
-              <Field label="Makine Lideri"><input value={form.machineLeaderName || ""} onChange={e => set("machineLeaderName", e.target.value)} className={inputCls} /></Field>
-              <Field label="Makine Lideri E-posta"><input value={form.machineLeaderEmail || ""} onChange={e => set("machineLeaderEmail", e.target.value)} className={inputCls} /></Field>
-            </div>
-            <label className={`flex items-start gap-3 rounded-xl border p-3.5 cursor-pointer ${form.isBoardMember ? "border-amber-400 bg-amber-50" : "border-slate-200"}`}>
-              <input type="checkbox" className="w-4 h-4 mt-0.5 accent-amber-600" checked={!!form.isBoardMember} onChange={e => set("isBoardMember", e.target.checked)} />
-              <span><span className="block text-sm font-bold text-slate-800">Kaizen Kurulu Üyesi</span><span className="block text-xs text-slate-500 mt-0.5">Değerlendirme, Yokoten/Ödül takibi ve Rapor erişimi verir.</span></span>
-            </label>
-            <Button variant="brand" onClick={save} disabled={!canSave || saving} className="w-full"><Save className="w-4 h-4" />{saving ? "Kaydediliyor…" : form.id ? "Güncelle" : "Ekle"}</Button>
-          </div>
-        )}
-      </Card>
+          )}
+        </Card>
+      </div>
     </div>
   );
 }

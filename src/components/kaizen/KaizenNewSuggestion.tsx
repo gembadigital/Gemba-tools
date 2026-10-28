@@ -13,6 +13,7 @@ interface Props {
   currentUser: any;
   personnel: KaizenPersonnel[];
   editingSuggestion: KaizenSuggestion | null;
+  teamIds: Set<string>; // people I may submit for (my team at any depth)
   api: KaizenApi;
   showToast: (msg: string) => void;
   // stay=true: the user chose "Yeni öneri ver" on the success screen (stay in the wizard).
@@ -69,7 +70,7 @@ function CharCount({ value, min = 30 }: { value: string; min?: number }) {
   return <span className={`text-xs tabular-nums ${n === 0 ? "text-slate-400" : n < min ? "text-amber-600" : "text-emerald-600"}`}>{n < min && n > 0 ? `${n} karakter — biraz daha ayrıntı iyi olur` : `${n} karakter`}</span>;
 }
 
-export default function KaizenNewSuggestion({ currentUser, personnel, editingSuggestion, api, showToast, onSaved, settings }: Props) {
+export default function KaizenNewSuggestion({ currentUser, personnel, editingSuggestion, teamIds, api, showToast, onSaved, settings }: Props) {
   // A new form starts in the customer's base currency.
   const blankForm: FormState = { ...blank, estimatedSavingCurrency: settings.baseCurrency, estimatedCostCurrency: settings.baseCurrency };
   const isEdit = !!editingSuggestion;
@@ -109,10 +110,12 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
 
   const myEmail = (currentUser?.email || "").toLowerCase();
   const myPersonnelRecord = personnel.find(p => (p.email || "").toLowerCase() === myEmail);
-  // A normal user can only submit "on behalf of" people they are the team leader of;
+  // A normal user can submit "on behalf of" anyone in their team (any depth, Faz 3.1);
   // Admin/Consultant can pick anyone.
   const isAdmin = currentUser?.role === "Admin" || currentUser?.role === "Consultant";
-  const selectablePersonnel = personnel.filter(p => isAdmin || (p.teamLeaderEmail || "").toLowerCase() === myEmail);
+  const selectablePersonnel = personnel
+    .filter(p => p.id !== myPersonnelRecord?.id && (isAdmin || teamIds.has(p.id)))
+    .sort((a, b) => a.name.localeCompare(b.name, "tr"));
   const onBehalfOf = personnel.find(p => p.id === form.onBehalfOfId) || myPersonnelRecord;
 
   const resolvedPersonnel = isEdit
@@ -163,6 +166,7 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
   const save = async () => {
     setSaving(true);
     const payload = {
+      personnelId: isEdit ? undefined : onBehalfOf?.id,
       personnelName: resolvedPersonnel.name,
       personnelDepartment: resolvedPersonnel.department,
       personnelJobTitle: resolvedPersonnel.jobTitle,
@@ -297,12 +301,12 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
                   <FormField label="Kimin adına?" hint="Boş bırakırsanız öneri kendi adınıza oluşturulur.">
                     <select value={form.onBehalfOfId} onChange={e => setForm(f => ({ ...f, onBehalfOfId: e.target.value }))} className={`${inputCls} !bg-white`}>
                       <option value="">Kendi adıma ({currentUser?.full_name})</option>
-                      {selectablePersonnel.map(p => <option key={p.id} value={p.id}>{p.name} — {p.department}</option>)}
+                      {selectablePersonnel.map(p => <option key={p.id} value={p.id}>{p.name}{p.employeeNo ? ` · ${p.employeeNo}` : ""}{p.department ? ` — ${p.department}` : ""}</option>)}
                     </select>
                   </FormField>
                 ) : null}
                 <div className={`flex flex-wrap gap-x-6 gap-y-2 text-sm ${!isEdit && selectablePersonnel.length > 0 ? "mt-4" : ""}`}>
-                  {[["Öneren", resolvedPersonnel.name], ["Bölüm", resolvedPersonnel.department], ["Görev", resolvedPersonnel.jobTitle], ["Vardiya", resolvedPersonnel.shift], ["Amir", resolvedPersonnel.teamLeaderName]].map(([l, v]) => (
+                  {[["Öneren", resolvedPersonnel.name], ["Sicil", isEdit ? editingSuggestion!.personnelEmployeeNo : onBehalfOf?.employeeNo], ["Bölüm", resolvedPersonnel.department], ["Görev", resolvedPersonnel.jobTitle], ["Vardiya", resolvedPersonnel.shift], ["Amir", resolvedPersonnel.teamLeaderName]].map(([l, v]) => (
                     <span key={l}><span className="text-slate-500">{l}: </span><span className="font-semibold text-slate-900">{v || "—"}</span></span>
                   ))}
                 </div>

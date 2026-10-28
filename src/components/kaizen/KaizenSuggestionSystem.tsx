@@ -13,6 +13,7 @@ import KaizenImplementation from "./KaizenImplementation";
 import { daysWaiting } from "./kaizenCalc";
 import { KaizenSettings, DEFAULT_KAIZEN_SETTINGS, normalizeKaizenSettings } from "../../utils/kaizenSettings";
 import { getAuthToken } from "../../utils/authToken";
+import { buildOrg, subordinateIds } from "../../utils/kaizenOrg";
 
 export type KaizenApi = {
   get: (path: string) => Promise<any[]>;
@@ -146,7 +147,10 @@ export default function KaizenSuggestionSystem() {
 
   const myPersonnelRecord = personnel.find(p => (p.email || "").toLowerCase() === (currentUser?.email || "").toLowerCase());
   const isBoardMember = currentUser?.role === "Admin" || currentUser?.role === "Consultant" || !!myPersonnelRecord?.isBoardMember;
-  const isTeamLeader = suggestions.some(s => canDecideAsManager(currentUser?.email || "", currentUser?.role || "", s.teamLeaderEmail));
+  // My whole team at any depth (Faz 3.1): a hat yöneticisi also sees the takım liderleri's teams.
+  const org = React.useMemo(() => buildOrg(personnel), [personnel]);
+  const myTeamIds = React.useMemo(() => (myPersonnelRecord ? subordinateIds(myPersonnelRecord.id, org) : new Set<string>()), [myPersonnelRecord?.id, org]);
+  const isTeamLeader = myTeamIds.size > 0 || suggestions.some(s => canDecideAsManager(currentUser?.email || "", currentUser?.role || "", s.teamLeaderEmail));
   const canSeeApprovals = isBoardMember || isTeamLeader || currentUser?.role === "Admin" || currentUser?.role === "Consultant";
 
   // Queue sizes drive the nav badge and the Home to-do card.
@@ -262,6 +266,7 @@ export default function KaizenSuggestionSystem() {
           currentUser={currentUser}
           personnel={personnel}
           editingSuggestion={editingSuggestion}
+          teamIds={myTeamIds}
           api={api}
           showToast={showToast}
           settings={settings}
@@ -288,6 +293,8 @@ export default function KaizenSuggestionSystem() {
           showToast={showToast}
           onReload={loadAll}
           settings={settings}
+          personnel={personnel}
+          teamIds={myTeamIds}
         />
       )}
 
@@ -339,6 +346,7 @@ export default function KaizenSuggestionSystem() {
           criteriaCrud={criteriaCrud}
           settings={settings}
           onSaveSettings={saveSettings}
+          onPersonnelChanged={async () => setPersonnel(await api.get("personnel"))}
         />
       )}
     </div>

@@ -11,6 +11,7 @@ import { buildFacts, generateConsultantBrief } from "./opexReport/consultantBrie
 import { applyFinding, canWriteFinding } from "./opexFindings.js";
 import { renderReportHtml } from "./opexReport/render.js";
 import { KNOWN_CURRENCIES, normalizeKaizenSettings, KaizenSettings, rewardFor, requiredStagesFor, stagesOf, afterManagerApprovalStatus } from "../utils/kaizenSettings.js";
+import { preparePersonnel, buildOrg, effectiveManagerId, managerChain } from "../utils/kaizenOrg.js";
 import * as XLSX from "xlsx";
 
 // This module only builds and configures the Express app (all /api/* routes) and exports it —
@@ -2676,7 +2677,14 @@ for (const { path, collection } of KAIZEN_SIMPLE_ENTITIES) {
     if (!isStaff(user)) return denyKaizen(res, 403, "Bu işlem için yönetici yetkisi gereklidir.");
     const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
     if (!scope.allowed || !scope.factoryId) return denyKaizen(res);
-    const body = { ...req.body };
+    let body = { ...req.body };
+    // Personnel (Faz 3.1): sicil no required + unique, supervisor by record id, no loops.
+    const roster = collection === "kaizen_personnel" ? await db.getKaizenRecords("kaizen_personnel", user.organization_id, scope.factoryId) : [];
+    if (collection === "kaizen_personnel") {
+      const prepared = preparePersonnel(body, roster);
+      if (!prepared.record) return denyKaizen(res, 400, prepared.error);
+      body = prepared.record;
+    }
     if (body.id) {
       // An id from another customer must never be overwritten through this customer's scope.
       const existing = (await db.getKaizenRecords(collection, user.organization_id)).find((r: any) => r.id === body.id);
@@ -2688,6 +2696,17 @@ for (const { path, collection } of KAIZEN_SIMPLE_ENTITIES) {
       }
     }
     const saved = await db.saveKaizenRecord(collection, user.organization_id, scope.factoryId, body, user.id);
+    // Keep the direct reports' denormalized supervisor name/e-mail (still used for approval routing
+    // and notifications) in step with this record, and give legacy e-mail links a real managerId.
+    if (collection === "kaizen_personnel") {
+      const people = roster.filter((p: any) => p.id !== saved.id).concat(saved);
+      for (const p of people) {
+        if (p.id === saved.id || effectiveManagerId(p, people) !== saved.id) continue;
+        const email = (saved.email || "").toLowerCase();
+        if (p.managerId === saved.id && p.teamLeaderName === saved.name && (p.teamLeaderEmail || "") === email) continue;
+        await db.saveKaizenRecord(collection, user.organization_id, scope.factoryId, { ...p, managerId: saved.id, teamLeaderName: saved.name, teamLeaderEmail: email }, user.id);
+      }
+    }
     res.json({ success: true, data: saved });
   });
 
@@ -2696,6 +2715,14 @@ for (const { path, collection } of KAIZEN_SIMPLE_ENTITIES) {
     if (!isStaff(user)) return denyKaizen(res, 403, "Bu işlem için yönetici yetkisi gereklidir.");
     const existing = (await db.getKaizenRecords(collection, user.organization_id)).find((r: any) => r.id === req.params.id);
     if (!existing || !canAccessFactory(req, existing.factory_id)) return denyKaizen(res, 404, "Kayıt bulunamadı.");
+    if (collection === "kaizen_personnel") {
+      // Deleting a supervisor would silently orphan their team (and its approval routing).
+      const people = await db.getKaizenRecords("kaizen_personnel", user.organization_id, existing.factory_id);
+      const reports = buildOrg(people).reportsOf.get(existing.id) || [];
+      if (reports.length > 0) {
+        return denyKaizen(res, 400, `${existing.name} ${reports.length} kişinin amiri. Önce bu kişileri başka bir amire bağlayın.`);
+      }
+    }
     await db.deleteKaizenRecord(collection, user.organization_id, req.params.id);
     res.json({ success: true });
   });
@@ -2751,19 +2778,28 @@ app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res)
   const personnel = await db.getKaizenRecords("kaizen_personnel", user.organization_id, scope.factoryId);
   const settings = await loadKaizenSettings(user.organization_id, scope.factoryId);
   const myRecord = personnel.find((p: any) => sameEmail(p.email, user.email));
+  // On behalf of someone else: picked by roster id (Faz 3.1; older clients send the name). Allowed
+  // for staff and for any supervisor above that person — not only the direct one.
+  const wantedId = clip(req.body.personnelId, 80);
   const wantedName = clip(req.body.personnelName, 120).toLowerCase();
   let subjectRecord = myRecord;
-  if (wantedName && wantedName !== (myRecord?.name || user.full_name || "").toLowerCase()) {
-    const other = personnel.find((p: any) => (p.name || "").toLowerCase() === wantedName);
+  const other = wantedId
+    ? personnel.find((p: any) => p.id === wantedId)
+    : wantedName && wantedName !== (myRecord?.name || user.full_name || "").toLowerCase()
+      ? personnel.find((p: any) => (p.name || "").toLowerCase() === wantedName)
+      : undefined;
+  if ((wantedId || (wantedName && wantedName !== (myRecord?.name || user.full_name || "").toLowerCase())) && other?.id !== myRecord?.id) {
     if (!other) {
       if (!isStaff(user)) return denyKaizen(res, 403, "Seçilen personel kayıtlı değil.");
-    } else if (!isStaff(user) && !sameEmail(other.teamLeaderEmail, user.email)) {
-      return denyKaizen(res, 403, "Sadece amiri olduğunuz personel adına öneri girebilirsiniz.");
+    } else if (!isStaff(user) && !(myRecord && managerChain(other.id, buildOrg(personnel)).includes(myRecord.id))) {
+      return denyKaizen(res, 403, "Sadece ekibinizdeki personel adına öneri girebilirsiniz.");
     } else {
       subjectRecord = other;
     }
   }
   const payload = {
+    personnelId: subjectRecord?.id || "",
+    personnelEmployeeNo: subjectRecord?.employeeNo || "",
     personnelName: subjectRecord?.name || user.full_name,
     personnelDepartment: subjectRecord?.department || "",
     personnelJobTitle: subjectRecord?.jobTitle || "",
@@ -3191,11 +3227,11 @@ app.get("/api/business/kaizen/suggestions/export-excel", authenticateToken, asyn
   const suggestions = await db.getKaizenRecords("kaizen_suggestions", user.organization_id, scope.factoryId);
   // Amounts are real numeric cells with their own currency column (they used to be "1000 TL" text,
   // which Excel cannot sum, and mixed currencies were indistinguishable).
-  const tableHeader = ["Tarih", "Ad Soyad", "Bölüm", "Konu", "Kategori", "Durum", "Tahmini Kazanç", "Kazanç Para Birimi", "Tahmini Maliyet", "Maliyet Para Birimi"];
+  const tableHeader = ["Tarih", "Sicil No", "Ad Soyad", "Bölüm", "Konu", "Kategori", "Durum", "Tahmini Kazanç", "Kazanç Para Birimi", "Tahmini Maliyet", "Maliyet Para Birimi"];
   const tableRows = suggestions
     .sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || ""))
     .map((s: any) => [
-      (s.createdAt || "").slice(0, 10), s.personnelName, s.personnelDepartment, s.subject,
+      (s.createdAt || "").slice(0, 10), s.personnelEmployeeNo || "", s.personnelName, s.personnelDepartment, s.subject,
       (s.suggestionTypes || []).join(", "), s.approvalStatus,
       Number(s.estimatedSaving) || 0, s.estimatedSavingCurrency || "TL",
       Number(s.estimatedCost) || 0, s.estimatedCostCurrency || "TL"
