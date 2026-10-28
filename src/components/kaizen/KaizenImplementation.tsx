@@ -8,7 +8,7 @@ import {
 } from "./kaizenCalc";
 import { readAndShrink } from "./kaizenImage";
 import { KaizenSettings, currencyChoices } from "../../utils/kaizenSettings";
-import { KaizenApi } from "./KaizenSuggestionSystem";
+import { KaizenApi, useFullRecord } from "./KaizenSuggestionSystem";
 import KaizenOnePager from "./KaizenOnePager";
 import { Card, KpiCard, SectionTitle, Button, EmptyState, PageHeader, inputCls as baseInputCls } from "./kaizenUi";
 
@@ -241,7 +241,24 @@ function ImplementationDetail({
   const [showOnePager, setShowOnePager] = useState(false);
 
   // Re-sync when the server record changes (save, verification, follow-up) but not while typing.
-  useEffect(() => { setDraft(draftFrom(s, settings.baseCurrency, impl)); }, [impl?.updatedAt]);
+  // A photo-less list record (Faz 3.4) must not wipe the photos already loaded into the draft.
+  useEffect(() => {
+    setDraft(d => {
+      const next = draftFrom(s, settings.baseCurrency, impl);
+      if (impl && !impl.photosBefore) { next.photosBefore = d.photosBefore; next.photosAfter = d.photosAfter; }
+      return next;
+    });
+  }, [impl?.updatedAt]);
+
+  // List records carry no photos (Faz 3.4). Load the full implementation and drop its photos into
+  // the draft; until then saves omit the photo fields so the server keeps the stored ones.
+  const fullImpl = useFullRecord<Impl>(api, impl ? `implementations/${impl.id}` : null);
+  const photosLoaded = !impl || (!fullImpl.loading && !!fullImpl.data);
+  useEffect(() => {
+    if (fullImpl.data) setDraft(d => ({ ...d, photosBefore: fullImpl.data!.photosBefore || [], photosAfter: fullImpl.data!.photosAfter || [] }));
+  }, [fullImpl.data]);
+  // The one-pager needs the suggestion's own photos too.
+  const fullSuggestion = useFullRecord<KaizenSuggestion>(api, showOnePager ? `suggestions/${s.id}` : null);
 
   const email = (currentUser?.email || "").toLowerCase();
   const isStaffUser = currentUser?.role === "Admin" || currentUser?.role === "Consultant";
@@ -253,7 +270,9 @@ function ImplementationDetail({
   const change = percentChange(draft.beforeMetric.value, draft.afterMetric.value);
 
   const save = async (patch?: Partial<Draft>) => {
-    const body = { ...draft, ...patch };
+    const merged: Partial<Draft> = { ...draft, ...patch };
+    if (!photosLoaded) { delete merged.photosBefore; delete merged.photosAfter; }
+    const body = merged as Draft;
     if (body.status === "Tamamlandı" && !body.actions.every(a => a.done) && body.actions.length > 0) {
       showToast("Tamamlandı olarak kaydetmeden önce tüm aksiyonları işaretleyin.");
       return;
@@ -509,7 +528,9 @@ function ImplementationDetail({
       )}
 
       {showOnePager && (
-        <KaizenOnePager suggestion={s} implementation={impl} evaluation={evaluation} companyName={companyName} onClose={() => setShowOnePager(false)} />
+        fullSuggestion.loading
+          ? <div className="fixed inset-0 z-[60] bg-slate-900/60 flex items-center justify-center text-white text-sm font-semibold">Tek sayfa hazırlanıyor…</div>
+          : <KaizenOnePager suggestion={fullSuggestion.data || s} implementation={fullImpl.data ? { ...fullImpl.data, ...impl, photosBefore: fullImpl.data.photosBefore, photosAfter: fullImpl.data.photosAfter } : impl} evaluation={evaluation} companyName={companyName} onClose={() => setShowOnePager(false)} />
       )}
     </div>
   );

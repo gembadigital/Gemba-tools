@@ -17,6 +17,7 @@ import { buildOrg, subordinateIds } from "../../utils/kaizenOrg";
 
 export type KaizenApi = {
   get: (path: string) => Promise<any[]>;
+  one: (path: string) => Promise<any | null>; // single full record (e.g. with photos), null on failure
   post: (path: string, body: any) => Promise<any>;
   del: (path: string) => Promise<any>;
   download: (path: string, filename: string) => Promise<void>;
@@ -100,6 +101,11 @@ export default function KaizenSuggestionSystem() {
       if (res.sessionExpired) showToast(SESSION_ERROR);
       return res.success ? res.data : [];
     },
+    one: async (path: string) => {
+      const res = await fetch(`/api/business/kaizen/${path}`, { headers: headers() }).then(toJson);
+      if (res.sessionExpired) showToast(SESSION_ERROR);
+      return res.success ? res.data : null;
+    },
     post: async (path: string, body: any) =>
       fetch(`/api/business/kaizen/${path}`, { method: "POST", headers: jsonHeaders(), body: JSON.stringify(body) }).then(toJson),
     del: async (path: string) =>
@@ -165,8 +171,12 @@ export default function KaizenSuggestionSystem() {
   );
   const approvalsBadge = managerQueue.length + boardQueue.length;
 
-  const openEdit = (s: KaizenSuggestion) => {
-    setEditingSuggestion(s);
+  // Lists carry no photos (Faz 3.4): editing must start from the full record, or resubmitting
+  // would drop the photos.
+  const openEdit = async (s: KaizenSuggestion) => {
+    const full = await api.one(`suggestions/${s.id}`);
+    if (!full) { showToast("Hata: Öneri yüklenemedi."); return; }
+    setEditingSuggestion(full);
     setSection("new");
   };
 
@@ -258,6 +268,7 @@ export default function KaizenSuggestionSystem() {
           onShowImplementation={() => setSection("impl")}
           onEditSuggestion={openEdit}
           canSeeApprovals={canSeeApprovals}
+          api={api}
         />
       )}
 
@@ -351,4 +362,17 @@ export default function KaizenSuggestionSystem() {
       )}
     </div>
   );
+}
+
+// Loads the full record (with photos) for a list item; `data` stays undefined until it arrives.
+export function useFullRecord<T>(api: KaizenApi, path: string | null): { data: T | undefined; loading: boolean } {
+  const [state, setState] = useState<{ path: string | null; data: T | undefined }>({ path: null, data: undefined });
+  useEffect(() => {
+    if (!path) return;
+    let alive = true;
+    api.one(path).then(d => { if (alive) setState({ path, data: d ?? undefined }); });
+    return () => { alive = false; };
+  }, [path]);
+  const ready = !!path && state.path === path;
+  return { data: ready ? state.data : undefined, loading: !!path && !ready };
 }

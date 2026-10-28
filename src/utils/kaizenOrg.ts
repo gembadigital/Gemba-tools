@@ -154,3 +154,27 @@ export function personOfSuggestion<T extends OrgPerson>(
   const name = lc(s.personnelName);
   return name ? people.find(p => lc(p.name) === name) : undefined;
 }
+
+// ---- Görünürlük (Faz 3.4) ----
+// Which suggestions a non-Kurul person may see: their own (as author or as the person it is
+// about), the ones they are the direct supervisor of, everything of their team at any depth, and
+// the ones whose implementation they own. Kurul members and staff see everything (decided by the
+// caller). The server applies this to every Kaizen list endpoint; the UI filter is not the guard.
+export function visibleSuggestionIds(
+  email: string,
+  roster: OrgPerson[],
+  suggestions: { id: string; authorEmail?: string; teamLeaderEmail?: string; personnelId?: string; personnelName?: string; authorName?: string }[],
+  implementations: { suggestionId: string; ownerEmail?: string }[]
+): Set<string> {
+  const e = lc(email);
+  const me = findByEmail(roster, e);
+  const team = me ? subordinateIds(me.id, buildOrg(roster)) : new Set<string>();
+  const ownedImpl = new Set(implementations.filter(i => e && lc(i.ownerEmail) === e).map(i => i.suggestionId));
+  const out = new Set<string>();
+  for (const s of suggestions) {
+    if (lc(s.authorEmail) === e || lc(s.teamLeaderEmail) === e || ownedImpl.has(s.id)) { out.add(s.id); continue; }
+    const person = personOfSuggestion(s, roster);
+    if (person && (person.id === me?.id || team.has(person.id))) out.add(s.id);
+  }
+  return out;
+}

@@ -1,4 +1,5 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect } from "react";
+import type { KaizenApi } from "./KaizenSuggestionSystem";
 import {
   Plus, ListChecks, Trophy, Clock, Lightbulb, ArrowRight, Hourglass, Sparkles, PencilLine,
   Users, Gavel, Hammer, CheckCircle2, XCircle, Send, Medal, PartyPopper
@@ -24,6 +25,7 @@ interface Props {
   onShowImplementation: () => void;
   onEditSuggestion: (s: KaizenSuggestion) => void;
   canSeeApprovals: boolean;
+  api: KaizenApi;
 }
 
 const greeting = () => {
@@ -39,7 +41,7 @@ const fmtDate = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("tr-TR
 export default function KaizenHome({
   currentUser, personnelRecord, suggestions, evaluations, managerQueueCount, boardQueueCount,
   oldestWaitingDays, waitingWarningDays, waitingOverdueDays, onNewSuggestion, onShowMine, onShowApprovals,
-  onShowImplementation, onEditSuggestion, canSeeApprovals
+  onShowImplementation, onEditSuggestion, canSeeApprovals, api
 }: Props) {
   const myEmail = (currentUser?.email || "").toLowerCase();
   const mine = useMemo(() => suggestions.filter(s => (s.authorEmail || "").toLowerCase() === myEmail), [suggestions, myEmail]);
@@ -61,21 +63,14 @@ export default function KaizenHome({
   const monthKey = new Date().toISOString().slice(0, 7);
   const thisMonthMine = mine.filter(s => (s.createdAt || "").startsWith(monthKey)).length;
 
-  // Ayın şampiyonları: Kurul points earned this month, per person (suggestion's personnel).
-  const champions = useMemo(() => {
-    const byId = new Map(suggestions.map(s => [s.id, s]));
-    const m = new Map<string, { name: string; department: string; points: number; count: number }>();
-    evaluations.filter(e => (e.createdAt || "").startsWith(monthKey) && (e.point || 0) > 0).forEach(e => {
-      const s = byId.get(e.suggestionId);
-      if (!s) return;
-      const key = s.personnelName || "—";
-      const row = m.get(key) || { name: key, department: s.personnelDepartment || "", points: 0, count: 0 };
-      row.points += e.point || 0;
-      row.count += 1;
-      m.set(key, row);
-    });
-    return Array.from(m.values()).sort((a, b) => b.points - a.points || b.count - a.count).slice(0, 3);
-  }, [suggestions, evaluations, monthKey]);
+  // Ayın şampiyonları comes from the server company-wide (the lists here only hold what this person
+  // may see since Faz 3.4).
+  const [champions, setChampions] = useState<{ name: string; department: string; points: number; count: number }[]>([]);
+  useEffect(() => {
+    let alive = true;
+    api.get(`champions?month=${monthKey}`).then(rows => { if (alive) setChampions(rows || []); });
+    return () => { alive = false; };
+  }, [monthKey]);
 
   const recent = useMemo(
     () => [...mine].sort((a, b) => (b.updatedAt || b.createdAt || "").localeCompare(a.updatedAt || a.createdAt || "")).slice(0, 6),

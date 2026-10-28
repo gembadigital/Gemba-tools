@@ -6,7 +6,7 @@ import {
 import { KaizenSuggestion, KaizenApproval, KaizenEvaluation, KaizenPersonnel } from "./kaizenTypes";
 import { personOfSuggestion } from "../../utils/kaizenOrg";
 import { canEditSuggestion, isRejected, journeyOf } from "./kaizenCalc";
-import { KaizenApi } from "./KaizenSuggestionSystem";
+import { KaizenApi, useFullRecord } from "./KaizenSuggestionSystem";
 import { KaizenSettings, rewardFor, awaitingFirstDecision } from "../../utils/kaizenSettings";
 import { Card, StatusBadge, Button, EmptyState, MiniJourney, Avatar, inputCls } from "./kaizenUi";
 
@@ -135,7 +135,7 @@ export default function KaizenMySuggestions({ currentUser, suggestions, approval
           {filtered.map(s => {
             const isMine = (s.authorEmail || "").toLowerCase() === myEmail;
             const pts = pointsBySuggestion.get(s.id);
-            const photo = s.photosCurrent?.[0] || s.photosPropose?.[0];
+            const photoCount = (s.photoCounts?.photosCurrent || 0) + (s.photoCounts?.photosPropose || 0);
             return (
               <li key={s.id}>
                 <div
@@ -145,8 +145,9 @@ export default function KaizenMySuggestions({ currentUser, suggestions, approval
                   onKeyDown={e => { if (e.key === "Enter") setDetail(s); }}
                   className="group bg-white rounded-2xl ring-1 ring-slate-200/70 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-[0_12px_32px_-16px_rgba(15,23,42,0.25)] hover:ring-slate-300 transition-all cursor-pointer p-4 sm:p-5 flex gap-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/40"
                 >
-                  <div className="hidden sm:flex w-16 h-16 rounded-xl bg-slate-100 overflow-hidden shrink-0 items-center justify-center text-slate-300">
-                    {photo ? <img src={photo.dataUrl} alt="" className="w-full h-full object-cover" /> : <ImageIcon className="w-6 h-6" />}
+                  <div className={`hidden sm:flex w-16 h-16 rounded-xl shrink-0 flex-col items-center justify-center gap-0.5 ${photoCount ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-300"}`} title={photoCount ? `${photoCount} fotoğraf` : "Fotoğraf yok"}>
+                    <ImageIcon className="w-6 h-6" />
+                    {photoCount > 0 && <span className="text-[11px] font-bold tabular-nums">{photoCount}</span>}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-3">
@@ -188,6 +189,7 @@ export default function KaizenMySuggestions({ currentUser, suggestions, approval
 
       {detail && (
         <DetailDrawer
+          api={api}
           settings={settings}
           suggestion={detail}
           approvals={approvals.filter(a => a.suggestionId === detail.id).sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""))}
@@ -203,11 +205,14 @@ export default function KaizenMySuggestions({ currentUser, suggestions, approval
   );
 }
 
-function DetailDrawer({ suggestion: s, approvals, evaluations, canEdit, canWithdraw, onEdit, onWithdraw, onClose, settings }: {
-  settings: KaizenSettings;
+function DetailDrawer({ suggestion: listItem, approvals, evaluations, canEdit, canWithdraw, onEdit, onWithdraw, onClose, settings, api }: {
+  settings: KaizenSettings; api: KaizenApi;
   suggestion: KaizenSuggestion; approvals: KaizenApproval[]; evaluations: KaizenEvaluation[];
   canEdit: boolean; canWithdraw: boolean; onEdit: () => void; onWithdraw: () => void; onClose: () => void;
 }) {
+  // The list item has no photos (Faz 3.4); show it right away and swap in the full record.
+  const { data: full, loading } = useFullRecord<KaizenSuggestion>(api, `suggestions/${listItem.id}`);
+  const s = full || listItem;
   const steps = journeyOf(s);
   const facts: [string, string | undefined][] = [
     ["Sicil no", s.personnelEmployeeNo], ["Bölüm", s.personnelDepartment], ["Görev", s.personnelJobTitle], ["Vardiya", s.shift], ["Amir", s.teamLeaderName],
@@ -259,6 +264,7 @@ function DetailDrawer({ suggestion: s, approvals, evaluations, canEdit, canWithd
               <div key={label} className={`rounded-2xl ring-1 p-4 ${tint.split(" ").slice(0, 2).join(" ")}`}>
                 <p className={`text-xs font-bold uppercase tracking-wider ${tint.split(" ")[2]}`}>{label}</p>
                 <p className="text-sm text-slate-800 mt-2 whitespace-pre-wrap leading-relaxed">{text || "—"}</p>
+                {loading && <div className="h-20 rounded-xl bg-white/60 animate-pulse mt-3" />}
                 {(photos || []).length > 0 && (
                   <div className="grid grid-cols-2 gap-2 mt-3">
                     {(photos || []).map((p, i) => (

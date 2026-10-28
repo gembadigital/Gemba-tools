@@ -5,7 +5,7 @@ import { canDecideAsManager, daysWaiting, WAITING_SEVERITY_COLORS, statusLabel }
 import { KaizenSettings, currencyChoices, toBaseCurrency, waitingSeverityFor, rewardFor, stagesOf } from "../../utils/kaizenSettings";
 
 const fmtReward = (r: { amount: number; currency: string }) => `${r.amount.toLocaleString("tr-TR")} ${r.currency}`;
-import { KaizenApi } from "./KaizenSuggestionSystem";
+import { KaizenApi, useFullRecord } from "./KaizenSuggestionSystem";
 import { Card, StatusBadge, Button, EmptyState, KpiCard, PageHeader, TabBar, Avatar, inputCls, areaCls, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 
 interface Props {
@@ -383,6 +383,10 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
   suggestion: KaizenSuggestion; stage: "manager" | "board"; criteria: KaizenCriteria[]; approvals: KaizenApproval[]; evaluations: KaizenEvaluation[];
   readOnly: boolean; api: KaizenApi; showToast: (m: string) => void; onDone: () => void;
 }) {
+  // Photos are not in the list record (Faz 3.4) — fetch the full suggestion when it has any.
+  const photoCount = (s.photoCounts?.photosCurrent || 0) + (s.photoCounts?.photosPropose || 0);
+  const { data: full } = useFullRecord<KaizenSuggestion>(api, photoCount ? `suggestions/${s.id}` : null);
+  const photos = [...(full?.photosCurrent || []), ...(full?.photosPropose || [])];
   const [comment, setComment] = useState("");
   const [saving, setSaving] = useState(false);
   const [criteriaId, setCriteriaId] = useState("");
@@ -445,9 +449,11 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
           <div className="rounded-xl bg-slate-100 p-3"><p className="text-xs font-semibold text-slate-600">Aşama</p><p className="font-bold text-slate-900 mt-0.5 text-sm">{s.stage || "—"}</p></div>
           <div className="rounded-xl bg-slate-100 p-3"><p className="text-xs font-semibold text-slate-600">Kazanç Süresi</p><p className="font-bold text-slate-900 mt-0.5 text-sm">{s.paybackPeriod || "—"}</p></div>
         </div>
-        {(s.photosCurrent.length > 0 || s.photosPropose.length > 0) && (
+        {photoCount > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            {[...s.photosCurrent, ...s.photosPropose].map((p, i) => <img key={i} src={p.dataUrl} alt="" className="w-full h-28 object-cover rounded-xl border border-slate-200" />)}
+            {photos.length
+              ? photos.map((p, i) => <a key={i} href={p.dataUrl} target="_blank" rel="noreferrer"><img src={p.dataUrl} alt="" className="w-full h-28 object-cover rounded-xl ring-1 ring-slate-200" /></a>)
+              : Array.from({ length: photoCount }).map((_, i) => <div key={i} className="h-28 rounded-xl bg-slate-100 animate-pulse" />)}
           </div>
         )}
 

@@ -78,8 +78,11 @@ export interface KaizenSuggestion {
   cevre: boolean;        // Çevre
   motivasyon: boolean;   // Motivasyon
 
-  photosCurrent: KaizenSuggestionPhoto[]; // Mevcut Durum görselleri
-  photosPropose: KaizenSuggestionPhoto[]; // Öneri görselleri
+  // Photos are only on the full record (GET suggestions/:id); list responses omit them and carry
+  // photoCounts instead (Faz 3.4). Never save a record whose photos were not loaded.
+  photosCurrent?: KaizenSuggestionPhoto[]; // Mevcut Durum görselleri
+  photosPropose?: KaizenSuggestionPhoto[]; // Öneri görselleri
+  photoCounts?: Record<string, number>;
 
   approvalStatus: ApprovalStatus;
   requiredStages?: ("Manager" | "Board")[]; // Faz 2-B.3 snapshot at submit; missing = both stages
@@ -192,8 +195,9 @@ export interface KaizenImplementation {
   actions: KaizenAction[];
   beforeMetric: KaizenMetric;
   afterMetric: KaizenMetric;
-  photosBefore: KaizenSuggestionPhoto[];
-  photosAfter: KaizenSuggestionPhoto[];
+  photosBefore?: KaizenSuggestionPhoto[]; // full record only, see KaizenSuggestion.photosCurrent
+  photosAfter?: KaizenSuggestionPhoto[];
+  photoCounts?: Record<string, number>;
   actualSaving: number;
   actualSavingCurrency: string;
   note: string;

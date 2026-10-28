@@ -11,7 +11,7 @@ import { buildFacts, generateConsultantBrief } from "./opexReport/consultantBrie
 import { applyFinding, canWriteFinding } from "./opexFindings.js";
 import { renderReportHtml } from "./opexReport/render.js";
 import { KNOWN_CURRENCIES, normalizeKaizenSettings, KaizenSettings, rewardFor, requiredStagesFor, stagesOf, afterManagerApprovalStatus } from "../utils/kaizenSettings.js";
-import { preparePersonnel, buildOrg, effectiveManagerId, managerChain } from "../utils/kaizenOrg.js";
+import { preparePersonnel, buildOrg, effectiveManagerId, managerChain, visibleSuggestionIds } from "../utils/kaizenOrg.js";
 import * as XLSX from "xlsx";
 
 // This module only builds and configures the Express app (all /api/* routes) and exports it —
@@ -2728,14 +2728,99 @@ for (const { path, collection } of KAIZEN_SIMPLE_ENTITIES) {
   });
 }
 
+// ---- Görünürlük (Faz 3.4) ----
+// List endpoints return only what the caller may see (staff/Kurul: all; others: own + team, see
+// visibleSuggestionIds) and never carry photos — those are base64 and made phone lists heavy. Lists
+// get photo counts instead; the full record (with photos) comes from the /:id detail endpoints.
+async function kaizenVisibleIds(user: any, factoryId?: string): Promise<Set<string> | null> {
+  if (await isKaizenBoardMember(user, factoryId)) return null;
+  const [roster, suggestions, implementations] = await Promise.all([
+    db.getKaizenRecords("kaizen_personnel", user.organization_id, factoryId),
+    db.getKaizenRecords("kaizen_suggestions", user.organization_id, factoryId),
+    db.getKaizenRecords("kaizen_implementations", user.organization_id, factoryId)
+  ]);
+  return visibleSuggestionIds(user.email, roster, suggestions, implementations);
+}
+
+async function canSeeKaizenSuggestion(user: any, suggestion: any): Promise<boolean> {
+  const visible = await kaizenVisibleIds(user, suggestion.factory_id);
+  return visible === null || visible.has(suggestion.id);
+}
+
+const PHOTO_FIELDS: Record<string, string[]> = {
+  kaizen_suggestions: ["photosCurrent", "photosPropose"],
+  kaizen_implementations: ["photosBefore", "photosAfter"]
+};
+function withoutPhotos(collection: string, record: any) {
+  const fields = PHOTO_FIELDS[collection];
+  if (!fields) return record;
+  const out: any = { ...record, photoCounts: {} };
+  for (const f of fields) {
+    out.photoCounts[f] = Array.isArray(record[f]) ? record[f].length : 0;
+    delete out[f];
+  }
+  return out;
+}
+
 for (const [path, collection] of [["suggestions", "kaizen_suggestions"], ["approvals", "kaizen_approvals"], ["evaluations", "kaizen_evaluations"], ["implementations", "kaizen_implementations"]] as const) {
   app.get(`/api/business/kaizen/${path}`, authenticateToken, async (req, res) => {
     const user = (req as any).user;
     const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
     if (!scope.allowed) return denyKaizen(res);
-    res.json({ success: true, data: await db.getKaizenRecords(collection, user.organization_id, scope.factoryId) });
+    const [records, visible] = await Promise.all([
+      db.getKaizenRecords(collection, user.organization_id, scope.factoryId),
+      kaizenVisibleIds(user, scope.factoryId)
+    ]);
+    const idOf = (r: any) => (collection === "kaizen_suggestions" ? r.id : r.suggestionId);
+    const data = (visible === null ? records : records.filter((r: any) => visible.has(idOf(r)))).map((r: any) => withoutPhotos(collection, r));
+    res.json({ success: true, data });
   });
 }
+
+// Ayın şampiyonları: company-wide, but only name / department / points / count — no suggestion
+// content, so it is safe for everyone in the customer's scope despite the visibility rule above.
+app.get("/api/business/kaizen/champions", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) return denyKaizen(res);
+  const month = typeof req.query.month === "string" && /^\d{4}-\d{2}$/.test(req.query.month) ? req.query.month : new Date().toISOString().slice(0, 7);
+  const [suggestions, evaluations] = await Promise.all([
+    db.getKaizenRecords("kaizen_suggestions", user.organization_id, scope.factoryId),
+    db.getKaizenRecords("kaizen_evaluations", user.organization_id, scope.factoryId)
+  ]);
+  const byId = new Map(suggestions.map((s: any) => [s.id, s]));
+  const rows = new Map<string, { name: string; department: string; points: number; count: number }>();
+  for (const e of evaluations as any[]) {
+    if (!(e.createdAt || "").startsWith(month) || !(Number(e.point) > 0)) continue;
+    const s: any = byId.get(e.suggestionId);
+    if (!s) continue;
+    const key = s.personnelId || s.personnelName || "—";
+    const row = rows.get(key) || { name: s.personnelName || "—", department: s.personnelDepartment || "", points: 0, count: 0 };
+    row.points += Number(e.point) || 0;
+    row.count += 1;
+    rows.set(key, row);
+  }
+  const data = Array.from(rows.values()).sort((a, b) => b.points - a.points || b.count - a.count).slice(0, Math.min(10, Number(req.query.limit) || 3));
+  res.json({ success: true, data });
+});
+
+// Full records (with photos), same visibility rule as the lists.
+app.get("/api/business/kaizen/suggestions/:id", authenticateToken, async (req, res, next) => {
+  if (req.params.id === "export-excel") return next();
+  const user = (req as any).user;
+  const suggestion = await loadKaizenSuggestion(req, res);
+  if (!suggestion) return;
+  if (!(await canSeeKaizenSuggestion(user, suggestion))) return denyKaizen(res, 404, "Öneri bulunamadı.");
+  res.json({ success: true, data: suggestion });
+});
+
+app.get("/api/business/kaizen/implementations/:id", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const loaded = await loadKaizenImplementation(req, res);
+  if (!loaded) return;
+  if (!(await canSeeKaizenSuggestion(user, loaded.suggestion))) return denyKaizen(res, 404, "Uygulama kaydı bulunamadı.");
+  res.json({ success: true, data: loaded.impl });
+});
 
 // Reads are open to anyone in the customer's scope (forms and reports need them); writes are staff-only.
 app.get("/api/business/kaizen/settings", authenticateToken, async (req, res) => {
@@ -3109,8 +3194,9 @@ app.post("/api/business/kaizen/suggestions/:id/implementation", authenticateToke
   const existing = (await db.getKaizenRecords("kaizen_implementations", user.organization_id)).find((i: any) => i.suggestionId === suggestion.id);
   if (!(await canManageKaizenImplementation(user, suggestion, existing))) return denyKaizen(res, 403, "Bu işlem için yetkiniz yok.");
 
-  const before = sanitizePhotos(req.body.photosBefore);
-  const after = sanitizePhotos(req.body.photosAfter);
+  // Photos not sent (e.g. a client holding the photo-less list record) keep the stored ones.
+  const before = req.body.photosBefore === undefined ? { photos: existing?.photosBefore || [] } as ReturnType<typeof sanitizePhotos> : sanitizePhotos(req.body.photosBefore);
+  const after = req.body.photosAfter === undefined ? { photos: existing?.photosAfter || [] } as ReturnType<typeof sanitizePhotos> : sanitizePhotos(req.body.photosAfter);
   if (before.error || after.error) return denyKaizen(res, 400, before.error || after.error);
 
   const status = IMPL_STATUSES.includes(req.body.status) ? req.body.status : (existing?.status || "Planlandı");
