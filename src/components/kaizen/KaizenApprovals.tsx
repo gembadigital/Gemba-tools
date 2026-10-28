@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect } from "react";
 import { CheckCircle2, XCircle, Download, Share2, Gift, Clock, Inbox, ClipboardCheck, Users, Award, Sparkles, MessageSquare, LayoutPanelLeft, TableProperties, ChevronLeft, ChevronRight, X, ArrowUp, ArrowDown, ArrowUpDown, RotateCcw, Filter, FlaskConical } from "lucide-react";
 import { KaizenSuggestion, KaizenCriteria, KaizenApproval, KaizenEvaluation, KaizenPersonnel, KaizenMessage } from "./kaizenTypes";
 import KaizenThread from "./KaizenThread";
-import { canDecideAsManager, daysWaiting, WAITING_SEVERITY_COLORS, statusLabel, feasibilityOverdue } from "./kaizenCalc";
+import KaizenSavingRevision from "./KaizenSavingRevision";
+import { canDecideAsManager, daysWaiting, WAITING_SEVERITY_COLORS, statusLabel, feasibilityOverdue, expectedSaving } from "./kaizenCalc";
 import { KaizenSettings, currencyChoices, toBaseCurrency, waitingSeverityFor, rewardFor, stagesOf } from "../../utils/kaizenSettings";
 
 const fmtReward = (r: { amount: number; currency: string }) => `${r.amount.toLocaleString("tr-TR")} ${r.currency}`;
@@ -164,7 +165,7 @@ function DecisionWorkspace({ stage, queue, history, criteria, approvals, evaluat
       key={selected.id} suggestion={selected} stage={stage} criteria={criteria}
       approvals={approvals.filter(a => a.suggestionId === selected.id)}
       evaluations={evaluations.filter(e => e.suggestionId === selected.id)}
-      readOnly={view === "history"} api={api} showToast={showToast} onDone={() => { setSelectedId(null); onReload(); }}
+      readOnly={view === "history"} api={api} showToast={showToast} onDone={() => { setSelectedId(null); onReload(); }} onChanged={onReload}
     />
   );
 
@@ -267,8 +268,8 @@ function QueueTable({ list, view, settings, evaluations, waitingSince, selectedI
 
   // Getiri: the income the Kurul approved if any, else the suggestion's own estimate.
   const saving = (s: KaizenSuggestion) => {
-    const e = evalBy.get(s.id);
-    return e && e.estimatedIncome ? { n: e.estimatedIncome, cur: e.estimatedIncomeCurrency } : { n: s.estimatedSaving || 0, cur: s.estimatedSavingCurrency };
+    const x = expectedSaving(s, evalBy.get(s.id));
+    return { n: x.amount, cur: x.currency };
   };
   const value = (s: KaizenSuggestion, k: ColKey): string | number => {
     switch (k) {
@@ -396,10 +397,10 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   return <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p><div className="text-sm text-slate-800 mt-1 whitespace-pre-wrap">{children || "—"}</div></div>;
 }
 
-function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations, readOnly, api, showToast, onDone, settings, personnel, messages, onMessagePosted, currentUser }: {
+function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations, readOnly, api, showToast, onDone, onChanged, settings, personnel, messages, onMessagePosted, currentUser }: {
   settings: KaizenSettings; personnel: KaizenPersonnel[]; messages: KaizenMessage[]; onMessagePosted: (m: KaizenMessage) => void; currentUser: any;
   suggestion: KaizenSuggestion; stage: "manager" | "board"; criteria: KaizenCriteria[]; approvals: KaizenApproval[]; evaluations: KaizenEvaluation[];
-  readOnly: boolean; api: KaizenApi; showToast: (m: string) => void; onDone: () => void;
+  readOnly: boolean; api: KaizenApi; showToast: (m: string) => void; onDone: () => void; onChanged: () => void;
 }) {
   // Photos are not in the list record (Faz 3.4) — fetch the full suggestion when it has any.
   const photoCount = (s.photoCounts?.photosCurrent || 0) + (s.photoCounts?.photosPropose || 0);
@@ -482,6 +483,8 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
           <div className="rounded-xl bg-slate-100 p-3"><p className="text-xs font-semibold text-slate-600">Kazanç Süresi</p><p className="font-bold text-slate-900 mt-0.5 text-sm">{s.paybackPeriod || "—"}</p></div>
         </div>
         {perPieceText(s) && <p className="text-sm text-emerald-800 bg-emerald-50/60 ring-1 ring-emerald-200/60 rounded-xl px-3.5 py-2.5 -mt-2 tabular-nums">Parça başı hesap: {perPieceText(s)}</p>}
+        <KaizenSavingRevision s={s} evaluation={evaluations[0]} settings={settings} api={api} showToast={showToast} onSaved={onChanged}
+          canRevise={s.approvalStatus !== "Rejected" && s.approvalStatus !== "Rejected 2nd" && (stage === "board" || (!readOnly && s.approvalStatus === "Pending"))} />
         {photoCount > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {photos.length

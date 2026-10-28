@@ -3214,6 +3214,54 @@ app.post("/api/business/kaizen/suggestions/:id", authenticateToken, async (req, 
   res.json({ success: true, data: updated });
 });
 
+// Beklenen kazanç revizyonu (Faz 5.1): after submission the estimate is no longer edited in place —
+// the Kurul (or the approving manager while it waits for them) revises it with a reason, and the
+// previous figures are kept in savingRevisions. Reports read the current estimatedSaving, i.e. the
+// latest revision. requiredStages stay as fixed at submit (Faz 2-B.3).
+const SAVING_SNAPSHOT_KEYS = ["estimatedSaving", "estimatedSavingCurrency", "unitSaving", "annualVolume", "productionYears", "estimatedLifetimeSaving"] as const;
+const savingSnapshot = (s: any) => Object.fromEntries(SAVING_SNAPSHOT_KEYS.map(k => [k, s[k] ?? (k === "estimatedSavingCurrency" ? "" : 0)]));
+
+app.post("/api/business/kaizen/suggestions/:id/saving-revision", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const existing = await loadKaizenSuggestion(req, res);
+  if (!existing) return;
+  if (existing.approvalStatus === "Rejected" || existing.approvalStatus === "Rejected 2nd") {
+    return denyKaizen(res, 400, "Reddedilen önerinin kazancı revize edilmez; öneri sahibi düzenleyip yeniden gönderir.");
+  }
+  const allowed = (await isKaizenBoardMember(user, existing.factory_id))
+    || (existing.approvalStatus === "Pending" && (await isSuggestionManager(user, existing)));
+  if (!allowed) return denyKaizen(res, 403, "Kazancı yalnızca Kurul (ya da onay bekleyen öneride amir) revize edebilir.");
+  const reason = clip(req.body.reason, 500);
+  if (!reason) return denyKaizen(res, 400, "Revizyon gerekçesi zorunludur.");
+
+  const settings = await loadKaizenSettings(user.organization_id, existing.factory_id);
+  const per = savingFields(existing.paybackPeriod, req.body);
+  if (per.error) return denyKaizen(res, 400, per.error);
+  const next = {
+    ...per.fields,
+    estimatedSaving: per.fields?.estimatedSaving ?? asAmount(req.body.estimatedSaving),
+    estimatedSavingCurrency: asCurrency(req.body.estimatedSavingCurrency, existing.estimatedSavingCurrency || settings.baseCurrency)
+  };
+  const from = savingSnapshot(existing);
+  const to = savingSnapshot({ ...existing, ...next });
+  if (JSON.stringify(from) === JSON.stringify(to)) return denyKaizen(res, 400, "Kazanç değişmedi.");
+
+  const me = await myKaizenPersonnel(user, existing.factory_id);
+  const revision = { at: new Date().toISOString(), byName: me?.name || user.full_name || user.email, byEmail: user.email || "", reason, from, to };
+  const saved = await db.saveKaizenRecord("kaizen_suggestions", user.organization_id, existing.factory_id, {
+    ...existing, ...next, savingRevisions: [...(existing.savingRevisions || []), revision].slice(-50), updatedAt: revision.at
+  }, user.id);
+  console.info(`[kaizen-audit] saving of ${existing.id} revised by ${user.email}: ${from.estimatedSaving} ${from.estimatedSavingCurrency} -> ${to.estimatedSaving} ${to.estimatedSavingCurrency}`);
+  const fmt = (v: any) => `${Number(v.estimatedSaving || 0).toLocaleString("tr-TR")} ${v.estimatedSavingCurrency}`;
+  await notifyKaizen(user.organization_id, existing.factory_id, {
+    ids: [existing.authorPersonnelId], emails: [existing.authorEmail], suggestionId: existing.id, kind: "decision", exceptEmail: user.email,
+    subject: `Kaizen: "${existing.subject}" önerinizin beklenen kazancı revize edildi`,
+    text: `${revision.byName} beklenen kazancı ${fmt(from)} → ${fmt(to)} olarak güncelledi.\nGerekçe: ${reason}`
+  });
+  const { photosCurrent, photosPropose, ...rest } = saved;
+  res.json({ success: true, data: rest });
+});
+
 app.post("/api/business/kaizen/suggestions/:id/manager-decision", authenticateToken, async (req, res) => {
   const user = (req as any).user;
   const suggestion = await loadKaizenSuggestion(req, res);
@@ -3687,6 +3735,9 @@ app.post("/api/business/kaizen/suggestions/:id/implementation", authenticateToke
   const actualSaving = asAmount(req.body.actualSaving);
   const settings = await loadKaizenSettings(user.organization_id, suggestion.factory_id);
   const actualSavingCurrency = asCurrency(req.body.actualSavingCurrency, settings.baseCurrency);
+  // Gerçekleşen yatırım / maliyet (Faz 5.1) — what implementing it actually cost.
+  const actualCost = asAmount(req.body.actualCost);
+  const actualCostCurrency = asCurrency(req.body.actualCostCurrency, settings.baseCurrency);
   const beforeMetric = sanitizeMetric(req.body.beforeMetric);
   const afterMetric = sanitizeMetric(req.body.afterMetric);
 
@@ -3706,7 +3757,8 @@ app.post("/api/business/kaizen/suggestions/:id/implementation", authenticateToke
   // A saving figure that changed after the Board verified it has to be verified again.
   let verification = existing?.verification || { status: "Bekliyor", by: "", at: "", note: "" };
   if (verification.status !== "Bekliyor" && (
-    existing?.actualSaving !== actualSaving || existing?.actualSavingCurrency !== actualSavingCurrency || status !== "Tamamlandı"
+    existing?.actualSaving !== actualSaving || existing?.actualSavingCurrency !== actualSavingCurrency || status !== "Tamamlandı" ||
+    (existing?.actualCost || 0) !== actualCost || (existing?.actualCostCurrency || actualCostCurrency) !== actualCostCurrency
   )) {
     verification = { status: "Bekliyor", by: "", at: "", note: "" };
   }
@@ -3726,6 +3778,8 @@ app.post("/api/business/kaizen/suggestions/:id/implementation", authenticateToke
     photosAfter: after.photos,
     actualSaving,
     actualSavingCurrency,
+    actualCost,
+    actualCostCurrency,
     note: clip(req.body.note, 2000),
     benefitDescription: clip(req.body.benefitDescription, 1000),
     benefits: sanitizeBenefits(req.body.benefits),

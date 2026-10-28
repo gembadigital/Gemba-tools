@@ -65,6 +65,24 @@ export interface KaizenFeasibility {
   result?: "accepted" | "rejected";
 }
 
+// Beklenen kazanç revizyonu (Faz 5.1): who changed the estimate, when, why, and from/to what.
+export interface KaizenSavingSnapshot {
+  estimatedSaving: number;
+  estimatedSavingCurrency: string;
+  unitSaving?: number;
+  annualVolume?: number;
+  productionYears?: number;
+  estimatedLifetimeSaving?: number;
+}
+export interface KaizenSavingRevision {
+  at: string;
+  byName: string;
+  byEmail?: string;
+  reason: string;
+  from: KaizenSavingSnapshot;
+  to: KaizenSavingSnapshot;
+}
+
 export interface KaizenSuggestion {
   id: string;
   authorEmail: string;   // logged-in submitter (Personel person field) — preserved across edits
@@ -98,6 +116,7 @@ export interface KaizenSuggestion {
   estimatedLifetimeSaving?: number; // annual × years
   estimatedCost: number;
   estimatedCostCurrency: string;
+  savingRevisions?: KaizenSavingRevision[]; // Faz 5.1 — oldest first; estimatedSaving above is the latest
 
   isg: boolean;         // İş Sağlığı ve Güvenliği
   cevre: boolean;        // Çevre
@@ -226,6 +245,8 @@ export interface KaizenImplementation {
   photoCounts?: Record<string, number>;
   actualSaving: number;
   actualSavingCurrency: string;
+  actualCost?: number;          // Faz 5.1 — gerçekleşen yatırım / maliyet
+  actualCostCurrency?: string;
   note: string;
   benefitDescription?: string;               // "Getiri açıklaması" on the one-pager
   benefits?: Record<string, string>;         // CI Önce/Sonra form: Maliyet / Verimlilik / Kalite / Güvenlik details

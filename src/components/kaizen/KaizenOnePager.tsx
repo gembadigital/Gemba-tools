@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Printer, X, ArrowRight } from "lucide-react";
 import { KaizenSuggestion, KaizenImplementation, KaizenEvaluation } from "./kaizenTypes";
-import { percentChange } from "./kaizenCalc";
+import { percentChange, expectedSaving } from "./kaizenCalc";
 import { perPieceText } from "../../utils/kaizenSaving";
 import { Button } from "./kaizenUi";
 
@@ -96,7 +96,8 @@ export default function KaizenOnePager({ suggestion: s, implementation: impl, ev
   const b = impl?.benefits || {};
   const types = s.suggestionTypes || [];
   const category = categoryOf(types);
-  const estimated = ev?.estimatedIncome ? fmtMoney(ev.estimatedIncome, ev.estimatedIncomeCurrency) : s.estimatedSaving ? fmtMoney(s.estimatedSaving, s.estimatedSavingCurrency) : "—";
+  const exp = expectedSaving(s, ev);
+  const estimated = exp.amount ? fmtMoney(exp.amount, exp.currency) : "—";
   const actual = impl && impl.actualSaving ? fmtMoney(impl.actualSaving, impl.actualSavingCurrency) : "—";
   const benefitText = [
     impl?.benefitDescription,

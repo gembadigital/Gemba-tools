@@ -12,6 +12,18 @@ import type { KaizenSuggestion, KaizenEvaluation } from "./kaizenTypes";
 // "Kazanç Süresi" describes how the saving RECURS (per unit / yearly / one-off), not a payback window.
 // Currencies likewise (KNOWN_CURRENCIES there; "Eş Değer Ürün" = in-kind saving).
 
+// Güncel beklenen kazanç (Faz 5.1): the income the Kurul approved, unless the estimate was revised
+// after that evaluation — then the revised figure. Without a Kurul figure, the suggestion's own
+// (possibly revised) estimate. Every report and screen reads the expected saving through this.
+export function expectedSaving(s: KaizenSuggestion, e?: KaizenEvaluation | null): { amount: number; currency: string; source: "board" | "revised" | "estimate" } {
+  const revs = s.savingRevisions || [];
+  const last = revs[revs.length - 1];
+  if (e && e.estimatedIncome && !(last && last.at > (e.createdAt || ""))) {
+    return { amount: e.estimatedIncome, currency: e.estimatedIncomeCurrency, source: "board" };
+  }
+  return { amount: s.estimatedSaving || 0, currency: s.estimatedSavingCurrency, source: last ? "revised" : "estimate" };
+}
+
 export const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
   "Pending": "Onay Bekliyor",
   // Since Faz 2-B.3 this also means "sent straight to the Kurul" (no Amir stage), so the label
@@ -171,9 +183,8 @@ export function opportunityPool(
     const impl = implBy.get(s.id);
     if (impl && (impl.status === "Tamamlandı" || impl.status === "İptal")) continue;
     const e = evalBy.get(s.id);
-    const value = e && e.estimatedIncome
-      ? toBaseCurrency(e.estimatedIncome, e.estimatedIncomeCurrency, settings)
-      : toBaseCurrency(s.estimatedSaving || 0, s.estimatedSavingCurrency, settings);
+    const x = expectedSaving(s, e);
+    const value = toBaseCurrency(x.amount, x.currency, settings);
     const since = Date.parse(e?.createdAt || s.updatedAt || s.createdAt || "") || now;
     const ageDays = Math.max(0, Math.floor((now - since) / 86_400_000));
     items.push({

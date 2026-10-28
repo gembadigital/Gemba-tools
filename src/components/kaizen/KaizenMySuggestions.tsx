@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { KaizenSuggestion, KaizenApproval, KaizenEvaluation, KaizenPersonnel, KaizenMessage } from "./kaizenTypes";
 import KaizenThread from "./KaizenThread";
+import KaizenSavingRevision from "./KaizenSavingRevision";
 import { personOfSuggestion } from "../../utils/kaizenOrg";
 import { perPieceText } from "../../utils/kaizenSaving";
 import { canEditSuggestion, isRejected, journeyOf } from "./kaizenCalc";
@@ -298,6 +299,7 @@ function DetailDrawer({ suggestion: listItem, approvals, evaluations, canEdit, c
             <div className="rounded-2xl bg-white ring-1 ring-slate-200/70 p-4"><p className="text-xs font-semibold text-slate-500 flex items-center gap-1.5"><Coins className="w-3.5 h-3.5 text-emerald-600" />Tahmini kazanç{perPieceText(s) ? " (yıllık)" : ""}</p><p className="text-xl font-bold text-slate-900 tabular-nums mt-1">{money(s.estimatedSaving, s.estimatedSavingCurrency)}</p>{perPieceText(s) && <p className="text-xs text-slate-500 mt-1">{perPieceText(s)}</p>}</div>
             <div className="rounded-2xl bg-white ring-1 ring-slate-200/70 p-4"><p className="text-xs font-semibold text-slate-500 flex items-center gap-1.5"><Wrench className="w-3.5 h-3.5 text-slate-500" />Tahmini maliyet</p><p className="text-xl font-bold text-slate-900 tabular-nums mt-1">{money(s.estimatedCost, s.estimatedCostCurrency)}</p></div>
           </div>
+          <KaizenSavingRevision s={s} evaluation={evaluations.find(e => e.suggestionId === s.id)} settings={settings} api={api} canRevise={false} onSaved={() => {}} showToast={showToast} />
           <Card>
             <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-5 gap-y-3">
               {facts.map(([l, v]) => <div key={l}><dt className="text-xs text-slate-500">{l}</dt><dd className="text-sm font-semibold text-slate-900 mt-0.5">{v || "—"}</dd></div>)}

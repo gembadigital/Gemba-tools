@@ -5,7 +5,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, RadialBarChart, RadialBar, PolarAngleAxis
 } from "recharts";
 import { KaizenSuggestion, KaizenEvaluation, KaizenPersonnel, KaizenImplementation, ApprovalStatus } from "./kaizenTypes";
-import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, actionProgress, statusLabel, opportunityPool } from "./kaizenCalc";
+import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, actionProgress, statusLabel, opportunityPool, expectedSaving } from "./kaizenCalc";
 import { KaizenApi } from "./KaizenSuggestionSystem";
 import { KaizenSettings, toBaseCurrency, optionChoices, stagesOf, awaitingFirstDecision } from "../../utils/kaizenSettings";
 import { Card, KpiCard, Button, EmptyState, PageHeader, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
@@ -85,8 +85,9 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
   // threshold, no evaluation record): the suggestion's own estimate.
   const approvedIncomeConverted = filtered.filter(s => s.approvalStatus === "Second Approval").flatMap(s => {
     const e = filteredEvaluations.find(ev => ev.suggestionId === s.id);
-    if (e) return (e.estimatedIncome || 0) > 0 ? [toBaseCurrency(e.estimatedIncome, e.estimatedIncomeCurrency, settings)] : [];
-    return !stagesOf(s).includes("Board") && (s.estimatedSaving || 0) > 0 ? [toBaseCurrency(s.estimatedSaving, s.estimatedSavingCurrency, settings)] : [];
+    if (!e && stagesOf(s).includes("Board")) return [];
+    const x = expectedSaving(s, e); // latest revision wins over the Kurul figure (Faz 5.1)
+    return x.amount > 0 ? [toBaseCurrency(x.amount, x.currency, settings)] : [];
   });
   const approvedIncomeBase = approvedIncomeConverted.reduce<number>((sum, v) => sum + (v ?? 0), 0);
   const approvedIncomeExcluded = approvedIncomeConverted.filter(v => v === null).length;
@@ -299,7 +300,7 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
                       <td className={`${tdCls} font-semibold text-slate-900`}>{s.personnelName}</td><td className={tdCls}>{s.personnelDepartment}</td><td className={tdCls}>{s.personnelJobTitle}</td>
                       <td className={`${tdCls} tabular-nums whitespace-nowrap`}>{(s.createdAt || "").slice(0, 10)}</td><td className={tdCls}>{(s.suggestionTypes || []).join(", ")}</td><td className={tdCls}>{statusLabel(s.approvalStatus, s.requiredStages, s.feasibility?.status === "open")}</td>
                       <td className={`${tdCls} tabular-nums whitespace-nowrap`}>{e?.createdAt ? e.createdAt.slice(0, 10) : "—"}</td>
-                      <td className={`${tdCls} text-right tabular-nums`}>{e?.estimatedIncome ? `${e.estimatedIncome.toLocaleString("tr-TR")} ${e.estimatedIncomeCurrency}` : "—"}</td>
+                      <td className={`${tdCls} text-right tabular-nums`}>{(() => { const x = expectedSaving(s, e); return e || x.source === "revised" ? `${x.amount.toLocaleString("tr-TR")} ${x.currency}` : "—"; })()}</td>
                       <td className={`${tdCls} text-right tabular-nums`}>{impl && impl.verification?.status === "Doğrulandı" ? `${impl.actualSaving.toLocaleString("tr-TR")} ${impl.actualSavingCurrency}` : "—"}</td>
                       <td className={`${tdCls} text-right font-bold tabular-nums`}>{e?.point ?? "—"}</td>
                       <td className={`${tdCls} whitespace-nowrap`}>{impl ? `${impl.status}${actionProgress(impl).total ? ` · ${actionProgress(impl).done}/${actionProgress(impl).total}` : ""}` : s.completed ? "Uygulandı" : "—"}</td>

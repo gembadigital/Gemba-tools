@@ -4,7 +4,8 @@ import {
   KaizenSuggestion, KaizenImplementation as Impl, KaizenEvaluation, KaizenPersonnel, KaizenAction, ImplementationStatus
 } from "./kaizenTypes";
 import {
-  IMPLEMENTATION_STATUSES, IMPLEMENTATION_STATUS_COLORS, isImplementationOverdue, actionProgress, pendingFollowUps, percentChange, todayIso
+  IMPLEMENTATION_STATUSES, IMPLEMENTATION_STATUS_COLORS, isImplementationOverdue, actionProgress, pendingFollowUps, percentChange, todayIso,
+  expectedSaving
 } from "./kaizenCalc";
 import { readAndShrink } from "./kaizenImage";
 import { KaizenSettings, currencyChoices } from "../../utils/kaizenSettings";
@@ -12,6 +13,7 @@ import { opportunityPool, PoolBucket } from "./kaizenCalc";
 import { KaizenApi, useFullRecord } from "./KaizenSuggestionSystem";
 import KaizenOnePager from "./KaizenOnePager";
 import { Card, KpiCard, SectionTitle, Button, EmptyState, PageHeader, inputCls as baseInputCls } from "./kaizenUi";
+import KaizenSavingRevision from "./KaizenSavingRevision";
 
 // Uygulama Takibi (Faz 2-A): Kurulca onaylanan her öneri için plan (sorumlu, hedef tarih, aksiyon
 // listesi), önce/sonra ölçüm + fotoğraf, gerçekleşen kazanç, Kurul doğrulaması ve 30/90 gün
@@ -36,7 +38,7 @@ type Draft = {
   actions: KaizenAction[];
   beforeMetric: Impl["beforeMetric"]; afterMetric: Impl["afterMetric"];
   photosBefore: Impl["photosBefore"]; photosAfter: Impl["photosAfter"];
-  actualSaving: number; actualSavingCurrency: string; note: string;
+  actualSaving: number; actualSavingCurrency: string; actualCost: number; actualCostCurrency: string; note: string;
   benefitDescription: string; benefits: Record<string, string>;
 };
 
@@ -59,6 +61,8 @@ function draftFrom(s: KaizenSuggestion, baseCurrency: string, impl?: Impl): Draf
     photosAfter: impl?.photosAfter ?? [],
     actualSaving: impl?.actualSaving ?? 0,
     actualSavingCurrency: impl?.actualSavingCurrency ?? baseCurrency,
+    actualCost: impl?.actualCost ?? 0,
+    actualCostCurrency: impl?.actualCostCurrency ?? baseCurrency,
     note: impl?.note ?? "",
     benefitDescription: impl?.benefitDescription ?? "",
     benefits: impl?.benefits ?? {}
@@ -300,7 +304,8 @@ function ImplementationDetail({
   const canVerify = isBoardMember && (isStaffUser || ((impl?.ownerEmail || "").toLowerCase() !== email && (s.authorEmail || "").toLowerCase() !== email));
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft(d => ({ ...d, [key]: value }));
-  const estimated = evaluation?.estimatedIncome ? { v: evaluation.estimatedIncome, c: evaluation.estimatedIncomeCurrency } : s.estimatedSaving ? { v: s.estimatedSaving, c: s.estimatedSavingCurrency } : null;
+  const exp = expectedSaving(s, evaluation);
+  const estimated = exp.amount ? { v: exp.amount, c: exp.currency } : null;
   const change = percentChange(draft.beforeMetric.value, draft.afterMetric.value);
 
   const save = async (patch?: Partial<Draft>) => {
@@ -478,7 +483,7 @@ function ImplementationDetail({
       </Card>
 
       <Card>
-        <SectionTitle icon={CheckCircle2} title="Gerçekleşen Kazanç" hint="Tahmini ile yan yana; Kurul doğrulayınca raporlara girer" />
+        <SectionTitle icon={CheckCircle2} title="Gerçekleşen Kazanç ve Yatırım" hint="Tahmini ile yan yana; Kurul doğrulayınca raporlara girer" />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
           <div>
             <label className={labelCls}>Tahmini</label>
@@ -494,6 +499,23 @@ function ImplementationDetail({
               {currencyChoices(settings, draft.actualSavingCurrency).map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
+          <div>
+            <label className={labelCls}>Tahmini maliyet</label>
+            <p className="h-10 flex items-center text-sm font-semibold text-slate-700 tabular-nums">{s.estimatedCost ? `${s.estimatedCost.toLocaleString("tr-TR")} ${s.estimatedCostCurrency}` : "—"}</p>
+          </div>
+          <div>
+            <label className={labelCls}>Gerçekleşen yatırım / maliyet</label>
+            <input type="number" min={0} className={inputCls} disabled={!canEdit} value={draft.actualCost || ""} onChange={e => set("actualCost", Number(e.target.value) || 0)} />
+          </div>
+          <div>
+            <label className={labelCls}>Para birimi</label>
+            <select className={inputCls} disabled={!canEdit} value={draft.actualCostCurrency} onChange={e => set("actualCostCurrency", e.target.value)}>
+              {currencyChoices(settings, draft.actualCostCurrency).map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="mt-3">
+          <KaizenSavingRevision s={s} evaluation={evaluation} settings={settings} api={api} showToast={showToast} canRevise={isBoardMember} onSaved={() => onReload()} />
         </div>
         <div className="mt-3">
           <label className={labelCls}>Not</label>
