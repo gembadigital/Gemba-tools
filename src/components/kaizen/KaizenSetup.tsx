@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from "react";
-import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, IdCard, Download, Upload, Copy, KeyRound, MonitorSmartphone, SlidersHorizontal, Coins, Clock, ListChecks, Gift, GitBranch } from "lucide-react";
+import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, IdCard, Download, Upload, Copy, KeyRound, MonitorSmartphone, QrCode, SlidersHorizontal, Coins, Clock, ListChecks, Gift, GitBranch } from "lucide-react";
 import { KaizenPersonnel, KaizenCriteria } from "./kaizenTypes";
 import { buildOrg, subordinateIds, managerChain } from "../../utils/kaizenOrg";
 import KaizenPersonnelImport, { exportPersonnel, downloadPersonnelTemplate } from "./KaizenPersonnelImport";
+import KaizenQrPoster from "./KaizenQrPoster";
 import type { KaizenApi } from "./KaizenSuggestionSystem";
 import { Card, SectionTitle, Button, EmptyState, PageHeader, TabBar, Avatar, inputCls, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 import { KaizenSettings, PinPolicy, KNOWN_CURRENCIES, IN_KIND_CURRENCY, normalizeKaizenSettings, DEFAULT_KAIZEN_SETTINGS, MAX_OPTIONS, MAX_OPTION_LENGTH } from "../../utils/kaizenSettings";
@@ -24,6 +25,7 @@ interface Props {
   api: KaizenApi;
   showToast: (m: string) => void;
   loginLink: string; // this customer's sicil no login URL (Faz 3.5)
+  companyName?: string;
 }
 
 
@@ -31,7 +33,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">{label}</label>{children}</div>;
 }
 
-export default function KaizenSetup({ personnel, criteria, personnelCrud, criteriaCrud, settings, onSaveSettings, onPersonnelChanged, canGrantBoardAdmin, api, showToast, loginLink }: Props) {
+export default function KaizenSetup({ personnel, criteria, personnelCrud, criteriaCrud, settings, onSaveSettings, onPersonnelChanged, canGrantBoardAdmin, api, showToast, loginLink, companyName }: Props) {
   const [tab, setTab] = useState<"personnel" | "criteria" | "settings">("personnel");
   return (
     <div className="space-y-6">
@@ -47,7 +49,7 @@ export default function KaizenSetup({ personnel, criteria, personnelCrud, criter
       />
       {tab === "personnel" && <PersonnelTab personnel={personnel} personnelCrud={personnelCrud} onChanged={onPersonnelChanged} canGrantBoardAdmin={canGrantBoardAdmin} api={api} showToast={showToast} pinPolicy={settings.pinPolicy} loginLink={loginLink} />}
       {tab === "criteria" && <CriteriaTab criteria={criteria} criteriaCrud={criteriaCrud} baseCurrency={settings.baseCurrency} />}
-      {tab === "settings" && <SettingsTab settings={settings} onSave={onSaveSettings} loginLink={loginLink} />}
+      {tab === "settings" && <SettingsTab settings={settings} onSave={onSaveSettings} loginLink={loginLink} companyName={companyName || ""} />}
     </div>
   );
 }
@@ -303,7 +305,8 @@ function CriteriaTab({ criteria, criteriaCrud, baseCurrency }: { criteria: Kaize
 
 // Müşteri bazında ayarlar (Faz 2-B). Inputs are kept as strings while editing; the shared
 // normalizeKaizenSettings() (same one the server runs) decides what is actually valid on save.
-function SettingsTab({ settings, onSave, loginLink }: { settings: KaizenSettings; onSave: (s: KaizenSettings) => Promise<any>; loginLink: string }) {
+function SettingsTab({ settings, onSave, loginLink, companyName }: { settings: KaizenSettings; onSave: (s: KaizenSettings) => Promise<any>; loginLink: string; companyName: string }) {
+  const [qrOpen, setQrOpen] = useState(false);
   const fromSettings = (st: KaizenSettings) => ({
     baseCurrency: st.baseCurrency,
     currencies: st.currencies,
@@ -358,6 +361,7 @@ function SettingsTab({ settings, onSave, loginLink }: { settings: KaizenSettings
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+      {qrOpen && <KaizenQrPoster baseLink={loginLink} companyName={companyName} onClose={() => setQrOpen(false)} />}
       <Card>
         <SectionTitle icon={Coins} title="Para Birimi" hint="Bu müşteri için geçerli; raporlar ana para biriminde toplanır" />
         <div className="space-y-5 mt-4">
@@ -422,6 +426,7 @@ function SettingsTab({ settings, onSave, loginLink }: { settings: KaizenSettings
           <div className="space-y-3">
             <LinkRow label="Telefon / bilgisayar (oturum 30 gün açık kalır)" url={loginLink} />
             <p className="text-xs text-slate-500">Ortak tablet için aşağıdaki <b>Kiosk modu</b> bağlantısını kullanın.</p>
+            <Button variant="brand" onClick={() => setQrOpen(true)}><QrCode className="w-4 h-4" />QR kodu ve A4 afiş</Button>
           </div>
           <div>
             <p className="text-sm font-semibold text-slate-800 mb-2">PIN kimden istensin?</p>
@@ -458,7 +463,10 @@ function SettingsTab({ settings, onSave, loginLink }: { settings: KaizenSettings
               ))}
             </ol>
             <LinkRow label="Kiosk bağlantısı" url={`${loginLink}&kiosk=1`} />
-            <Button variant="outline" onClick={() => window.open(`${loginLink}&kiosk=1`, "_blank", "noopener")}><MonitorSmartphone className="w-4 h-4" />Kiosku yeni sekmede aç (deneme)</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => window.open(`${loginLink}&kiosk=1`, "_blank", "noopener")}><MonitorSmartphone className="w-4 h-4" />Kiosku yeni sekmede aç (deneme)</Button>
+              <Button variant="outline" onClick={() => setQrOpen(true)}><QrCode className="w-4 h-4" />Kiosk QR'ı</Button>
+            </div>
           </div>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">

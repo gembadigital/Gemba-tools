@@ -9,8 +9,9 @@ import { IdCard, KeyRound, ArrowRight, ShieldCheck, ArrowLeft, Lightbulb, Loader
 type Step = "sicil" | "pin" | "setup";
 export const KAIZEN_LINK_KEY = "gemba_kaizen_link";
 
-export default function KaizenLogin({ customerId, kiosk, onAuthSuccess }: {
-  customerId: string; kiosk: boolean; onAuthSuccess: (token: string, user: any, organization: any) => void;
+export default function KaizenLogin({ customerId, kiosk, place, onAuthSuccess }: {
+  customerId: string; kiosk: boolean; place?: string; // place: line/area label from the QR (&yer=), display only
+  onAuthSuccess: (token: string, user: any, organization: any) => void;
 }) {
   const [company, setCompany] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -83,6 +84,7 @@ export default function KaizenLogin({ customerId, kiosk, onAuthSuccess }: {
           <span className="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-500 flex items-center justify-center shadow-lg shadow-amber-900/30"><Lightbulb className="w-7 h-7" /></span>
           <h1 className="text-2xl font-bold mt-4 tracking-tight">Kaizen Öneri Sistemi</h1>
           <p className="text-sm text-emerald-100/80 mt-1">{linkError ? " " : company === null ? "Yükleniyor…" : company || "Hoş geldiniz"}</p>
+          {place && !linkError && <p className="inline-block text-xs font-semibold text-white/90 bg-white/10 ring-1 ring-white/15 rounded-full px-3 py-1 mt-2">{place.slice(0, 60)}</p>}
         </div>
 
         <div className="bg-white rounded-3xl shadow-2xl p-6 sm:p-8">

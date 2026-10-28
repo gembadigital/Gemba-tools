@@ -411,6 +411,7 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
           api={api}
           showToast={showToast}
           loginLink={`${window.location.origin}${window.location.pathname}?kaizen=${encodeURIComponent(factoryId)}`}
+          companyName={selectedCustomer?.companyName}
           personnel={personnel}
           criteria={criteria}
           personnelCrud={personnelCrud}

@@ -580,7 +580,7 @@ export default function App() {
   const kaizenLinkParams = new URLSearchParams(window.location.search);
   const kaizenLinkId = kaizenLinkParams.get("kaizen");
   if (kaizenLinkId && !(isAuthorized && currentUser?.authType === "kaizen" && currentUser.assigned_customer_ids?.[0] === kaizenLinkId)) {
-    return <KaizenLogin customerId={kaizenLinkId} kiosk={kaizenLinkParams.get("kiosk") === "1"} onAuthSuccess={handleAuthSuccess} />;
+    return <KaizenLogin customerId={kaizenLinkId} kiosk={kaizenLinkParams.get("kiosk") === "1"} place={kaizenLinkParams.get("yer") || undefined} onAuthSuccess={handleAuthSuccess} />;
   }
 
   if (!isAuthorized) {

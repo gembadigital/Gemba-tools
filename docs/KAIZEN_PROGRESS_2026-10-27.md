@@ -34,6 +34,9 @@
 
 - **Parça başı kazanç hesabı** — 2026-10-28, canlıda denenmedi. Yeni Öneri → Kazanç adımında "Kazanç Süresi" parça başı seçilince (etiket müşteriye göre değişebildiği için "parça" geçen seçenek) **parça başı kazanç**, **yıllık üretim hacmi (adet)** ve **üretim süresi (yıl, en fazla 50)** zorunlu; sistem yıllık kazancı (parça × adet) ve toplamı (× yıl) canlı hesaplar. `estimatedSaving` = **yıllık** kazanç (raporlar, Kurul eşiği, kademe önerisi bunu kullanır); toplam `estimatedLifetimeSaving`; girdiler `unitSaving`, `annualVolume`, `productionYears`. Hesap sunucuda yeniden yapılır (istemcinin gönderdiği tutar yok sayılır); başka bir kazanç süresine geçilince bu alanlar sıfırlanır. Döküm Önerilerim detayında, Kurul karar panelinde, tek sayfa Önce/Sonra'da ve Excel'de (yeni sütunlar). Kod: `src/utils/kaizenSaving.ts`.
 
+- **Faz 3.7 (yazdırılabilir QR)** — 2026-10-28. Kurulum → Ayarlar → "Sicil no ile giriş" ve "Kiosk modu" kartlarında **QR kodu ve A4 afiş**: telefon ya da kiosk bağlantısı, isteğe bağlı **yer/hat adı** (`&yer=`, yalnızca gösterim: giriş ekranında ve afişte görünür; her hat için ayrı afiş). PNG indir veya A4 dikey afiş yazdır/PDF (firma adı, başlık, büyük QR, 3 adım). QR yüksek hata düzeltmeli (H). Kütüphane: `qrcode@1.5.4` (yeni bağımlılık). Bileşen `src/components/kaizen/KaizenQrPoster.tsx`. Test: üretilen QR jsQR ile çözülüp adresle karşılaştırıldı (Türkçe karakterli hat adı dahil); afiş Playwright ile tek sayfa PDF.
+- **Faz 3 tamamlandı** (3.1–3.7). Sıradaki: Faz 4 (fizibilite durumu, öneri altı mesajlaşma, bildirim katmanı, hatırlatmalar, fırsat havuzu) — bkz. KAIZEN_IS_PLANI.md.
+
 ## Öneriler / Sıradaki işler
 - **Ana iş planı:** [KAIZEN_IS_PLANI.md](KAIZEN_IS_PLANI.md) — kullanıcının gereksinim dosyasıyla karşılaştırma ve
   Faz 3 (kimlik/roller/görünürlük, sicil+PIN, kiosk, QR) → Faz 4 (fizibilite durumu, mesajlaşma, bildirim, fırsat havuzu)
