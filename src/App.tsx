@@ -583,6 +583,18 @@ export default function App() {
     return <KaizenLogin customerId={kaizenLinkId} kiosk={kaizenLinkParams.get("kiosk") === "1"} place={kaizenLinkParams.get("yer") || undefined} onAuthSuccess={handleAuthSuccess} />;
   }
 
+  // Opened from the home screen (PWA, Faz 6.3) with no session: go back to the Kaizen login link this
+  // phone last used, instead of the consultants' e-mail login.
+  if (!isAuthorized && !kaizenLinkId) {
+    const launchedAsApp = kaizenLinkParams.get("source") === "pwa" || window.matchMedia?.("(display-mode: standalone)").matches;
+    let last: { c?: string; kiosk?: boolean } = {};
+    try { last = JSON.parse(localStorage.getItem(KAIZEN_LINK_KEY) || "{}"); } catch { /* none */ }
+    if (launchedAsApp && last.c) {
+      window.location.replace(`${window.location.pathname}?kaizen=${encodeURIComponent(last.c)}${last.kiosk ? "&kiosk=1" : ""}`);
+      return null;
+    }
+  }
+
   if (!isAuthorized) {
     return <AuthScreen inviteToken={inviteToken} resetToken={resetToken} onAuthSuccess={handleAuthSuccess} />;
   }

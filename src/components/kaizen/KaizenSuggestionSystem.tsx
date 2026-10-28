@@ -12,6 +12,7 @@ import KaizenSetup from "./KaizenSetup";
 import KaizenImplementation from "./KaizenImplementation";
 import KaizenBell, { KaizenNotification } from "./KaizenBell";
 import KaizenChampions from "./KaizenChampions";
+import KaizenInstallHint, { OfflineBanner } from "./KaizenInstallHint";
 import { daysWaiting } from "./kaizenCalc";
 import { KaizenSettings, DEFAULT_KAIZEN_SETTINGS, normalizeKaizenSettings } from "../../utils/kaizenSettings";
 import { getAuthToken } from "../../utils/authToken";
@@ -344,6 +345,8 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
         </div>
       </div>
 
+      <OfflineBanner />
+      {section === "home" && !kiosk && <KaizenInstallHint />}
       {section === "home" && (
         <KaizenHome
           currentUser={currentUser}
