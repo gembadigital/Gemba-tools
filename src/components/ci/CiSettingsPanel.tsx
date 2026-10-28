@@ -19,6 +19,7 @@ export default function CiSettingsPanel({ settings, baseCurrencyCode, onSave }: 
   const [phases, setPhases] = useState(settings.phases.join("\n"));
   const [families, setFamilies] = useState<{ name: string; sharePct: string }[]>([]);
   const [durationDays, setDurationDays] = useState(String(settings.defaultDurationDays));
+  const [fishbone, setFishbone] = useState(settings.fishboneCategories.join("\n"));
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -30,6 +31,7 @@ export default function CiSettingsPanel({ settings, baseCurrencyCode, onSave }: 
     setPhases(settings.phases.join("\n"));
     setFamilies(settings.productFamilies.map(f => ({ name: f.name, sharePct: String(f.sharePct) })));
     setDurationDays(String(settings.defaultDurationDays));
+    setFishbone(settings.fishboneCategories.join("\n"));
   }, [settings]);
 
   const baseSymbol = CI_CURRENCY_SYMBOLS[baseCurrencyCode] || baseCurrencyCode;
@@ -57,7 +59,8 @@ export default function CiSettingsPanel({ settings, baseCurrencyCode, onSave }: 
       departments: lines(departments),
       phases: lines(phases),
       productFamilies,
-      defaultDurationDays: Number(durationDays)
+      defaultDurationDays: Number(durationDays),
+      fishboneCategories: lines(fishbone)
     });
     setSaving(false);
     setStatus(result.ok
@@ -150,6 +153,19 @@ export default function CiSettingsPanel({ settings, baseCurrencyCode, onSave }: 
           <input id="ci-settings-duration" type="number" min={1} max={1095} value={durationDays} onChange={(e) => setDurationDays(e.target.value)} className={`${input} w-32`} />
           <p className={hint}>Yeni projenin termini, başka tarih seçilmezse bugünden bu kadar gün sonrasıdır.</p>
         </div>
+      </div>
+
+      <div className={box}>
+        <label className={label} htmlFor="ci-settings-fishbone">Balık kılçığı kategorileri</label>
+        <p className={hint}>
+          Kök neden analizindeki (A3 4. adım) kılçıklar; her satıra bir kategori, 2–8 arası. Varsayılan 6M: İnsan, Makine,
+          Metot, Malzeme, Ölçüm, Çevre. Bir kategoriyi kaldırmak, o kategoride neden girilmiş eski projelerde nedenleri
+          silmez — kartta "diğer kategoriler" altında görünmeye devam eder.
+        </p>
+        <textarea id="ci-settings-fishbone" rows={6} value={fishbone} onChange={(e) => setFishbone(e.target.value)} className={`${input} md:w-80`} />
+        {(lines(fishbone).length < 2 || lines(fishbone).length > 8) && (
+          <p className="text-[11px] text-amber-700">2–8 kategori olmalı; aksi halde varsayılan 6M kullanılır.</p>
+        )}
       </div>
 
       <div className={box}>

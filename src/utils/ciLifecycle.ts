@@ -41,6 +41,15 @@ export interface CiKpi {
   measurements: CiKpiMeasurement[];
 }
 
+// Fishbone (Ishikawa) causes of A3 step 4 (plan step C4). A flat list keyed by category name, so a
+// category removed from the CI settings later keeps its causes (shown under "other categories").
+export interface CiFishboneCause {
+  id: string;
+  category: string;
+  text: string;
+  root?: boolean;   // marked as a root cause
+}
+
 export interface CiStageDate {
   planned?: string;     // planned completion date of the step
   completed?: string;   // date the leader approved the step
@@ -86,6 +95,7 @@ export interface CiProjectLike {
   plannedFinishDate?: string;
   rootCause?: string;
   rootCauseWhys?: string[];
+  fishbone?: CiFishboneCause[];
   tasks?: any[];
   kpiTargetMet?: boolean | null;
   realizedGain?: number;
@@ -175,9 +185,15 @@ export const isTaskFinished = (t: any) => ["Yapıldı", "İptal"].includes(taskS
 
 const filled = (v: any) => typeof v === "string" ? v.trim().length > 0 : v !== undefined && v !== null;
 
+export const fishboneRootCauses = (p: CiProjectLike): CiFishboneCause[] =>
+  (Array.isArray(p.fishbone) ? p.fishbone : []).filter(c => c?.root && (c.text || "").trim());
+
+// The project's root cause: the one written explicitly, else the last answer of the 5-Why chain,
+// else the causes marked as root on the fishbone.
 export function rootCauseOf(p: CiProjectLike): string {
   const whys = (p.rootCauseWhys || []).map(w => (w || "").trim()).filter(Boolean);
-  return (p.rootCause || "").trim() || whys[whys.length - 1] || "";
+  return (p.rootCause || "").trim() || whys[whys.length - 1]
+    || fishboneRootCauses(p).map(c => `${c.text.trim()} (${c.category})`).join("; ") || "";
 }
 
 // Missing items (Turkish, user-facing) that block finishing `stage`; empty = ready.
@@ -202,7 +218,7 @@ export function stageRequirements(p: CiProjectLike, stage: number): string[] {
       if (!filled(p.plannedFinishDate)) missing.push("Hedef tarih (planlanan bitiş)");
       break;
     case 4:
-      if (!rootCauseOf(p)) missing.push("Kök neden (5 Neden ya da seçilen kök neden)");
+      if (!rootCauseOf(p)) missing.push("Kök neden (5 Neden, balık kılçığında işaretlenen neden ya da yazılan kök neden)");
       break;
     case 5:
       if (!tasks.length) missing.push("En az bir aksiyon");

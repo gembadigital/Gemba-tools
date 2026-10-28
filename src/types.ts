@@ -1,4 +1,4 @@
-import type { CiHoldState, CiPendingApproval, CiStageDate, CiHistoryEntry, CiKpi } from "./utils/ciLifecycle";
+import type { CiHoldState, CiPendingApproval, CiStageDate, CiHistoryEntry, CiKpi, CiFishboneCause } from "./utils/ciLifecycle";
 export interface AuditRecord {
   id: string;
   name: string;
@@ -166,6 +166,8 @@ export interface KaizenCard {
   // sync as the last non-empty why, so anywhere that just displays rootCause (exports, list views)
   // keeps working without changes.
   rootCauseWhys?: string[];
+  // Fishbone (6M) causes of A3 step 4; `root: true` marks the chosen root cause(s).
+  fishbone?: CiFishboneCause[];
   improvementActions?: string;
   responsibles?: string;
   actionsTaken?: string;

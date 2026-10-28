@@ -34,7 +34,7 @@ import CiOverview from "./ci/CiOverview";
 import { PageHeader, TabBar, Button } from "./ci/ciUi";
 import {
   CI_STEPS, CiStageAction, CiUserLike, stageOf, isClosed, pdcaOfStage, stageRequirements, canApproveStage, isCiStaffUser,
-  isTaskFinished, personKey, canEditProject
+  isTaskFinished, personKey, canEditProject, rootCauseOf
 } from "../utils/ciLifecycle";
 import { sumExpected, sumRealized, realizedInCurrency, excludedNote } from "./ci/ciMoney";
 import { exportKaizenCardToExcel as exportCiProjectCardExcel, exportBeforeAfterKaizenToExcel as exportCiBeforeAfterExcel } from "./ci/ciExcelExport";
@@ -426,7 +426,7 @@ export default function KaizenManager({
         getProjectNo(proj), proj.title, proj.department, proj.projectLeader || proj.originator,
         (proj.projectTeam || []).join(", "), proj.phase, proj.status, proj.kanbanStatus,
         proj.plannedFinishDate, proj.estimatedCost || 0, proj.actualSavings || 0,
-        proj.rootCause || "", proj.opportunityType || ""
+        rootCauseOf(proj), proj.opportunityType || ""
       ]);
     const projectSheetData = [["CI Proje Portföyü"], [], projectHeaders, ...projectRows];
 
@@ -2326,6 +2326,7 @@ export default function KaizenManager({
           people={teamPeople}
           departments={ciSettings.departments}
           phases={ciSettings.phases}
+          fishboneCategories={ciSettings.fishboneCategories}
           currencySymbol={currency}
           currencyOptions={currencyOptions}
           currencyChoices={currencyChoices}

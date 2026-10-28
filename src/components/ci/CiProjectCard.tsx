@@ -9,17 +9,18 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft, Save, FileSpreadsheet, CheckCircle2, Circle, Clock, Lock, Send, Undo2, PauseCircle,
   PlayCircle, XCircle, Users, Paperclip, History, ListChecks, Plus, Trash2, Camera, Download,
-  ShieldCheck, Target, AlertTriangle, ChevronLeft, Layers, BarChart3, RotateCcw
+  ShieldCheck, Target, AlertTriangle, ChevronLeft, Layers, BarChart3, RotateCcw, Star, ArrowRightLeft
 } from "lucide-react";
 import type { KaizenCard, BeforeAfterKaizenStudy } from "../../types";
 import {
   CI_STEPS, CI_LAST_STAGE, CiKpi, CiStageAction, stageOf, isClosed, kpiOf, latestMeasurement, kpiProgressPct,
-  stageRequirements, canEditProject, canApproveStage, canManageHold, isCiStaffUser, taskStatusOf, rootCauseOf,
+  stageRequirements, canEditProject, canApproveStage, canManageHold, isCiStaffUser, taskStatusOf, rootCauseOf, fishboneRootCauses,
   CiUserLike
 } from "../../utils/ciLifecycle";
 import { choicesWith } from "../../utils/ciSettings";
 import { taskProgress } from "../../utils/ciPlan";
 import CiTaskGantt from "./CiTaskGantt";
+import CiFishbone from "./CiFishbone";
 import {
   Card, SectionTitle, Button, FormField, ChoiceChip, Avatar, EmptyState, TabBar, AmountInput, Pill, inputCls, areaCls,
   readAndShrink, formatAmount
@@ -34,6 +35,7 @@ interface CiProjectCardProps {
   people: CiPerson[];                         // customer's team directory (consultants, customer users)
   departments: string[];
   phases: string[];
+  fishboneCategories: string[];               // bones of the step-4 fishbone (CI settings)
   currencySymbol: string;                     // customer currency, e.g. "₺"
   currencyOptions: { value: string; label: string }[];
   currencyChoices: (current: string) => { value: string; label: string }[];
@@ -51,7 +53,7 @@ interface CiProjectCardProps {
 const EDITABLE_FIELDS = [
   "title", "department", "phase", "problemDefinition", "descriptionBefore", "problemDetail", "currentLoss",
   "problemPhotos", "kpi", "targetObjective", "plannedFinishDate", "expectedGain", "expectedGainCurrency",
-  "rootCauseWhys", "rootCause", "tasks", "estimatedCost", "kpiTargetMet", "realizedGain", "realizedGainCurrency",
+  "rootCauseWhys", "rootCause", "fishbone", "tasks", "estimatedCost", "kpiTargetMet", "realizedGain", "realizedGainCurrency",
   "actualSavings", "realizedImprovementPct", "resultPhotos", "stdWorkUpdated", "instructionRevised", "trainingGiven",
   "controlPlanUpdated", "auditListUpdated", "horizontalDeployment", "lessonsLearned", "projectResult",
   "resultDescription", "projectLeader", "projectLeaderId", "projectTeam", "projectTeamIds", "projectSponsor",
@@ -80,6 +82,7 @@ function draftFrom(p: KaizenCard): Draft {
   d.problemDefinition = p.problemDefinition ?? p.descriptionBefore ?? "";
   d.kpi = kpiOf(p);
   d.rootCauseWhys = Array.from({ length: 5 }, (_, i) => p.rootCauseWhys?.[i] ?? "");
+  d.fishbone = Array.isArray(p.fishbone) ? p.fishbone : [];
   d.realizedGain = p.realizedGain ?? p.actualSavings;
   d.tasks = Array.isArray(p.tasks) ? p.tasks : [];
   return d;
@@ -144,10 +147,8 @@ export default function CiProjectCard(props: CiProjectCardProps) {
     if ("problemDefinition" in changes) changes.descriptionBefore = changes.problemDefinition;
     if ("realizedGain" in changes) changes.actualSavings = changes.realizedGain ?? 0;
     if ("kpi" in changes) changes.targetKpi = (draft.kpi as CiKpi).name;
-    if ("rootCauseWhys" in changes && !(draft.rootCause || "").trim()) {
-      const whys = (draft.rootCauseWhys || []).map(w => w.trim()).filter(Boolean);
-      changes.rootCause = whys[whys.length - 1] || "";
-    }
+    // `rootCause` holds only what the user wrote; readers use rootCauseOf (written → last why → marked
+    // fishbone causes), so the derived value follows later edits of the chain / fishbone.
     const saved = await props.onSave(changes);
     setBusy(false);
     setMessage(saved ? { ok: true, text: "Kaydedildi." } : { ok: false, text: "Kaydedilemedi — yetkinizi ve bağlantınızı kontrol edin." });
@@ -471,27 +472,8 @@ function StepFields({ step, draft, set, kpi, setKpi, props, canEdit, staff, busy
           </div>
         </>
       );
-    case 4: {
-      const whys = draft.rootCauseWhys || ["", "", "", "", ""];
-      const suggested = rootCauseOf({ rootCauseWhys: whys });
-      return (
-        <>
-          <p className="text-sm text-slate-600">Problemden başlayıp her cevaba yeniden "neden?" diye sorun; son cevap genellikle kök nedendir.</p>
-          <ol className="space-y-3">
-            {whys.map((w, i) => (
-              <li key={i} className="flex items-start gap-3">
-                <span className="mt-3 w-7 h-7 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
-                <input className={inputCls} value={w} placeholder={i === 0 ? "Problem neden oluşuyor?" : `Neden ${i}'in nedeni?`}
-                  onChange={(e) => set("rootCauseWhys", whys.map((x, j) => j === i ? e.target.value : x))} />
-              </li>
-            ))}
-          </ol>
-          <FormField label="Seçilen kök neden" required hint={suggested && !(draft.rootCause || "").trim() ? `Boş bırakılırsa son neden kullanılır: "${suggested}"` : undefined}>
-            <textarea className={areaCls} rows={2} value={draft.rootCause || ""} onChange={(e) => set("rootCause", e.target.value)} />
-          </FormField>
-        </>
-      );
-    }
+    case 4:
+      return <RootCauseStep draft={draft} set={set} canEdit={canEdit} categories={props.fishboneCategories} />;
     case 5:
     case 6:
       return <TasksEditor step={step} draft={draft} set={set} people={props.people} canEdit={canEdit} props={props} project={project} />;
@@ -575,6 +557,61 @@ function StepFields({ step, draft, set, kpi, setKpi, props, canEdit, staff, busy
       );
   }
   return null;
+}
+
+// A3 step 4: 5-Why chain and / or fishbone (6M). Both are kept; the toggle only picks the view.
+function RootCauseStep({ draft, set, canEdit, categories }: {
+  draft: Draft; set: <K extends keyof KaizenCard>(k: K, v: KaizenCard[K]) => void; canEdit: boolean; categories: string[];
+}) {
+  const whys = draft.rootCauseWhys || ["", "", "", "", ""];
+  const fishbone = draft.fishbone || [];
+  const [method, setMethod] = useState<"why" | "fishbone">(() => fishbone.length && !whys.some(w => w.trim()) ? "fishbone" : "why");
+  const marked = fishboneRootCauses({ fishbone });
+  const suggested = rootCauseOf({ rootCauseWhys: whys, fishbone });
+  const deepen = (text: string) => {
+    if (whys[0].trim() && whys[0].trim() !== text.trim() && !window.confirm(`5 Neden zincirinin ilk nedeni "${whys[0]}" — "${text}" ile değiştirilsin mi?`)) return;
+    set("rootCauseWhys", [text, ...whys.slice(1)]);
+    setMethod("why");
+  };
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <ChoiceChip on={method === "why"} onClick={() => setMethod("why")}>5 Neden{whys.some(w => w.trim()) ? ` · ${whys.filter(w => w.trim()).length}` : ""}</ChoiceChip>
+        <ChoiceChip on={method === "fishbone"} onClick={() => setMethod("fishbone")}>Balık Kılçığı (6M){fishbone.length ? ` · ${fishbone.length}` : ""}</ChoiceChip>
+        <span className="text-xs text-slate-500">İkisi birlikte kullanılabilir; ikisinin verisi de saklanır.</span>
+      </div>
+      {method === "why" ? (
+        <>
+          <p className="text-sm text-slate-600">Problemden başlayıp her cevaba yeniden "neden?" diye sorun; son cevap genellikle kök nedendir.</p>
+          <ol className="space-y-3">
+            {whys.map((w, i) => (
+              <li key={i} className="flex items-start gap-3">
+                <span className="mt-3 w-7 h-7 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                <input className={inputCls} value={w} placeholder={i === 0 ? "Problem neden oluşuyor?" : `Neden ${i}'in nedeni?`}
+                  onChange={(e) => set("rootCauseWhys", whys.map((x, j) => j === i ? e.target.value : x))} />
+              </li>
+            ))}
+          </ol>
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-slate-600">Olası nedenleri kategorilere yazın; kök neden olduğunu düşündüklerinizi <Star className="w-3.5 h-3.5 inline -mt-0.5 text-amber-500" fill="currentColor" /> ile işaretleyin, gerekirse <ArrowRightLeft className="w-3.5 h-3.5 inline -mt-0.5" /> ile 5 Neden'e taşıyıp derinleştirin.</p>
+          <CiFishbone causes={fishbone} categories={categories} problem={draft.problemDefinition || ""} canEdit={canEdit}
+            onChange={(c) => set("fishbone", c)} onDeepen={deepen} />
+        </>
+      )}
+      {marked.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-slate-500">Balık kılçığında işaretlenen kök nedenler:</span>
+          {marked.map(c => <Pill key={c.id} tone="amber"><Star className="w-3 h-3" fill="currentColor" /> {c.text} · {c.category}</Pill>)}
+        </div>
+      )}
+      <FormField label="Seçilen kök neden" required
+        hint={suggested && !(draft.rootCause || "").trim() ? `Boş bırakılırsa kullanılır: "${suggested}"` : "5 Neden'in son cevabı ya da balık kılçığında işaretlenen nedenler önerilir."}>
+        <textarea className={areaCls} rows={2} value={draft.rootCause || ""} onChange={(e) => set("rootCause", e.target.value)} />
+      </FormField>
+    </>
+  );
 }
 
 function Stat({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {

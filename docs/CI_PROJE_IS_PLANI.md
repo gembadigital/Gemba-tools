@@ -193,6 +193,7 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
 | C3 | ✅ kod (canlıda doğrulanmadı) | Uygulama planı (Gantt, başlangıç/ilerleme, önce-sonra bağı), Görevlerim, tek hafta bazlı Master Plan bağı. Ayrıntı aşağıda. |
 | C6 | ✅ kod (canlıda doğrulanmadı) | Tek finans modeli, yeni finansal dashboard, kazanç kırılımı penceresi, binlik ayraç. Ayrıntı aşağıda. |
 | C7 | ✅ kod (canlıda doğrulanmadı) | Genel Bakış açılış panosu, sade başlık/sekmeler, sorumlu performansı. Ayrıntı aşağıda. |
+| C4 | ✅ kod (canlıda doğrulanmadı) | Balık kılçığı (6M) kök neden analizi, ayarlanabilir kategoriler. Ayrıntı aşağıda. |
 
 ### C0 — yapılanlar
 - **Sunucu (`/api/business/kaizens`):** müşteri gövdeden değil `x-factory-id` kapsamından alınır; güncellemede mevcut
@@ -383,4 +384,25 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
   testleri yeniden geçti. Genel Bakış ve tüm sayfa (KaizenManager, sahte veri) yerel önizlemede masaüstü ve telefon
   genişliğinde denendi; adım etiketinin kesilmesi ve kısa tutarların ("₺1,1 Mn") satır kırması düzeltildi.
   Canlıda denenmedi.
+
+### C4 — yapılanlar
+- **Balık kılçığı (B6)** — A3 4. adımda "5 Neden" ile "Balık Kılçığı (6M)" arasında geçiş; ikisi birlikte
+  kullanılabilir, ikisinin verisi de saklanır (`ci/CiFishbone.tsx`).
+  - Geniş ekranda gerçek Ishikawa diyagramı: omurga → problem başı (1. adımdaki problem tanımı), kategoriler üstte ve
+    altta kılçık olarak; daha dar ekranda problem üstte, kategoriler kart ızgarasında.
+  - Her kategoride neden ekle / satır içinde düzenle / sil; ★ ile **kök neden olarak işaretle** (birden çok);
+    "5 Neden ile derinleştir" nedeni 5 Neden zincirinin ilk halkasına taşır (dolu ise onay ister).
+  - İşaretlenen kök nedenler kartta özetlenir; Excel proje kartında 5 Neden zinciri ve kategori bazında nedenler
+    (★ işaretli) yer alır.
+- **Veri:** `fishbone: { id, category, text, root? }[]` (düz liste, kategori adıyla). Ayarlardan kaldırılan bir
+  kategorinin nedenleri silinmez, "Diğer kategoriler" altında görünür.
+- **Kök neden kuralı** (`rootCauseOf`, istemci + sunucu): yazılan kök neden → yoksa 5 Neden'in son cevabı → yoksa
+  balık kılçığında ★ işaretli nedenler. 4. adımın şartı bunlardan biriyle sağlanır. Kart artık türetilen değeri
+  `rootCause` alanına kalıcı yazmıyor (önceden yazıyordu ve sonradan 5 Neden değişse de eski metin kalıyordu);
+  Excel çıktıları aynı kuralı kullanır.
+- **Ayar:** CI Ayarları → "Balık kılçığı kategorileri" (2–8; varsayılan İnsan, Makine, Metot, Malzeme, Ölçüm, Çevre).
+- **Doğrulama:** `tsc`, `npm run build`, native ESM yükleme; C4 testleri 10 kontrol (kök neden önceliği, boş işaretli
+  neden, 4. adım şartı, kategori ayarı sınırları, eski ayar kaydı) + önceki tüm testler. Yerel önizlemede (sahte veri)
+  1024 px ve 1440 px'te denendi: neden ekleme, kök neden işaretleme, "5 Neden ile derinleştir". İlk sürümde dar
+  ekranda neden metni görünmüyordu ve omurga bandı gereğinden yüksekti → düzeltildi. Canlıda denenmedi.
 

@@ -1,6 +1,9 @@
 // CI project Excel exports (project card, before-after form). Moved out of KaizenManager (plan step
 // C1); output unchanged. Both build an HTML table saved as .xls, which Excel opens with the styling.
 import type { KaizenCard, BeforeAfterKaizenStudy } from "../../types";
+import { rootCauseOf } from "../../utils/ciLifecycle";
+
+const esc = (v: unknown) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 // Export CI Improvement Project Card to Excel (.xls) formatted with styled tables and borders
 export const exportKaizenCardToExcel = (proj: KaizenCard, projNo: string, customerName?: string, currencySymbol: string = "₺") => {
@@ -129,8 +132,18 @@ export const exportKaizenCardToExcel = (proj: KaizenCard, projNo: string, custom
         </tr>
         <tr style="height: 36px;">
           <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Kök Neden Analizi:</td>
-          <td colspan="5" style="border: 1px solid #cbd5e1; padding: 6px 8px;">${proj.rootCause || '-'}</td>
+          <td colspan="5" style="border: 1px solid #cbd5e1; padding: 6px 8px;">${esc(rootCauseOf(proj)) || '-'}</td>
         </tr>
+        ${(proj.rootCauseWhys || []).some(w => (w || "").trim()) ? `
+        <tr style="height: 28px;">
+          <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">5 Neden:</td>
+          <td colspan="5" style="border: 1px solid #cbd5e1; padding: 6px 8px;">${(proj.rootCauseWhys || []).map((w, i) => (w || "").trim() ? `${i + 1}. ${esc(w)}` : "").filter(Boolean).join("<br/>")}</td>
+        </tr>` : ""}
+        ${Array.from(new Set((proj.fishbone || []).filter(c => (c.text || "").trim()).map(c => c.category))).map(cat => `
+        <tr style="height: 26px;">
+          <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Balık kılçığı — ${esc(cat)}:</td>
+          <td colspan="5" style="border: 1px solid #cbd5e1; padding: 6px 8px;">${(proj.fishbone || []).filter(c => c.category === cat && (c.text || "").trim()).map(c => `${c.root ? "★ " : ""}${esc(c.text)}`).join("; ")}</td>
+        </tr>`).join("")}
 
         <!-- 4. HEDEFLER VE FİNANSAL KAZANIMLAR -->
         <tr style="height: 30px; background-color: #312e81;">
