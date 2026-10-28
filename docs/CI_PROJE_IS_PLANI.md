@@ -191,6 +191,7 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
 | C1 | ✅ kod (canlıda doğrulanmadı) | Ayrıntı aşağıda. Sekme bileşenlerinin bölünmesi C2/C3/C6/C7'ye bırakıldı (gerekçe aşağıda). |
 | C2 | ✅ kod (canlıda doğrulanmadı) | 8 adımlı A3 kartı, lider onayı, lider/üye yetkileri, geçmiş. Ayrıntı aşağıda. |
 | C3 | ✅ kod (canlıda doğrulanmadı) | Uygulama planı (Gantt, başlangıç/ilerleme, önce-sonra bağı), Görevlerim, tek hafta bazlı Master Plan bağı. Ayrıntı aşağıda. |
+| C6 | ✅ kod (canlıda doğrulanmadı) | Tek finans modeli, yeni finansal dashboard, kazanç kırılımı penceresi, binlik ayraç. Ayrıntı aşağıda. |
 
 ### C0 — yapılanlar
 - **Sunucu (`/api/business/kaizens`):** müşteri gövdeden değil `x-factory-id` kapsamından alınır; güncellemede mevcut
@@ -327,4 +328,34 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
   plan durumu, Master Plan satırı ve korunan alanlar, aksiyon sorumlusu erişimi) + C2'nin 37 kontrolü yeniden geçti.
   Test, paylaşılan `ciPlan.ts`'teki uzantısız göreli importu yakaladı (sunucu kuralı) → düzeltildi. Kart ve
   Görevlerim yerel önizlemede (sahte veri) denendi; dar ekranda aksiyon satırı yerleşimi düzeltildi. Canlıda denenmedi.
+
+### C6 — yapılanlar
+- **Tek finans modeli** (`ci/ciFinance.ts`): beklenen yıllık kazanç = `expectedGain` (+ para birimi; eski projelerde
+  `targetCostReduction`, o da yoksa açıldığı fırsatın tahmini) · gerçekleşen yıllık kazanç = `realizedGain`
+  (`actualSavings` kopyası, + para birimi) · teyit = `gainConfirmedAt` (danışman) · yatırım = `estimatedCost`.
+  17 kalemli `financialsInput` artık gerçekleşen kazancın isteğe bağlı **kırılımı**dır: toplamı > 0 ise kaydedince
+  gerçekleşen kazanç (müşteri para birimi) toplamla güncellenir; boşsa gerçekleşen kazanç değişmez. Executive ve
+  Opex Proje dashboard'larının beklenen toplamı da aynı kuralı kullanır (`ciMoney.sumExpected`).
+- **Kazanç kırılımı penceresi** (`ci/CiGainBreakdown.tsx`, eski "CIFinancials" penceresinin yerine): kalemler Kalite /
+  Maliyet / Verimlilik / Teslimat / İSG / Diğer gruplarında, tutar ve % binlik ayraçlı, toplam ve kaydetmenin etkisi
+  altta; kapalı projede ve yetkisiz kullanıcıda salt okunur. Önceden yalnızca `actualSavings` yazıyor, para birimini
+  kaydetmiyor ve kartın okuduğu `realizedGain`'i güncellemiyordu.
+- **Finansal dashboard** (`ci/CiFinanceDashboard.tsx`, eski "Finansal Dashboard" sekmesinin yerine; Kaizen tasarım
+  dili): açılış yılı filtresi (sayfadaki departman/faz filtreleri de geçerli); KPI'lar — beklenen, teyitli, teyit
+  bekleyen, yatırım + geri ödeme süresi (yatırım ÷ aylık gerçekleşen), gerçekleşme oranı; **kazanç hunisi** (beklenen →
+  gerçekleşen → teyitli); **aylık kümülatif kazanç** (beklenen hedef bitiş ayında, gerçekleşen teyit / kapanış / 7. adım
+  ayında, tarihi olmayan raporlanan kazanç bu ayda); kategoriye göre beklenen vs gerçekleşen; gerçekleşen kazanç
+  kalemleri (kırılım girilmiş projelerden); departman tablosu; proje tablosu (beklenen, gerçekleşen, fark %, teyit
+  durumu; satırdan kart açılır). İptal edilen projeler hariç; kuru olmayan para birimindeki projeler uyarıyla dışarıda.
+- **Kaldırılan uydurma / ölü hesaplar:** eski dashboard'daki faz olgunluk kartları, "Improvement Funnel", ROI katsayısı
+  ve ilişkili 24 kullanılmayan hesap silindi (KaizenManager 3.665 → 2.690 satır).
+- **Binlik ayraç (B5):** CI ekranlarındaki ve Excel çıktılarındaki tüm tutar gösterimleri `tr-TR` (1.250.000);
+  kart, kırılım ve ayarlardaki tutar girişleri `AmountInput` ile ayraçlı. KaizenManager'da `type="number"` tutar alanı
+  kalmadı. (Executive Dashboard / Opex Proje Dashboard'un kendi gösterimleri bu adımın dışında.)
+- **Açık kalanlar:** üst gösterge şeridi (COPQ, faaliyet karı vb.) hâlâ eski — sadeleştirme C7; kategori hâlâ ad/metin
+  üzerinden türetiliyor (kategori alanı yok); kazanç kırılımının yüzde alanları yalnızca bilgi amaçlı.
+- **Doğrulama:** `tsc`, `npm run build`, native ESM yükleme; finans modeli 13 kontrol (kur dönüşümü, eski alan
+  geri dönüşleri, teyit/tarih, ay aralığı, geri ödeme) + C1/C2/C3 testleri yeniden geçti. Dashboard ve kırılım
+  penceresi yerel önizlemede (sahte veri) denendi; KPI kartlarının daralması, tarihsiz raporlanan kazancın grafikte
+  görünmemesi ve negatif fark biçimi düzeltildi. Canlıda denenmedi.
 

@@ -17,7 +17,7 @@ import {
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { CITask, CIFinancialsInput, defaultFinancialsInput } from "./ci/ciTypes";
+import { CITask, defaultFinancialsInput } from "./ci/ciTypes";
 import { getKaizenCategory, COPQ_CATEGORIES } from "./ci/ciCategory";
 import { generateOpportunities, ALL_FAMILIES, productFamilyLabel } from "./ci/ciOpportunities";
 import { displayProjectNo } from "../utils/ciProject";
@@ -28,9 +28,11 @@ import { useCiSettings } from "./ci/useCiSettings";
 import CiSettingsPanel from "./ci/CiSettingsPanel";
 import CiProjectCard, { CiPerson, StageBadge } from "./ci/CiProjectCard";
 import CiMyTasks from "./ci/CiMyTasks";
+import CiGainBreakdown from "./ci/CiGainBreakdown";
+import CiFinanceDashboard from "./ci/CiFinanceDashboard";
 import {
   CI_STEPS, CiStageAction, CiUserLike, stageOf, isClosed, pdcaOfStage, stageRequirements, canApproveStage, isCiStaffUser,
-  isTaskFinished, personKey
+  isTaskFinished, personKey, canEditProject
 } from "../utils/ciLifecycle";
 import { sumExpected, sumRealized, realizedInCurrency, excludedNote } from "./ci/ciMoney";
 import { exportKaizenCardToExcel as exportCiProjectCardExcel, exportBeforeAfterKaizenToExcel as exportCiBeforeAfterExcel } from "./ci/ciExcelExport";
@@ -190,7 +192,6 @@ export default function KaizenManager({
 
   // Financial inputs state for active project editing
   const [editingFinancialsProjId, setEditingFinancialsProjId] = useState<string | null>(null);
-  const [financialsInput, setFinancialsInput] = useState<CIFinancialsInput>(defaultFinancialsInput());
   
   // Task management state
   const [activeTasksProjId, setActiveTasksProjId] = useState<string | null>(null);
@@ -257,7 +258,7 @@ export default function KaizenManager({
     const updated: KaizenCard = {
       ...project,
       emailSentCount: (project.emailSentCount || 0) + 1,
-      lastEmailSentAt: new Date().toLocaleString()
+      lastEmailSentAt: new Date().toLocaleString("tr-TR")
     };
 
     onUpdateKaizen(updated);
@@ -327,7 +328,7 @@ export default function KaizenManager({
     setBaDescAfter(proj.descriptionAfter || proj.resultDescription || "");
     setBaBenefitDesc(
       proj.actualSavings
-        ? `Gerçekleşen tasarruf: ${currency}${proj.actualSavings.toLocaleString()}`
+        ? `Gerçekleşen tasarruf: ${currency}${proj.actualSavings.toLocaleString("tr-TR")}`
         : ""
     );
     setBaBenefits({});
@@ -459,7 +460,7 @@ export default function KaizenManager({
     autoTable(doc, {
       body: [
         [pdfSafe("Toplam Proje"), String(totalCIProjects), pdfSafe("Tamamlanan"), String(completedProjects)],
-        [pdfSafe("Beklenen Kazanç"), `${currency} ${totalExpectedFinancialGain.toLocaleString()}`, pdfSafe("Gerçekleşen Kazanım"), `${currency} ${realizedFinancialGain.toLocaleString()}`]
+        [pdfSafe("Beklenen Kazanç"), `${currency} ${totalExpectedFinancialGain.toLocaleString("tr-TR")}`, pdfSafe("Gerçekleşen Kazanım"), `${currency} ${realizedFinancialGain.toLocaleString("tr-TR")}`]
       ],
       startY: 46,
       theme: "grid",
@@ -474,7 +475,7 @@ export default function KaizenManager({
         .sort((a, b) => getProjectNo(a).localeCompare(getProjectNo(b), undefined, { numeric: true, sensitivity: 'base' }))
         .map(proj => [
           pdfSafe(getProjectNo(proj)), pdfSafe(proj.title), pdfSafe(proj.projectLeader || proj.originator || "-"), pdfSafe(proj.kanbanStatus || proj.status),
-          (proj.estimatedCost || 0).toLocaleString(), (proj.actualSavings || 0).toLocaleString()
+          (proj.estimatedCost || 0).toLocaleString("tr-TR"), (proj.actualSavings || 0).toLocaleString("tr-TR")
         ]),
       startY: (doc as any).lastAutoTable.finalY + 14,
       theme: "striped",
@@ -742,32 +743,9 @@ export default function KaizenManager({
   };
 
   // Financial Results Save
-  const handleOpenFinancials = (proj: KaizenCard) => {
-    setEditingFinancialsProjId(proj.id);
-    setFinancialsInput(proj.financialsInput || defaultFinancialsInput());
-  };
-
-  const handleSaveFinancials = () => {
-    if (!editingFinancialsProjId) return;
-    const proj = kaizens.find(k => k.id === editingFinancialsProjId);
-    if (!proj) return;
-
-    // Calculate dynamic realized savings
-    let totalRealizedSavings = 0;
-    Object.values(financialsInput).forEach((indicator: any) => {
-      totalRealizedSavings += Number(indicator.val || 0);
-    });
-
-    const updated: KaizenCard = {
-      ...proj,
-      financialsInput,
-      actualSavings: totalRealizedSavings
-    };
-
-    onUpdateKaizen(updated);
-    syncWithGantt(updated, 'update');
-    setEditingFinancialsProjId(null);
-  };
+  // 17-line realized gain breakdown (ci/CiGainBreakdown.tsx).
+  const handleOpenFinancials = (proj: KaizenCard) => setEditingFinancialsProjId(proj.id);
+  const financialsProject = editingFinancialsProjId ? kaizens.find(k => k.id === editingFinancialsProjId) || null : null;
 
   // Helper calculation for overall Portföy metrics
   const filteredProjects = kaizens.filter(k => {
@@ -790,8 +768,6 @@ export default function KaizenManager({
   const completedProjects = filteredProjects.filter(k => k.status === "Completed" || k.kanbanStatus === "ACT").length;
   const pendingProjects = filteredProjects.filter(k => k.status === "Draft" || k.kanbanStatus === "PLAN").length;
   
-  // Calculate At Risk / Delayed
-  const atRiskProjects = filteredProjects.filter(k => k.impactLevel === "High" && k.status === "In Progress").length;
   const delayedProjects = filteredProjects.filter(k => {
     if (k.status === "Completed") return false;
     if (!k.plannedFinishDate) return false;
@@ -804,139 +780,37 @@ export default function KaizenManager({
   // figure yet falls back to that opportunity's estimate (customer currency). No invented values.
   const expectedSum = sumExpected(filteredProjects, currency, ciSettings.fxRates);
   const totalExpectedFinancialGain = expectedSum.total + filteredProjects
-    .filter(k => typeof k.expectedGain !== "number")
+    .filter(k => !((k.expectedGain || 0) > 0) && !((k.targetCostReduction || 0) > 0))
     .reduce((sum, k) => sum + (opportunitiesList.find(o => o.id === k.opportunityId)?.expectedGain || 0), 0);
 
   const realizedSum = sumRealized(filteredProjects, currency, ciSettings.fxRates);
   const realizedFinancialGain = realizedSum.total;
-  const moneyExcludedNote = excludedNote(Math.max(expectedSum.excluded, realizedSum.excluded));
   // COPQ reduction = realized savings of quality / scrap projects (previously a flat 72% of all
   // savings, which was not derived from anything).
   const totalCOPQReduction = filteredProjects
     .filter(k => COPQ_CATEGORIES.includes(getKaizenCategory(k)))
     .reduce((sum, k) => sum + realizedInCurrency(k, currency, ciSettings.fxRates), 0);
   
-  // Operating profit is estimated as 12% of the customer's annual revenue; without a revenue figure
-  // there is no basis, so the share is not shown (previously a fixed 12.000.000 was assumed).
-  const estimatedOperatingProfit = selectedCustomer?.annualRevenue 
-    ? Math.round(selectedCustomer.annualRevenue * 0.12)
-    : null;
 
-  const profitImpactPercentage = estimatedOperatingProfit
-    ? ((realizedFinancialGain / estimatedOperatingProfit) * 100).toFixed(2)
-    : "—";
 
-  // Starting COPQ from the cost-table (process) records; none recorded → no basis (previously a
-  // fixed 4.500.000 was assumed).
-  const initialCOPQ = processes && processes.length > 0
-    ? processes.reduce((sum, p) => sum + (p.scrapCost || 0) + (p.reworkCost || 0) + (p.downtimeCost || 0), 0)
-    : 0;
 
-  const copqReductionPercentage = initialCOPQ > 0
-    ? ((totalCOPQReduction / initialCOPQ) * 100).toFixed(2)
-    : "—";
 
   const averageProjectSuccessRate = totalCIProjects > 0 
     ? Math.round((filteredProjects.filter(k => k.status === "Completed" || k.kanbanStatus === "ACT").length / totalCIProjects) * 100) 
     : 0;
 
-  const totalBudget = filteredProjects.reduce((sum, k) => sum + (k.estimatedCost || 0), 0);
-  const realizedToBudgetRatio = totalBudget > 0 
-    ? (realizedFinancialGain / totalBudget).toFixed(2)
-    : "0.00";
-  const netROIAmount = realizedFinancialGain - totalBudget;
-  const totalROI = totalBudget > 0 ? ((realizedFinancialGain / totalBudget) * 100).toFixed(1) : "0.0";
 
-  // Categories Distribution Data
-  const categoriesList = ["Kalite", "Verimlilik", "İSG (HSE)", "Hurda / Fire", "Üretkenlik", "Diğer / Operasyonel"];
-  const categoryDistributionData = categoriesList.map(cat => {
-    const list = filteredProjects.filter(k => getKaizenCategory(k) === cat);
-    const count = list.length;
-    const gain = list.reduce((sum, k) => sum + realizedInCurrency(k, currency, ciSettings.fxRates), 0);
-    const totalCount = filteredProjects.length || 1;
-    const ratio = Math.round((count / totalCount) * 100);
-    return { name: cat, Adet: count, Kazanım: gain, Oran: ratio };
-  }).filter(c => c.Adet > 0);
 
-  // Power BI Dashboard Charts Formatting
-  const chartStatusData = [
-    { name: "Plan", value: pendingProjects, color: "#94a3b8" },
-    { name: "Do (Uygulama)", value: inProgressProjects, color: "#3b82f6" },
-    { name: "Check (Kontrol)", value: filteredProjects.filter(k => k.kanbanStatus === "CHECK").length, color: "#f59e0b" },
-    { name: "Act (Standartlaştır)", value: completedProjects, color: "#10b981" }
-  ];
 
-  const chartPhaseData = [
-    { name: "Quick Win (0-3m)", value: filteredProjects.filter(k => phaseNumber(k.phase) === 1).length, color: "#10b981" },
-    { name: "Capital Improvement (3-12m)", value: filteredProjects.filter(k => phaseNumber(k.phase) === 2).length, color: "#f59e0b" },
-    { name: "Strategic Transformation (1-3y)", value: filteredProjects.filter(k => phaseNumber(k.phase) === 3).length, color: "#3b82f6" }
-  ];
 
-  const chartExpectedRealized = [
-    { name: "Planlanan Hedef", Tutarı: totalExpectedFinancialGain },
-    { name: "Gerçekleşen Tasarruf", Tutarı: realizedFinancialGain }
-  ];
 
   // Plant profit increase contribution variable for the KPI grid
   const operatingProfitIncrease = realizedFinancialGain;
 
-  // Phase Maturity Count mappings for the Phase Delivery gauge
-  const phase1Count = filteredProjects.filter(k => phaseNumber(k.phase) === 1).length;
-  const phase2Count = filteredProjects.filter(k => phaseNumber(k.phase) === 2).length;
-  const phase3Count = filteredProjects.filter(k => phaseNumber(k.phase) === 3).length;
 
-  const departmentGainData = Array.from(new Set(kaizens.map(k => k.department))).map(dept => {
-    const gain = kaizens.filter(k => k.department === dept).reduce((sum, k) => sum + realizedInCurrency(k, currency, ciSettings.fxRates), 0);
-    return { name: dept, Kazanım: gain };
-  }).filter(d => d.Kazanım > 0);
 
-  const opportunityDistribution = Array.from(new Set(kaizens.map(k => k.opportunityType || "Kaizen"))).map(type => {
-    const count = kaizens.filter(k => (k.opportunityType || "Kaizen") === type).length;
-    return { name: type, ProjeAdedi: count };
-  });
 
-  // Funnel Steps (Opportunities -> Converted -> In Progress -> Completed) — every stage below is a
-  // real count from real fields, no invented padding (previously "+4" opportunities and "completed-1
-  // approved" were fabricated numbers with no data behind them).
-  const inProgressProjectsCount = filteredProjects.filter(k => k.status === "In Progress").length;
-  const funnelBase = Math.max(1, opportunitiesList.length);
-  const funnelSteps = [
-    { name: "Fırsatlar (Opportunities)", count: opportunitiesList.length, percent: 100, desc: "Sistemde tespit edilen israf/iyileştirme kalemleri", color: "bg-slate-700" },
-    { name: "Projeye Dönüşen (Converted)", count: totalCIProjects, percent: Math.round((totalCIProjects / funnelBase) * 100), desc: "Kanban tahtasında açılan projeler", color: "bg-indigo-650" },
-    { name: "Devam Eden (In Progress)", count: inProgressProjectsCount, percent: Math.round((inProgressProjectsCount / funnelBase) * 100), desc: "Aksiyonları süren projeler", color: "bg-indigo-500" },
-    { name: "Tamamlanan (Completed)", count: completedProjects, percent: Math.round((completedProjects / funnelBase) * 100), desc: "Aksiyonları bitip standartlaşanlar", color: "bg-emerald-600" }
-  ];
 
-  // Historical trend — the Financial Dashboard was current-state-only (no month-over-month view).
-  // Derived entirely from real project dates already on each KaizenCard (dateProposed for when a
-  // project was opened, realizedFinishDate + actualSavings for when it actually closed), not a
-  // separately-tracked snapshot — no new backend persistence needed for this.
-  const monthlyTrendData = React.useMemo(() => {
-    const monthMap: Record<string, { opened: number; closed: number; realizedGain: number }> = {};
-    const ensure = (key: string) => {
-      if (!monthMap[key]) monthMap[key] = { opened: 0, closed: 0, realizedGain: 0 };
-      return monthMap[key];
-    };
-    filteredProjects.forEach(p => {
-      if (p.dateProposed) ensure(p.dateProposed.slice(0, 7)).opened += 1;
-      if (p.realizedFinishDate) {
-        const entry = ensure(p.realizedFinishDate.slice(0, 7));
-        entry.closed += 1;
-        entry.realizedGain += (p.actualSavings || 0);
-      }
-    });
-    const sortedKeys = Object.keys(monthMap).sort();
-    let cumulative = 0;
-    return sortedKeys.map(key => {
-      cumulative += monthMap[key].realizedGain;
-      return {
-        Ay: key,
-        "Açılan Proje": monthMap[key].opened,
-        "Kapanan Proje": monthMap[key].closed,
-        "Kümülatif Gerçekleşen Tasarruf": cumulative
-      };
-    });
-  }, [filteredProjects]);
 
 
   return (
@@ -1075,7 +949,7 @@ export default function KaizenManager({
           </div>
           <div>
             <div className="text-xl font-mono font-bold text-indigo-950">
-              {currency}{totalExpectedFinancialGain.toLocaleString()}
+              {currency}{totalExpectedFinancialGain.toLocaleString("tr-TR")}
             </div>
             <span className="text-[11px] text-slate-400" title={excludedNote(expectedSum.excluded)}>Fırsat Toplamı{expectedSum.excluded > 0 && ` · ${expectedSum.excluded} proje hariç`}</span>
           </div>
@@ -1089,7 +963,7 @@ export default function KaizenManager({
           </div>
           <div>
             <div className="text-xl font-mono font-bold text-emerald-700">
-              {currency}{realizedFinancialGain.toLocaleString()}
+              {currency}{realizedFinancialGain.toLocaleString("tr-TR")}
             </div>
             <span className="text-[11px] text-slate-400" title={excludedNote(realizedSum.excluded)}>Gerçek P&L Teyidi{realizedSum.excluded > 0 && ` · ${realizedSum.excluded} proje hariç`}</span>
           </div>
@@ -1103,7 +977,7 @@ export default function KaizenManager({
           </div>
           <div>
             <div className="text-xl font-mono font-bold text-cyan-700">
-              {currency}{totalCOPQReduction.toLocaleString()}
+              {currency}{totalCOPQReduction.toLocaleString("tr-TR")}
             </div>
             <span className="text-[11px] text-slate-400">Kalitesizlik Maliyeti</span>
           </div>
@@ -1117,7 +991,7 @@ export default function KaizenManager({
           </div>
           <div>
             <div className="text-xl font-mono font-bold text-violet-700">
-              +{currency}{operatingProfitIncrease.toLocaleString()}
+              +{currency}{operatingProfitIncrease.toLocaleString("tr-TR")}
             </div>
             <span className="text-[11px] text-slate-400">P&L Katkı Oranı</span>
           </div>
@@ -1527,11 +1401,11 @@ export default function KaizenManager({
                           <div className="flex justify-between items-center text-[10px] bg-slate-50/50 p-2 rounded-lg border border-slate-100 font-mono">
                             <div>
                               <span className="text-[11px] text-slate-400 block uppercase">Planlanan</span>
-                              <span className="font-bold text-slate-700">{currency}{expected.toLocaleString()}</span>
+                              <span className="font-bold text-slate-700">{currency}{expected.toLocaleString("tr-TR")}</span>
                             </div>
                             <div className="text-right">
                               <span className="text-[11px] text-slate-400 block uppercase">Gerçekleşen</span>
-                              <span className="font-bold text-emerald-600">{currency}{realized.toLocaleString()}</span>
+                              <span className="font-bold text-emerald-600">{currency}{realized.toLocaleString("tr-TR")}</span>
                             </div>
                           </div>
 
@@ -1678,8 +1552,8 @@ export default function KaizenManager({
                       {proj.projectLeader || proj.originator} • {proj.department}
                     </div>
                     <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-mono text-slate-600">Bütçe: {currency}{(proj.estimatedCost || 0).toLocaleString()}</span>
-                      <span className="font-mono font-bold text-emerald-600">Gerçekleşen: {currency}{realized.toLocaleString()}</span>
+                      <span className="font-mono text-slate-600">Bütçe: {currency}{(proj.estimatedCost || 0).toLocaleString("tr-TR")}</span>
+                      <span className="font-mono font-bold text-emerald-600">Gerçekleşen: {currency}{realized.toLocaleString("tr-TR")}</span>
                       <span className={`font-mono font-bold px-1.5 py-0.5 rounded ${
                         successPct >= 100 ? "bg-emerald-100 text-emerald-800" :
                         successPct > 50 ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-800"
@@ -1771,10 +1645,10 @@ export default function KaizenManager({
                         </div>
                       </td>
                       <td className="py-3 px-4 text-right font-mono font-bold text-slate-700">
-                        {currency}{(proj.estimatedCost || 0).toLocaleString()}
+                        {currency}{(proj.estimatedCost || 0).toLocaleString("tr-TR")}
                       </td>
                       <td className="py-3 px-4 text-right font-mono font-bold text-emerald-600">
-                        {currency}{realized.toLocaleString()}
+                        {currency}{realized.toLocaleString("tr-TR")}
                       </td>
                       <td className="py-3 px-4 text-center">
                         <span className={`font-mono font-bold px-1.5 py-0.5 rounded ${
@@ -2155,375 +2029,17 @@ export default function KaizenManager({
         </div>
       )}
 
-      {/* 4. FINANCIAL & ANALYTICAL DASHBOARD VIEW (Power BI Style) */}
+      {/* 4. FINANCIAL DASHBOARD — ci/CiFinanceDashboard.tsx */}
       {activeTab === "dashboard" && (
-        <div className="space-y-6">
-          
-          {/* Summary Bar - Deep Financial Business Metrics */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            
-            {/* Faaliyet Karı Etkisi */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[125px]">
-              <div className="flex justify-between items-start">
-                <span className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider">Faaliyet Karı Etkisi</span>
-                <TrendingUp className="w-4 h-4 text-indigo-600" />
-              </div>
-              <div>
-                <div className="text-2xl font-mono font-bold text-slate-900">{estimatedOperatingProfit ? `+${profitImpactPercentage}%` : "—"}</div>
-                <div className="text-xs font-semibold text-indigo-600 mt-0.5">+{currency}{realizedFinancialGain.toLocaleString()} Toplam Getiri</div>
-              </div>
-              <span className="text-[11px] text-slate-400">
-                {estimatedOperatingProfit
-                  ? `Fabrika Yıllık Faaliyet Karı Katkısı (ciro × %12 = ${currency}${estimatedOperatingProfit.toLocaleString("tr-TR")})`
-                  : "Müşteri kartında yıllık ciro girilmedi — katkı oranı hesaplanamıyor"}
-                {moneyExcludedNote && ` · ${moneyExcludedNote}`}
-              </span>
-              <div className="absolute bottom-0 left-0 right-0 h-1 bg-indigo-600"></div>
-            </div>
-
-            {/* COPQ Etkisi */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[125px]">
-              <div className="flex justify-between items-start">
-                <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">COPQ (Kötü Kalite Maliyeti) Azaltımı</span>
-                <Percent className="w-4 h-4 text-emerald-600" />
-              </div>
-              <div>
-                <div className="text-2xl font-mono font-bold text-slate-900">{initialCOPQ > 0 ? `-${copqReductionPercentage}% COPQ` : "—"}</div>
-                <div className="text-xs font-semibold text-emerald-600 mt-0.5">-{currency}{totalCOPQReduction.toLocaleString()} Kalite Tasarrufu</div>
-              </div>
-              <span className="text-[11px] text-slate-400">
-                {initialCOPQ > 0
-                  ? `Kalite / hurda projelerinin gerçekleşen kazancı ÷ maliyet tablosu COPQ (${currency}${initialCOPQ.toLocaleString("tr-TR")})`
-                  : "Maliyet tablosunda hurda / rework / duruş maliyeti yok — oran hesaplanamıyor"}
-              </span>
-              <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500"></div>
-            </div>
-
-            {/* Yatırım Getiri Katsayısı ve ROI Miktarı */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[125px]">
-              <div className="flex justify-between items-start">
-                <span className="text-[10px] text-amber-600 font-bold uppercase tracking-wider">Yatırım Getirisi & ROI Katsayısı</span>
-                <DollarSign className="w-4 h-4 text-amber-500" />
-              </div>
-              <div>
-                <div className="text-2xl font-mono font-bold text-slate-900">{realizedToBudgetRatio}x Katsayı</div>
-                <div className="text-xs font-semibold text-amber-600 mt-0.5">Net ROI: +{currency}{netROIAmount.toLocaleString()}</div>
-              </div>
-              <span className="text-[11px] text-slate-400">Toplam Yatırım Bütçesi: {currency}{totalBudget.toLocaleString()}</span>
-              <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500"></div>
-            </div>
-
-          </div>
-
-          {/* Categories & Phase Maturity Distributions */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            {/* Left/Middle Card: Category Breakdown and Savings (Quality, Efficiency, HSE, Scrap, Productivity) */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs lg:col-span-2 space-y-4">
-              <div className="flex justify-between items-center pb-1.5 border-b border-slate-100">
-                <div>
-                  <h3 className="font-bold text-xs text-slate-800 uppercase tracking-tight">Kategorilere Göre İyileştirme Oranları & Dağılımı</h3>
-                  <p className="text-[10px] text-slate-400">Kalite, Verimlilik, İSG, Hurda ve Üretkenlik kırılımlı CI performansları</p>
-                </div>
-                <BarChart2 className="w-4 h-4 text-slate-400" />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-center">
-                {/* Horizontal progress indicators */}
-                <div className="space-y-3.5">
-                  {categoryDistributionData.length === 0 ? (
-                    <div className="text-center py-6 text-slate-400 text-xs italic">Kategoriye ait proje bulunamadı.</div>
-                  ) : (
-                    categoryDistributionData.map(c => {
-                      const percentWidth = Math.max(8, c.Oran);
-                      return (
-                        <div key={c.name} className="space-y-1">
-                          <div className="flex justify-between text-xs font-semibold">
-                            <span className="text-slate-700 flex items-center gap-1.5">
-                              <span className={`w-2 h-2 rounded-full ${
-                                c.name === "Kalite" ? "bg-rose-500" :
-                                c.name === "Verimlilik" ? "bg-indigo-500" :
-                                c.name === "İSG (HSE)" ? "bg-emerald-500" :
-                                c.name === "Hurda / Fire" ? "bg-amber-500" :
-                                c.name === "Üretkenlik" ? "bg-cyan-500" : "bg-slate-400"
-                              }`}></span>
-                              {c.name} ({c.Adet} Proje)
-                            </span>
-                            <span className="text-slate-900">{currency}{c.Kazanım.toLocaleString()} ({c.Oran}%)</span>
-                          </div>
-                          <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden flex">
-                            <div 
-                              className={`h-full rounded-full ${
-                                c.name === "Kalite" ? "bg-rose-500" :
-                                c.name === "Verimlilik" ? "bg-indigo-500" :
-                                c.name === "İSG (HSE)" ? "bg-emerald-500" :
-                                c.name === "Hurda / Fire" ? "bg-amber-500" :
-                                c.name === "Üretkenlik" ? "bg-cyan-500" : "bg-slate-400"
-                              }`}
-                              style={{ width: `${percentWidth}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-
-                {/* Visual Chart representation */}
-                <div className="h-[180px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={categoryDistributionData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="name" stroke="#94a3b8" fontSize={9} tickLine={false} />
-                      <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} />
-                      <Tooltip formatter={(value) => [`${currency}${Number(value).toLocaleString()}`, "Birikimli Kazanım"]} />
-                      <Bar dataKey="Kazanım" radius={[6, 6, 0, 0]}>
-                        {categoryDistributionData.map((entry, index) => {
-                          let color = "#94a3b8";
-                          if (entry.name === "Kalite") color = "#f43f5e";
-                          if (entry.name === "Verimlilik") color = "#6366f1";
-                          if (entry.name === "İSG (HSE)") color = "#10b981";
-                          if (entry.name === "Hurda / Fire") color = "#f59e0b";
-                          if (entry.name === "Üretkenlik") color = "#06b6d4";
-                          return <Cell key={`cell-${index}`} fill={color} />;
-                        })}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-
-            {/* Right Card: Phase Maturity Levels (Maturity progression) */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-              <div className="flex justify-between items-center pb-1.5 border-b border-slate-100">
-                <div>
-                  <h3 className="font-bold text-xs text-slate-800 uppercase tracking-tight">CI Olgunluk Seviyesi (Phase Tracker)</h3>
-                  <p className="text-[10px] text-slate-400">Takımın karmaşık iyileştirme seviyelerine ilerleme analizi</p>
-                </div>
-                <Layers className="w-4 h-4 text-slate-400" />
-              </div>
-
-              <div className="space-y-4 py-2">
-                {/* Phase 1 */}
-                <div className="p-3 bg-emerald-50/50 border border-emerald-100 rounded-xl flex justify-between items-center">
-                  <div className="space-y-1">
-                    <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold uppercase">Faz 1: Quick Win</span>
-                    <p className="text-[11px] text-slate-500">Hızlı kazanımlı, düşük maliyetli kaizenler</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xl font-mono font-bold text-emerald-600">{phase1Count}</span>
-                    <span className="text-[10px] text-slate-400 block">Proje Adedi</span>
-                  </div>
-                </div>
-
-                {/* Phase 2 */}
-                <div className="p-3 bg-amber-50/50 border border-amber-100 rounded-xl flex justify-between items-center">
-                  <div className="space-y-1">
-                    <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold uppercase">Faz 2: Capital Improvement</span>
-                    <p className="text-[11px] text-slate-500">Orta vadeli verimlilik ve ekipman yatırımı</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xl font-mono font-bold text-amber-600">{phase2Count}</span>
-                    <span className="text-[10px] text-slate-400 block">Proje Adedi</span>
-                  </div>
-                </div>
-
-                {/* Phase 3 */}
-                <div className="p-3 bg-blue-50/50 border border-blue-100 rounded-xl flex justify-between items-center">
-                  <div className="space-y-1">
-                    <span className="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-bold uppercase">Faz 3: Strategic Transformation</span>
-                    <p className="text-[11px] text-slate-500">Uzun vadeli, VSM köklü yapısal değişim</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xl font-mono font-bold text-blue-600">{phase3Count}</span>
-                    <span className="text-[10px] text-slate-400 block">Proje Adedi</span>
-                  </div>
-                </div>
-
-                {/* Growth insight */}
-                <div className="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg p-2.5 flex items-start gap-1.5">
-                  <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-indigo-500" />
-                  <span>
-                    {phase2Count + phase3Count > 0 
-                      ? `Fabrika ekibiniz ${phase2Count + phase3Count} adet orta/ileri seviye (Faz 2 & 3) iyileştirme yürüterek metodolojik yetkinliğini artırmaktadır.`
-                      : "Gelişim Seviyesi İzlenimi: Henüz başlangıç aşamasındaki Quick-Win projelerine odaklanılmış durumdadır. Faz 2 projeleri teşvik edilmelidir."}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-          </div>
-
-          {/* Project Success & Conversion Target Comparison */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
-            {/* Açılan ve Kapatılan Proje Oranı (Success Rate) */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-              <div className="flex justify-between items-center pb-1.5 border-b border-slate-100">
-                <div>
-                  <h3 className="font-bold text-xs text-slate-800 uppercase tracking-tight">Proje Açılış vs Kapanış Oranı</h3>
-                  <p className="text-[10px] text-slate-400">Hattın problem çözme hızı ve proje sonlandırma başarısı</p>
-                </div>
-                <CheckCircle className="w-4 h-4 text-slate-400" />
-              </div>
-
-              <div className="grid grid-cols-3 gap-4 items-center pt-2">
-                
-                {/* Visual Circle Gauge */}
-                <div className="col-span-1 flex flex-col items-center justify-center relative">
-                  <div className="relative w-24 h-24 flex items-center justify-center">
-                    <svg className="w-full h-full transform -rotate-90">
-                      <circle cx="48" cy="48" r="40" stroke="#f1f5f9" strokeWidth="8" fill="transparent" />
-                      <circle cx="48" cy="48" r="40" stroke="#10b981" strokeWidth="8" fill="transparent"
-                        strokeDasharray={251.2}
-                        strokeDashoffset={251.2 - (251.2 * averageProjectSuccessRate) / 100}
-                        strokeLinecap="round" />
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-lg font-mono font-bold text-slate-900">{averageProjectSuccessRate}%</span>
-                      <span className="text-[11px] text-slate-400 font-bold uppercase">Başarı</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Pipeline Stats List */}
-                <div className="col-span-2 space-y-3 font-sans text-xs">
-                  <div className="flex justify-between items-center border-b border-slate-100 pb-1">
-                    <span className="text-slate-500 font-medium">Toplam Açılan (Converted)</span>
-                    <span className="font-mono font-bold text-slate-900">{totalCIProjects} Adet</span>
-                  </div>
-                  <div className="flex justify-between items-center border-b border-slate-100 pb-1">
-                    <span className="text-slate-500 font-medium">Aktif Devam Eden (In Progress)</span>
-                    <span className="font-mono font-bold text-blue-600">{inProgressProjects} Adet</span>
-                  </div>
-                  <div className="flex justify-between items-center border-b border-slate-100 pb-1">
-                    <span className="text-slate-500 font-medium">Kapatılan & Onaylanan (Closed)</span>
-                    <span className="font-mono font-bold text-emerald-600">{completedProjects} Adet</span>
-                  </div>
-                  <p className="text-[10px] italic text-slate-400">
-                    * Hedeflenen OEE ve setup süresi kazanımlarının standartlaşması için açılan projelerin en az %60'ının kapatılması esastır.
-                  </p>
-                </div>
-
-              </div>
-            </div>
-
-            {/* Target vs Realized savings */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-              <div className="flex justify-between items-center pb-1.5 border-b border-slate-100">
-                <div>
-                  <h3 className="font-bold text-xs text-slate-800 uppercase tracking-tight">Finansal Hedef vs Gerçekleşen Tasarruf</h3>
-                  <p className="text-[10px] text-slate-400">Fizibilite hedeflerine karşılık fiili olarak kaydedilen kazançlar</p>
-                </div>
-                <TrendingUp className="w-4 h-4 text-slate-400" />
-              </div>
-
-              <div className="h-[150px] pt-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartExpectedRealized}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} tickLine={false} />
-                    <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} />
-                    <Tooltip cursor={{ fill: '#f8fafc' }} formatter={(val) => [`${currency}${Number(val).toLocaleString()}`, "Değer"]} />
-                    <Bar dataKey="Tutarı" radius={[8, 8, 0, 0]}>
-                      <Cell fill="#6366f1" />
-                      <Cell fill="#10b981" />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-          </div>
-
-          {/* Visual Improvement Funnel (İyileştirme Hunisi) */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-            <div className="flex justify-between items-center pb-1.5 border-b border-slate-100">
-              <div>
-                <h3 className="font-bold text-xs text-slate-800 uppercase tracking-tight">Improvement Funnel — İyileştirme Hunisi</h3>
-                <p className="text-[10px] text-slate-400">Kayıp fırsatlarının analizden başlayıp kesinleşen finansal tasdik aşamasına dönüşüm hunisi</p>
-              </div>
-              <Filter className="w-4 h-4 text-slate-500" />
-            </div>
-
-            {/* Horizontal Stacked Visual Funnel */}
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-3.5 pt-3">
-              {funnelSteps.map((step, index) => {
-                // Width gets progressivly smaller in visual representation
-                const funnelWidths = ["w-full", "w-11/12 mx-auto", "w-5/6 mx-auto", "w-3/4 mx-auto", "w-2/3 mx-auto"];
-                return (
-                  <div key={step.name} className="flex flex-col justify-between items-center text-center space-y-2 relative">
-                    
-                    {/* Visual Funnel Segment */}
-                    <div className={`${funnelWidths[index]} ${step.color} p-4 rounded-xl shadow-xs transition-all flex flex-col justify-center items-center min-h-[95px] text-white`}>
-                      <span className="text-[10px] font-bold uppercase tracking-wider block opacity-85">{step.name.split(" ")[0]}</span>
-                      <span className="text-2xl font-mono font-bold mt-1">{step.count} <span className="text-xs">Adet</span></span>
-                      <span className="text-[11px] mt-1 font-semibold block bg-white/20 px-1.5 py-0.5 rounded">
-                        {index === 0 ? "Giriş: %100" : `Dönüşüm: %${step.percent}`}
-                      </span>
-                    </div>
-
-                    {/* Step description */}
-                    <div className="px-2">
-                      <span className="text-[10px] text-slate-500 font-medium block leading-tight">{step.desc}</span>
-                    </div>
-
-                    {/* Funnel separator arrow for desktop */}
-                    {index < 4 && (
-                      <div className="hidden md:block absolute top-[30px] -right-[15px] z-10 bg-white border border-slate-200 rounded-full p-0.5 shadow-3xs">
-                        <ArrowRight className="w-4 h-4 text-slate-400" />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Historical Trend — real month-over-month data (project dateProposed/realizedFinishDate),
-              not a current-state-only snapshot. Needs at least 2 distinct months to be meaningful. */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-            <div className="flex justify-between items-center pb-1.5 border-b border-slate-100">
-              <div>
-                <h3 className="font-bold text-xs text-slate-800 uppercase tracking-tight">Zaman İçinde Gelişim — Aylık Trend</h3>
-                <p className="text-[10px] text-slate-400">Açılan/kapanan proje sayısı ve kümülatif gerçekleşen tasarruf, gerçek proje tarihlerinden türetilmiştir</p>
-              </div>
-              <Calendar className="w-4 h-4 text-slate-500" />
-            </div>
-
-            {monthlyTrendData.length >= 2 ? (
-              <div className="h-72 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={monthlyTrendData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="Ay" tick={{ fill: "#475569", fontSize: 9 }} />
-                    <YAxis yAxisId="left" tick={{ fill: "#475569", fontSize: 9 }} label={{ value: 'Proje Adedi', angle: -90, position: 'insideLeft', fill: "#475569", fontSize: 10 }} />
-                    <YAxis yAxisId="right" orientation="right" tick={{ fill: "#475569", fontSize: 9 }} label={{ value: `Kümülatif (${currency})`, angle: 90, position: 'insideRight', fill: "#475569", fontSize: 10 }} />
-                    <Tooltip contentStyle={{ borderRadius: "0.75rem", fontSize: "11px" }} />
-                    <Legend wrapperStyle={{ fontSize: "10px" }} />
-                    <Bar yAxisId="left" dataKey="Açılan Proje" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={18} />
-                    <Bar yAxisId="left" dataKey="Kapanan Proje" fill="#10b981" radius={[4, 4, 0, 0]} barSize={18} />
-                    <Line yAxisId="right" type="monotone" dataKey="Kümülatif Gerçekleşen Tasarruf" stroke="#be123c" strokeWidth={2.5} dot={{ r: 3 }} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center text-center py-10 bg-slate-50/70 rounded-xl border border-dashed border-slate-200">
-                <Info className="w-6 h-6 text-slate-350 mb-2" />
-                <p className="text-xs font-bold text-slate-500">
-                  {monthlyTrendData.length === 0
-                    ? "Henüz tarihli proje verisi yok."
-                    : "Trend grafiği için en az 2 farklı ay gerekli."}
-                </p>
-                <p className="text-[10px] text-slate-400 mt-1 max-w-md">
-                  Projeler açıldıkça ve tamamlandıkça bu grafik zaman içindeki gelişimi gösterecek.
-                </p>
-              </div>
-            )}
-          </div>
-
-        </div>
+        <CiFinanceDashboard
+          projects={filteredProjects}
+          currencySymbol={currency}
+          baseCurrency={currency}
+          fxRates={ciSettings.fxRates}
+          opportunityGain={(k) => opportunitiesList.find(o => o.id === k.opportunityId)?.expectedGain}
+          projectNo={getProjectNo}
+          onOpenProject={handleOpenProjectDetails}
+        />
       )}
 
       {/* 5. ÖNCE-SONRA (BEFORE-AFTER) KAIZEN GALLERY — every saved "Kaizen Öncesi Sonrası"
@@ -2884,10 +2400,10 @@ export default function KaizenManager({
                             </span>
                           </td>
                           <td className="py-3 px-3 text-right font-mono font-semibold text-slate-600">
-                            {currency}{opp.currentCost.toLocaleString()}
+                            {currency}{opp.currentCost.toLocaleString("tr-TR")}
                           </td>
                           <td className="py-3 px-3 text-right font-mono font-bold text-emerald-600">
-                            {currency}{opp.expectedGain.toLocaleString()}
+                            {currency}{opp.expectedGain.toLocaleString("tr-TR")}
                             <span className="text-[10px] text-emerald-700 font-semibold block font-sans">
                               (%{opp.potential} Kazanım)
                             </span>
@@ -3102,504 +2618,19 @@ export default function KaizenManager({
       )}
 
       {/* EDIT FINANCIALS RESULTS MODAL (17 INDICATORS IN % & CURRENCY) */}
-      {editingFinancialsProjId && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[60] p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl overflow-hidden border border-slate-200">
-            
-            <div className="bg-slate-50 px-5 py-4 border-b border-slate-200 flex justify-between items-center">
-              <h3 className="font-bold text-slate-900 text-sm uppercase">
-                Proje Gerçekleşen Finansal Sonuçlar Giriş Paneli (CIFinancials)
-              </h3>
-              <button onClick={() => setEditingFinancialsProjId(null)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
-            </div>
-
-            <div className="p-5 space-y-4 max-h-[500px] overflow-y-auto">
-              <p className="text-xs text-slate-500">
-                Lütfen proje kapatıldığında veya ara dönemlerde gerçekleşen tasarruf / verimlilik oranlarını hem yüzde (%) hem de yıllık değer ({currency}) bazında giriniz:
-              </p>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-sans">
-                
-                {/* 1. Scrap */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Hurda Azalışı (Scrap)</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.scrapReduction?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        scrapReduction: { pct: Number(e.target.value), val: financialsInput.scrapReduction?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.scrapReduction?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        scrapReduction: { pct: financialsInput.scrapReduction?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* 2. Rework */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Rework Azalışı</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.reworkReduction?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        reworkReduction: { pct: Number(e.target.value), val: financialsInput.reworkReduction?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.reworkReduction?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        reworkReduction: { pct: financialsInput.reworkReduction?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* 3. Waste */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Fire Azalışı (Waste)</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.wasteReduction?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        wasteReduction: { pct: Number(e.target.value), val: financialsInput.wasteReduction?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.wasteReduction?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        wasteReduction: { pct: financialsInput.wasteReduction?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* 4. Setup */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Setup Süresi Kazancı (SMED)</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.setupTimeReduction?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        setupTimeReduction: { pct: Number(e.target.value), val: financialsInput.setupTimeReduction?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.setupTimeReduction?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        setupTimeReduction: { pct: financialsInput.setupTimeReduction?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* 5. Lead Time */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Lead Time Azalışı</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.leadTimeReduction?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        leadTimeReduction: { pct: Number(e.target.value), val: financialsInput.leadTimeReduction?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.leadTimeReduction?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        leadTimeReduction: { pct: financialsInput.leadTimeReduction?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* 6. WIP */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">WIP Azalışı</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.wipReduction?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        wipReduction: { pct: Number(e.target.value), val: financialsInput.wipReduction?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.wipReduction?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        wipReduction: { pct: financialsInput.wipReduction?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* 7. Operator */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Operatör Verimlilik Artışı</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.operatorEfficiency?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        operatorEfficiency: { pct: Number(e.target.value), val: financialsInput.operatorEfficiency?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.operatorEfficiency?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        operatorEfficiency: { pct: financialsInput.operatorEfficiency?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* 8. OEE */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">OEE Artışı</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.oeeIncrease?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        oeeIncrease: { pct: Number(e.target.value), val: financialsInput.oeeIncrease?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.oeeIncrease?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        oeeIncrease: { pct: financialsInput.oeeIncrease?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* 9. Energy */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Enerji Tasarrufu</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.energySavings?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        energySavings: { pct: Number(e.target.value), val: financialsInput.energySavings?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.energySavings?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        energySavings: { pct: financialsInput.energySavings?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* 10. Quality */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Kalite Artış Kazancı</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.qualityImprovement?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        qualityImprovement: { pct: Number(e.target.value), val: financialsInput.qualityImprovement?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.qualityImprovement?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        qualityImprovement: { pct: financialsInput.qualityImprovement?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* 11. Production */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Üretim Artışı Kazanımı</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.productionIncrease?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        productionIncrease: { pct: Number(e.target.value), val: financialsInput.productionIncrease?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.productionIncrease?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        productionIncrease: { pct: financialsInput.productionIncrease?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* 12. Delivery */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Teslimat Performans Getirisi</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.deliveryPerformance?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        deliveryPerformance: { pct: Number(e.target.value), val: financialsInput.deliveryPerformance?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.deliveryPerformance?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        deliveryPerformance: { pct: financialsInput.deliveryPerformance?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* 13. OHS */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">İSG Kazancı (OHS)</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.ohsGain?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        ohsGain: { pct: Number(e.target.value), val: financialsInput.ohsGain?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.ohsGain?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        ohsGain: { pct: financialsInput.ohsGain?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* 14. Space */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Alan Kazanımı (M2)</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.spaceSavings?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        spaceSavings: { pct: Number(e.target.value), val: financialsInput.spaceSavings?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.spaceSavings?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        spaceSavings: { pct: financialsInput.spaceSavings?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* 15. Inventory */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Stok Azalışı</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.inventoryReduction?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        inventoryReduction: { pct: Number(e.target.value), val: financialsInput.inventoryReduction?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.inventoryReduction?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        inventoryReduction: { pct: financialsInput.inventoryReduction?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* 16. Maintenance */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Bakım Gider Tasarrufu</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.maintenanceSavings?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        maintenanceSavings: { pct: Number(e.target.value), val: financialsInput.maintenanceSavings?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.maintenanceSavings?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        maintenanceSavings: { pct: financialsInput.maintenanceSavings?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* 17. Other */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                  <span className="font-bold text-slate-700 uppercase text-[11px] block">Diğer Kazanımlar</span>
-                  <div className="flex space-x-2">
-                    <input 
-                      type="number" 
-                      placeholder="%"
-                      value={financialsInput.otherSavings?.pct || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        otherSavings: { pct: Number(e.target.value), val: financialsInput.otherSavings?.val || 0 }
-                      })}
-                      className="w-1/3 bg-white border border-slate-200 rounded p-1"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder={currency}
-                      value={financialsInput.otherSavings?.val || 0}
-                      onChange={(e) => setFinancialsInput({
-                        ...financialsInput,
-                        otherSavings: { pct: financialsInput.otherSavings?.pct || 0, val: Number(e.target.value) }
-                      })}
-                      className="w-2/3 bg-white border border-slate-200 rounded p-1 font-mono"
-                    />
-                  </div>
-                </div>
-
-              </div>
-
-            </div>
-
-            <div className="bg-slate-50 px-5 py-4 border-t border-slate-200 flex justify-end space-x-2">
-              <button 
-                onClick={() => setEditingFinancialsProjId(null)} 
-                className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold"
-              >
-                Kapat
-              </button>
-              <button 
-                onClick={handleSaveFinancials} 
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-sm"
-              >
-                Finansal Sonuçları Kaydet
-              </button>
-            </div>
-
-          </div>
-        </div>
+      {financialsProject && (
+        <CiGainBreakdown
+          project={financialsProject}
+          currencySymbol={currency}
+          currencyValue={currencyOptions[0].value}
+          canEdit={canEditProject(currentUser, financialsProject) && !isClosed(financialsProject)}
+          onSave={async (changes) => {
+            const saved = await onUpdateKaizen(changes);
+            if (saved) syncWithGantt(saved, 'update');
+            return saved;
+          }}
+          onClose={() => setEditingFinancialsProjId(null)}
+        />
       )}
 
       {/* EDIT KAIZEN / CI PROJECT DETAILS MODAL */}

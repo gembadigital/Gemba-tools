@@ -114,7 +114,7 @@ export const exportKaizenCardToExcel = (proj: KaizenCard, projNo: string, custom
           <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Mevcut Durum Detayı:</td>
           <td colspan="3" style="border: 1px solid #cbd5e1; padding: 6px 8px;">${proj.problemDetail || '-'}</td>
           <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Mevcut Yıllık Kayıp:</td>
-          <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #b91c1c; padding-left: 8px;">${currencySymbol}${(proj.currentLoss || 0).toLocaleString()}</td>
+          <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #b91c1c; padding-left: 8px;">${currencySymbol}${(proj.currentLoss || 0).toLocaleString("tr-TR")}</td>
         </tr>
 
         <!-- 3. ETKİ ANALİZİ & KÖK NEDEN -->
@@ -148,15 +148,15 @@ export const exportKaizenCardToExcel = (proj: KaizenCard, projNo: string, custom
           <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Hedef İyileştirme %:</td>
           <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px;">%${proj.targetRatio || 0}</td>
           <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Hedef Tasarruf:</td>
-          <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px;">${currencySymbol}${(proj.targetCostReduction || 0).toLocaleString()}</td>
+          <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px;">${currencySymbol}${(proj.targetCostReduction || 0).toLocaleString("tr-TR")}</td>
           <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Tahmini Bütçe:</td>
-          <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px;">${currencySymbol}${(proj.estimatedCost || 0).toLocaleString()}</td>
+          <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px;">${currencySymbol}${(proj.estimatedCost || 0).toLocaleString("tr-TR")}</td>
         </tr>
         <tr style="height: 28px; background-color: #f0fdf4;">
           <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #e2e8f0; color: #334155; padding-left: 8px;">Beklenen Kazanım:</td>
-          <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #1d4ed8; padding-left: 8px;">${proj.expectedGainCurrency || currencySymbol}${(proj.expectedGain || 0).toLocaleString()}</td>
+          <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #1d4ed8; padding-left: 8px;">${proj.expectedGainCurrency || currencySymbol}${(proj.expectedGain || 0).toLocaleString("tr-TR")}</td>
           <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #dcfce7; color: #14532d; padding-left: 8px;">Gerçekleşen Tasarruf:</td>
-          <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #15803d; font-size: 11pt; padding-left: 8px; background-color: #dcfce7;">${proj.realizedGainCurrency || currencySymbol}${(proj.realizedGain || proj.actualSavings || 0).toLocaleString()}</td>
+          <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #15803d; font-size: 11pt; padding-left: 8px; background-color: #dcfce7;">${proj.realizedGainCurrency || currencySymbol}${(proj.realizedGain || proj.actualSavings || 0).toLocaleString("tr-TR")}</td>
           <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #dcfce7; color: #14532d; padding-left: 8px;">Gerçekleşen İyileştirme:</td>
           <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #15803d; font-size: 11pt; padding-left: 8px; background-color: #dcfce7;">%${proj.realizedImprovementPct || 0}</td>
         </tr>

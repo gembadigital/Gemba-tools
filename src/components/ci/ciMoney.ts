@@ -62,8 +62,12 @@ export function sumRealized(projects: KaizenCard[], baseCurrency: string, fxRate
   return sumInCurrency(projects, realizedOf, k => k.realizedGainCurrency, baseCurrency, fxRates);
 }
 
+// Expected annual gain: `expectedGain`, or on older projects `targetCostReduction` (customer
+// currency) — the same rule as the finance dashboard (ciFinance.ts projectMoney).
+const hasOwnExpected = (k: KaizenCard) => typeof k.expectedGain === "number" && k.expectedGain > 0;
 export function sumExpected(projects: KaizenCard[], baseCurrency: string, fxRates: FxRates = {}): MoneySum {
-  return sumInCurrency(projects, k => k.expectedGain, k => k.expectedGainCurrency, baseCurrency, fxRates);
+  return sumInCurrency(projects, k => hasOwnExpected(k) ? k.expectedGain : k.targetCostReduction,
+    k => hasOwnExpected(k) ? k.expectedGainCurrency : undefined, baseCurrency, fxRates);
 }
 
 // Realized saving of one project in the base currency, or 0 when it can't be converted — for
