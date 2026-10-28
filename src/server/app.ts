@@ -15,6 +15,7 @@ import { preparePersonnel, buildOrg, effectiveManagerId, managerChain, visibleSu
 import { isPerPiece, parsePerPiece, perPieceSaving } from "../utils/kaizenSaving.js";
 import { buildReminders, reminderText } from "../utils/kaizenReminders.js";
 import { championsFor, championMonths } from "../utils/kaizenChampions.js";
+import { findSimilar } from "../utils/kaizenSimilar.js";
 import { pinRequired, findBySicil, pinProblem, newPinCode, isLocked, failedAttempt, codeValid, pinValid, hashSecret, publicPersonnel, stripSecretInput, virtualEmail, isAuthorizedRole, PIN_LOCK_MINUTES, PIN_CODE_DAYS, KIOSK_SESSION, PHONE_SESSION } from "./kaizenAuth.js";
 import * as XLSX from "xlsx";
 
@@ -3171,6 +3172,33 @@ app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res)
 });
 
 // Edit + resubmit a rejected suggestion: only its author (or staff), and only the content fields.
+// Benzer öneriler (Faz 6.1). Registered before POST suggestions/:id so "similar" is not taken as an
+// id. Everyone in the customer may learn THAT a similar idea exists (subject, department, date,
+// status) so ideas are not submitted twice; who wrote it and the record itself are only returned
+// for suggestions the caller may see anyway (Faz 3.4 rule).
+app.post("/api/business/kaizen/suggestions/similar", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed || !scope.factoryId) return denyKaizen(res);
+  const b = req.body || {};
+  const query = {
+    subject: clip(b.subject, 200), currentState: clip(b.currentState, 5000), improvementSuggestion: clip(b.improvementSuggestion, 5000),
+    personnelDepartment: clip(b.department, 120), suggestionTypes: Array.isArray(b.suggestionTypes) ? b.suggestionTypes.filter((t: any) => typeof t === "string").slice(0, 10) : []
+  };
+  const corpus = await db.getKaizenRecords("kaizen_suggestions", user.organization_id, scope.factoryId);
+  const hits = findSimilar(query, corpus as any[], { excludeId: clip(b.excludeId, 120) || undefined, limit: 5 });
+  const data = [];
+  for (const { item: x, score } of hits as { item: any; score: number }[]) {
+    const visible = await canSeeKaizenSuggestion(user, x);
+    data.push({
+      score, subject: x.subject, department: x.personnelDepartment || "", createdAt: x.createdAt || "",
+      approvalStatus: x.approvalStatus, requiredStages: x.requiredStages, feasibilityOpen: x.feasibility?.status === "open", completed: !!x.completed,
+      ...(visible ? { id: x.id, personnelName: x.personnelName || "" } : {})
+    });
+  }
+  res.json({ success: true, data });
+});
+
 app.post("/api/business/kaizen/suggestions/:id", authenticateToken, async (req, res) => {
   const user = (req as any).user;
   const existing = await loadKaizenSuggestion(req, res);

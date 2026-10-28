@@ -7,6 +7,7 @@ import { KaizenPersonnel, KaizenSuggestion, KaizenSuggestionPhoto } from "./kaiz
 import { KaizenSettings, currencyChoices, optionChoices, requiredStagesFor } from "../../utils/kaizenSettings";
 import { isPerPiece, perPieceSaving, parsePerPiece } from "../../utils/kaizenSaving";
 import { computeRoi, recurrenceOf, paybackText } from "../../utils/kaizenRoi";
+import KaizenSimilar from "./KaizenSimilar";
 import { KaizenApi } from "./KaizenSuggestionSystem";
 import { readAndShrink } from "./kaizenImage";
 import { Card, Button, FormField, ChoiceChip, inputCls, areaCls, errCls } from "./kaizenUi";
@@ -370,6 +371,9 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
                     placeholder={step === 2 ? "Örn. Vidalar kutudan elle alınıyor; her üründe ~8 sn arama kaybı, düşen vidalar hatta kalıyor." : "Örn. Titreşimli vida besleyici takılsın; operatör vidayı tek hamlede alır, düşme biter."}
                   />
                 </FormField>
+                <KaizenSimilar api={api} excludeId={editingSuggestion?.id}
+                  query={{ subject: form.subject, currentState: form.currentState, improvementSuggestion: step === 3 ? form.improvementSuggestion : "", department: resolvedPersonnel.department, suggestionTypes: form.suggestionTypes }}
+                  hint="Bu fikir daha önce verilmiş olabilir. Aynıysa önerinizde neyin farklı olduğunu yazın." />
                 <PhotoUploader
                   label={step === 2 ? "Mevcut durum fotoğrafları" : "Öneri / çizim fotoğrafları"}
                   photos={form[photoKey]}
