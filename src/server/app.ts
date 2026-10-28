@@ -7,6 +7,7 @@ import { generateOpexTemplateExcel, isOpexTemplateAvailable, buildOpexExportFile
 import { mergeOpexAssessmentSave } from "./opexMerge.js";
 import { loadExecutiveReport } from "./opexReport/load.js";
 import { analyzePtrRecords } from "./ptrDigest.js";
+import { registerCiRoutes } from "./ci/ciRoutes.js";
 import { buildFacts, generateConsultantBrief } from "./opexReport/consultantBrief.js";
 import { applyFinding, canWriteFinding } from "./opexFindings.js";
 import { renderReportHtml } from "./opexReport/render.js";
@@ -1418,65 +1419,8 @@ app.post("/api/business/segments/clear", authenticateToken, async (req, res) => 
   res.json({ success: true });
 });
 
-// 5. Kaizens (Ideas Board)
-app.get("/api/business/kaizens", authenticateToken, async (req, res) => {
-  const user = (req as any).user;
-  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
-  if (!scope.allowed) {
-    res.status(403).json({ success: false, error: "Access Denied." });
-    return;
-  }
-  res.json({ success: true, data: await db.getKaizens(user.organization_id, scope.factoryId) });
-});
-
-app.post("/api/business/kaizens", authenticateToken, async (req, res) => {
-  const user = (req as any).user;
-  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
-  if (!scope.allowed) {
-    res.status(403).json({ success: false, error: "Access Denied." });
-    return;
-  }
-  const payload = { ...req.body };
-  // The customer comes from the scoped x-factory-id header, never from the body — a restricted user
-  // could otherwise write into another customer by naming its id. Unrestricted users (no header)
-  // keep the body's value, as before.
-  if (scope.factoryId) payload.factory_id = scope.factoryId;
-  const existing = payload.id ? await db.getKaizenById(user.organization_id, String(payload.id)) : null;
-  if (existing) {
-    // An update may not move a project to another customer, nor touch one the caller can't see.
-    const existingFactory = existing.factory_id || "arcelik_bolu";
-    if (!canAccessFactory(req, existingFactory) || (payload.factory_id && payload.factory_id !== existingFactory)) {
-      res.status(403).json({ success: false, error: "Access Denied." });
-      return;
-    }
-    // Server-owned fields: the project number is fixed at creation.
-    payload.projectNo = existing.projectNo;
-    payload.projectSeq = existing.projectSeq;
-    payload.created_by = existing.created_by;
-    payload.created_at = existing.created_at;
-  } else {
-    Object.assign(payload, await db.nextKaizenProjectNo(user.organization_id, payload.factory_id, payload.dateProposed));
-  }
-  const saved = await db.saveKaizen(user.organization_id, payload, user.id);
-  res.json({ success: true, data: saved });
-});
-
-app.delete("/api/business/kaizens/:id", authenticateToken, async (req, res) => {
-  const user = (req as any).user;
-  // CI projects are deleted only by Admin / Consultant; customer users (project leader or member)
-  // edit and remove items inside a project but never the project itself.
-  if (!isStaff(user)) {
-    res.status(403).json({ success: false, error: "CI projesini yalnızca Admin veya Danışman silebilir." });
-    return;
-  }
-  const existing = await db.getKaizenById(user.organization_id, req.params.id);
-  if (!existing || !canAccessFactory(req, existing.factory_id || "arcelik_bolu")) {
-    res.status(403).json({ success: false, error: "Access Denied." });
-    return;
-  }
-  await db.deleteKaizen(user.organization_id, req.params.id);
-  res.json({ success: true });
-});
+// 5. CI projects (stored as "kaizens") + CI settings — see ci/ciRoutes.ts
+registerCiRoutes(app, { authenticateToken, resolveFactoryScope, canAccessFactory });
 
 // 5b. COPQ Snapshots (Loss Capacity Analizi historical trend tracking)
 app.get("/api/business/copq-snapshots", authenticateToken, async (req, res) => {

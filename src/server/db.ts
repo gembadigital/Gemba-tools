@@ -1,5 +1,7 @@
 import crypto from "crypto";
 import { Pool } from "pg";
+import { nextProjectNumber } from "../utils/ciProject.js";
+import { ciSettingsId } from "../utils/ciSettings.js";
 import { OPEX_SEED_CATEGORIES, OPEX_SEED_QUESTIONS } from "./opexSeedData.js";
 import { FIVE_S_DEFAULT_DEPARTMENTS, FIVE_S_DEFAULT_QUESTIONS } from "./fiveSSeedData.js";
 import { DEFAULT_ROLE_MODULE_VISIBILITY, RoleModuleVisibility } from "../constants/sidebarModules.js";
@@ -567,17 +569,61 @@ export class GeminiDb {
     return this.getRecordById("kaizens", id, orgId);
   }
 
-  // Permanent CI project number "CIP<yy><mm>-<seq>", assigned once at creation. <seq> runs per
-  // customer. Projects created before numbers were stored have none; the client still numbers those
-  // by their date order (1..n among unnumbered projects), so a new sequence starts above both that
-  // count and the highest stored one — stored numbers never collide with or shift the old display.
-  public async nextKaizenProjectNo(orgId: string, factoryId: string | undefined, dateProposed?: string): Promise<{ projectNo: string; projectSeq: number }> {
-    const all = await this.getKaizens(orgId, factoryId);
-    const legacyCount = all.filter(k => !k.projectSeq).length;
-    const maxSeq = all.reduce((m, k) => Math.max(m, Number(k.projectSeq) || 0), 0);
-    const projectSeq = Math.max(legacyCount, maxSeq) + 1;
-    const date = /^\d{4}-\d{2}/.test(dateProposed || "") ? dateProposed! : new Date().toISOString();
-    return { projectNo: `CIP${date.slice(2, 4)}${date.slice(5, 7)}-${String(projectSeq).padStart(2, "0")}`, projectSeq };
+  // Creates a CI project with its permanent number (see utils/ciProject.ts). Reading the existing
+  // numbers and inserting run in one transaction under a per-customer advisory lock, so two projects
+  // created at the same moment can't get the same number. Transaction-scoped lock on purpose: the
+  // pgbouncer pooler may run a later statement on another backend, so session locks are unsafe. All
+  // statements use this one client — the pool has a single connection, a getPool() call in here
+  // would wait forever.
+  public async createKaizenWithNumber(orgId: string, factoryId: string | undefined, kaizen: any, userId: string): Promise<any> {
+    const client = await getPool().connect();
+    try {
+      await client.query("begin");
+      await client.query("select pg_advisory_xact_lock(hashtext($1))", [`kaizens:${orgId}:${factoryId || ""}`]);
+      const { rows } = await client.query(
+        `select data from records where collection = 'kaizens' and organization_id = $1`,
+        [orgId]
+      );
+      const sameCustomer = rows.map(r => r.data).filter(k => !factoryId || (k.factory_id || "arcelik_bolu") === factoryId);
+      const now = new Date().toISOString();
+      const record = {
+        ...kaizen,
+        id: kaizen.id || randomId("kai"),
+        ...nextProjectNumber(sameCustomer, kaizen.dateProposed),
+        organization_id: orgId,
+        created_by: userId,
+        created_at: now,
+        updated_by: userId,
+        updated_at: now
+      };
+      await client.query(
+        `insert into records (id, collection, organization_id, factory_id, data, updated_at)
+         values ($1, 'kaizens', $2, $3, $4, now())`,
+        [record.id, orgId, record.factory_id ?? null, record]
+      );
+      await client.query("commit");
+      return record;
+    } catch (e) {
+      await client.query("rollback").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  // CI settings: one record per customer (utils/ciSettings.ts). Returned raw; callers normalize.
+  public async getCiSettingsRecord(orgId: string, factoryId: string): Promise<any | null> {
+    return this.getRecordById("ci_settings", ciSettingsId(factoryId), orgId);
+  }
+
+  public async saveCiSettingsRecord(orgId: string, factoryId: string, settings: any, userId: string): Promise<void> {
+    await this.upsertMerged("ci_settings", orgId, {
+      ...settings,
+      id: ciSettingsId(factoryId),
+      factory_id: factoryId,
+      organization_id: orgId,
+      updated_by_id: userId
+    });
   }
 
   public async saveKaizen(orgId: string, kaizen: any, userId: string): Promise<any> {

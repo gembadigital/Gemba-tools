@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Customer, ProcessRecord, GanttActivity, FlowSegment, KaizenCard } from "../types";
 import { useFactory } from "../context/FactoryContext";
 import { sumExpected, sumRealized, realizedInCurrency } from "./ci/ciMoney";
+import { useCiSettings } from "./ci/useCiSettings";
 import { 
   BarChart3, TrendingUp, DollarSign, Award, Target, Flame, GitCommit, 
   CheckCircle, ShieldAlert, Sparkles, Activity, FileText, ChevronRight,
@@ -38,6 +39,8 @@ export default function ExecutiveDashboard({
   // correctly read the customer's real `currency` field (e.g. "$" for Arçelik) — showing two
   // different currency symbols for the same factory depending which screen you were on.
   const currencySymbol = selectedCustomer?.currency || "₺";
+  // Exchange rates for CI project amounts in another currency (CI settings).
+  const ciFxRates = useCiSettings(selectedCustomer?.id).settings.fxRates;
   const activeUser = globalState.CurrentUser;
   const activeRole = globalState.CurrentRole;
 
@@ -122,8 +125,8 @@ export default function ExecutiveDashboard({
     // Only amounts in the customer's currency are summed (ci/ciMoney.ts). Expected gain is the
     // projects' expectedGain — previously estimatedCost (the project's cost) was read first and
     // counted as gain.
-    const realizedSavingsSum = sumRealized(consultantFilteredKaizens.filter(k => k.status === "Completed"), currencySymbol).total;
-    const expectedSavingsSum = sumExpected(consultantFilteredKaizens, currencySymbol).total;
+    const realizedSavingsSum = sumRealized(consultantFilteredKaizens.filter(k => k.status === "Completed"), currencySymbol, ciFxRates).total;
+    const expectedSavingsSum = sumExpected(consultantFilteredKaizens, currencySymbol, ciFxRates).total;
 
     // On-time delivery rate among activities that have actually completed or are overdue —
     // real, derived from GanttActivity.status, not a per-consultant fabricated "deadline success" %.
@@ -158,7 +161,7 @@ export default function ExecutiveDashboard({
       const activeProjects = consultantActivities.filter(a => a.status === "In Progress").length;
       const closedProjects = consultantActivities.filter(a => a.status === "Completed").length;
       const kaizensCount = consultantKaizens.length;
-      const savings = consultantKaizens.filter(k => k.status === "Completed").reduce((sum, k) => sum + realizedInCurrency(k, currencySymbol), 0);
+      const savings = consultantKaizens.filter(k => k.status === "Completed").reduce((sum, k) => sum + realizedInCurrency(k, currencySymbol, ciFxRates), 0);
       const decided = consultantActivities.filter(a => a.status === "Completed" || a.status === "Delayed");
       const deadlineSuccess = decided.length > 0 ? Math.round((decided.filter(a => a.status === "Completed").length / decided.length) * 100) : 0;
 

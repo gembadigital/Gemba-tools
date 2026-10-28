@@ -188,6 +188,7 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
 | Adım | Durum | Not |
 |---|---|---|
 | C0 | ✅ kod (canlıda doğrulanmadı) | Ayrıntı aşağıda. |
+| C1 | ✅ kod (canlıda doğrulanmadı) | Ayrıntı aşağıda. Sekme bileşenlerinin bölünmesi C2/C3/C6/C7'ye bırakıldı (gerekçe aşağıda). |
 
 ### C0 — yapılanlar
 - **Sunucu (`/api/business/kaizens`):** müşteri gövdeden değil `x-factory-id` kapsamından alınır; güncellemede mevcut
@@ -198,7 +199,7 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
   sıra). Numarası olmayan eski projeler ekranda eskisi gibi tarih sırasıyla numaralanır; yeni numaralar onların üstünden
   başlar, çakışmaz ve onları kaydırmaz. **Açık:** eski projelere numaranın kalıcı yazılması (bir kerelik, canlı veri
   yazımı — yedek + onay gerekir); eski bir proje silinirse ondan sonraki eski projelerin numarası hâlâ kayar.
-  Aynı anda iki proje açılırsa aynı numara alabilir (kilit yok; C1 sunucu servisiyle çözülecek).
+  Aynı anda iki proje açılırsa aynı numara alabilirdi → C1'de çözüldü (işlem kilidi).
 - **Silme sırası:** Master Plan satırı yalnızca sunucu projeyi gerçekten sildikten sonra kaldırılır (önce koşulsuz
   siliniyordu). Yeni proje detay penceresi sunucudan dönen kayıtla (numarasıyla) açılır.
 - **Para birimi:** `src/components/ci/ciMoney.ts` — "₺/TL/TRY", "$/USD", "€/EUR" aynı sayılır; toplamlara yalnızca
@@ -209,3 +210,36 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
   projelerin gerçekleşen kazancı; ciro yoksa sabit 12.000.000 faaliyet karı, maliyet tablosu yoksa sabit 4.500.000
   COPQ varsayımı → "—" ve açıklama; beklenen kazançta "gerçekleşen × 1,2" tahmini kaldırıldı.
 - Not: PTR ekranı da CI projesi açıyor (`PtrTimeStudy.tsx`) → C5 fırsat havuzunda kaynak olarak ele alınmalı.
+
+### C1 — yapılanlar
+- **Sunucu modülü** `src/server/ci/ciRoutes.ts` (`registerCiRoutes`): CI uçları `app.ts`'ten ayrıldı; ana uygulamaya
+  yalnızca `authenticateToken`, `resolveFactoryScope`, `canAccessFactory` ile bağlı (ayırma için adaptör noktası).
+  Yollar değişmedi (`/api/business/kaizens`, CI projeleri tarihsel olarak `kaizens` koleksiyonunda — Kaizen öneri
+  sisteminin koleksiyonlarından bağımsız).
+- **Numara kilidi:** yeni proje `db.createKaizenWithNumber` ile tek işlemde (transaction) ve müşteri başına
+  `pg_advisory_xact_lock` altında numaralanıp yazılır → eşzamanlı iki proje aynı numarayı alamaz. Pool tek
+  bağlantılı ve pgbouncer kullanıldığı için oturum kilidi değil işlem kilidi; işlem içinde tüm sorgular aynı
+  bağlantıdan. Oluşturan/oluşturma zamanı artık kaydediliyor (istemci kendi id'sini gönderdiği için önce yazılmıyordu).
+- **Ortak kod** (istemci + sunucu): `src/utils/ciProject.ts` (numara), `src/utils/ciSettings.ts` (ayar modeli,
+  normalizasyon, `phaseNumber`, `choicesWith`).
+- **CI ayarları** (`ci_settings`, müşteri başına tek kayıt `ci_settings_<factoryId>`): `GET|POST /api/business/ci/settings`;
+  okuma müşteriye erişimi olan herkes, yazma Admin/Danışman. KaizenManager → **Ayarlar** sekmesi (yalnızca
+  Admin/Danışman): para birimleri + kurlar, departmanlar (öneri listesi, serbest yazım serbest), proje fazları,
+  ürün aileleri (ad + hacim payı), varsayılan proje süresi. Varsayılanlar eski sabitlerle aynı; **demo ürün aileleri
+  (Isıtıcı/Soğutucu/Pişirici) kaldırıldı** — liste boşsa yalnızca "Tüm fabrika".
+- **Kur dönüşümü:** `ciMoney` toplamları müşteri para birimine ayarlardaki kurla çevirir; kuru olmayan para birimi
+  toplama girmez ve ekranda "n proje hariç" yazar. CI ekranı, Executive Dashboard ve Opex Proje Dashboard aynı kuralı
+  kullanır. Kazanç alanlarındaki para birimi seçenekleri: müşteri para birimi + ayarlardakiler (kayıttaki eski değer
+  korunur).
+- **Faz hatası düzeltildi:** faz filtresi "Phase 1: Quick Win" değerini arıyor, kart "Faz 1 (1 Ay)" kaydediyordu →
+  filtre ve dashboard faz grafikleri düzenlenmiş projeleri hiç saymıyordu. Artık faz numarasıyla gruplanıyor
+  (`phaseNumber`), her iki eski etiket de doğru sayılıyor.
+- **İstemci modülü** `src/components/ci/`: `ciTypes.ts`, `ciCategory.ts`, `ciOpportunities.ts` (fırsat üretimi),
+  `ciExcelExport.ts` (proje kartı + önce-sonra Excel), `ciMoney.ts`, `useCiSettings.ts`, `CiSettingsPanel.tsx`.
+  KaizenManager 5.584 → 5.056 satır.
+- **Bölünmeyen kısım ve gerekçe:** kanban/liste/timeline/dashboard/proje kartı JSX'i KaizenManager'da kaldı; bu
+  ekranlar C2 (8 adım, tek durum), C3 (uygulama planı), C6 (finans), C7 (dashboard) ile yeniden yazılacak — şimdi
+  bölmek aynı kodu iki kez taşımak olur. Yeni ekranlar doğrudan `ci/` altında yazılacak.
+- **Doğrulama:** `tsc`, `npm run build`, sunucunun native ESM yüklenmesi (dosya bazlı esbuild + `import('./api/index.js')`),
+  ayar/numara/kur mantık simülasyonu (17 kontrol). Canlıda denenmedi.
+

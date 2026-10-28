@@ -17,7 +17,16 @@ import {
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { CITask, CIFinancialsInput, defaultFinancialsInput } from "./ci/ciTypes";
+import { getKaizenCategory, COPQ_CATEGORIES } from "./ci/ciCategory";
+import { generateOpportunities, ALL_FAMILIES, productFamilyLabel } from "./ci/ciOpportunities";
+import { displayProjectNo } from "../utils/ciProject";
+import { phaseNumber, choicesWith, CI_CURRENCY_SYMBOLS } from "../utils/ciSettings";
+import { normalizeCurrency } from "./ci/ciMoney";
+import { useCiSettings } from "./ci/useCiSettings";
+import CiSettingsPanel from "./ci/CiSettingsPanel";
 import { sumExpected, sumRealized, realizedInCurrency, excludedNote } from "./ci/ciMoney";
+import { exportKaizenCardToExcel as exportCiProjectCardExcel, exportBeforeAfterKaizenToExcel as exportCiBeforeAfterExcel } from "./ci/ciExcelExport";
 
 interface KaizenManagerProps {
   kaizens: KaizenCard[];
@@ -35,59 +44,8 @@ interface KaizenManagerProps {
   currentUserRole?: string;
 }
 
-type TabType = "kanban" | "list" | "timeline" | "dashboard" | "beforeafter";
+type TabType = "kanban" | "list" | "timeline" | "dashboard" | "beforeafter" | "settings";
 
-// Project categories (getKaizenCategory) whose savings count as cost-of-poor-quality reduction.
-const COPQ_CATEGORIES = ["Kalite", "Hurda / Fire"];
-
-interface CITask {
-  id: string;
-  name: string;
-  responsible: string;
-  deadline: string;
-  priority: "High" | "Medium" | "Low";
-  progressPercent: number;
-}
-
-interface CIFinancialsInput {
-  scrapReduction: { pct: number; val: number };
-  reworkReduction: { pct: number; val: number };
-  wasteReduction: { pct: number; val: number };
-  setupTimeReduction: { pct: number; val: number };
-  leadTimeReduction: { pct: number; val: number };
-  wipReduction: { pct: number; val: number };
-  operatorEfficiency: { pct: number; val: number };
-  oeeIncrease: { pct: number; val: number };
-  energySavings: { pct: number; val: number };
-  qualityImprovement: { pct: number; val: number };
-  productionIncrease: { pct: number; val: number };
-  deliveryPerformance: { pct: number; val: number };
-  ohsGain: { pct: number; val: number };
-  spaceSavings: { pct: number; val: number };
-  inventoryReduction: { pct: number; val: number };
-  maintenanceSavings: { pct: number; val: number };
-  otherSavings: { pct: number; val: number };
-}
-
-const defaultFinancialsInput = (): CIFinancialsInput => ({
-  scrapReduction: { pct: 0, val: 0 },
-  reworkReduction: { pct: 0, val: 0 },
-  wasteReduction: { pct: 0, val: 0 },
-  setupTimeReduction: { pct: 0, val: 0 },
-  leadTimeReduction: { pct: 0, val: 0 },
-  wipReduction: { pct: 0, val: 0 },
-  operatorEfficiency: { pct: 0, val: 0 },
-  oeeIncrease: { pct: 0, val: 0 },
-  energySavings: { pct: 0, val: 0 },
-  qualityImprovement: { pct: 0, val: 0 },
-  productionIncrease: { pct: 0, val: 0 },
-  deliveryPerformance: { pct: 0, val: 0 },
-  ohsGain: { pct: 0, val: 0 },
-  spaceSavings: { pct: 0, val: 0 },
-  inventoryReduction: { pct: 0, val: 0 },
-  maintenanceSavings: { pct: 0, val: 0 },
-  otherSavings: { pct: 0, val: 0 }
-});
 
 export default function KaizenManager({
   kaizens,
@@ -103,22 +61,31 @@ export default function KaizenManager({
   currentUserRole
 }: KaizenManagerProps) {
   const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
-  // Only Admin / Consultant may delete a whole CI project (enforced by the server too).
-  const canDeleteProject = currentUserRole === "Admin" || currentUserRole === "Consultant";
+  // Admin / Consultant: may delete a whole CI project and change the CI settings (enforced by the
+  // server too).
+  const isCiStaff = currentUserRole === "Admin" || currentUserRole === "Consultant";
   const [activeTab, setActiveTab] = useState<TabType>("kanban");
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [selectedDeptFilter, setSelectedDeptFilter] = useState("all");
   const [selectedPhaseFilter, setSelectedPhaseFilter] = useState("all");
   
   // Selected Product Family filter for Loss Capacity topics
-  const [selectedProductFamily, setSelectedProductFamily] = useState<string>("ALL");
+  const [selectedProductFamily, setSelectedProductFamily] = useState<string>(ALL_FAMILIES);
 
-  const PRODUCT_FAMILIES = React.useMemo(() => [
-    { id: "ALL", name: "Tüm Fabrika Ürün Aileleri (%100 Hacim Payı)", ratio: 1.0, sharePct: 100 },
-    { id: "Isıtıcı Grubu", name: "Isıtıcı Ürün Ailesi (%30 Hacim Payı)", ratio: 0.30, sharePct: 30 },
-    { id: "Soğutucu Grubu", name: "Soğutucu Ürün Ailesi (%45 Hacim Payı)", ratio: 0.45, sharePct: 45 },
-    { id: "Pişirici Grubu", name: "Pişirici Ürün Ailesi (%25 Hacim Payı)", ratio: 0.25, sharePct: 25 },
-  ], []);
+  // Per-customer CI settings (lists, product families, rates, default duration) — utils/ciSettings.ts.
+  const { settings: ciSettings, save: saveCiSettings } = useCiSettings(selectedCustomer?.id);
+  const defaultPhase = ciSettings.phases[0];
+  const defaultDepartment = ciSettings.departments[0] || "";
+  const defaultDeadline = () => new Date(Date.now() + ciSettings.defaultDurationDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  // Money fields offer the customer's own currency first, then the configured others. Turkish lira
+  // is stored as "TL" (the label the forms always used).
+  const baseCurrencyCode = normalizeCurrency(selectedCustomer?.currency, "TRY");
+  const currencyOptions = [baseCurrencyCode, ...ciSettings.currencies.filter(c => c !== baseCurrencyCode)]
+    .map(code => ({ value: code === "TRY" ? "TL" : code, label: `${CI_CURRENCY_SYMBOLS[code] || code} (${code === "TRY" ? "TL" : code})` }));
+  const currencyChoices = (current: string) =>
+    currencyOptions.some(o => normalizeCurrency(o.value, baseCurrencyCode) === normalizeCurrency(current, baseCurrencyCode))
+      ? currencyOptions
+      : [...currencyOptions, { value: current, label: current }];
 
   // Team-assignment step, shown before a project is actually created — previously
   // handleSelectOpportunity/handleSelectNewProjectTheme created the project immediately with
@@ -173,7 +140,7 @@ export default function KaizenManager({
   const [editProjectTeamInput, setEditProjectTeamInput] = useState<string>("");
   const [editPlannedFinishDate, setEditPlannedFinishDate] = useState("");
   const [editEstimatedCost, setEditEstimatedCost] = useState(0);
-  const [editPhase, setEditPhase] = useState<any>("Faz 1 (1 Ay)");
+  const [editPhase, setEditPhase] = useState<any>("");
   const [editDepartment, setEditDepartment] = useState("");
   const [editImpactAnalysis, setEditImpactAnalysis] = useState<Record<string, 'Yüksek' | 'Orta' | 'Düşük'>>({});
   const [editTasks, setEditTasks] = useState<any[]>([]);
@@ -330,160 +297,12 @@ export default function KaizenManager({
     }
   };
 
-  // Generate opportunities dynamically from Loss Capacity Analysis (COPQ / Cost Deployment Entegrasyonu)
-  const generateOpportunities = () => {
-    // 1. Read stored Loss Capacity Analysis for the current customer
-    const custId = selectedCustomer?.id || "default";
-    const savedLcStr = localStorage.getItem(`gemba_loss_capacity_${custId}`);
-    let lcData: any = null;
-    if (savedLcStr) {
-      try {
-        lcData = JSON.parse(savedLcStr);
-      } catch (e) {
-        console.error("Failed to parse gemba_loss_capacity", e);
-      }
-    }
-
-    // Determine active Product Family Ratio and Label
-    let familyRatio = 1.0;
-    let familyLabel = "Tüm Fabrika Ürün Aileleri (%100 Hacim Payı)";
-
-    const presetFamily = PRODUCT_FAMILIES.find(p => p.id === selectedProductFamily);
-    if (presetFamily) {
-      familyRatio = presetFamily.ratio;
-      familyLabel = presetFamily.name;
-    } else if (lcData && lcData.selectedVsmProject && selectedProductFamily === lcData.selectedVsmProject.productGroup) {
-      familyRatio = (lcData.selectedVsmProject.productVolumeShare || 30) / 100;
-      familyLabel = `${lcData.selectedVsmProject.name} (${lcData.selectedVsmProject.productGroup} - %${lcData.selectedVsmProject.productVolumeShare || 30} Hacim Payı)`;
-    }
-
-    // Detailed problem definition mapping
-    const getLossProblemDetail = (subject: string, costGroup?: string) => {
-      switch (subject) {
-        case "Setup Süreleri (SMED)":
-          return "Pres, kalıphane ve montaj hatlarında tip/model değişimlerinde harcanan verimsiz ayar süreleri ve bağlı kapasite kaybı.";
-        case "Hurda Maliyeti":
-          return "Üretim sürecinde oluşan hatalı parça, ıskarta sac ve hammaddenin neden olduğu doğrudan malzeme ve işçilik kaybı.";
-        case "Fire & Malzeme Kayıpları":
-          return "Kesim, kenar ve proses içi fireler ile taşıma esnasında ziyan olan doğrudan malzeme maliyeti.";
-        case "Plansız Duruşların Önlenmesi":
-          return "Mekanik, elektriksel ve otomasyon kaynaklı plansız makine duruşlarının neden olduğu kullanılabilirlik kaybı.";
-        case "OEE İyileştirmesi":
-          return "OEE 6 büyük kayıp (küçük duruşlar, hız kayıpları, hurda) nedeniyle genel ekipman verimliliğinin hedefin altında kalması.";
-        case "Yeniden İşleme (Rework)":
-          return "İlk seferde doğru üretilemeyen parçaların tamir ve yeniden işlenmesi için harcanan ek işçilik ve enerji kaybı.";
-        case "Operasyonel Verimsizlik":
-          return "Hat içi istasyonlar arası yük ve çevrim süresi dengesizlikleri (Yamazumi darboğazları) kaynaklı işçilik israfı.";
-        case "Operatör Verimliliği":
-          return "Standart dışı hareketler, bekleme süreleri ve OLE (Overall Labor Effectiveness) yetersizliğinden kaynaklı adam-saat kaybı.";
-        case "WIP (Yarı Mamul) Azaltımı":
-          return "Proses aralarında biriken aşırı yarı mamul stoku, alan işgali ve kilitli çalışma sermayesi finansman maliyeti.";
-        case "Lead Time (Sipariş Çevrimi)":
-          return "Değer yaratmayan bekleme ve taşıma sürelerinin uzunluğu nedeniyle toplam sipariş teslim süresinin uzaması.";
-        case "Fazla Mesai Azaltımı":
-          return "Planlama yetersizliği ve verimsizliklerden doğan yüksek maliyetli fazla mesai işçilik yükü.";
-        case "Sevkiyat Performansı":
-          return "Lojistik, ambalajlama ve OTIF (Zamanında ve Eksiksiz Teslimat) aksamalarından doğan ceza ve gecikme riski.";
-        default:
-          return `${subject} alanında tespit edilen ve Loss Capacity Analizi ile ortaya çıkarılan finansal kayıp konusu.`;
-      }
-    };
-
-    const getDeptForSubject = (subject: string) => {
-      if (subject.includes("Setup") || subject.includes("SMED")) return "Pres Atölyesi";
-      if (subject.includes("Hurda") || subject.includes("Fire") || subject.includes("Rework")) return "Kalite Güvence";
-      if (subject.includes("Duruş") || subject.includes("OEE")) return "Bakım Onarım";
-      if (subject.includes("Operatör") || subject.includes("Verimsizlik") || subject.includes("Hareket")) return "Endüstri Mühendisliği";
-      if (subject.includes("WIP") || subject.includes("Lead") || subject.includes("Sevkiyat") || subject.includes("Bekleme") || subject.includes("Taşıma")) return "Lojistik / Depo";
-      if (subject.includes("Fazla Üretim")) return "Üretim Planlama";
-      return "Üretim / Montaj";
-    };
-
-    // Primary: If Loss Capacity Analysis has computed recoveryMatrixData, use as primary source of truth
-    if (lcData && Array.isArray(lcData.recoveryMatrixData) && lcData.recoveryMatrixData.length > 0) {
-      return lcData.recoveryMatrixData.map((item: any) => {
-        const scaledLoss = Math.round((item.avgLoss || 100000) * familyRatio);
-        const scaledGain = Math.round((item.avgGain || 60000) * familyRatio);
-        const potPct = scaledLoss > 0 ? Math.round((scaledGain / scaledLoss) * 100) : 60;
-
-        return {
-          id: `opp_lc_${item.subject.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase()}`,
-          type: item.subject,
-          problem: `${item.subject}: ${getLossProblemDetail(item.subject, item.costGroup)}`,
-          currentCost: scaledLoss,
-          potential: potPct,
-          expectedGain: scaledGain,
-          priority: item.severity === "Critical" || item.severity === "High" ? "High" : "Medium",
-          dept: getDeptForSubject(item.subject),
-          leanTool: item.leanTool || "Kaizen & Standart İş",
-          source: "Loss Capacity Analizi (COPQ & Cost Deployment)",
-          productFamily: familyLabel,
-          area: item.area || "Doğrudan Maliyet Azaltma"
-        };
-      });
-    }
-
-    // Secondary source: no Loss Analysis cache found for this customer/browser — instead of jumping
-    // straight to fully invented numbers, rank real cost-table (`processes`) records by their actual
-    // recorded loss fields. This is real backend data (org+factory scoped), just not run through the
-    // full Loss Analysis COPQ model, so it doesn't depend on that tab ever having been opened.
-    type CostBucket = { subject: string; field: keyof ProcessRecord; tool: string };
-    const costBuckets: CostBucket[] = [
-      { subject: "Hurda Maliyeti", field: "scrapCost", tool: "Poka-Yoke & Kalite Otonomasyonu" },
-      { subject: "Yeniden İşleme (Rework)", field: "reworkCost", tool: "Matriks Analizi & FTT" },
-      { subject: "Plansız Duruşların Önlenmesi", field: "downtimeCost", tool: "Otonom & Planlı Bakım (TPM)" },
-      { subject: "Bekleme Kaybı (Waiting Loss)", field: "waitingLoss", tool: "Hat Dengeleme & Yamazumi" },
-      { subject: "Taşıma Kaybı (Transportation Loss)", field: "transportationLoss", tool: "Milk-Run & Yerleşim (Layout) İyileştirme" },
-      { subject: "Hareket İsrafı (Motion Loss)", field: "motionLoss", tool: "Standart İş & Ergonomi Kaizeni" },
-      { subject: "Fazla Üretim Kaybı (Overproduction)", field: "overproductionLoss", tool: "Kanban & Çekme Sistemi" }
-    ];
-
-    if (processes && processes.length > 0) {
-      const ranked = processes
-        .flatMap((proc) =>
-          costBuckets.map((bucket) => ({
-            proc,
-            bucket,
-            value: Number(proc[bucket.field]) || 0
-          }))
-        )
-        .filter((row) => row.value > 0)
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 8);
-
-      if (ranked.length > 0) {
-        return ranked.map(({ proc, bucket, value }) => {
-          const scaledLoss = Math.round(value * familyRatio);
-          // Recovery potential is not measured (no Loss Analysis run for this data yet) — a
-          // conservative 60% recoverable-via-Kaizen assumption is used and disclosed via `assumed`.
-          const scaledGain = Math.round(scaledLoss * 0.6);
-          return {
-            id: `opp_proc_${proc.id}_${bucket.field}`,
-            type: bucket.subject,
-            problem: `${proc.name} — ${bucket.subject}: Maliyet tablosunda (İşlem Kayıtları) bu süreç için kayıtlı gerçek ${bucket.subject.toLowerCase()} tutarı.`,
-            currentCost: scaledLoss,
-            potential: 60,
-            expectedGain: scaledGain,
-            priority: scaledLoss > 100000 ? "High" : "Medium",
-            dept: getDeptForSubject(bucket.subject),
-            leanTool: bucket.tool,
-            source: "Maliyet Tablosu / İşlem Kayıtları (gerçek veri — Loss Analysis çalıştırılmadı)",
-            productFamily: familyLabel,
-            area: "Doğrudan Maliyet Azaltma",
-            assumed: true
-          };
-        });
-      }
-    }
-
-    // No Loss Capacity Analysis has been run AND no cost-table (`processes`) records exist yet for
-    // this customer — there is no real data to build an opportunity list from. This used to fall
-    // back to fabricated illustrative loss figures (fixed fake amounts); that data was never real
-    // and has been removed. The wizard shows an explicit empty state instead (see isEmptyOpportunityData).
-    return [];
-  };
-
-  const opportunitiesList = generateOpportunities();
+  const opportunitiesList = generateOpportunities({
+    customerId: selectedCustomer?.id,
+    processes,
+    productFamilies: ciSettings.productFamilies,
+    selectedFamily: selectedProductFamily
+  });
   // All items from a single generateOpportunities() call come from the same tier (the function
   // returns early per tier), so the first item's `source` reflects what's actually active —
   // previously the wizard banner hardcoded "Loss Capacity Analizi" regardless of which tier
@@ -493,31 +312,8 @@ export default function KaizenManager({
   const isAssumedOpportunityData = opportunitiesList.some(o => o.assumed);
   const isEmptyOpportunityData = opportunitiesList.length === 0;
 
-  // Helper to calculate project number (CIPYYAA-No)
-  const getProjectNo = (proj: KaizenCard) => {
-    // New projects carry a permanent number from the server (assigned at creation).
-    if (proj.projectNo) return proj.projectNo;
-
-    const dateStr = proj.dateProposed || new Date().toISOString().split('T')[0];
-    const year = dateStr.substring(2, 4);
-    const month = dateStr.substring(5, 7);
-
-    // Older projects without a stored number keep their previous display number: their position in
-    // date order among the other unnumbered projects (numbered ones are excluded so they never shift
-    // these). Deleting an old project can still shift the old ones after it.
-    const sortedAll = kaizens.filter(k => !k.projectNo).sort((a, b) => {
-      const da = a.dateProposed || "";
-      const db = b.dateProposed || "";
-      if (da !== db) return da.localeCompare(db);
-      return a.id.localeCompare(b.id);
-    });
-    
-    const index = sortedAll.findIndex(p => p.id === proj.id);
-    const seqNum = index !== -1 ? index + 1 : 1;
-    const seqStr = seqNum.toString().padStart(2, '0');
-    
-    return `CIP${year}${month}-${seqStr}`;
-  };
+  // Project number: stored permanent number, or the legacy date-order number (utils/ciProject.ts).
+  const getProjectNo = (proj: KaizenCard) => displayProjectNo(proj, kaizens);
 
   // Helper function for delay calculations
   const getDelayWeeksSinceDeadline = (deadlineStr?: string) => {
@@ -588,8 +384,8 @@ export default function KaizenManager({
     setEditPlannedFinishDate(proj.plannedFinishDate || "");
     setEditEstimatedCost(proj.estimatedCost || 0);
     setEditCurrentLoss(proj.currentLoss || 0);
-    setEditPhase(proj.phase || "Faz 1 (1 Ay)");
-    setEditDepartment(proj.department || "Üretim");
+    setEditPhase(proj.phase || defaultPhase);
+    setEditDepartment(proj.department || defaultDepartment);
     setEditImpactAnalysis(proj.impactAnalysis || {});
     setEditTasks(proj.tasks || []);
     setIsProjectFullScreen(false);
@@ -604,9 +400,9 @@ export default function KaizenManager({
       proj.status === "Approved" ? "Analiz" : "Tanımlama"
     ));
     setEditExpectedGain(proj.expectedGain || 0);
-    setEditExpectedGainCurrency(proj.expectedGainCurrency || currency || "TL");
+    setEditExpectedGainCurrency(proj.expectedGainCurrency || currencyOptions[0].value);
     setEditRealizedGain(proj.realizedGain || 0);
-    setEditRealizedGainCurrency(proj.realizedGainCurrency || currency || "TL");
+    setEditRealizedGainCurrency(proj.realizedGainCurrency || currencyOptions[0].value);
     setEditRealizedImprovementPct(proj.realizedImprovementPct || 0);
     setEditStdWorkUpdated(proj.stdWorkUpdated || false);
     setEditInstructionRevised(proj.instructionRevised || false);
@@ -789,366 +585,10 @@ export default function KaizenManager({
     setIsProjectFullScreen(false);
   };
 
-  // Export CI Improvement Project Card to Excel (.xls) formatted with styled tables and borders
-  const exportKaizenCardToExcel = (proj: KaizenCard, customerName?: string, currencySymbol: string = "₺") => {
-    const projNo = getProjectNo(proj);
-    const fileName = `${projNo}_CI_Proje_Karti.xls`;
-
-    const tasksRows = (proj.tasks && proj.tasks.length > 0)
-      ? proj.tasks.map((t, idx) => `
-        <tr style="height: 24px;">
-          <td style="border: 1px solid #cbd5e1; text-align: center; font-size: 10pt; font-family: Calibri, sans-serif;">${idx + 1}</td>
-          <td style="border: 1px solid #cbd5e1; font-weight: bold; font-size: 10pt; font-family: Calibri, sans-serif; padding-left: 6px;">${t.name || '-'}</td>
-          <td style="border: 1px solid #cbd5e1; text-align: center; font-size: 10pt; font-family: Calibri, sans-serif;">${t.responsible || '-'}</td>
-          <td style="border: 1px solid #cbd5e1; text-align: center; font-size: 10pt; font-family: Calibri, sans-serif;">${t.deadline || '-'}</td>
-          <td style="border: 1px solid #cbd5e1; text-align: center; font-weight: bold; font-size: 10pt; font-family: Calibri, sans-serif;">%${t.progressPercent ?? 0}</td>
-          <td style="border: 1px solid #cbd5e1; text-align: center; font-size: 10pt; font-family: Calibri, sans-serif;">${t.status || 'Açık'}</td>
-        </tr>
-      `).join('')
-      : `<tr style="height: 24px;"><td colspan="6" style="border: 1px solid #cbd5e1; text-align: center; color: #64748b; font-style: italic; font-size: 10pt; font-family: Calibri, sans-serif;">Tanımlanmış alt faaliyet bulunmuyor.</td></tr>`;
-
-    const impactAnalysisItems = proj.impactAnalysis 
-      ? Object.entries(proj.impactAnalysis).map(([key, val]) => `${key}: ${val}`).join(' | ')
-      : 'Belirtilmedi';
-
-    const html = `
-      <html xmlns:o="urn:schemas-microsoft-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-      <head>
-        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-        <!--[if gte mso 9]>
-        <xml>
-          <x:ExcelWorkbook>
-            <x:ExcelWorksheets>
-              <x:ExcelWorksheet>
-                <x:Name>CI Proje Kartı</x:Name>
-                <x:WorksheetOptions>
-                  <x:DisplayGridlines/>
-                </x:WorksheetOptions>
-              </x:ExcelWorksheet>
-            </x:ExcelWorksheets>
-          </x:ExcelWorkbook>
-        </xml>
-        <![endif]-->
-        <style>
-          td { vertical-align: middle; }
-        </style>
-      </head>
-      <body>
-        <table border="1" style="border-collapse: collapse; font-family: Calibri, sans-serif; width: 100%;">
-          
-          <!-- BRAND & HEADER ROW -->
-          <tr style="height: 40px; background-color: #1e1b4b;">
-            <td colspan="6" style="text-align: center; color: #ffffff; font-size: 15pt; font-weight: bold; font-family: Arial, sans-serif; background-color: #1e1b4b;">
-              SÜREKLİ İYİLEŞTİRME (CI) PROJE KARTI & AKSİYON TAKİP FORMU
-            </td>
-          </tr>
-
-          <!-- META ROW 1 -->
-          <tr style="height: 26px; background-color: #f8fafc;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Müşteri / Fabrika:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #1e1b4b; padding-left: 8px;">${customerName || 'Varsayılan Müşteri'}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Proje Numarası:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #4338ca; font-family: monospace; padding-left: 8px;">${projNo}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Proje Durumu:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #15803d; padding-left: 8px;">${proj.status === 'Completed' ? 'Tamamlandı (ACT)' : (proj.kanbanStatus || 'PLAN')}</td>
-          </tr>
-
-          <!-- 1. PROJE KİMLİĞİ & SORUMLULAR -->
-          <tr style="height: 30px; background-color: #312e81;">
-            <td colspan="6" style="border: 1px solid #1e1b4b; font-weight: bold; color: #ffffff; font-size: 11pt; padding-left: 10px; background-color: #312e81;">
-              1. PROJE KİMLİĞİ VE TEMEL BİLGİLER
-            </td>
-          </tr>
-          <tr style="height: 28px;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Proje Adı / Konusu:</td>
-            <td colspan="5" style="border: 1px solid #cbd5e1; font-weight: bold; font-size: 12pt; color: #0f172a; padding-left: 8px;">${proj.title || '-'}</td>
-          </tr>
-          <tr style="height: 26px;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Departman:</td>
-            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${proj.department || '-'}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Proje Fazı:</td>
-            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${proj.phase || 'Phase 1'}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">İlerleme Aşaması:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px; color: #4338ca;">${proj.progressStep || 'Planlama'}</td>
-          </tr>
-          <tr style="height: 26px;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Proje Lideri:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px;">${proj.projectLeader || proj.originator || '-'}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Proje Sponsoru:</td>
-            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${proj.projectSponsor || '-'}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Etki Seviyesi:</td>
-            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${proj.impactLevel || 'Medium'} Impact</td>
-          </tr>
-          <tr style="height: 26px;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Teklif Tarihi:</td>
-            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${proj.dateProposed || '-'}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Planlanan Bitiş:</td>
-            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${proj.plannedFinishDate || '-'}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Gerçekleşen Bitiş:</td>
-            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${proj.realizedFinishDate || '-'}</td>
-          </tr>
-
-          <!-- 2. PROBLEM TANIMI & MEVCUT DURUM -->
-          <tr style="height: 30px; background-color: #312e81;">
-            <td colspan="6" style="border: 1px solid #1e1b4b; font-weight: bold; color: #ffffff; font-size: 11pt; padding-left: 10px; background-color: #312e81;">
-              2. PROBLEM TANIMI VE MEVCUT DURUM (GEMBA İNCELEMESİ)
-            </td>
-          </tr>
-          <tr style="height: 36px;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Problem Tanımı:</td>
-            <td colspan="5" style="border: 1px solid #cbd5e1; padding: 6px 8px; color: #0f172a;">${proj.problemDefinition || proj.descriptionBefore || proj.description || '-'}</td>
-          </tr>
-          <tr style="height: 36px;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Mevcut Durum Detayı:</td>
-            <td colspan="3" style="border: 1px solid #cbd5e1; padding: 6px 8px;">${proj.problemDetail || '-'}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Mevcut Yıllık Kayıp:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #b91c1c; padding-left: 8px;">${currencySymbol}${(proj.currentLoss || 0).toLocaleString()}</td>
-          </tr>
-
-          <!-- 3. ETKİ ANALİZİ & KÖK NEDEN -->
-          <tr style="height: 30px; background-color: #312e81;">
-            <td colspan="6" style="border: 1px solid #1e1b4b; font-weight: bold; color: #ffffff; font-size: 11pt; padding-left: 10px; background-color: #312e81;">
-              3. ETKİ ANALİZİ VE KÖK NEDEN ANALİZİ (5 NEDEN / BALIK KILÇIĞI)
-            </td>
-          </tr>
-          <tr style="height: 28px;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Etki Alanları:</td>
-            <td colspan="5" style="border: 1px solid #cbd5e1; padding-left: 8px; font-weight: bold; color: #334155;">${impactAnalysisItems}</td>
-          </tr>
-          <tr style="height: 36px;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Kök Neden Analizi:</td>
-            <td colspan="5" style="border: 1px solid #cbd5e1; padding: 6px 8px;">${proj.rootCause || '-'}</td>
-          </tr>
-
-          <!-- 4. HEDEFLER VE FİNANSAL KAZANIMLAR -->
-          <tr style="height: 30px; background-color: #312e81;">
-            <td colspan="6" style="border: 1px solid #1e1b4b; font-weight: bold; color: #ffffff; font-size: 11pt; padding-left: 10px; background-color: #312e81;">
-              4. HEDEFLER VE BÜTÇE / NET FİNANSAL KAZANIMLAR
-            </td>
-          </tr>
-          <tr style="height: 28px;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Hedeflenen Durum:</td>
-            <td colspan="3" style="border: 1px solid #cbd5e1; padding-left: 8px;">${proj.targetObjective || '-'}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Hedef KPI:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px; color: #1e1b4b;">${proj.targetKpi || '-'}</td>
-          </tr>
-          <tr style="height: 26px;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Hedef İyileştirme %:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px;">%${proj.targetRatio || 0}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Hedef Tasarruf:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px;">${currencySymbol}${(proj.targetCostReduction || 0).toLocaleString()}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Tahmini Bütçe:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px;">${currencySymbol}${(proj.estimatedCost || 0).toLocaleString()}</td>
-          </tr>
-          <tr style="height: 28px; background-color: #f0fdf4;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #e2e8f0; color: #334155; padding-left: 8px;">Beklenen Kazanım:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #1d4ed8; padding-left: 8px;">${proj.expectedGainCurrency || currencySymbol}${(proj.expectedGain || 0).toLocaleString()}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #dcfce7; color: #14532d; padding-left: 8px;">Gerçekleşen Tasarruf:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #15803d; font-size: 11pt; padding-left: 8px; background-color: #dcfce7;">${proj.realizedGainCurrency || currencySymbol}${(proj.realizedGain || proj.actualSavings || 0).toLocaleString()}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #dcfce7; color: #14532d; padding-left: 8px;">Gerçekleşen İyileştirme:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #15803d; font-size: 11pt; padding-left: 8px; background-color: #dcfce7;">%${proj.realizedImprovementPct || 0}</td>
-          </tr>
-
-          <!-- 5. UYGULAMA PLANI (6. ADIM AKSİYON LİSTESİ) -->
-          <tr style="height: 30px; background-color: #312e81;">
-            <td colspan="6" style="border: 1px solid #1e1b4b; font-weight: bold; color: #ffffff; font-size: 11pt; padding-left: 10px; background-color: #312e81;">
-              5. UYGULAMA PLANI VE AKSİYON TAKİP TABLOSU (6. UYGULAMA ADIMI)
-            </td>
-          </tr>
-          <tr style="height: 26px; background-color: #e2e8f0;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; width: 6%;">#</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; text-align: left; padding-left: 8px; width: 44%;">Alt Faaliyet / Aksiyon Adı</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; width: 18%;">Sorumlu</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; width: 12%;">Termin Tarihi</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; width: 10%;">Tamamlanma %</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; width: 10%;">Durum</td>
-          </tr>
-          ${tasksRows}
-
-          <!-- 6. STANDARTLAŞTIRMA VE SÜRDÜRÜLEBİLİRLİK -->
-          <tr style="height: 30px; background-color: #312e81;">
-            <td colspan="6" style="border: 1px solid #1e1b4b; font-weight: bold; color: #ffffff; font-size: 11pt; padding-left: 10px; background-color: #312e81;">
-              6. STANDARTLAŞTIRMA VE YAYGINLAŞTIRMA ADIMLARI (7. & 8. ADIM)
-            </td>
-          </tr>
-          <tr style="height: 26px;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Standart İş Güncellendi:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: ${proj.stdWorkUpdated ? '#16a34a' : '#64748b'}; padding-left: 8px;">${proj.stdWorkUpdated ? 'EVET [✓]' : 'HAYIR [ ]'}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Talimat Revize Edildi:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: ${proj.instructionRevised ? '#16a34a' : '#64748b'}; padding-left: 8px;">${proj.instructionRevised ? 'EVET [✓]' : 'HAYIR [ ]'}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Eğitim Verildi:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: ${proj.trainingGiven ? '#16a34a' : '#64748b'}; padding-left: 8px;">${proj.trainingGiven ? 'EVET [✓]' : 'HAYIR [ ]'}</td>
-          </tr>
-          <tr style="height: 26px;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Kontrol Planı Güncellendi:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: ${proj.controlPlanUpdated ? '#16a34a' : '#64748b'}; padding-left: 8px;">${proj.controlPlanUpdated ? 'EVET [✓]' : 'HAYIR [ ]'}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Denetim Listesi Güncellendi:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: ${proj.auditListUpdated ? '#16a34a' : '#64748b'}; padding-left: 8px;">${proj.auditListUpdated ? 'EVET [✓]' : 'HAYIR [ ]'}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Kapanış Sonucu:</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #15803d; padding-left: 8px;">${proj.projectResult || 'Başarılı'}</td>
-          </tr>
-          <tr style="height: 36px;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">Kapanış Açıklaması:</td>
-            <td colspan="5" style="border: 1px solid #cbd5e1; padding: 6px 8px;">${proj.resultDescription || 'Proje başarıyla tamamlanmış ve finansal tasarruf tescil edilmiştir.'}</td>
-          </tr>
-
-        </table>
-      </body>
-      </html>
-    `;
-
-    const blob = new Blob(['\ufeff' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', fileName);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  // Recreates the real "Kaizen Öncesi Sonrası" (Before-After Kaizen) one-pager the firm already
-  // uses on paper/in a standalone Excel template — same HTML-table-to-.xls technique as
-  // exportKaizenCardToExcel above, but embeds the before/after photos directly (they're already
-  // persisted as base64 data URLs, same as problem/result photos elsewhere on the card).
-  const exportBeforeAfterKaizenToExcel = (study: BeforeAfterKaizenStudy, customerName?: string, currencySymbol: string = "₺") => {
-    const fileName = `Once_Sonra_Kaizen_${study.subject.replace(/[^a-zA-Z0-9ığüşöçİĞÜŞÖÇ]+/g, "_").slice(0, 40)}.xls`;
-    const b = study.benefits || {};
-    const checkbox = (checked: boolean) => checked ? "☑" : "☐";
-
-    const html = `
-      <html xmlns:o="urn:schemas-microsoft-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-      <head>
-        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-        <!--[if gte mso 9]>
-        <xml>
-          <x:ExcelWorkbook>
-            <x:ExcelWorksheets>
-              <x:ExcelWorksheet>
-                <x:Name>Once-Sonra Kaizen</x:Name>
-                <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
-              </x:ExcelWorksheet>
-            </x:ExcelWorksheets>
-          </x:ExcelWorkbook>
-        </xml>
-        <![endif]-->
-        <style>td { vertical-align: middle; }</style>
-      </head>
-      <body>
-        <table border="1" style="border-collapse: collapse; font-family: Calibri, sans-serif; width: 100%;">
-
-          <tr style="height: 46px; background-color: #1e1b4b;">
-            <td colspan="4" style="text-align: center; color: #ffffff; font-size: 16pt; font-weight: bold; font-family: Arial, sans-serif; background-color: #1e1b4b;">
-              ÖNCESİ SONRASI İYİLEŞTİRME ÇALIŞMALARI
-            </td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">TARİH</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; color: #1e1b4b; padding-left: 8px;">${study.date || "-"}</td>
-          </tr>
-          <tr style="height: 26px;">
-            <td colspan="4" rowspan="2"></td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">ÇALIŞMAYI YAPAN</td>
-            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${study.doneBy || "-"}</td>
-          </tr>
-          <tr style="height: 26px;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">BÖLÜMÜ</td>
-            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">${study.department || "-"}</td>
-          </tr>
-
-          <tr style="height: 32px;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">KONU :</td>
-            <td colspan="3" style="border: 1px solid #cbd5e1; font-weight: bold; padding-left: 8px;">${study.subject || "-"}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">KATEGORİ</td>
-            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">
-              ${checkbox(study.category === "Verimlilik")} Verimlilik &nbsp; ${checkbox(study.category === "Kalite")} Kalite &nbsp; ${checkbox(study.category === "Güvenlik")} Güvenlik
-            </td>
-          </tr>
-          <tr style="height: 32px;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">HEDEF :</td>
-            <td colspan="3" style="border: 1px solid #cbd5e1; padding-left: 8px;">${study.target || "-"}</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">ALAN</td>
-            <td style="border: 1px solid #cbd5e1; padding-left: 8px;">
-              ${checkbox(study.area === "5S")} 5S &nbsp; ${checkbox(study.area === "Maliyet")} Maliyet
-            </td>
-          </tr>
-
-          <tr style="height: 30px; background-color: #312e81;">
-            <td colspan="3" style="border: 1px solid #1e1b4b; text-align: center; font-weight: bold; color: #ffffff; font-size: 11pt; background-color: #312e81;">İYİLEŞTİRME ÖNCESİ</td>
-            <td colspan="3" style="border: 1px solid #1e1b4b; text-align: center; font-weight: bold; color: #ffffff; font-size: 11pt; background-color: #312e81;">İYİLEŞTİRME SONRASI</td>
-          </tr>
-          <tr style="height: 220px;">
-            <td colspan="3" style="border: 1px solid #cbd5e1; text-align: center; background-color: #f8fafc;">
-              ${study.beforeImage ? `<img src="${study.beforeImage}" style="max-width: 320px; max-height: 220px;" />` : `<span style="color:#94a3b8; font-style: italic;">Görsel eklenmedi</span>`}
-            </td>
-            <td colspan="3" style="border: 1px solid #cbd5e1; text-align: center; background-color: #f8fafc;">
-              ${study.afterImage ? `<img src="${study.afterImage}" style="max-width: 320px; max-height: 220px;" />` : `<span style="color:#94a3b8; font-style: italic;">Görsel eklenmedi</span>`}
-            </td>
-          </tr>
-
-          <tr style="height: 24px;">
-            <td colspan="3" style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">AÇIKLAMA:</td>
-            <td colspan="3" style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">AÇIKLAMA:</td>
-          </tr>
-          <tr style="height: 70px;">
-            <td colspan="3" style="border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: top;">${study.descriptionBefore || "-"}</td>
-            <td colspan="3" style="border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: top;">${study.descriptionAfter || "-"}</td>
-          </tr>
-
-          <tr style="height: 24px;">
-            <td colspan="6" style="border: 1px solid #cbd5e1; font-weight: bold; background-color: #f1f5f9; color: #334155; padding-left: 8px;">
-              GETİRİ AÇIKLAMASI : (Parasal veya Oran bazında getirinin rakamsal ifadesi)
-            </td>
-          </tr>
-          <tr style="height: 50px;">
-            <td colspan="6" style="border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: top;">${study.benefitDescription || "-"}</td>
-          </tr>
-
-          <tr style="height: 26px; background-color: #f8fafc;">
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; background-color: #e0e7ff; color: #1e1b4b;">Maliyet</td>
-            <td colspan="2" style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; background-color: #e0e7ff; color: #1e1b4b;">Verimlilik</td>
-            <td style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; background-color: #e0e7ff; color: #1e1b4b;">Kalite</td>
-            <td colspan="2" style="border: 1px solid #cbd5e1; font-weight: bold; text-align: center; background-color: #e0e7ff; color: #1e1b4b;">Güvenlik</td>
-          </tr>
-          <tr style="height: 24px;">
-            <td style="border: 1px solid #cbd5e1; padding-left: 6px;">Enerji: ${b.costEnergy || "-"}</td>
-            <td colspan="2" style="border: 1px solid #cbd5e1; padding-left: 6px;">Makine: ${b.productivityMachine || "-"}</td>
-            <td style="border: 1px solid #cbd5e1; padding-left: 6px;">Ürün: ${b.qualityProduct || "-"}</td>
-            <td colspan="2" style="border: 1px solid #cbd5e1; padding-left: 6px;">Risk Derecesi: ${b.safetyRiskDegree || "-"}</td>
-          </tr>
-          <tr style="height: 24px;">
-            <td style="border: 1px solid #cbd5e1; padding-left: 6px;">İş Gücü: ${b.costLabor || "-"}</td>
-            <td colspan="2" style="border: 1px solid #cbd5e1; padding-left: 6px;">Adam: ${b.productivityMan || "-"}</td>
-            <td style="border: 1px solid #cbd5e1; padding-left: 6px;">Malzeme: ${b.qualityMaterial || "-"}</td>
-            <td colspan="2" style="border: 1px solid #cbd5e1; padding-left: 6px;">KSO: ${b.safetyKso || "-"}</td>
-          </tr>
-          <tr style="height: 24px;">
-            <td style="border: 1px solid #cbd5e1; padding-left: 6px;">Malzeme: ${b.costMaterial || "-"}</td>
-            <td colspan="2" style="border: 1px solid #cbd5e1; padding-left: 6px;">Malzeme: ${b.productivityMaterial || "-"}</td>
-            <td style="border: 1px solid #cbd5e1; padding-left: 6px;">Fire: ${b.qualityScrap || "-"}</td>
-            <td colspan="2" style="border: 1px solid #cbd5e1; padding-left: 6px; font-size: 9pt; color: #64748b;">(*Kaza Sıklık Oranı)</td>
-          </tr>
-
-          <tr style="height: 20px;">
-            <td colspan="6" style="border: 1px solid #cbd5e1; font-size: 8pt; color: #94a3b8; padding-left: 6px;">
-              ${customerName || ""} — Gemba Partner CI Proje Yönetimi
-            </td>
-          </tr>
-
-        </table>
-      </body>
-      </html>
-    `;
-
-    const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', fileName);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
+  // Excel exports live in ci/ciExcelExport.ts; these wrappers supply the project number.
+  const exportKaizenCardToExcel = (proj: KaizenCard, customerName?: string, currencySymbol: string = "₺") =>
+    exportCiProjectCardExcel(proj, getProjectNo(proj), customerName, currencySymbol);
+  const exportBeforeAfterKaizenToExcel = exportCiBeforeAfterExcel;
 
   // Portfolio-wide export — previously only a single project's card could be exported
   // (exportKaizenCardToExcel above); the whole CI portfolio had no export at all despite
@@ -1287,7 +727,7 @@ export default function KaizenManager({
   // and no way to pick a leader/team/deadline. Now they just open a lightweight assignment step
   // (handleConfirmProjectCreation below does the actual creation once that step is filled in).
   const handleSelectOpportunity = (opp: any) => {
-    const defaultDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const defaultDate = defaultDeadline();
     setPendingCreation({ mode: "opportunity", opp });
     setAssignTitle(`${opp.type} Entegrasyonu - ${opp.dept}`);
     setAssignLeader(teamOptions[0] || "");
@@ -1298,13 +738,13 @@ export default function KaizenManager({
   };
 
   const handleSelectNewProjectTheme = () => {
-    const defaultDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const defaultDate = defaultDeadline();
     setPendingCreation({ mode: "blank", opp: null });
     setAssignTitle("");
     setAssignLeader(teamOptions[0] || "");
     setAssignTeamMembers([]);
     setAssignTeamInput("");
-    setAssignDepartment("Üretim");
+    setAssignDepartment(defaultDepartment);
     setAssignDeadline(defaultDate);
   };
 
@@ -1323,7 +763,7 @@ export default function KaizenManager({
     if (!pendingCreation || !assignLeader.trim()) return;
     const opp = pendingCreation.opp;
     const leaderName = assignLeader.trim();
-    const deadline = assignDeadline || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const deadline = assignDeadline || defaultDeadline();
     const newId = `kai_${Math.random().toString(36).substring(2, 9)}`;
 
     let newK: KaizenCard;
@@ -1374,7 +814,7 @@ export default function KaizenManager({
         projectTeam: assignTeamMembers,
         projectSponsor: "",
         plannedFinishDate: deadline,
-        phase: "Faz 1 (1 Ay)",
+        phase: defaultPhase,
         opportunityId: opp.id,
         opportunityType: opp.type,
         kanbanStatus: "PLAN",
@@ -1397,7 +837,7 @@ export default function KaizenManager({
         id: newId,
         title: assignTitle,
         originator: leaderName,
-        department: assignDepartment || "Üretim",
+        department: assignDepartment || defaultDepartment,
         dateProposed: new Date().toISOString().split('T')[0],
         impactLevel: "Medium",
         estimatedCost: 0,
@@ -1411,7 +851,7 @@ export default function KaizenManager({
         projectTeam: assignTeamMembers,
         projectSponsor: "",
         plannedFinishDate: deadline,
-        phase: "Faz 1 (1 Ay)",
+        phase: defaultPhase,
         kanbanStatus: "PLAN",
         tasks: [],
         financialsInput: defaultFinancialsInput(),
@@ -1576,7 +1016,8 @@ export default function KaizenManager({
   // Helper calculation for overall Portföy metrics
   const filteredProjects = kaizens.filter(k => {
     const matchesDept = selectedDeptFilter === "all" || k.department === selectedDeptFilter;
-    const matchesPhase = selectedPhaseFilter === "all" || k.phase === selectedPhaseFilter;
+    // Grouped by phase number: stored labels differ by era ("Faz 1 (1 Ay)", "Phase 1: Quick Win").
+    const matchesPhase = selectedPhaseFilter === "all" || phaseNumber(k.phase) === Number(selectedPhaseFilter);
     return matchesDept && matchesPhase;
   });
 
@@ -1605,19 +1046,19 @@ export default function KaizenManager({
   // another currency are counted in `*.excluded` and named under the figure.
   // Expected gain: the project's own figure; a project created from an opportunity that has no
   // figure yet falls back to that opportunity's estimate (customer currency). No invented values.
-  const expectedSum = sumExpected(filteredProjects, currency);
+  const expectedSum = sumExpected(filteredProjects, currency, ciSettings.fxRates);
   const totalExpectedFinancialGain = expectedSum.total + filteredProjects
     .filter(k => typeof k.expectedGain !== "number")
     .reduce((sum, k) => sum + (opportunitiesList.find(o => o.id === k.opportunityId)?.expectedGain || 0), 0);
 
-  const realizedSum = sumRealized(filteredProjects, currency);
+  const realizedSum = sumRealized(filteredProjects, currency, ciSettings.fxRates);
   const realizedFinancialGain = realizedSum.total;
   const moneyExcludedNote = excludedNote(Math.max(expectedSum.excluded, realizedSum.excluded));
   // COPQ reduction = realized savings of quality / scrap projects (previously a flat 72% of all
   // savings, which was not derived from anything).
   const totalCOPQReduction = filteredProjects
     .filter(k => COPQ_CATEGORIES.includes(getKaizenCategory(k)))
-    .reduce((sum, k) => sum + realizedInCurrency(k, currency), 0);
+    .reduce((sum, k) => sum + realizedInCurrency(k, currency, ciSettings.fxRates), 0);
   
   // Operating profit is estimated as 12% of the customer's annual revenue; without a revenue figure
   // there is no basis, so the share is not shown (previously a fixed 12.000.000 was assumed).
@@ -1650,36 +1091,12 @@ export default function KaizenManager({
   const netROIAmount = realizedFinancialGain - totalBudget;
   const totalROI = totalBudget > 0 ? ((realizedFinancialGain / totalBudget) * 100).toFixed(1) : "0.0";
 
-  // Category mapping helper for deep insights
-  function getKaizenCategory(proj: KaizenCard) {
-    const title = (proj.title || "").toLowerCase();
-    const desc = ((proj.description || "") + " " + (proj.descriptionBefore || "")).toLowerCase();
-    const oppType = (proj.opportunityType || "").toLowerCase();
-    
-    if (oppType.includes("kalite") || title.includes("kalite") || desc.includes("kalite") || desc.includes("rework") || title.includes("hata") || desc.includes("hata") || desc.includes("düzeltme")) {
-      return "Kalite";
-    }
-    if (oppType.includes("isg") || title.includes("isg") || desc.includes("isg") || desc.includes("güvenlik") || title.includes("güvenlik") || desc.includes("iş sağlığı")) {
-      return "İSG (HSE)";
-    }
-    if (oppType.includes("hurda") || title.includes("hurda") || desc.includes("hurda") || oppType.includes("scrap") || title.includes("scrap") || desc.includes("fire") || title.includes("fire") || desc.includes("kayıp")) {
-      return "Hurda / Fire";
-    }
-    if (oppType.includes("verimlilik") || title.includes("verimlilik") || desc.includes("verimlilik") || title.includes("oee") || desc.includes("oee") || title.includes("smed") || desc.includes("smed") || desc.includes("setup")) {
-      return "Verimlilik";
-    }
-    if (oppType.includes("üretkenlik") || title.includes("üretkenlik") || desc.includes("üretkenlik") || desc.includes("kapasite") || desc.includes("hız") || title.includes("hız")) {
-      return "Üretkenlik";
-    }
-    return "Diğer / Operasyonel";
-  }
-
   // Categories Distribution Data
   const categoriesList = ["Kalite", "Verimlilik", "İSG (HSE)", "Hurda / Fire", "Üretkenlik", "Diğer / Operasyonel"];
   const categoryDistributionData = categoriesList.map(cat => {
     const list = filteredProjects.filter(k => getKaizenCategory(k) === cat);
     const count = list.length;
-    const gain = list.reduce((sum, k) => sum + realizedInCurrency(k, currency), 0);
+    const gain = list.reduce((sum, k) => sum + realizedInCurrency(k, currency, ciSettings.fxRates), 0);
     const totalCount = filteredProjects.length || 1;
     const ratio = Math.round((count / totalCount) * 100);
     return { name: cat, Adet: count, Kazanım: gain, Oran: ratio };
@@ -1694,9 +1111,9 @@ export default function KaizenManager({
   ];
 
   const chartPhaseData = [
-    { name: "Quick Win (0-3m)", value: filteredProjects.filter(k => k.phase?.includes("Phase 1")).length, color: "#10b981" },
-    { name: "Capital Improvement (3-12m)", value: filteredProjects.filter(k => k.phase?.includes("Phase 2")).length, color: "#f59e0b" },
-    { name: "Strategic Transformation (1-3y)", value: filteredProjects.filter(k => k.phase?.includes("Phase 3")).length, color: "#3b82f6" }
+    { name: "Quick Win (0-3m)", value: filteredProjects.filter(k => phaseNumber(k.phase) === 1).length, color: "#10b981" },
+    { name: "Capital Improvement (3-12m)", value: filteredProjects.filter(k => phaseNumber(k.phase) === 2).length, color: "#f59e0b" },
+    { name: "Strategic Transformation (1-3y)", value: filteredProjects.filter(k => phaseNumber(k.phase) === 3).length, color: "#3b82f6" }
   ];
 
   const chartExpectedRealized = [
@@ -1708,12 +1125,12 @@ export default function KaizenManager({
   const operatingProfitIncrease = realizedFinancialGain;
 
   // Phase Maturity Count mappings for the Phase Delivery gauge
-  const phase1Count = filteredProjects.filter(k => k.phase?.includes("Phase 1") || !k.phase).length;
-  const phase2Count = filteredProjects.filter(k => k.phase?.includes("Phase 2")).length;
-  const phase3Count = filteredProjects.filter(k => k.phase?.includes("Phase 3")).length;
+  const phase1Count = filteredProjects.filter(k => phaseNumber(k.phase) === 1).length;
+  const phase2Count = filteredProjects.filter(k => phaseNumber(k.phase) === 2).length;
+  const phase3Count = filteredProjects.filter(k => phaseNumber(k.phase) === 3).length;
 
   const departmentGainData = Array.from(new Set(kaizens.map(k => k.department))).map(dept => {
-    const gain = kaizens.filter(k => k.department === dept).reduce((sum, k) => sum + realizedInCurrency(k, currency), 0);
+    const gain = kaizens.filter(k => k.department === dept).reduce((sum, k) => sum + realizedInCurrency(k, currency, ciSettings.fxRates), 0);
     return { name: dept, Kazanım: gain };
   }).filter(d => d.Kazanım > 0);
 
@@ -1910,6 +1327,9 @@ export default function KaizenManager({
       {/* Shared autocomplete source for all team/assignee text inputs — real consultants/customer
           users from this customer's team, with free text still allowed (e.g. floor staff not in
           the system). Datalist just needs to exist once in the DOM; every input references it by id. */}
+      <datalist id="ci-departments">
+        {ciSettings.departments.map(d => <option key={d} value={d} />)}
+      </datalist>
       <datalist id="ci-team-directory">
         {teamOptions.map(member => (
           <option key={member} value={member} />
@@ -2238,6 +1658,16 @@ export default function KaizenManager({
           >
             Önce-Sonra Galerisi
           </button>
+          {isCiStaff && (
+            <button
+              onClick={() => setActiveTab("settings")}
+              className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                activeTab === "settings" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              Ayarlar
+            </button>
+          )}
         </div>
 
         {/* Global Select Dropdowns */}
@@ -2262,9 +1692,9 @@ export default function KaizenManager({
             className="text-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none text-slate-700 font-bold"
           >
             <option value="all">Tüm Fazlar</option>
-            <option value="Phase 1: Quick Win">Phase 1: Quick Win (0-3 Ay)</option>
-            <option value="Phase 2: Capital Improvement">Phase 2: Capital Improvement (3-12 Ay)</option>
-            <option value="Phase 3: Strategic Transformation">Phase 3: Strategic Transformation (1-3 Yıl)</option>
+            {ciSettings.phases.map(label => (
+              <option key={label} value={String(phaseNumber(label))}>{label}</option>
+            ))}
           </select>
         </div>
 
@@ -2359,10 +1789,10 @@ export default function KaizenManager({
                           {/* Phase tag & Edit button */}
                           <div className="flex justify-between items-center">
                             <span className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider ${
-                              proj.phase?.includes("Quick") ? "bg-emerald-100 text-emerald-800" :
-                              proj.phase?.includes("Capital") ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"
+                              phaseNumber(proj.phase) === 1 ? "bg-emerald-100 text-emerald-800" :
+                              phaseNumber(proj.phase) === 2 ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"
                             }`}>
-                              {proj.phase || "Phase 1: Quick Win"}
+                              {proj.phase || defaultPhase}
                             </span>
                             
                             <div className="flex items-center space-x-1.5">
@@ -2394,7 +1824,7 @@ export default function KaizenManager({
                               >
                                 <Edit2 className="w-3 h-3" />
                               </button>
-                              {canDeleteProject && <button
+                              {isCiStaff && <button
                                 type="button"
                                 onClick={() => handleDeleteProject(proj.id)}
                                 className="text-slate-400 hover:text-red-600 p-0.5 rounded hover:bg-slate-100 transition-all cursor-pointer"
@@ -2633,7 +2063,7 @@ export default function KaizenManager({
                       <button onClick={() => handleOpenFinancials(proj)} className="p-1.5 text-indigo-600" title="Finansal Kayıt">
                         <DollarSign className="w-4 h-4" />
                       </button>
-                      {canDeleteProject && <button onClick={() => handleDeleteProject(proj.id)} className="p-1.5 text-red-500" title="Sil">
+                      {isCiStaff && <button onClick={() => handleDeleteProject(proj.id)} className="p-1.5 text-red-500" title="Sil">
                         <Trash2 className="w-4 h-4" />
                       </button>}
                     </div>
@@ -2694,10 +2124,10 @@ export default function KaizenManager({
                       </td>
                       <td className="py-3 px-4 space-y-1">
                         <span className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-bold uppercase ${
-                          proj.phase?.includes("Quick") ? "bg-emerald-100 text-emerald-800" :
-                          proj.phase?.includes("Capital") ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"
+                          phaseNumber(proj.phase) === 1 ? "bg-emerald-100 text-emerald-800" :
+                          phaseNumber(proj.phase) === 2 ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"
                         }`}>
-                          {proj.phase?.split(":")[0] || "Phase 1"}
+                          {`Faz ${phaseNumber(proj.phase)}`}
                         </span>
                         <div>
                           <span className={`inline-block px-1.5 py-0.2 rounded text-[11px] font-bold ${
@@ -2756,7 +2186,7 @@ export default function KaizenManager({
                         >
                           <DollarSign className="w-4 h-4" />
                         </button>
-                        {canDeleteProject && <button 
+                        {isCiStaff && <button 
                           onClick={() => handleDeleteProject(proj.id)}
                           className="p-2 text-slate-400 hover:text-red-500 inline-block"
                           title="Projeyi Sil"
@@ -3467,6 +2897,10 @@ export default function KaizenManager({
       {/* 5. ÖNCE-SONRA (BEFORE-AFTER) KAIZEN GALLERY — every saved "Kaizen Öncesi Sonrası"
           one-pager across all CI projects, browsable in one place instead of buried one-by-one
           inside each project's own detail modal. */}
+      {activeTab === "settings" && isCiStaff && (
+        <CiSettingsPanel settings={ciSettings} baseCurrencyCode={baseCurrencyCode} onSave={saveCiSettings} />
+      )}
+
       {activeTab === "beforeafter" && (
         <div className="space-y-4">
           {allBeforeAfterStudies.length === 0 ? (
@@ -3612,6 +3046,7 @@ export default function KaizenManager({
                         <label className="block text-slate-500 font-bold text-xs mb-1">Departman</label>
                         <input
                           type="text"
+                          list="ci-departments"
                           value={assignDepartment}
                           onChange={(e) => setAssignDepartment(e.target.value)}
                           className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -3734,8 +3169,9 @@ export default function KaizenManager({
                         onChange={(e) => setSelectedProductFamily(e.target.value)}
                         className="bg-white border border-indigo-300 rounded-xl text-xs font-bold px-3 py-1.5 text-indigo-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-2xs cursor-pointer hover:border-indigo-400 transition-colors"
                       >
-                        {PRODUCT_FAMILIES.map(p => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
+                        <option value={ALL_FAMILIES}>Tüm Fabrika Ürün Aileleri (%100 Hacim Payı)</option>
+                        {ciSettings.productFamilies.map(p => (
+                          <option key={p.name} value={p.name}>{productFamilyLabel(p)}</option>
                         ))}
                       </select>
                     </div>
@@ -4731,6 +4167,7 @@ export default function KaizenManager({
                       <input 
                         type="text"
                         required
+                        list="ci-departments"
                         value={editDepartment}
                         onChange={(e) => setEditDepartment(e.target.value)}
                         className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none font-bold"
@@ -4779,9 +4216,9 @@ export default function KaizenManager({
                         onChange={(e) => setEditPhase(e.target.value as any)}
                         className="w-full bg-white border border-slate-200 rounded p-1.5 text-indigo-700 font-bold focus:outline-none"
                       >
-                        <option value="Faz 1 (1 Ay)">Faz 1 (Hızlı Kazanım - 1 Ay)</option>
-                        <option value="Faz 2 (2-3 Ay)">Faz 2 (Yatırım & Verimlilik - 2-3 Ay)</option>
-                        <option value="Faz 3 (6-12 Ay)">Faz 3 (Stratejik Dönüşüm - 6-12 Ay)</option>
+                        {choicesWith(ciSettings.phases, editPhase).map(label => (
+                          <option key={label} value={label}>{label}</option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -5184,9 +4621,9 @@ export default function KaizenManager({
                               onChange={(e) => setEditExpectedGainCurrency(e.target.value)}
                               className="bg-slate-100 border border-slate-200 rounded-r px-1.5 text-[10px] font-bold focus:outline-none text-slate-600"
                             >
-                              <option value="TL">₺ (TL)</option>
-                              <option value="USD">$ (USD)</option>
-                              <option value="EUR">€ (EUR)</option>
+                              {currencyChoices(editExpectedGainCurrency).map(o => (
+                                <option key={o.value} value={o.value}>{o.label}</option>
+                              ))}
                             </select>
                           </div>
                         </div>
@@ -5207,9 +4644,9 @@ export default function KaizenManager({
                               onChange={(e) => setEditRealizedGainCurrency(e.target.value)}
                               className="bg-emerald-100 border border-emerald-200 rounded-r px-1.5 text-[10px] font-bold focus:outline-none text-emerald-700"
                             >
-                              <option value="TL">₺ (TL)</option>
-                              <option value="USD">$ (USD)</option>
-                              <option value="EUR">€ (EUR)</option>
+                              {currencyChoices(editRealizedGainCurrency).map(o => (
+                                <option key={o.value} value={o.value}>{o.label}</option>
+                              ))}
                             </select>
                           </div>
                         </div>

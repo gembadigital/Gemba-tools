@@ -14,6 +14,7 @@ import autoTable from "jspdf-autotable";
 import { domToCanvas } from "modern-screenshot";
 import { Customer, GanttActivity, KaizenCard } from "../types";
 import { sumExpected, sumRealized } from "./ci/ciMoney";
+import { useCiSettings } from "./ci/useCiSettings";
 import { ProjectRecord, EXCLUDED_STATUSES } from "./PtrTimeStudy";
 
 interface OpexProjectDashboardProps {
@@ -195,6 +196,8 @@ export default function OpexProjectDashboard({
 
   // Currency selection helper
   const currencySymbol = selectedCustomer?.currency || "₺";
+  // Exchange rates for CI project amounts in another currency (CI settings).
+  const ciFxRates = useCiSettings(selectedCustomer?.id).settings.fxRates;
 
   // Section 1 - Executive KPI Calculations
   const metrics = useMemo(() => {
@@ -232,7 +235,7 @@ export default function OpexProjectDashboard({
       .reduce((sum, r) => {
         const val = parseFloat((r.kaizenSavings || r.savingsAmount || "0").toString().replace(/[^0-9.-]+/g, ""));
         return sum + (isNaN(val) ? 0 : val);
-      }, 0) + sumRealized(filteredData.kaizens.filter(k => k.status === "Completed"), currencySymbol).total;
+      }, 0) + sumRealized(filteredData.kaizens.filter(k => k.status === "Completed"), currencySymbol, ciFxRates).total;
 
     // Expected Savings — only real recorded amounts; no fabricated ₺15.000 substitute for records
     // without a savings figure, and real kaizen expectedGain instead of estimatedCost*2.5.
@@ -240,7 +243,7 @@ export default function OpexProjectDashboard({
       .reduce((sum, r) => {
         const val = parseFloat((r.savingsAmount || "0").toString().replace(/[^0-9.-]+/g, ""));
         return sum + (isNaN(val) ? 0 : val);
-      }, 0) + sumExpected(filteredData.kaizens, currencySymbol).total;
+      }, 0) + sumExpected(filteredData.kaizens, currencySymbol, ciFxRates).total;
 
     // Real training session count — no fabricated duration/attendance multipliers
     // (ProjectRecord doesn't track real session hours or participant counts).
@@ -273,7 +276,7 @@ export default function OpexProjectDashboard({
       trainingSessions,
       totalTrainingManHours
     };
-  }, [filteredData, currencySymbol]);
+  }, [filteredData, currencySymbol, ciFxRates]);
 
   // Section 2 & 4 & 5 & 6 & 7 Charts Data Preparation
 
