@@ -450,10 +450,10 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
       {section === "champions" && <KaizenChampions api={api} />}
 
       {section === "reports" && isBoardMember && (
-        <KaizenReports suggestions={suggestions} evaluations={evaluations} personnel={personnel} implementations={implementations} api={api} settings={settings} />
+        <KaizenReports suggestions={suggestions} evaluations={evaluations} personnel={personnel} implementations={implementations} api={api} settings={settings} companyName={selectedCustomer?.companyName} />
       )}
       {section === "reports" && !isBoardMember && teamReport && (
-        <KaizenReports {...teamReport} api={api} settings={settings} />
+        <KaizenReports {...teamReport} api={api} settings={settings} companyName={selectedCustomer?.companyName} />
       )}
 
       {section === "setup" && isKaizenAdmin && (

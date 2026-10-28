@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Gem, Download, ShieldAlert, Leaf, Sparkles, Trophy, Lightbulb, BadgeCheck, Award, Coins, RotateCcw, Users, Wallet, TrendingUp, Building2, ArrowUpDown } from "lucide-react";
+import { FileText, Gem, Download, ShieldAlert, Leaf, Sparkles, Trophy, Lightbulb, BadgeCheck, Award, Coins, RotateCcw, Users, Wallet, TrendingUp, Building2, ArrowUpDown } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, LineChart, Line, Treemap,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, RadialBarChart, RadialBar, PolarAngleAxis
@@ -10,6 +10,9 @@ import { KaizenApi } from "./KaizenSuggestionSystem";
 import { KaizenSettings, toBaseCurrency, optionChoices, stagesOf, awaitingFirstDecision } from "../../utils/kaizenSettings";
 import { Card, KpiCard, Button, EmptyState, PageHeader, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 import { suggestionRoi } from "./KaizenRoi";
+import KaizenReportPdf from "./KaizenReportPdf";
+import { exportReportExcel, ReportPack, Cell as XCell } from "./kaizenReportExport";
+import { recurrenceOf } from "../../utils/kaizenRoi";
 import { portfolioRoi, paybackText } from "../../utils/kaizenRoi";
 
 // Native replacement for the legacy Power BI report (two pages: a KPI/chart dashboard with five
@@ -22,6 +25,7 @@ interface Props {
   personnel: KaizenPersonnel[];
   implementations: KaizenImplementation[];
   api: KaizenApi;
+  companyName?: string;
   // Amir raporu (Faz 5.6): the lists above are already limited to the manager's team; the ranking
   // groups by sub-team (direct report's branch) instead of department, and there is no Excel export.
   team?: { leaderName: string; groupTitle: string; groupOf: (s: KaizenSuggestion) => string; headcount: Map<string, number> };
@@ -41,7 +45,7 @@ function statusBucket(s: KaizenSuggestion): "approved" | "pending" | "rejected" 
 
 const selectCls = "h-11 w-full px-3 rounded-xl bg-slate-50/80 ring-1 ring-inset ring-slate-200 text-sm text-slate-800 transition-all focus:outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600/40";
 
-export default function KaizenReports({ suggestions, evaluations, personnel, implementations, api, settings, team }: Props) {
+export default function KaizenReports({ suggestions, evaluations, personnel, implementations, api, settings, team, companyName = "" }: Props) {
   const base = settings.baseCurrency;
   // Filters list the customer's current options plus any older value still present in the data.
   const typeFilterOptions = useMemo(() => optionChoices(settings.suggestionTypes, suggestions.flatMap(s => s.suggestionTypes || [])), [settings, suggestions]);
@@ -53,7 +57,7 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
   const [fPersonnel, setFPersonnel] = useState(ALL);
   const [fFrom, setFFrom] = useState("");
   const [fTo, setFTo] = useState("");
-  const [downloading, setDownloading] = useState(false);
+  const [pdfPack, setPdfPack] = useState<ReportPack | null>(null);
 
   const departments = useMemo(() => Array.from(new Set(suggestions.map(s => s.personnelDepartment).filter(Boolean))).sort(), [suggestions]);
   const personnelNames = useMemo(() => Array.from(new Set(suggestions.map(s => s.personnelName).filter(Boolean))).sort(), [suggestions]);
@@ -237,14 +241,95 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
 
   const detailRows = useMemo(() => [...filtered].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")), [filtered]);
 
-  const download = async () => {
-    setDownloading(true);
-    try { await api.download("suggestions/export-excel", "Kaizen_Onerileri.xlsx"); } catch { /* surfaced by the disabled state resetting; toast lives in the shell */ }
-    setDownloading(false);
+  // Rapor çıktıları (Faz 5.7): one pack of exactly what this screen shows (filters, team scope).
+  const buildPack = (): ReportPack => {
+    const money = (n: number) => Math.round(n);
+    const conv = (n: number | undefined, c: string | undefined) => (n ? toBaseCurrency(n, c || base, settings) : 0);
+    const filters = [
+      fPersonnel !== ALL && `Personel: ${fPersonnel}`,
+      fDepartment !== ALL && `Bölüm: ${fDepartment}`,
+      fType !== ALL && `Sınıf: ${fType}`,
+      fStatus !== ALL && `Durum: ${APPROVAL_STATUS_LABELS[fStatus as ApprovalStatus] || fStatus}`,
+      fStage !== ALL && `Aşama: ${fStage}`,
+      (fFrom || fTo) && `Tarih: ${fFrom || "…"} – ${fTo || "…"}`
+    ].filter(Boolean) as string[];
+    const groupLabel = team ? "Alt ekip" : "Bölüm";
+    const expectedRoi = (s: KaizenSuggestion) => { const r = suggestionRoi(s, evaluationBySuggestion.get(s.id), implBySuggestion.get(s.id), settings, "expected"); return r && "roi" in r ? r.roi : null; };
+    const expectedBase = (s: KaizenSuggestion) => { const x = expectedSaving(s, evaluationBySuggestion.get(s.id)); return toBaseCurrency(x.amount, x.currency, settings); };
+    const statusOf = (s: KaizenSuggestion) => statusLabel(s.approvalStatus, s.requiredStages, s.feasibility?.status === "open");
+    const statusCounts = new Map<string, number>();
+    filtered.forEach(s => statusCounts.set(statusOf(s), (statusCounts.get(statusOf(s)) || 0) + 1));
+    const pb = (m: number | null | undefined): XCell => (m === null || m === undefined ? null : m);
+    const top = filtered
+      .filter(s => s.approvalStatus !== "Rejected" && s.approvalStatus !== "Rejected 2nd")
+      .map(s => ({ s, v: expectedBase(s) ?? 0 }))
+      .filter(x => x.v > 0)
+      .sort((a, b) => b.v - a.v)
+      .slice(0, 8);
+    return {
+      title: team ? "Ekip raporu" : "Kaizen raporu",
+      company: companyName,
+      scope: team ? `${team.leaderName} ekibi (alt kademeler dahil) · ${filtered.length} öneri` : `Tüm müşteri · ${filtered.length} / ${suggestions.length} öneri`,
+      generatedAt: new Date().toISOString(),
+      base,
+      filters,
+      kpis: [
+        { label: "Toplam öneri", value: filtered.length },
+        { label: "Uygulanan", value: completedCount },
+        { label: "Kazançlı öneri", value: profitableCount },
+        { label: "Kişi başı öneri", value: perPerson },
+        { label: "Kurul puanı", value: totalPoints },
+        { label: "Tahmini getiri", value: money(approvedIncomeBase), unit: base, hint: "Onaylanan öneriler" },
+        { label: "Bekleyen potansiyel", value: money(pool.total), unit: base, hint: "Kabul edilmiş, uygulanmamış" },
+        { label: "Toplam yatırım", value: money(investment.total), unit: base, hint: "Kabul edilenler; gerçekleşen yoksa tahmini" },
+        { label: "Doğrulanmış gerçek kazanç", value: money(verifiedActualBase), unit: base },
+        { label: "Net gerçek kazanç (ilk yıl)", value: money(roiActual.net), unit: base }
+      ],
+      roi: [
+        { label: "Öneri sayısı", expected: roiExpected.count, actual: roiActual.count },
+        { label: "Yıllık kazanç", expected: money(roiExpected.annual), actual: money(roiActual.annual), unit: base },
+        { label: "Tek seferlik kazanç", expected: money(roiExpected.oneOff), actual: money(roiActual.oneOff), unit: base },
+        { label: "Yatırım / maliyet", expected: money(roiExpected.cost), actual: money(roiActual.cost), unit: base },
+        { label: "Net kazanç (ilk yıl)", expected: money(roiExpected.net), actual: money(roiActual.net), unit: base },
+        { label: "ROI (%)", expected: roiExpected.roiPct, actual: roiActual.roiPct },
+        { label: "Geri ödeme (ay)", expected: pb(roiExpected.paybackMonths), actual: pb(roiActual.paybackMonths) }
+      ],
+      ranking: {
+        title: team ? "Alt Ekip Sıralaması" : "Bölüm Sıralaması",
+        columns: [groupLabel, "Öneri", "Kişi başı", "Kabul %", "Uygulanan", "Puan", `Beklenen (${base})`, `Gerçek (${base})`],
+        rows: departmentRows.map(r => [r.department, r.count, r.headcount ? Math.round(r.perPerson * 10) / 10 : null, r.decided ? r.rate : null, r.completed, r.points, money(r.expected), money(r.actual)])
+      },
+      statusCounts: Array.from(statusCounts.entries()).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count),
+      top: {
+        title: "En yüksek beklenen kazançlı öneriler",
+        columns: ["Konu", "Kişi", groupLabel, "Durum", `Beklenen (${base})`, "Geri ödeme (ay)"],
+        rows: top.map(({ s, v }) => [s.subject, s.personnelName, team ? team.groupOf(s) : s.personnelDepartment || "—", statusOf(s), money(v), pb(expectedRoi(s)?.paybackMonths)])
+      },
+      detailColumns: ["Tarih", "Sicil No", "Ad Soyad", "Bölüm", "Konu", "Sınıf", "Durum", "Kazanç Süresi", "Kazanç türü",
+        "Beklenen kazanç", "Kazanç para birimi", `Beklenen kazanç (${base})`, "Tahmini maliyet", "Maliyet para birimi",
+        "Gerçekleşen kazanç (doğrulanmış)", "Gerçekleşen yatırım", "Gerçekleşen para birimi",
+        `Net kazanç, beklenen (${base})`, "ROI %, beklenen", "Geri ödeme (ay), beklenen", "Kurul puanı", "Uygulama durumu"],
+      detailRows: detailRows.map(s => {
+        const x = expectedSaving(s, evaluationBySuggestion.get(s.id));
+        const i = implBySuggestion.get(s.id);
+        const verified = i?.verification?.status === "Doğrulandı";
+        const r = expectedRoi(s);
+        return [
+          (s.createdAt || "").slice(0, 10), s.personnelEmployeeNo || "", s.personnelName, s.personnelDepartment, s.subject,
+          (s.suggestionTypes || []).join(", "), statusOf(s), s.paybackPeriod || "", recurrenceOf(s.paybackPeriod) === "annual" ? "Yıllık" : "Tek seferlik",
+          x.amount || 0, x.currency || "", expectedBase(s), s.estimatedCost || 0, s.estimatedCostCurrency || "",
+          verified ? i!.actualSaving || 0 : null, i?.actualCost || null, i ? i.actualSavingCurrency || "" : "",
+          r ? money(r.net) : null, r?.roiPct ?? null, r ? pb(r.paybackMonths) : null,
+          evaluationBySuggestion.get(s.id)?.point ?? null, i?.status || (s.approvalStatus === "Second Approval" ? "Plan yok" : "")
+        ];
+      })
+    };
   };
+  const download = () => exportReportExcel(buildPack());
 
   return (
     <div className="space-y-6">
+      {pdfPack && <KaizenReportPdf pack={pdfPack} onClose={() => setPdfPack(null)} />}
       <PageHeader
         title={team ? "Ekip raporu" : "Kaizen raporu"}
         subtitle={team
@@ -252,7 +337,8 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
           : `${filtered.length} / ${suggestions.length} öneri · katılım, kazanç ve süreç görünümü`}
         actions={<>
           {hasFilter && <Button variant="outline" onClick={resetFilters}><RotateCcw className="w-4 h-4" />Filtreleri sıfırla</Button>}
-          {!team && <Button variant="primary" onClick={download} disabled={downloading}><Download className="w-4 h-4" />{downloading ? "Hazırlanıyor…" : "Excel indir"}</Button>}
+          <Button variant="outline" onClick={() => setPdfPack(buildPack())} disabled={!filtered.length}><FileText className="w-4 h-4" />PDF özet</Button>
+          <Button variant="primary" onClick={download} disabled={!filtered.length}><Download className="w-4 h-4" />Excel indir</Button>
         </>}
       />
       {/* Filters */}
