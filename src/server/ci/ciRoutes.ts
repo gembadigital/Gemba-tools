@@ -7,6 +7,18 @@
 import type express from "express";
 import { db } from "../db.js";
 import { normalizeCiSettings } from "../../utils/ciSettings.js";
+import {
+  CiStageAction, CI_SERVER_OWNED_FIELDS, applyStageAction, canEditProject, canViewProject, derivedStatusFields,
+  isCiStaffUser, isClosed, isLeader, stageOf, withHistory
+} from "../../utils/ciLifecycle.js";
+
+const STAGE_ACTIONS: CiStageAction[] = ["submit", "approve", "return", "stepBack", "reopen", "hold", "cancel", "resume", "confirmGain"];
+// Changing any of these voids an earlier consultant confirmation of the realized gain.
+const GAIN_FIELDS = ["realizedGain", "realizedGainCurrency", "actualSavings"];
+// Leader / team changes: only Admin / Consultant or the current leader (a member must not be able
+// to make themself the approver).
+const LEADERSHIP_FIELDS = ["projectLeader", "projectLeaderId", "projectTeam", "projectTeamIds"];
+const sameValue = (a: any, b: any) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 export interface CiRouteDeps {
   authenticateToken: express.RequestHandler;
@@ -15,7 +27,9 @@ export interface CiRouteDeps {
   canAccessFactory: (req: express.Request, factoryId?: string) => boolean;
 }
 
-const isStaff = (user: any) => user.role === "Admin" || user.role === "Consultant";
+const isStaff = (user: any) => isCiStaffUser(user);
+// Kaizen sicil-no sessions (virtual customer users of the suggestion system) have no CI access.
+const isKaizenSession = (user: any) => user?.authType === "kaizen";
 // Legacy records saved without a customer belong to the old default factory id.
 const factoryOf = (record: any) => record.factory_id || "arcelik_bolu";
 
@@ -29,33 +43,84 @@ export function registerCiRoutes(app: express.Express, deps: CiRouteDeps) {
   app.get("/api/business/kaizens", authenticateToken, async (req, res) => {
     const user = (req as any).user;
     const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
-    if (!scope.allowed) return deny(res);
-    res.json({ success: true, data: await db.getKaizens(user.organization_id, scope.factoryId) });
+    if (!scope.allowed || isKaizenSession(user)) return deny(res);
+    const all = await db.getKaizens(user.organization_id, scope.factoryId);
+    // Customer users see only the projects they lead or are a member of.
+    res.json({ success: true, data: isStaff(user) ? all : all.filter(k => canViewProject(user, k)) });
   });
 
   app.post("/api/business/kaizens", authenticateToken, async (req, res) => {
     const user = (req as any).user;
     const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
-    if (!scope.allowed) return deny(res);
+    if (!scope.allowed || isKaizenSession(user)) return deny(res);
     const payload = { ...req.body };
     // The customer comes from the scoped x-factory-id header, never from the body — a restricted
     // user could otherwise write into another customer by naming its id. Unrestricted users (no
     // header) keep the body's value, as before.
     if (scope.factoryId) payload.factory_id = scope.factoryId;
     const existing = payload.id ? await db.getKaizenById(user.organization_id, String(payload.id)) : null;
+    const now = new Date().toISOString();
+    const who = user.full_name || user.email;
+
     if (!existing) {
-      res.json({ success: true, data: await db.createKaizenWithNumber(user.organization_id, payload.factory_id, payload, user.id) });
+      // A customer user may only create a project they lead or belong to (otherwise it would vanish
+      // from their list at once).
+      if (!isStaff(user) && !canViewProject(user, payload)) {
+        return deny(res, 403, "Proje lideri ya da ekip üyesi olarak kendinizi seçmelisiniz.");
+      }
+      // Every new project starts at step 1, whatever the client sent (status / kanban / stage).
+      for (const f of CI_SERVER_OWNED_FIELDS) delete payload[f];
+      Object.assign(payload, { stage: 1, closedAt: null, holdState: null, pendingApproval: null }, derivedStatusFields(1, false, null));
+      const created = withHistory(payload, { at: now, by: who, byId: user.id, action: "Proje açıldı" });
+      res.json({ success: true, data: await db.createKaizenWithNumber(user.organization_id, payload.factory_id, created, user.id) });
       return;
     }
-    // An update may not move a project to another customer, nor touch one the caller can't see.
+
+    // An update may not move a project to another customer, nor touch one the caller can't see/edit.
     const existingFactory = factoryOf(existing);
     if (!canAccessFactory(req, existingFactory) || (payload.factory_id && payload.factory_id !== existingFactory)) return deny(res);
-    // Server-owned fields: the project number is fixed at creation.
-    payload.projectNo = existing.projectNo;
-    payload.projectSeq = existing.projectSeq;
-    payload.created_by = existing.created_by;
-    payload.created_at = existing.created_at;
-    res.json({ success: true, data: await db.saveKaizen(user.organization_id, payload, user.id) });
+    if (!canEditProject(user, existing)) return deny(res, 403, "Bu projede değişiklik yetkiniz yok.");
+    if (!isStaff(user) && !isLeader(user, existing) && LEADERSHIP_FIELDS.some(f => f in payload && !sameValue(payload[f], existing[f]))) {
+      return deny(res, 403, "Proje lideri ve ekibini yalnızca proje lideri ya da danışman değiştirebilir.");
+    }
+
+    // Lifecycle state, approvals and the project number change only through the stage actions.
+    for (const f of CI_SERVER_OWNED_FIELDS) {
+      if (f in existing) payload[f] = existing[f];
+      else delete payload[f];
+    }
+    // Step dates: the planned dates are editable, completion / approval stamps are not.
+    if (payload.stageDates && typeof payload.stageDates === "object") {
+      const merged: Record<string, any> = { ...(existing.stageDates || {}) };
+      for (const [k, v] of Object.entries<any>(payload.stageDates)) {
+        merged[k] = { ...(merged[k] || {}), planned: typeof v?.planned === "string" ? v.planned : merged[k]?.planned };
+      }
+      payload.stageDates = merged;
+    }
+    const changed = Object.keys(payload).filter(f => !["id", "factory_id", "updated_at", "updated_by"].includes(f) && !sameValue(payload[f], existing[f]));
+    if (changed.some(f => GAIN_FIELDS.includes(f)) && existing.gainConfirmedAt) {
+      Object.assign(payload, { gainConfirmedAt: null, gainConfirmedBy: null, gainConfirmedById: null });
+    }
+    // Projects on the 8-step model keep their derived status fields consistent with the stage.
+    if (existing.stage) Object.assign(payload, derivedStatusFields(stageOf(existing), isClosed(existing), existing.holdState));
+    const record = changed.length
+      ? withHistory({ ...existing, ...payload }, { at: now, by: who, byId: user.id, action: `Güncellendi (${changed.length} alan)` })
+      : { ...existing, ...payload };
+    res.json({ success: true, data: await db.saveKaizen(user.organization_id, record, user.id) });
+  });
+
+  // Lifecycle actions: submit / approve a step, return, step back, reopen, hold, cancel, resume,
+  // confirm the realized gain. Rules in utils/ciLifecycle.ts (applyStageAction).
+  app.post("/api/business/kaizens/:id/stage", authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    if (isKaizenSession(user)) return deny(res);
+    const action = req.body?.action as CiStageAction;
+    if (!STAGE_ACTIONS.includes(action)) return deny(res, 400, "Geçersiz işlem.");
+    const existing = await db.getKaizenById(user.organization_id, req.params.id);
+    if (!existing || !canAccessFactory(req, factoryOf(existing)) || !canViewProject(user, existing)) return deny(res);
+    const result = applyStageAction(existing, action, user, new Date(), req.body?.note);
+    if (!result.project) return deny(res, 409, result.error);
+    res.json({ success: true, data: await db.saveKaizen(user.organization_id, result.project, user.id) });
   });
 
   app.delete("/api/business/kaizens/:id", authenticateToken, async (req, res) => {
@@ -74,7 +139,7 @@ export function registerCiRoutes(app: express.Express, deps: CiRouteDeps) {
   app.get("/api/business/ci/settings", authenticateToken, async (req, res) => {
     const user = (req as any).user;
     const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
-    if (!scope.allowed || !scope.factoryId) return deny(res);
+    if (!scope.allowed || !scope.factoryId || isKaizenSession(user)) return deny(res);
     res.json({ success: true, data: normalizeCiSettings(await db.getCiSettingsRecord(user.organization_id, scope.factoryId)) });
   });
 

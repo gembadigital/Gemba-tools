@@ -1,3 +1,4 @@
+import type { CiHoldState, CiPendingApproval, CiStageDate, CiHistoryEntry, CiKpi } from "./utils/ciLifecycle";
 export interface AuditRecord {
   id: string;
   name: string;
@@ -133,7 +134,7 @@ export interface KaizenCard {
   impactLevel: "High" | "Medium" | "Low";
   estimatedCost: number;
   actualSavings: number;
-  status: "Draft" | "Approved" | "In Progress" | "Completed";
+  status: "Draft" | "Approved" | "In Progress" | "Completed" | "On Hold" | "Cancelled";
   descriptionBefore: string;
   descriptionAfter: string;
   description?: string;
@@ -186,6 +187,23 @@ export interface KaizenCard {
   resultDescription?: string;
   resultPhotos?: string[];
   documents?: any[];
+  // 8-step A3 lifecycle (CI plan step C2) — rules and field meanings in utils/ciLifecycle.ts.
+  // Lifecycle fields are server-owned: they change only through POST /api/business/kaizens/:id/stage.
+  stage?: number;
+  closedAt?: string | null;
+  holdState?: CiHoldState | null;
+  pendingApproval?: CiPendingApproval | null;
+  stageDates?: Record<string, CiStageDate>;
+  history?: CiHistoryEntry[];
+  kpi?: CiKpi;
+  kpiTargetMet?: boolean | null;
+  projectLeaderId?: string;
+  projectTeamIds?: string[];
+  gainConfirmedAt?: string | null;
+  gainConfirmedBy?: string | null;
+  gainConfirmedById?: string | null;
+  horizontalDeployment?: string;
+  lessonsLearned?: string;
 }
 
 export interface AnnotationLine {

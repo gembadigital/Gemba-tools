@@ -189,6 +189,7 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
 |---|---|---|
 | C0 | ✅ kod (canlıda doğrulanmadı) | Ayrıntı aşağıda. |
 | C1 | ✅ kod (canlıda doğrulanmadı) | Ayrıntı aşağıda. Sekme bileşenlerinin bölünmesi C2/C3/C6/C7'ye bırakıldı (gerekçe aşağıda). |
+| C2 | ✅ kod (canlıda doğrulanmadı) | 8 adımlı A3 kartı, lider onayı, lider/üye yetkileri, geçmiş. Ayrıntı aşağıda. |
 
 ### C0 — yapılanlar
 - **Sunucu (`/api/business/kaizens`):** müşteri gövdeden değil `x-factory-id` kapsamından alınır; güncellemede mevcut
@@ -242,4 +243,49 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
   bölmek aynı kodu iki kez taşımak olur. Yeni ekranlar doğrudan `ci/` altında yazılacak.
 - **Doğrulama:** `tsc`, `npm run build`, sunucunun native ESM yüklenmesi (dosya bazlı esbuild + `import('./api/index.js')`),
   ayar/numara/kur mantık simülasyonu (17 kontrol). Canlıda denenmedi.
+
+### C2 — yapılanlar
+- **Kurallar tek yerde:** `src/utils/ciLifecycle.ts` (istemci + sunucu): Toyota 8 adım A3 (`CI_STEPS`), adım şartları
+  (`stageRequirements`), yetkiler (`canViewProject`, `canEditProject`, `canApproveStage`, `canManageHold`), işlemler
+  (`applyStageAction`: onaya gönder, onayla, geri gönder, önceki adıma dön, yeniden aç, askıya al, iptal, devam,
+  kazanç teyidi) ve geçmiş kaydı. `status` / `kanbanStatus` / `progressStep` artık adımdan türetilen kopyalardır
+  (dashboard, Master Plan senkronu, Excel değişmeden çalışır; "On Hold" / "Cancelled" durumları eklendi).
+- **Adım şartları:** 1 ad + problem + lider + (kayıp tutarı ya da KPI başlangıcı) · 2 mevcut durum · 3 KPI, başlangıç,
+  hedef, hedef tarih · 4 kök neden · 5 en az bir aksiyon, hepsinde sorumlu + termin · 6 tüm aksiyonlar bitti/iptal ·
+  7 en az bir KPI ölçümü + "hedefe ulaşıldı mı" kararı + (kazanç varsa) danışman teyidi · 8 en az bir standartlaştırma
+  + sonuç (Başarılı / Revizyon Gerekli) + sonuç açıklaması. Adım 8'in onayı projeyi kapatır.
+- **Onay:** proje lideri (kullanıcı hesabı) onaylar; Admin her zaman. Lideri yalnızca isim olarak kayıtlı eski
+  projelerde Admin/Danışman onaylar. Lider olmayan kişi "onaya gönder"ir, lider onaylar ya da geri gönderir.
+- **Kazanç:** gerçekleşen kazanç girilir → danışman "Kazancı teyit et" → lider 7. adımı onaylar. Teyitten sonra kazanç
+  tutarı/para birimi değişirse teyit sunucuda düşer.
+- **Yetkiler (sunucuda):** Customer User yalnızca lideri ya da üyesi olduğu projeleri görür/düzenler (listeden
+  filtrelenir); proje açarken kendini lider ya da üye seçmek zorunda; lider/ekibi yalnızca lider ya da danışman
+  değiştirir; projeyi silemez. Kaizen sicil-no oturumları CI uçlarına erişemez. Adım, onay, kapanış, geçmiş, kazanç
+  teyidi ve adım onay damgaları yalnızca `POST /api/business/kaizens/:id/stage` ile değişir; normal kayıt bunları
+  yok sayar (adımların yalnızca *planlanan* tarihi düzenlenebilir). Yeni proje her zaman 1. adımdan başlar.
+- **Kayıt:** kart yalnızca değişen alanları gönderir (sunucu birleştirir) → aynı projede farklı bölümleri düzenleyen
+  iki kişi birbirinin verisini ezmez. Her kayıt ve işlem geçmişe yazılır (kim, ne zaman, not); en fazla 300 kayıt.
+- **Yeni proje kartı** `src/components/ci/CiProjectCard.tsx` (eski detay modalının yerine), Kaizen modülüyle aynı
+  tasarım dili (`ci/ciUi.tsx` Kaizen UI kitini yeniden kullanır): solda 8 adım (telefonda yatay şerit) ve adım
+  tarihleri, sağda adım içeriği, altta şart listesi + onay düğmeleri; "Künye & Ekip" (lider/üyeler hesaplardan, adım
+  planlanan tarihleri), "Ekler", "Geçmiş" sekmeleri. Yeni alanlar: KPI bloğu (`kpi`: ad, birim, iyi yön, başlangıç,
+  hedef, ölçümler), `kpiTargetMet`, `horizontalDeployment` (yaygınlaştırma), `lessonsLearned`, `projectLeaderId`,
+  `projectTeamIds`, aksiyon sorumlusu için `responsibleId`. Tutar alanları binlik ayraçlı (`AmountInput`, B5'in
+  kart içindeki kısmı). Fotoğraflar yüklenirken küçültülür; ek dosya sınırı 8 MB → **3 MB** (Vercel ~4,5 MB gövde sınırı).
+- **Kanban:** kart sürüklemek adım atlatmaz — yalnızca bir sonraki PDCA sütununa, o adımın şartları sağlanmışsa
+  (onaya gönder / onayla) taşınır; aksi halde neden söylenir. Kartlarda "Adım n/8" rozeti ve "onay" işareti.
+- **Canlı veri:** toplu taşıma yapılmadı. Eski projelerin adımı okurken türetilir (Tanımlama→1, Analiz→4, Planlama→5,
+  Uygulama→6, Kontrol→7, Standardizasyon/Kapatıldı→8; yoksa kanban sütunu); ilk işlemde açık alanlar yazılır. Eski
+  `targetKpi` KPI adı olarak okunur; eski serbest metin aksiyon alanları 5. adımda salt okunur gösterilir.
+- **Davranış değişikliği (canlıda dikkat):** Customer User artık müşterisinin tüm CI projelerini değil, yalnızca lideri
+  ya da üyesi olduğu projeleri görür. Eski kayıtlarda eşleşme isimle yapılır ("Ad Soyad (rol)" ekleri yok sayılır).
+- **Açık kalanlar:** etki analizi kartta salt okunur (düzenleyici yok); "Kazanç kırılımı" (17 kalem) modalı hâlâ yalnızca
+  `actualSavings` yazar → tek finans modeli C6; yeni proje sihirbazı ve önce-sonra formu eski tasarımda (C5 / C10);
+  `targetRatio` / `realizedImprovementPct` eski yüzde alanları KPI bloğuyla birleştirilmedi (gösterim C6/C7);
+  "Hatırlatma" hâlâ yalnızca sayaç (C9).
+- **Doğrulama:** `tsc`, `npm run build`, native ESM yükleme; yaşam döngüsü + gerçek Express rotaları bellek içi sahte
+  veritabanıyla 37 kontrol (görünürlük, düzenleme, lider değiştirme, adım şartları, onay, iptal, kiosk oturumu, kazanç
+  teyidinin düşmesi, damga koruması, silme) — test yeni projenin istemcinin gönderdiği adımda açılabildiği bir açığı
+  yakaladı, düzeltildi. Kart yerel önizlemede (sahte veri) masaüstü ve telefon genişliğinde denendi; aksiyon satırı
+  ve telefon başlığı düzeltildi. Canlıda denenmedi.
 

@@ -25,6 +25,10 @@ import { phaseNumber, choicesWith, CI_CURRENCY_SYMBOLS } from "../utils/ciSettin
 import { normalizeCurrency } from "./ci/ciMoney";
 import { useCiSettings } from "./ci/useCiSettings";
 import CiSettingsPanel from "./ci/CiSettingsPanel";
+import CiProjectCard, { CiPerson, StageBadge } from "./ci/CiProjectCard";
+import {
+  CI_STEPS, CiStageAction, CiUserLike, stageOf, isClosed, pdcaOfStage, stageRequirements, canApproveStage, isCiStaffUser
+} from "../utils/ciLifecycle";
 import { sumExpected, sumRealized, realizedInCurrency, excludedNote } from "./ci/ciMoney";
 import { exportKaizenCardToExcel as exportCiProjectCardExcel, exportBeforeAfterKaizenToExcel as exportCiBeforeAfterExcel } from "./ci/ciExcelExport";
 
@@ -32,7 +36,10 @@ interface KaizenManagerProps {
   kaizens: KaizenCard[];
   // Resolves to the saved record (with its server-assigned project number), or undefined on failure.
   onAddKaizen: (k: KaizenCard) => Promise<KaizenCard | undefined>;
-  onUpdateKaizen: (k: KaizenCard) => void;
+  // Saves (the server merges the fields sent); resolves to the saved record, or undefined on failure.
+  onUpdateKaizen: (k: Partial<KaizenCard> & { id: string }) => Promise<KaizenCard | undefined>;
+  // Puts a record returned by the server (e.g. after a lifecycle action) into the app's list.
+  onKaizenChanged: (k: KaizenCard) => void;
   // Resolves to false when the server refused (e.g. customer users may not delete projects).
   onDeleteKaizen: (id: string) => Promise<boolean>;
   processes: ProcessRecord[];
@@ -41,7 +48,7 @@ interface KaizenManagerProps {
   onUpdateActivity: (a: GanttActivity) => void;
   onDeleteActivity: (id: string) => void;
   selectedCustomer: Customer;
-  currentUserRole?: string;
+  currentUser?: CiUserLike | null;
 }
 
 type TabType = "kanban" | "list" | "timeline" | "dashboard" | "beforeafter" | "settings";
@@ -58,12 +65,13 @@ export default function KaizenManager({
   onUpdateActivity,
   onDeleteActivity,
   selectedCustomer,
-  currentUserRole
+  onKaizenChanged,
+  currentUser = null
 }: KaizenManagerProps) {
   const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
   // Admin / Consultant: may delete a whole CI project and change the CI settings (enforced by the
   // server too).
-  const isCiStaff = currentUserRole === "Admin" || currentUserRole === "Consultant";
+  const isCiStaff = isCiStaffUser(currentUser);
   const [activeTab, setActiveTab] = useState<TabType>("kanban");
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [selectedDeptFilter, setSelectedDeptFilter] = useState("all");
@@ -97,23 +105,11 @@ export default function KaizenManager({
   const [assignDepartment, setAssignDepartment] = useState<string>("");
   const [assignDeadline, setAssignDeadline] = useState<string>("");
   const [assignTitle, setAssignTitle] = useState<string>("");
-  const [editCurrentLoss, setEditCurrentLoss] = useState<number>(0);
-  const [isProjectFullScreen, setIsProjectFullScreen] = useState(false);
 
   // Edit Project Detail States
   const [editingProject, setEditingProject] = useState<KaizenCard | null>(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editProblemDefinition, setEditProblemDefinition] = useState("");
-  const [editProblemDetail, setEditProblemDetail] = useState("");
-  const [editTargetObjective, setEditTargetObjective] = useState("");
-  const [editTargetKpi, setEditTargetKpi] = useState("");
-  const [editTargetRatio, setEditTargetRatio] = useState<number>(0);
-  const [editTargetCostReduction, setEditTargetCostReduction] = useState<number>(0);
-  const [editRootCause, setEditRootCause] = useState("");
   // Structured 5-Why chain — replaces the old single free-text root cause box (which only ever
   // referenced "5 Neden Analizi" by name in its placeholder without actually implementing it).
-  const [editRootCauseWhys, setEditRootCauseWhys] = useState<string[]>(["", "", "", "", ""]);
 
   // Section 9 — "Önce-Sonra Kaizen Formu" (Before-After Kaizen), matching the real
   // "Kaizen Öncesi Sonrası" template used by the firm. Creation modal form state.
@@ -131,37 +127,8 @@ export default function KaizenManager({
   const [baDescAfter, setBaDescAfter] = useState("");
   const [baBenefitDesc, setBaBenefitDesc] = useState("");
   const [baBenefits, setBaBenefits] = useState<BeforeAfterKaizenBenefits>({});
-  const [editImprovementActions, setEditImprovementActions] = useState("");
-  const [editResponsibles, setEditResponsibles] = useState("");
-  const [editActionsTaken, setEditActionsTaken] = useState("");
-  const [editProjectLeader, setEditProjectLeader] = useState("");
-  const [editProjectSponsor, setEditProjectSponsor] = useState("");
-  const [editProjectTeam, setEditProjectTeam] = useState<string[]>([]);
-  const [editProjectTeamInput, setEditProjectTeamInput] = useState<string>("");
-  const [editPlannedFinishDate, setEditPlannedFinishDate] = useState("");
-  const [editEstimatedCost, setEditEstimatedCost] = useState(0);
-  const [editPhase, setEditPhase] = useState<any>("");
-  const [editDepartment, setEditDepartment] = useState("");
-  const [editImpactAnalysis, setEditImpactAnalysis] = useState<Record<string, 'Yüksek' | 'Orta' | 'Düşük'>>({});
-  const [editTasks, setEditTasks] = useState<any[]>([]);
-  const [editProgressStep, setEditProgressStep] = useState<string>("Tanımlama");
-  const [editExpectedGain, setEditExpectedGain] = useState<number>(0);
-  const [editExpectedGainCurrency, setEditExpectedGainCurrency] = useState<string>("TL");
-  const [editRealizedGain, setEditRealizedGain] = useState<number>(0);
-  const [editRealizedGainCurrency, setEditRealizedGainCurrency] = useState<string>("TL");
-  const [editRealizedImprovementPct, setEditRealizedImprovementPct] = useState<number>(0);
-  const [editStdWorkUpdated, setEditStdWorkUpdated] = useState<boolean>(false);
-  const [editInstructionRevised, setEditInstructionRevised] = useState<boolean>(false);
-  const [editTrainingGiven, setEditTrainingGiven] = useState<boolean>(false);
-  const [editControlPlanUpdated, setEditControlPlanUpdated] = useState<boolean>(false);
-  const [editAuditListUpdated, setEditAuditListUpdated] = useState<boolean>(false);
-  const [editProjectResult, setEditProjectResult] = useState<string>("Başarılı");
-  const [editResultDescription, setEditResultDescription] = useState<string>("");
-  const [editDocuments, setEditDocuments] = useState<any[]>([]);
 
   // Section 2 & 7 Photo States for Mobile/Tablet Camera & Gallery Uploads
-  const [editProblemPhotos, setEditProblemPhotos] = useState<string[]>([]);
-  const [editResultPhotos, setEditResultPhotos] = useState<string[]>([]);
 
   // Expand/Collapse state for sub-activities on Gantt Timeline
   const [expandedProjectIds, setExpandedProjectIds] = useState<Record<string, boolean>>({});
@@ -175,23 +142,6 @@ export default function KaizenManager({
   // Email status message for simulated notification system
   const [emailStatusMessage, setEmailStatusMessage] = useState<string | null>(null);
 
-  // Recipient picker for the manual reminder log — lets the user pick from the customer's real
-  // registered contacts (mainContactPerson/factoryManager/generalManager) instead of only ever
-  // deriving a recipient from the kaizen card's project leader.
-  const getCustomerContactOptions = (): { key: string; label: string; name: string; email?: string }[] => {
-    const options: { key: string; label: string; name: string; email?: string }[] = [];
-    if (selectedCustomer?.mainContactPerson) {
-      options.push({ key: "mainContact", label: "Ana İrtibat Kişisi", name: selectedCustomer.mainContactPerson, email: selectedCustomer.mainContactEmail });
-    }
-    if (selectedCustomer?.factoryManager) {
-      options.push({ key: "factoryManager", label: "Fabrika Müdürü", name: selectedCustomer.factoryManager, email: selectedCustomer.factoryManagerEmail });
-    }
-    if (selectedCustomer?.generalManager) {
-      options.push({ key: "generalManager", label: "Genel Müdür", name: selectedCustomer.generalManager, email: selectedCustomer.generalManagerEmail });
-    }
-    return options;
-  };
-  const [reminderRecipientKey, setReminderRecipientKey] = useState<string>("leader");
 
   // Drag and Drop States
   const [draggedProjId, setDraggedProjId] = useState<string | null>(null);
@@ -204,6 +154,8 @@ export default function KaizenManager({
   // text (via the "ci-team-directory" datalist) so nothing gets silently pre-filled with a fake person.
   const FALLBACK_TEAM_OPTIONS: string[] = [];
   const [teamOptions, setTeamOptions] = useState<string[]>(FALLBACK_TEAM_OPTIONS);
+  // Same directory with user ids — the A3 card links leader / members / task owners to accounts.
+  const [teamPeople, setTeamPeople] = useState<CiPerson[]>([]);
 
   useEffect(() => {
     if (!selectedCustomer?.id) return;
@@ -218,6 +170,14 @@ export default function KaizenManager({
         if (primaryConsultant) names.push(`${primaryConsultant.full_name} (Baş Danışman)`);
         (consultants || []).forEach((c: any) => names.push(`${c.full_name} (Danışman)`));
         (customerUsers || []).forEach((u: any) => names.push(`${u.full_name} (Müşteri Kullanıcısı)`));
+        const people: CiPerson[] = [];
+        const addPerson = (u: any, label: string) => {
+          if (u?.id && !people.some(p => p.id === u.id)) people.push({ id: u.id, name: u.full_name, label: `${u.full_name} (${label})` });
+        };
+        addPerson(primaryConsultant, "Baş Danışman");
+        (consultants || []).forEach((c: any) => addPerson(c, "Danışman"));
+        (customerUsers || []).forEach((u: any) => addPerson(u, "Müşteri Kullanıcısı"));
+        setTeamPeople(people);
         setTeamOptions(names.length > 0 ? names : FALLBACK_TEAM_OPTIONS);
       })
       .catch(err => {
@@ -355,90 +315,48 @@ export default function KaizenManager({
     }, 6000);
   };
 
-  // Open project details/editing modal
-  const handleOpenProjectDetails = (proj: KaizenCard) => {
-    setEditingProject(proj);
-    setEditTitle(proj.title);
-    setEditDescription(proj.description || "");
-    setEditProblemDefinition(proj.problemDefinition || proj.descriptionBefore || "");
-    setEditProblemDetail(proj.problemDetail || "");
-    setEditTargetObjective(proj.targetObjective || "");
-    setEditTargetKpi(proj.targetKpi || "");
-    setEditTargetRatio(proj.targetRatio || 0);
-    setEditTargetCostReduction(proj.targetCostReduction || 0);
-    setEditRootCause(proj.rootCause || "Kök neden 5 Neden analizi yapılması bekleniyor.");
-    // Backward compat: older projects only have the plain-text rootCause, no structured chain yet —
-    // seed "Neden 1" with that text so nothing is lost, rather than showing 5 blank boxes.
-    setEditRootCauseWhys(
-      proj.rootCauseWhys && proj.rootCauseWhys.length > 0
-        ? [...proj.rootCauseWhys, "", "", "", "", ""].slice(0, 5)
-        : (proj.rootCause ? [proj.rootCause, "", "", "", ""] : ["", "", "", "", ""])
-    );
-    setEditImprovementActions(proj.improvementActions || "Belirlenen iyileştirme faaliyetleri planlanacaktır.");
-    setEditResponsibles(proj.responsibles || proj.projectLeader || "");
-    setEditActionsTaken(proj.actionsTaken || "Planlanan faaliyetler yürütülmektedir.");
-    setEditProjectLeader(proj.projectLeader || "");
-    setEditProjectSponsor(proj.projectSponsor || "");
-    setEditProjectTeam(proj.projectTeam || []);
-    setEditProjectTeamInput("");
-    setEditPlannedFinishDate(proj.plannedFinishDate || "");
-    setEditEstimatedCost(proj.estimatedCost || 0);
-    setEditCurrentLoss(proj.currentLoss || 0);
-    setEditPhase(proj.phase || defaultPhase);
-    setEditDepartment(proj.department || defaultDepartment);
-    setEditImpactAnalysis(proj.impactAnalysis || {});
-    setEditTasks(proj.tasks || []);
-    setIsProjectFullScreen(false);
-    
-    // Set new states
-    setEditProgressStep(proj.progressStep || (
-      proj.status === "Completed" ? "Kapatıldı" :
-      proj.kanbanStatus === "ACT" ? "Standardizasyon" :
-      proj.kanbanStatus === "CHECK" ? "Kontrol" :
-      proj.kanbanStatus === "DO" ? "Uygulama" :
-      proj.kanbanStatus === "PLAN" ? "Planlama" :
-      proj.status === "Approved" ? "Analiz" : "Tanımlama"
-    ));
-    setEditExpectedGain(proj.expectedGain || 0);
-    setEditExpectedGainCurrency(proj.expectedGainCurrency || currencyOptions[0].value);
-    setEditRealizedGain(proj.realizedGain || 0);
-    setEditRealizedGainCurrency(proj.realizedGainCurrency || currencyOptions[0].value);
-    setEditRealizedImprovementPct(proj.realizedImprovementPct || 0);
-    setEditStdWorkUpdated(proj.stdWorkUpdated || false);
-    setEditInstructionRevised(proj.instructionRevised || false);
-    setEditTrainingGiven(proj.trainingGiven || false);
-    setEditControlPlanUpdated(proj.controlPlanUpdated || false);
-    setEditAuditListUpdated(proj.auditListUpdated || false);
-    setEditProjectResult(proj.projectResult || "Başarılı");
-    setEditResultDescription(proj.resultDescription || "");
-    setEditDocuments(proj.documents || []);
-    setEditProblemPhotos(proj.problemPhotos || []);
-    setEditResultPhotos(proj.resultPhotos || []);
-  };
+  // The A3 project card (ci/CiProjectCard.tsx) — opened by id so it always shows the live record.
+  const [cardProjectId, setCardProjectId] = useState<string | null>(null);
+  const cardProject = cardProjectId ? kaizens.find(k => k.id === cardProjectId) || null : null;
+  const handleOpenProjectDetails = (proj: KaizenCard) => setCardProjectId(proj.id);
+  const handleOpenProjectFullScreen = handleOpenProjectDetails;
 
-  const handleOpenProjectFullScreen = (proj: KaizenCard) => {
-    handleOpenProjectDetails(proj);
-    setIsProjectFullScreen(true);
+  // Lifecycle action on the server (submit / approve / return / …), then refresh the app's copy and
+  // the linked Master Plan row.
+  const runStageAction = async (project: KaizenCard, action: CiStageAction, note?: string): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const res = await fetch(`/api/business/kaizens/${project.id}/stage`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "x-factory-id": selectedCustomer?.id || "" },
+        body: JSON.stringify({ action, note })
+      }).then(r => r.json());
+      if (!res.success) return { ok: false, error: res.error || "İşlem yapılamadı." };
+      onKaizenChanged(res.data);
+      syncWithGantt(res.data, 'update');
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Sunucuya ulaşılamadı." };
+    }
   };
 
   // Prefill the Before-After Kaizen form from what's already on the CI card, so the consultant only
   // has to fill in what the form actually needs beyond that (category/area, benefit breakdown).
-  const handleOpenBeforeAfterModal = () => {
-    if (!editingProject) return;
-    setBaSubject(editingProject.title || "");
-    setBaTarget(editingProject.targetObjective || "");
-    setBaDoneBy(editingProject.projectLeader || editingProject.originator || "");
-    setBaDepartment(editingProject.department || "");
+  const handleOpenBeforeAfterModal = (proj: KaizenCard) => {
+    setEditingProject(proj);
+    setBaSubject(proj.title || "");
+    setBaTarget(proj.targetObjective || "");
+    setBaDoneBy(proj.projectLeader || proj.originator || "");
+    setBaDepartment(proj.department || "");
     setBaDate(new Date().toISOString().split("T")[0]);
     setBaCategory("Verimlilik");
     setBaArea("5S");
-    setBaBeforeImage(editingProject.problemPhotos?.[0] || "");
-    setBaAfterImage(editingProject.resultPhotos?.[0] || "");
-    setBaDescBefore(editingProject.problemDefinition || editingProject.descriptionBefore || "");
-    setBaDescAfter(editingProject.descriptionAfter || editingProject.resultDescription || "");
+    setBaBeforeImage(proj.problemPhotos?.[0] || "");
+    setBaAfterImage(proj.resultPhotos?.[0] || "");
+    setBaDescBefore(proj.problemDefinition || proj.descriptionBefore || "");
+    setBaDescAfter(proj.descriptionAfter || proj.resultDescription || "");
     setBaBenefitDesc(
-      editingProject.actualSavings
-        ? `Gerçekleşen tasarruf: ${currency}${editingProject.actualSavings.toLocaleString()}`
+      proj.actualSavings
+        ? `Gerçekleşen tasarruf: ${currency}${proj.actualSavings.toLocaleString()}`
         : ""
     );
     setBaBenefits({});
@@ -495,94 +413,6 @@ export default function KaizenManager({
     onUpdateKaizen(updated);
     if (editingProject?.id === targetId) setEditingProject(updated);
     setEditingProject(updated);
-  };
-
-  const handleSaveProjectDetails = () => {
-    if (!editingProject) return;
-
-    // Synchronize progress step back to kanbanStatus and status
-    let synchedStatus = editingProject.status;
-    let synchedKanbanStatus = editingProject.kanbanStatus;
-
-    if (editProgressStep === "Kapatıldı") {
-      synchedStatus = "Completed";
-      synchedKanbanStatus = "ACT";
-    } else if (editProgressStep === "Standardizasyon") {
-      synchedStatus = "In Progress";
-      synchedKanbanStatus = "ACT";
-    } else if (editProgressStep === "Kontrol") {
-      synchedStatus = "In Progress";
-      synchedKanbanStatus = "CHECK";
-    } else if (editProgressStep === "Uygulama") {
-      synchedStatus = "In Progress";
-      synchedKanbanStatus = "DO";
-    } else if (editProgressStep === "Planlama") {
-      synchedStatus = "In Progress";
-      synchedKanbanStatus = "PLAN";
-    } else if (editProgressStep === "Analiz") {
-      synchedStatus = "Approved";
-      synchedKanbanStatus = "PLAN";
-    } else if (editProgressStep === "Tanımlama") {
-      synchedStatus = "Draft";
-      synchedKanbanStatus = "PLAN";
-    }
-
-    // rootCause stays in sync as the last non-empty step of the 5-Why chain, so anything that
-    // still just reads the plain-text field (Excel export, list views) keeps working unchanged.
-    const filledWhys = editRootCauseWhys.map(w => w.trim()).filter(Boolean);
-    const computedRootCause = filledWhys.length > 0 ? filledWhys[filledWhys.length - 1] : editRootCause;
-
-    const updated: KaizenCard = {
-      ...editingProject,
-      title: editTitle,
-      description: editDescription,
-      descriptionBefore: editProblemDefinition, // keep both in sync
-      problemDefinition: editProblemDefinition,
-      problemDetail: editProblemDetail,
-      targetObjective: editTargetObjective,
-      targetKpi: editTargetKpi,
-      targetRatio: Number(editTargetRatio),
-      targetCostReduction: Number(editTargetCostReduction),
-      rootCause: computedRootCause,
-      rootCauseWhys: editRootCauseWhys,
-      improvementActions: editImprovementActions,
-      responsibles: editResponsibles,
-      actionsTaken: editActionsTaken,
-      projectLeader: editProjectLeader,
-      projectSponsor: editProjectSponsor,
-      projectTeam: editProjectTeam,
-      plannedFinishDate: editPlannedFinishDate,
-      estimatedCost: Number(editEstimatedCost),
-      currentLoss: Number(editCurrentLoss),
-      phase: editPhase,
-      department: editDepartment,
-      impactAnalysis: editImpactAnalysis,
-      tasks: editTasks,
-      status: synchedStatus,
-      kanbanStatus: synchedKanbanStatus,
-      progressStep: editProgressStep,
-      expectedGain: Number(editExpectedGain),
-      expectedGainCurrency: editExpectedGainCurrency,
-      realizedGain: Number(editRealizedGain),
-      realizedGainCurrency: editRealizedGainCurrency,
-      realizedImprovementPct: Number(editRealizedImprovementPct),
-      stdWorkUpdated: editStdWorkUpdated,
-      instructionRevised: editInstructionRevised,
-      trainingGiven: editTrainingGiven,
-      controlPlanUpdated: editControlPlanUpdated,
-      auditListUpdated: editAuditListUpdated,
-      projectResult: editProjectResult as any,
-      resultDescription: editResultDescription,
-      problemPhotos: editProblemPhotos,
-      resultPhotos: editResultPhotos,
-      documents: editDocuments,
-      actualSavings: Number(editRealizedGain) // map realized gain directly to actualSavings for standard dashboards!
-    };
-
-    onUpdateKaizen(updated);
-    syncWithGantt(updated, 'update');
-    setEditingProject(null);
-    setIsProjectFullScreen(false);
   };
 
   // Excel exports live in ci/ciExcelExport.ts; these wrappers supply the project number.
@@ -671,55 +501,6 @@ export default function KaizenManager({
     });
 
     doc.save(`CI_Portfoy_Raporu_${(selectedCustomer?.companyName || "musteri").replace(/\s+/g, "_")}.pdf`);
-  };
-
-  const handleExportCurrentEditingProjectToExcel = () => {
-    if (!editingProject) return;
-
-    const currentCard: KaizenCard = {
-      ...editingProject,
-      title: editTitle,
-      description: editDescription,
-      problemDefinition: editProblemDefinition,
-      problemDetail: editProblemDetail,
-      targetObjective: editTargetObjective,
-      targetKpi: editTargetKpi,
-      targetRatio: Number(editTargetRatio),
-      targetCostReduction: Number(editTargetCostReduction),
-      rootCause: editRootCause,
-      improvementActions: editImprovementActions,
-      responsibles: editResponsibles,
-      actionsTaken: editActionsTaken,
-      projectLeader: editProjectLeader,
-      projectSponsor: editProjectSponsor,
-      projectTeam: editProjectTeam,
-      plannedFinishDate: editPlannedFinishDate,
-      estimatedCost: Number(editEstimatedCost),
-      currentLoss: Number(editCurrentLoss),
-      phase: editPhase,
-      department: editDepartment,
-      impactAnalysis: editImpactAnalysis,
-      tasks: editTasks,
-      progressStep: editProgressStep,
-      expectedGain: Number(editExpectedGain),
-      expectedGainCurrency: editExpectedGainCurrency,
-      realizedGain: Number(editRealizedGain),
-      realizedGainCurrency: editRealizedGainCurrency,
-      realizedImprovementPct: Number(editRealizedImprovementPct),
-      stdWorkUpdated: editStdWorkUpdated,
-      instructionRevised: editInstructionRevised,
-      trainingGiven: editTrainingGiven,
-      controlPlanUpdated: editControlPlanUpdated,
-      auditListUpdated: editAuditListUpdated,
-      projectResult: editProjectResult as any,
-      resultDescription: editResultDescription,
-      problemPhotos: editProblemPhotos,
-      resultPhotos: editResultPhotos,
-      documents: editDocuments,
-      actualSavings: Number(editRealizedGain)
-    };
-
-    exportKaizenCardToExcel(currentCard, selectedCustomer?.companyName, currency);
   };
 
   // Wizard Launch Project Handler
@@ -876,31 +657,25 @@ export default function KaizenManager({
     handleOpenProjectDetails(saved);
   };
 
-  // Status Change (PLAN -> DO -> CHECK -> ACT)
-  // Mirrors handleSaveProjectDetails' progressStep -> (status, kanbanStatus) table, in reverse, for
-  // the exact 4 combos this handler can produce — previously dragging a card only updated
-  // kanbanStatus/status, leaving progressStep stale and out of sync with the detail modal's view.
-  const KANBAN_TO_PROGRESS_STEP: Record<string, string> = {
-    PLAN: "Planlama",
-    DO: "Uygulama",
-    CHECK: "Kontrol",
-    ACT: "Kapatıldı"
-  };
-
-  const handleKanbanStatusChange = (project: KaizenCard, newKanbanStatus: KaizenCard["kanbanStatus"]) => {
-    const updated: KaizenCard = {
-      ...project,
-      kanbanStatus: newKanbanStatus,
-      status: newKanbanStatus === "ACT" ? "Completed" : "In Progress",
-      progressStep: (newKanbanStatus && KANBAN_TO_PROGRESS_STEP[newKanbanStatus]) || project.progressStep
-    };
-
-    if (newKanbanStatus === "ACT") {
-      updated.realizedFinishDate = new Date().toISOString().split('T')[0];
+  // Kanban drop: projects move one A3 step at a time (utils/ciLifecycle.ts). Dropping a card on the
+  // next PDCA column finishes the step that leads into it (submit, or approve when the caller is the
+  // approver); any other move is refused with the reason. Older projects without a stage are moved
+  // by the same rule from their derived step.
+  const handleKanbanStatusChange = async (project: KaizenCard, newKanbanStatus: KaizenCard["kanbanStatus"]) => {
+    const stage = stageOf(project);
+    const targetStage = ({ PLAN: 1, DO: 6, CHECK: 7, ACT: 8 } as Record<string, number>)[newKanbanStatus || "PLAN"];
+    if (pdcaOfStage(stage) === newKanbanStatus || isClosed(project)) return;
+    if (targetStage !== stage + 1) {
+      alert(`Projeler A3 adımlarıyla tek tek ilerler. "${project.title}" şu an Adım ${stage} (${CI_STEPS[stage - 1].title}); kartı açıp adımı tamamlayın.`);
+      return;
     }
-
-    onUpdateKaizen(updated);
-    syncWithGantt(updated, 'update');
+    const missing = stageRequirements(project, stage);
+    if (missing.length) {
+      alert(`Adım ${stage} tamamlanamaz, eksikler:\n• ${missing.join("\n• ")}`);
+      return;
+    }
+    const r = await runStageAction(project, canApproveStage(currentUser, project) ? "approve" : "submit");
+    if (!r.ok) alert(r.error);
   };
 
   const handleDrop = (newKanbanStatus: KaizenCard["kanbanStatus"]) => {
@@ -1182,144 +957,6 @@ export default function KaizenManager({
     });
   }, [filteredProjects]);
 
-  // Document upload (Section 8) — previously only kept {name, fileType, size, uploadDate} metadata
-  // while claiming the file would be "automatically archived on the server". Now genuinely persists
-  // the file content (same base64-embed technique renderPhotoUploadSection already uses for photos
-  // below), so a document can actually be reopened after a reload.
-  const MAX_DOCUMENT_SIZE_MB = 8;
-  const handleDocumentFiles = (files: File[]) => {
-    const accepted = files.filter(file => {
-      if (file.size > MAX_DOCUMENT_SIZE_MB * 1024 * 1024) {
-        alert(`"${file.name}" dosyası ${MAX_DOCUMENT_SIZE_MB} MB sınırını aşıyor ve yüklenmedi.`);
-        return false;
-      }
-      return true;
-    });
-    if (accepted.length === 0) return;
-
-    Promise.all(accepted.map(file => new Promise<any>((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const ext = file.name.split('.').pop()?.toLowerCase() || '';
-        resolve({
-          id: `doc_${Math.random().toString(36).substring(2, 9)}`,
-          name: file.name,
-          fileType: ext,
-          size: (file.size / (1024 * 1024)).toFixed(2) + " MB",
-          uploadDate: new Date().toISOString().split('T')[0],
-          data: typeof reader.result === "string" ? reader.result : ""
-        });
-      };
-      reader.readAsDataURL(file);
-    }))).then(newDocs => {
-      setEditDocuments(prev => [...prev, ...newDocs]);
-    });
-  };
-
-  // Photo Upload Helper for Section 2 and Section 7 (Camera & Gallery Support for Tablets/Mobiles)
-  const renderPhotoUploadSection = (
-    sectionTitle: string,
-    sectionSubtitle: string,
-    photos: string[],
-    onAddPhotos: (newPhotos: string[]) => void,
-    onRemovePhoto: (index: number) => void
-  ) => {
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files) return;
-      const files = Array.from(e.target.files);
-      files.forEach((file) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (typeof reader.result === "string") {
-            onAddPhotos([reader.result]);
-          }
-        };
-        reader.readAsDataURL(file);
-      });
-      e.target.value = "";
-    };
-
-    return (
-      <div className="bg-slate-50/80 border border-slate-200/90 rounded-xl p-3.5 space-y-3 mt-2">
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="font-bold text-xs text-indigo-950 flex items-center gap-1.5">
-              <Camera className="w-3.5 h-3.5 text-indigo-600" />
-              <span>{sectionTitle}</span>
-            </span>
-            <p className="text-[10px] text-slate-500 mt-0.5">{sectionSubtitle}</p>
-          </div>
-          <span className="text-[11px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-md">
-            {photos.length} Fotoğraf Ekli
-          </span>
-        </div>
-
-        {/* Buttons for Mobile/Tablet Camera & Gallery Selection */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Direct Camera Capture (Rear Camera for Gemba inspection) */}
-          <label className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors">
-            <Camera className="w-3.5 h-3.5 text-indigo-100" />
-            <span>Kamera ile Fotoğraf Çek</span>
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handleFileChange}
-              className="hidden"
-            />
-          </label>
-
-          {/* Photo Gallery Picker */}
-          <label className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors">
-            <Upload className="w-3.5 h-3.5 text-slate-500" />
-            <span>Galeriden / Dosyalardan Seç</span>
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={handleFileChange}
-              className="hidden"
-            />
-          </label>
-        </div>
-
-        {/* Photo Thumbnail Preview Grid */}
-        {photos.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2.5 pt-1">
-            {photos.map((photo, idx) => (
-              <div key={idx} className="relative group bg-white border border-slate-200 rounded-lg p-1 shadow-2xs">
-                <img
-                  src={photo}
-                  alt={`Görsel ${idx + 1}`}
-                  onClick={() => setLightboxPhoto({ url: photo, title: `${sectionTitle} - Fotoğraf #${idx + 1}` })}
-                  className="w-full h-20 object-cover rounded-md cursor-pointer hover:opacity-90 transition-opacity"
-                />
-                <button
-                  type="button"
-                  onClick={() => onRemovePhoto(idx)}
-                  className="absolute top-2 right-2 bg-rose-600/90 text-white rounded-full p-1 opacity-90 group-hover:opacity-100 hover:bg-rose-700 transition-all cursor-pointer shadow-xs"
-                  title="Fotoğrafı Sil"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-                <div className="mt-1 flex justify-between items-center px-1 text-[11px] text-slate-500 font-mono">
-                  <span>Foto #{idx + 1}</span>
-                  <button
-                    type="button"
-                    onClick={() => setLightboxPhoto({ url: photo, title: `${sectionTitle} - Fotoğraf #${idx + 1}` })}
-                    className="text-indigo-600 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
-                  >
-                    <ZoomIn className="w-2.5 h-2.5" />
-                    <span>Büyüt</span>
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
 
   return (
     <div className="space-y-6">
@@ -1786,14 +1423,16 @@ export default function KaizenManager({
                           }`}
                         >
                           
-                          {/* Phase tag & Edit button */}
-                          <div className="flex justify-between items-center">
+                          {/* Phase tag, A3 step & Edit button */}
+                          <div className="flex flex-wrap gap-1.5 justify-between items-center">
                             <span className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider ${
                               phaseNumber(proj.phase) === 1 ? "bg-emerald-100 text-emerald-800" :
                               phaseNumber(proj.phase) === 2 ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"
                             }`}>
                               {proj.phase || defaultPhase}
                             </span>
+                            <StageBadge project={proj} />
+                            {proj.pendingApproval && <span className="text-[10px] font-bold text-violet-700" title="Proje liderinin onayını bekliyor">● onay</span>}
                             
                             <div className="flex items-center space-x-1.5">
                               <span className="text-[10px] font-mono text-slate-500 font-bold uppercase flex items-center gap-0.5" title="Sürüklemek için basılı tutun">
@@ -2129,6 +1768,7 @@ export default function KaizenManager({
                         }`}>
                           {`Faz ${phaseNumber(proj.phase)}`}
                         </span>
+                        <div><StageBadge project={proj} /></div>
                         <div>
                           <span className={`inline-block px-1.5 py-0.2 rounded text-[11px] font-bold ${
                             proj.impactLevel === "High" ? "bg-rose-100 text-rose-800" :
@@ -3456,7 +3096,7 @@ export default function KaizenManager({
 
       {/* EDIT FINANCIALS RESULTS MODAL (17 INDICATORS IN % & CURRENCY) */}
       {editingFinancialsProjId && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl overflow-hidden border border-slate-200">
             
             <div className="bg-slate-50 px-5 py-4 border-b border-slate-200 flex justify-between items-center">
@@ -3956,1079 +3596,35 @@ export default function KaizenManager({
       )}
 
       {/* EDIT KAIZEN / CI PROJECT DETAILS MODAL */}
-      {editingProject && (
-        <div className={isProjectFullScreen ? "fixed inset-0 bg-white z-50 flex flex-col h-screen w-screen overflow-hidden" : "fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4"}>
-          <div className={isProjectFullScreen ? "bg-white w-full h-full flex flex-col overflow-hidden" : "bg-white rounded-2xl shadow-xl w-full max-w-6xl overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]"}>
-            
-            <div className="bg-indigo-900 text-white px-5 py-4 flex justify-between items-center shrink-0">
-              <div className="flex items-center space-x-2">
-                <FileText className="w-5 h-5 text-indigo-200" />
-                <div>
-                  <h3 className="font-bold text-xs uppercase tracking-wider text-indigo-200">CI Proje Kartı Tanımlama ve Aksiyon Takip Formu</h3>
-                  <p className="text-[11px] text-indigo-100 font-mono mt-0.5">Proje No: {getProjectNo(editingProject)} (Ref: #{editingProject.id})</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-3">
-                <button 
-                  type="button"
-                  onClick={() => setIsProjectFullScreen(!isProjectFullScreen)}
-                  className="text-white hover:text-indigo-200 p-1.5 rounded hover:bg-white/10 transition-colors flex items-center space-x-1 text-[11px] font-bold cursor-pointer"
-                  title={isProjectFullScreen ? "Normal Boyuta Dön" : "Tam Ekran Yap"}
-                >
-                  {isProjectFullScreen ? (
-                    <>
-                      <Minimize2 className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Küçült</span>
-                    </>
-                  ) : (
-                    <>
-                      <Maximize2 className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Tam Ekran</span>
-                    </>
-                  )}
-                </button>
-                <button 
-                  onClick={() => { setEditingProject(null); setIsProjectFullScreen(false); }} 
-                  className="text-white hover:text-indigo-100 font-bold text-lg cursor-pointer"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-
-            <div className={isProjectFullScreen ? "p-6 space-y-5 flex-1 overflow-y-auto text-xs font-sans bg-slate-50/40" : "p-5 space-y-5 max-h-[70vh] overflow-y-auto text-xs font-sans"}>
-              
-              {/* Progress Indicator */}
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-3xs flex flex-col md:flex-row items-center justify-between gap-4">
-                <div className="shrink-0">
-                  <span className="font-bold text-[10px] text-slate-400 uppercase tracking-wider block font-mono">Proje İlerleme Durumu</span>
-                  <span className="text-xs font-black text-slate-800 mt-0.5 block">Mevcut Aşama: {editProgressStep}</span>
-                </div>
-                <div className="flex-1 w-full max-w-3xl">
-                  <div className="flex items-center justify-between relative">
-                    {/* Background line */}
-                    <div className="absolute left-6 right-6 top-1/2 -translate-y-1/2 h-0.5 bg-slate-100 -z-10" />
-                    
-                    {/* Active colored line segment */}
-                    {(() => {
-                      const steps = ["Tanımlama", "Analiz", "Planlama", "Uygulama", "Kontrol", "Standardizasyon", "Kapatıldı"];
-                      const activeIdx = steps.indexOf(editProgressStep);
-                      const pct = activeIdx >= 0 ? (activeIdx / (steps.length - 1)) * 100 : 0;
-                      return (
-                        <div 
-                          className="absolute left-6 top-1/2 -translate-y-1/2 h-0.5 bg-indigo-500 transition-all duration-300 -z-10"
-                          style={{ width: `calc(${pct}% - ${activeIdx === steps.length - 1 ? '12px' : '0px'})` }}
-                        />
-                      );
-                    })()}
-
-                    {["Tanımlama", "Analiz", "Planlama", "Uygulama", "Kontrol", "Standardizasyon", "Kapatıldı"].map((step, idx) => {
-                      const steps = ["Tanımlama", "Analiz", "Planlama", "Uygulama", "Kontrol", "Standardizasyon", "Kapatıldı"];
-                      const activeIdx = steps.indexOf(editProgressStep);
-                      const isCompleted = idx < activeIdx;
-                      const isActive = idx === activeIdx;
-                      
-                      let bgClass = "bg-slate-200 border-slate-300 text-slate-500";
-                      if (isCompleted) {
-                        bgClass = "bg-emerald-500 border-emerald-600 text-white shadow-xs";
-                      } else if (isActive) {
-                        bgClass = "bg-blue-600 border-blue-700 text-white shadow-md ring-4 ring-blue-100";
-                      }
-
-                      return (
-                        <button
-                          key={step}
-                          type="button"
-                          onClick={() => setEditProgressStep(step)}
-                          className="flex flex-col items-center group relative cursor-pointer focus:outline-none"
-                        >
-                          <div className={`w-7 h-7 rounded-full border flex items-center justify-center transition-all ${bgClass} font-bold text-[11px]`}>
-                            {isCompleted ? "✓" : idx + 1}
-                          </div>
-                          <span className={`mt-1.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${isActive ? "text-blue-600" : isCompleted ? "text-emerald-600" : "text-slate-400 group-hover:text-slate-600"}`}>
-                            {step}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-                
-                {/* Sol Sütun: Temel Proje Künyesi */}
-                <div className="lg:col-span-4 space-y-3 bg-white p-4 rounded-xl border border-slate-200 shadow-3xs">
-                  <span className="font-bold text-[10px] text-slate-400 uppercase tracking-wider block font-mono">1. Proje Künyesi (General Metadata)</span>
-                  
-                  <div>
-                    <label className="block text-slate-500 font-bold mb-1">Proje Başlığı (Title) *</label>
-                    <input 
-                      type="text"
-                      required
-                      value={editTitle}
-                      onChange={(e) => setEditTitle(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-bold text-slate-800"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-500 font-bold mb-1">Açıklama & Amacı</label>
-                    <textarea 
-                      rows={2}
-                      value={editDescription}
-                      onChange={(e) => setEditDescription(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-700"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-2">
-                    <div>
-                      <label className="block text-slate-500 font-bold mb-1">Lider (Leader) *</label>
-                      <input
-                        type="text"
-                        list="ci-team-directory"
-                        value={editProjectLeader}
-                        onChange={(e) => setEditProjectLeader(e.target.value)}
-                        placeholder="Lider seçin veya yazın"
-                        className="w-full bg-white border border-slate-200 rounded p-1.5 text-slate-700 focus:outline-none font-medium text-[11px]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-slate-500 font-bold mb-1">Sponsor (Sponsor)</label>
-                      <input
-                        type="text"
-                        list="ci-team-directory"
-                        value={editProjectSponsor}
-                        onChange={(e) => setEditProjectSponsor(e.target.value)}
-                        placeholder="Sponsor seçin veya yazın"
-                        className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-700 text-[11px]"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-500 font-bold mb-1">Proje Ekibi</label>
-                    <div className="flex gap-1.5">
-                      <input
-                        type="text"
-                        list="ci-team-directory"
-                        value={editProjectTeamInput}
-                        onChange={(e) => setEditProjectTeamInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            const name = editProjectTeamInput.trim();
-                            if (name && !editProjectTeam.includes(name)) {
-                              setEditProjectTeam([...editProjectTeam, name]);
-                            }
-                            setEditProjectTeamInput("");
-                          }
-                        }}
-                        placeholder="Ekip üyesi seçin veya yazın, Enter'a basın"
-                        className="flex-1 bg-white border border-slate-200 rounded p-1.5 text-slate-700 focus:outline-none text-[11px]"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const name = editProjectTeamInput.trim();
-                          if (name && !editProjectTeam.includes(name)) {
-                            setEditProjectTeam([...editProjectTeam, name]);
-                          }
-                          setEditProjectTeamInput("");
-                        }}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] px-3 rounded cursor-pointer"
-                      >
-                        Ekle
-                      </button>
-                    </div>
-                    {editProjectTeam.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {editProjectTeam.map(member => (
-                          <span key={member} className="text-[10.5px] bg-slate-100 border border-slate-200 text-slate-700 px-2 py-1 rounded-lg flex items-center gap-1.5">
-                            {member}
-                            <button
-                              type="button"
-                              onClick={() => setEditProjectTeam(editProjectTeam.filter(m => m !== member))}
-                              className="text-slate-400 hover:text-rose-600 cursor-pointer font-bold"
-                            >
-                              ✕
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-slate-500 font-bold mb-1">Departman *</label>
-                      <input 
-                        type="text"
-                        required
-                        list="ci-departments"
-                        value={editDepartment}
-                        onChange={(e) => setEditDepartment(e.target.value)}
-                        className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none font-bold"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-slate-500 font-bold mb-1">Yatırım Bütçesi ({currency})</label>
-                      <input 
-                        type="number"
-                        value={editEstimatedCost}
-                        onChange={(e) => setEditEstimatedCost(Number(e.target.value))}
-                        className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none font-mono font-bold"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-2">
-                    <div>
-                      <label className="block text-slate-500 font-bold mb-1">Mevcut Yıllık Kayıp Tutarı ({currency})</label>
-                      <input 
-                        type="number"
-                        value={editCurrentLoss}
-                        onChange={(e) => setEditCurrentLoss(Number(e.target.value))}
-                        className="w-full bg-rose-50 border border-rose-200 rounded p-1.5 focus:outline-none font-mono font-bold text-rose-700 focus:ring-1 focus:ring-rose-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-slate-500 font-bold mb-1">Planlanan Bitiş *</label>
-                      <input 
-                        type="date"
-                        required
-                        value={editPlannedFinishDate}
-                        onChange={(e) => setEditPlannedFinishDate(e.target.value)}
-                        className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-slate-500 font-bold mb-1">Proje Fazı *</label>
-                      <select
-                        value={editPhase}
-                        onChange={(e) => setEditPhase(e.target.value as any)}
-                        className="w-full bg-white border border-slate-200 rounded p-1.5 text-indigo-700 font-bold focus:outline-none"
-                      >
-                        {choicesWith(ciSettings.phases, editPhase).map(label => (
-                          <option key={label} value={label}>{label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                </div>
-
-                {/* Sağ Sütun: Sürekli İyileştirme Faaliyet Kartı */}
-                <div className="lg:col-span-8 space-y-3.5 bg-white p-4 rounded-xl border border-slate-200 shadow-3xs font-sans">
-                  <span className="font-bold text-[10px] text-indigo-950 uppercase tracking-wider block font-mono">2. Sürekli İyileştirme Detayları</span>
-                  
-                  <div className="grid grid-cols-1 gap-4">
-                    <div>
-                      <label className="block text-indigo-900 font-bold mb-1">1 - Problem Tanımı (Problem Definition)</label>
-                      <textarea 
-                        rows={2}
-                        value={editProblemDefinition}
-                        onChange={(e) => setEditProblemDefinition(e.target.value)}
-                        placeholder="Mevcut kayıp ve problemin net tanımı..."
-                        className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-850"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-indigo-900 font-bold mb-1">2 - Problemin Detaylı Bilgisi (Detailed Problem Info)</label>
-                      <textarea 
-                        rows={2}
-                        value={editProblemDetail}
-                        onChange={(e) => setEditProblemDetail(e.target.value)}
-                        placeholder="Mevcut durum verileri, duruş süreleri veya kayıp miktarları..."
-                        className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-850"
-                      />
-                      {renderPhotoUploadSection(
-                        "Problem Görselleri & Saha Fotoğrafları (Gemba Foto)",
-                        "Problemin mevcut durumunu belgelemek için galeriden görsel seçin veya direkt cihaz kamerası ile fotoğraf çekin.",
-                        editProblemPhotos,
-                        (newP) => setEditProblemPhotos([...editProblemPhotos, ...newP]),
-                        (idx) => setEditProblemPhotos(editProblemPhotos.filter((_, i) => i !== idx))
-                      )}
-                    </div>
-
-                    {/* 3 - Etki Analizi (Impact Analysis) */}
-                    <div className="bg-indigo-50/30 border border-indigo-100 p-4 rounded-xl space-y-3">
-                      <div className="flex justify-between items-center">
-                        <label className="block text-indigo-950 font-bold">3 - Etki Analizi (Impact Analysis)</label>
-                        <span className="text-[10px] text-indigo-500 font-mono font-bold bg-indigo-100/60 px-2 py-0.5 rounded-md">Çoklu COPQ Alanı İlişkilendirme</span>
-                      </div>
-                      <p className="text-[11px] text-slate-500">
-                        Bir problem yalnızca tek bir maliyet kalemini değil, aynı anda birden fazla COPQ alanını etkileyebilir. Problemin etkilediği alanları ve önem seviyesini seçin:
-                      </p>
-                      
-                      <div className="flex flex-wrap gap-2.5">
-                        {[
-                          "Hurda",
-                          "Rework",
-                          "Fazla Mesai",
-                          "OEE",
-                          "Setup",
-                          "Plansız Duruş",
-                          "Operatör Verimliliği",
-                          "Lead Time",
-                          "WIP",
-                          "Sevkiyat Performansı",
-                          "Kalite Maliyetleri"
-                        ].map((area) => {
-                          const isSelected = !!editImpactAnalysis[area];
-                          const level = editImpactAnalysis[area] || "Orta";
-                          
-                          return (
-                            <div 
-                              key={area}
-                              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all shadow-3xs ${
-                                isSelected 
-                                  ? "bg-indigo-600 border-indigo-600 text-white" 
-                                  : "bg-white border-slate-200 text-slate-600 hover:border-indigo-300"
-                              }`}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const updated = { ...editImpactAnalysis };
-                                  if (isSelected) {
-                                    delete updated[area];
-                                  } else {
-                                    updated[area] = "Orta";
-                                  }
-                                  setEditImpactAnalysis(updated);
-                                }}
-                                className="flex items-center gap-1.5 focus:outline-none cursor-pointer"
-                              >
-                                <span>{isSelected ? "☑" : "☐"}</span>
-                                <span>{area}</span>
-                              </button>
-                              
-                              {isSelected && (
-                                <div className="flex items-center gap-1 bg-white/20 px-1.5 py-0.5 rounded-lg border border-white/15 ml-1">
-                                  {(["Düşük", "Orta", "Yüksek"] as const).map((lvl, idx) => {
-                                    const currentLevelIdx = level === "Düşük" ? 0 : level === "Orta" ? 1 : 2;
-                                    const isStarFilled = idx <= currentLevelIdx;
-                                    
-                                    return (
-                                      <button
-                                        type="button"
-                                        key={lvl}
-                                        onClick={() => {
-                                          const updated = { ...editImpactAnalysis };
-                                          updated[area] = lvl;
-                                          setEditImpactAnalysis(updated);
-                                        }}
-                                        title={`${lvl} Derecede Etkili`}
-                                        className={`text-[13px] leading-none transition-colors ${
-                                          isStarFilled ? "text-amber-300 hover:text-amber-400" : "text-white/30 hover:text-white/60"
-                                        }`}
-                                      >
-                                        ★
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* 4 - Hedef Durum (Target State) */}
-                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-                      <div className="flex justify-between items-center">
-                        <label className="block text-indigo-950 font-bold">4 - Hedef Durum (Target Condition)</label>
-                        <span className="text-[10px] text-indigo-500 font-mono font-bold bg-indigo-100/60 px-2 py-0.5 rounded-md">Hedef KPI & Kazanım Metrikleri</span>
-                      </div>
-                      <p className="text-[11px] text-slate-500">
-                        Projenin başarıya ulaşması durumunda elde edilmesi planlanan değerleri, oranları ve finansal katkıları tanımlayın:
-                      </p>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                        <div className="md:col-span-2">
-                          <label className="block text-slate-500 font-bold mb-1">Ulaşılmak İstenen Hedef (Target Objective) *</label>
-                          <textarea 
-                            rows={2}
-                            value={editTargetObjective}
-                            onChange={(e) => setEditTargetObjective(e.target.value)}
-                            placeholder="Örn: Pres sökme-takma sürelerinin dünya standartlarına çekilmesi, bekleme israfının bitirilmesi..."
-                            className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800 font-medium"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-slate-500 font-bold mb-1">Hedef KPI (Target KPI) *</label>
-                          <input 
-                            type="text"
-                            value={editTargetKpi}
-                            onChange={(e) => setEditTargetKpi(e.target.value)}
-                            placeholder="Örn: SMED Hazırlık Süresi (Dakika)"
-                            className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800 font-semibold"
-                          />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="block text-slate-500 font-bold mb-1">Hedef Oran / Değer (%)</label>
-                            <input 
-                              type="number"
-                              value={editTargetRatio}
-                              onChange={(e) => setEditTargetRatio(Number(e.target.value))}
-                              placeholder="75"
-                              className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none font-mono font-semibold text-slate-800"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-slate-500 font-bold mb-1">Hedef Maliyet Azaltımı ({currency})</label>
-                            <input 
-                              type="number"
-                              value={editTargetCostReduction}
-                              onChange={(e) => setEditTargetCostReduction(Number(e.target.value))}
-                              placeholder="50000"
-                              className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none font-mono font-semibold text-slate-800"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 space-y-2">
-                      <label className="block text-indigo-900 font-bold mb-1">5 - Kök Neden Analizi (5 Neden / 5-Why)</label>
-                      {editRootCauseWhys.map((why, idx) => (
-                        <div key={idx} className="flex items-start gap-2">
-                          <span className="text-[10px] font-black text-indigo-700 bg-indigo-100 rounded-full w-5 h-5 flex items-center justify-center shrink-0 mt-1">{idx + 1}</span>
-                          <input
-                            type="text"
-                            value={why}
-                            onChange={(e) => {
-                              const updated = [...editRootCauseWhys];
-                              updated[idx] = e.target.value;
-                              setEditRootCauseWhys(updated);
-                            }}
-                            placeholder={
-                              idx === 0
-                                ? "Neden 1: Problem neden oluştu?"
-                                : `Neden ${idx + 1}: "${editRootCauseWhys[idx - 1] || "önceki neden"}" neden oldu?`
-                            }
-                            className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800 text-[11px]"
-                          />
-                        </div>
-                      ))}
-                      <p className="text-[10px] text-slate-400 pl-7">
-                        Zincirin en son doldurulan adımı, projenin kök nedeni olarak kaydedilir.
-                      </p>
-                    </div>
-
-                    {/* 6 - Uygulama Planı (Action Plan Editable Table) */}
-                    <div className="space-y-2 border border-slate-200 p-4 rounded-xl bg-slate-50/50">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <label className="block text-indigo-900 font-bold">6 - Uygulama Planı (Action Plan)</label>
-                          <span className="text-[10px] text-slate-400 font-medium block">Kanban ve Timeline entegrasyonu için faaliyet listesi</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newId = `tsk_${Math.random().toString(36).substring(2, 5)}`;
-                            setEditTasks([
-                              ...editTasks,
-                              {
-                                id: newId,
-                                name: "",
-                                responsible: editProjectLeader || "",
-                                deadline: editPlannedFinishDate || "",
-                                status: "Açık",
-                                progressPercent: 0
-                              }
-                            ]);
-                          }}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] px-2.5 py-1.5 rounded-lg flex items-center space-x-1 shadow-3xs cursor-pointer transition-colors"
-                        >
-                          <span>➕ Satır Ekle</span>
-                        </button>
-                      </div>
-
-                      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                        <table className="w-full text-[11px] text-left border-collapse">
-                          <thead>
-                            <tr className="bg-slate-100 text-slate-700 uppercase font-bold text-[10px] border-b border-slate-200">
-                              <th className="px-3 py-2 w-12 text-center">No</th>
-                              <th className="px-3 py-2">Faaliyet (Activity)</th>
-                              <th className="px-3 py-2 w-48">Sorumlu (Owner)</th>
-                              <th className="px-3 py-2 w-32 font-medium">Termin (Due Date)</th>
-                              <th className="px-3 py-2 w-32 font-medium">Durum (Status)</th>
-                              <th className="px-3 py-2 w-12 text-center"></th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {editTasks.length === 0 ? (
-                              <tr>
-                                <td colSpan={6} className="text-center py-6 text-slate-400 italic">
-                                  Henüz bir faaliyet planlanmamış. Yeni satır eklemek için "+ Satır Ekle" butonuna basın.
-                                </td>
-                              </tr>
-                            ) : (
-                              editTasks.map((task, idx) => {
-                                const currentStatus = task.status || (task.progressPercent === 100 ? "Yapıldı" : task.progressPercent > 0 ? "Devam Ediyor" : "Açık");
-                                
-                                return (
-                                  <tr key={task.id} className="border-b border-slate-150 hover:bg-slate-50/40">
-                                    <td className="px-3 py-2 font-mono font-bold text-center text-slate-500">
-                                      {idx + 1}
-                                    </td>
-                                    <td className="px-2 py-1">
-                                      <input 
-                                        type="text"
-                                        required
-                                        value={task.name}
-                                        placeholder="Faaliyet açıklamasını yazın..."
-                                        onChange={(e) => {
-                                          const updated = editTasks.map(t => {
-                                            if (t.id === task.id) {
-                                              return { ...t, name: e.target.value };
-                                            }
-                                            return t;
-                                          });
-                                          setEditTasks(updated);
-                                        }}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium text-slate-800 text-[11px]"
-                                      />
-                                    </td>
-                                    <td className="px-2 py-1">
-                                      <input
-                                        type="text"
-                                        list="ci-team-directory"
-                                        value={task.responsible}
-                                        onChange={(e) => {
-                                          const updated = editTasks.map(t => {
-                                            if (t.id === task.id) {
-                                              return { ...t, responsible: e.target.value };
-                                            }
-                                            return t;
-                                          });
-                                          setEditTasks(updated);
-                                        }}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded px-1 py-1 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 text-[11px]"
-                                      />
-                                    </td>
-                                    <td className="px-2 py-1">
-                                      <input 
-                                        type="date"
-                                        value={task.deadline || ""}
-                                        onChange={(e) => {
-                                          const updated = editTasks.map(t => {
-                                            if (t.id === task.id) {
-                                              return { ...t, deadline: e.target.value };
-                                            }
-                                            return t;
-                                          });
-                                          setEditTasks(updated);
-                                        }}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded px-1 py-1 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono text-slate-800 text-[11px]"
-                                      />
-                                    </td>
-                                    <td className="px-2 py-1">
-                                      <select
-                                        value={currentStatus}
-                                        onChange={(e) => {
-                                          const val = e.target.value as any;
-                                          let pct = 0;
-                                          if (val === "Yapıldı") pct = 100;
-                                          else if (val === "Devam Ediyor") pct = 50;
-
-                                          const updated = editTasks.map(t => {
-                                            if (t.id === task.id) {
-                                              return { ...t, status: val, progressPercent: pct };
-                                            }
-                                            return t;
-                                          });
-                                          setEditTasks(updated);
-                                        }}
-                                        className={`w-full border rounded px-1.5 py-1 focus:outline-none font-bold text-[10px] ${
-                                          currentStatus === "Yapıldı" ? "bg-emerald-50 border-emerald-300 text-emerald-800" :
-                                          currentStatus === "Devam Ediyor" ? "bg-amber-50 border-amber-300 text-amber-700" :
-                                          currentStatus === "İptal" ? "bg-slate-100 border-slate-300 text-slate-500" :
-                                          "bg-slate-50 border-slate-200 text-slate-600"
-                                        }`}
-                                      >
-                                        <option value="Açık">Açık</option>
-                                        <option value="Devam Ediyor">Devam Ediyor</option>
-                                        <option value="Yapıldı">Yapıldı</option>
-                                        <option value="İptal">İptal</option>
-                                      </select>
-                                    </td>
-                                    <td className="px-2 py-1 text-center">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const updated = editTasks.filter(t => t.id !== task.id);
-                                          setEditTasks(updated);
-                                        }}
-                                        className="text-slate-400 hover:text-red-600 p-1 rounded hover:bg-slate-100 transition-colors cursor-pointer"
-                                        title="Satırı Sil"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    </td>
-                                  </tr>
-                                );
-                              })
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                    {/* 7 - Proje Sonucu ve Kazanımlar (Results & Gains) */}
-                    <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-4">
-                      <div className="flex justify-between items-center">
-                        <label className="block text-indigo-950 font-bold text-xs uppercase tracking-wider font-mono">
-                          7 - Proje Sonucu ve Elde Edilen Kazanımlar
-                        </label>
-                        <span className="text-[10px] text-emerald-600 font-mono font-bold bg-emerald-100/60 px-2 py-0.5 rounded-md">
-                          Kapanış & Finansal Kazanımlar
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500">
-                        Proje tamamlandığında elde edilen tasarrufları, standartlaştırma adımlarını ve genel kapanış sonucunu buraya işleyin:
-                      </p>
-
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                        {/* Expected Gain */}
-                        <div className="space-y-1">
-                          <label className="block text-slate-500 font-bold">Beklenen Kazanım</label>
-                          <div className="flex rounded-md shadow-3xs">
-                            <input 
-                              type="number"
-                              value={editExpectedGain}
-                              onChange={(e) => setEditExpectedGain(Number(e.target.value))}
-                              placeholder="0"
-                              className="w-full bg-white border border-slate-200 border-r-0 rounded-l p-1.5 focus:outline-none font-mono font-semibold"
-                            />
-                            <select
-                              value={editExpectedGainCurrency}
-                              onChange={(e) => setEditExpectedGainCurrency(e.target.value)}
-                              className="bg-slate-100 border border-slate-200 rounded-r px-1.5 text-[10px] font-bold focus:outline-none text-slate-600"
-                            >
-                              {currencyChoices(editExpectedGainCurrency).map(o => (
-                                <option key={o.value} value={o.value}>{o.label}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* Realized Gain */}
-                        <div className="space-y-1">
-                          <label className="block text-slate-500 font-bold">Gerçekleşen Kazanım (Net Tasarruf)</label>
-                          <div className="flex rounded-md shadow-3xs">
-                            <input 
-                              type="number"
-                              value={editRealizedGain}
-                              onChange={(e) => setEditRealizedGain(Number(e.target.value))}
-                              placeholder="0"
-                              className="w-full bg-emerald-50 border border-emerald-200 border-r-0 rounded-l p-1.5 focus:outline-none font-mono font-bold text-emerald-700"
-                            />
-                            <select
-                              value={editRealizedGainCurrency}
-                              onChange={(e) => setEditRealizedGainCurrency(e.target.value)}
-                              className="bg-emerald-100 border border-emerald-200 rounded-r px-1.5 text-[10px] font-bold focus:outline-none text-emerald-700"
-                            >
-                              {currencyChoices(editRealizedGainCurrency).map(o => (
-                                <option key={o.value} value={o.value}>{o.label}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* Realized Improvement Pct */}
-                        <div className="space-y-1">
-                          <label className="block text-slate-500 font-bold">Gerçekleşen İyileştirme (%)</label>
-                          <div className="flex rounded-md shadow-3xs relative">
-                            <input 
-                              type="number"
-                              value={editRealizedImprovementPct}
-                              onChange={(e) => setEditRealizedImprovementPct(Number(e.target.value))}
-                              placeholder="0"
-                              className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none font-mono font-semibold"
-                            />
-                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-[10px]">%</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Standardization Checkboxes */}
-                      <div className="bg-slate-100/50 p-3.5 rounded-xl border border-slate-200/60 space-y-2">
-                        <label className="block text-indigo-950 font-bold text-[11px] uppercase tracking-wide font-mono">
-                          Standardizasyon ve Yaygınlaştırma Adımları
-                        </label>
-                        <p className="text-[10px] text-slate-500 mb-2">
-                          İyileştirmenin kalıcı olmasını sağlamak için hangi döküman ve süreç güncellemeleri tamamlandı?
-                        </p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 text-[11px]">
-                          <label className="flex items-center space-x-2 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 select-none">
-                            <input 
-                              type="checkbox"
-                              checked={editStdWorkUpdated}
-                              onChange={(e) => setEditStdWorkUpdated(e.target.checked)}
-                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
-                            />
-                            <span className="text-slate-700 font-medium">Standart İş Güncellendi</span>
-                          </label>
-
-                          <label className="flex items-center space-x-2 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 select-none">
-                            <input 
-                              type="checkbox"
-                              checked={editInstructionRevised}
-                              onChange={(e) => setEditInstructionRevised(e.target.checked)}
-                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
-                            />
-                            <span className="text-slate-700 font-medium">Talimat Revize Edildi</span>
-                          </label>
-
-                          <label className="flex items-center space-x-2 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 select-none">
-                            <input 
-                              type="checkbox"
-                              checked={editTrainingGiven}
-                              onChange={(e) => setEditTrainingGiven(e.target.checked)}
-                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
-                            />
-                            <span className="text-slate-700 font-medium">Eğitim Verildi</span>
-                          </label>
-
-                          <label className="flex items-center space-x-2 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 select-none">
-                            <input 
-                              type="checkbox"
-                              checked={editControlPlanUpdated}
-                              onChange={(e) => setEditControlPlanUpdated(e.target.checked)}
-                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
-                            />
-                            <span className="text-slate-700 font-medium">Kontrol Planı Güncellendi</span>
-                          </label>
-
-                          <label className="flex items-center space-x-2 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 select-none">
-                            <input 
-                              type="checkbox"
-                              checked={editAuditListUpdated}
-                              onChange={(e) => setEditAuditListUpdated(e.target.checked)}
-                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
-                            />
-                            <span className="text-slate-700 font-medium">Denetim Listesi Güncellendi</span>
-                          </label>
-                        </div>
-                      </div>
-
-                      {/* Dropdown Result & Textarea Description */}
-                      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
-                        <div className="md:col-span-1">
-                          <label className="block text-slate-500 font-bold mb-1">Proje Sonucu</label>
-                          <select
-                            value={editProjectResult}
-                            onChange={(e) => setEditProjectResult(e.target.value)}
-                            className="w-full bg-white border border-slate-200 rounded p-1.5 font-bold text-slate-800 focus:outline-none"
-                          >
-                            <option value="Başarılı">🟢 Başarılı (Sustained)</option>
-                            <option value="Revizyon Gerekli">🟡 Revizyon Gerekli</option>
-                            <option value="Askıya Alındı">⚪ Askıya Alındı (On-Hold)</option>
-                            <option value="İptal">🔴 İptal (Cancelled)</option>
-                          </select>
-                        </div>
-
-                        <div className="md:col-span-3">
-                          <label className="block text-slate-500 font-bold mb-1">Sonuç ve Karar Açıklaması (Decision / Result Notes)</label>
-                          <textarea 
-                            rows={2}
-                            value={editResultDescription}
-                            onChange={(e) => setEditResultDescription(e.target.value)}
-                            placeholder="Elde edilen tasarrufun tescili, sürdürülebilirlik planları ve genel değerlendirmeler..."
-                            className="w-full bg-white border border-slate-200 rounded p-1.5 focus:outline-none text-slate-800 font-medium"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Photo Upload Section for Section 7 Project Results */}
-                      {renderPhotoUploadSection(
-                        "Sonuç & Kazanım Kanıt Fotoğrafları (İyileştirilmiş Durum)",
-                        "Proje sonucu elde edilen kazanımları ve standartlaşmayı belgelemek için galeriden görsel seçin veya direkt cihaz kamerası ile fotoğraf çekin.",
-                        editResultPhotos,
-                        (newP) => setEditResultPhotos([...editResultPhotos, ...newP]),
-                        (idx) => setEditResultPhotos(editResultPhotos.filter((_, i) => i !== idx))
-                      )}
-                    </div>
-
-                    {/* 8 - Belgeler ve Görseller (Documents & Attachments) */}
-                    <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-4">
-                      <div className="flex justify-between items-center">
-                        <label className="block text-indigo-950 font-bold text-xs uppercase tracking-wider font-mono">
-                          8 - Belgeler ve Görseller (Documents & Attachments)
-                        </label>
-                        <span className="text-[10px] text-indigo-600 font-mono font-bold bg-indigo-100/60 px-2 py-0.5 rounded-md">
-                          Dosya Havuzu Entegrasyonu
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500">
-                        Projenin saha fotoğrafları, standart iş dökümanları ve analiz raporlarını (PDF, Word, Excel, JPG, PNG) yükleyin:
-                      </p>
-
-                      {/* Storage location note — previously this claimed files would be "automatically
-                          archived on the server" while only the file name/size were ever kept. Files
-                          now genuinely persist (base64-embedded in this project's own record), so the
-                          note reflects that instead of an unbuilt separate file-server path. */}
-                      <div className="bg-slate-100 p-3 rounded-lg border border-slate-200/60 font-mono text-[10px] text-slate-600 space-y-1.5 shadow-3xs">
-                        <div className="flex items-center text-slate-500">
-                          <span className="font-bold text-indigo-700 mr-1">Saklama Konumu:</span>
-                          <span>Bu CI projesi kaydının içinde (KAI-{editingProject?.id || "Proje"}) — ayrı bir dosya sunucusuna değil.</span>
-                        </div>
-                        <div className="text-[11px] text-slate-400">
-                          Dosya başına en fazla {MAX_DOCUMENT_SIZE_MB} MB. Büyük dosyalar (video, yüksek çözünürlüklü taramalar) için harici bir paylaşım bağlantısı kullanmanız önerilir.
-                        </div>
-                      </div>
-
-                      {/* Drag & Drop File Zone */}
-                      <div
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          if (!e.dataTransfer.files) return;
-                          handleDocumentFiles(Array.from(e.dataTransfer.files));
-                        }}
-                        className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-100/50 hover:border-indigo-400 transition-colors cursor-pointer relative group"
-                      >
-                        <input
-                          type="file"
-                          multiple
-                          accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx"
-                          onChange={(e) => {
-                            if (!e.target.files) return;
-                            handleDocumentFiles(Array.from(e.target.files));
-                            e.target.value = "";
-                          }}
-                          className="absolute inset-0 opacity-0 cursor-pointer"
-                        />
-                        <div className="flex flex-col items-center justify-center space-y-2">
-                          <div className="p-3 bg-white rounded-full shadow-3xs group-hover:scale-105 transition-transform">
-                            <FileUp className="w-5 h-5 text-indigo-600" />
-                          </div>
-                          <p className="text-[11px] font-bold text-slate-700">
-                            Dosyayı buraya sürükleyip bırakın veya <span className="text-indigo-600 underline">Göz Atın</span>
-                          </p>
-                          <p className="text-[11px] text-slate-400">
-                            Desteklenen Dosya Biçimleri: PDF, Word (DOC, DOCX), Excel (XLS, XLSX), Görseller (JPG, PNG)
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Document List */}
-                      {editDocuments.length > 0 && (
-                        <div className="space-y-2">
-                          <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider font-mono">
-                            Yüklenen Belgeler ({editDocuments.length})
-                          </label>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                            {editDocuments.map((doc) => {
-                              const isImage = ["jpg", "jpeg", "png", "gif"].includes(doc.fileType?.toLowerCase());
-                              const isExcel = ["xls", "xlsx"].includes(doc.fileType?.toLowerCase());
-                              const isPdf = doc.fileType?.toLowerCase() === "pdf";
-
-                              return (
-                                <div 
-                                  key={doc.id}
-                                  className="flex items-center justify-between p-2.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 transition-colors"
-                                >
-                                  <div className="flex items-center space-x-2 min-w-0">
-                                    <div className={`p-1.5 rounded ${
-                                      isImage ? "bg-amber-50 text-amber-600" :
-                                      isExcel ? "bg-emerald-50 text-emerald-600" :
-                                      isPdf ? "bg-rose-50 text-rose-600" :
-                                      "bg-blue-50 text-blue-600"
-                                    }`}>
-                                      {isImage ? <Image className="w-4 h-4" /> :
-                                       isExcel ? <FileSpreadsheet className="w-4 h-4" /> :
-                                       <FileText className="w-4 h-4" />}
-                                    </div>
-                                    <div className="min-w-0">
-                                      <p className="font-semibold text-slate-700 truncate text-[11px]" title={doc.name}>
-                                        {doc.name}
-                                      </p>
-                                      <p className="text-[11px] text-slate-400 font-mono">
-                                        {doc.size} • {doc.uploadDate}
-                                      </p>
-                                    </div>
-                                  </div>
-
-                                  <div className="flex items-center gap-0.5 shrink-0 ml-2">
-                                    {doc.data && (
-                                      <a
-                                        href={doc.data}
-                                        download={doc.name}
-                                        className="text-slate-400 hover:text-indigo-600 p-1 rounded hover:bg-slate-50 transition-colors cursor-pointer"
-                                        title="Dosyayı İndir / Görüntüle"
-                                      >
-                                        <FileUp className="w-3.5 h-3.5 rotate-180" />
-                                      </a>
-                                    )}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setEditDocuments(editDocuments.filter(d => d.id !== doc.id));
-                                      }}
-                                      className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-slate-50 transition-colors cursor-pointer"
-                                      title="Dosyayı Kaldır"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* 9 - Önce-Sonra Kaizen Formu (Before-After Kaizen) — recreates the real
-                      "Kaizen Öncesi Sonrası" one-pager template on demand, from data already on
-                      this card, and keeps every generated study as a persisted list entry. */}
-                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-3">
-                    <div className="flex justify-between items-center">
-                      <label className="block text-indigo-950 font-bold text-xs uppercase tracking-wider font-mono">
-                        9 - Önce-Sonra Kaizen Formu (Before-After Kaizen)
-                      </label>
-                      <button
-                        type="button"
-                        onClick={handleOpenBeforeAfterModal}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer"
-                      >
-                        <Camera className="w-3.5 h-3.5" />
-                        Önce-Sonra Formu Oluştur
-                      </button>
-                    </div>
-                    <p className="text-[11px] text-slate-500">
-                      Projenin önce/sonra fotoğrafları, problem tanımı ve kazanımlarından, firmanın standart "Kaizen Öncesi Sonrası" formatında bir tek-sayfalık Excel raporu üretir. Her oluşturma bir liste kaydı olarak saklanır.
-                    </p>
-
-                    {(editingProject.beforeAfterStudies?.length || 0) > 0 ? (
-                      <div className="space-y-1.5">
-                        {editingProject.beforeAfterStudies!.map(study => (
-                          <div key={study.id} className="flex items-center justify-between p-2.5 bg-white rounded-lg border border-slate-200">
-                            <div className="min-w-0">
-                              <p className="font-semibold text-slate-700 text-[11px] truncate">{study.subject}</p>
-                              <p className="text-[10px] text-slate-400 font-mono">{study.date} • {study.category} / {study.area}</p>
-                            </div>
-                            <div className="flex items-center gap-0.5 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => exportBeforeAfterKaizenToExcel(study, selectedCustomer?.companyName, currency)}
-                                className="text-slate-400 hover:text-emerald-600 p-1 rounded hover:bg-slate-50 transition-colors cursor-pointer"
-                                title="Tekrar İndir"
-                              >
-                                <FileSpreadsheet className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteBeforeAfterStudy(study.id)}
-                                className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-slate-50 transition-colors cursor-pointer"
-                                title="Kaydı Sil"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-[11px] text-slate-400 italic">Henüz önce-sonra formu oluşturulmadı.</p>
-                    )}
-                  </div>
-
-                  {/* Mail Reminder Infrastructure UI */}
-                  <div className="pt-2 border-t border-indigo-200/50 flex items-center justify-between">
-                    <div className="text-[10px] text-slate-500 font-medium">
-                      <span>Hatırlatma Kaydı & Excel Kart Aktarımı</span>
-                      {editingProject.lastEmailSentAt && (
-                        <div className="text-[11px] text-emerald-600 font-semibold mt-0.5 font-mono">Son Hatırlatma Kaydı: {editingProject.lastEmailSentAt}</div>
-                      )}
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      {/* Recipient picker — sourced from the customer card's real contacts */}
-                      <select
-                        value={reminderRecipientKey}
-                        onChange={(e) => setReminderRecipientKey(e.target.value)}
-                        className="text-[11px] font-bold text-slate-600 bg-white border border-slate-200 rounded-lg px-1.5 py-1.5 focus:outline-none cursor-pointer"
-                        title="Hatırlatma alıcısı"
-                      >
-                        <option value="leader">Proje Lideri ({editingProject.projectLeader || editingProject.originator || "Sorumlu Ekip"})</option>
-                        {getCustomerContactOptions().map(opt => (
-                          <option key={opt.key} value={opt.key}>{opt.label} ({opt.name})</option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const contact = getCustomerContactOptions().find(o => o.key === reminderRecipientKey);
-                          logManualReminder(editingProject, contact ? { name: contact.name, email: contact.email } : undefined);
-                        }}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded-lg flex items-center space-x-1 shadow-xs cursor-pointer text-[10px]"
-                      >
-                        <span>📌 Hatırlatma Kaydet</span>
-                        {editingProject.emailSentCount && editingProject.emailSentCount > 0 && (
-                          <span className="bg-white/20 text-white text-[11px] font-bold px-1.5 py-0.2 rounded-full">
-                            {editingProject.emailSentCount}
-                          </span>
-                        )}
-                      </button>
-
-                      {/* XLS EXPORT ICON BUTTON (Icon only) */}
-                      <button
-                        type="button"
-                        onClick={handleExportCurrentEditingProjectToExcel}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white p-1.5 rounded-lg flex items-center justify-center shadow-xs cursor-pointer transition-colors"
-                        title="CI Proje Kartını Excel (XLS) Olarak Dışarı Aktar"
-                      >
-                        <FileSpreadsheet className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                </div>
-
-              </div>
-
-            </div>
-
-            <div className="bg-slate-50 px-5 py-4 border-t border-slate-200 flex justify-end space-x-2">
-              <button 
-                onClick={() => setEditingProject(null)} 
-                className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold cursor-pointer text-xs"
-              >
-                İptal
-              </button>
-              <button 
-                onClick={handleSaveProjectDetails} 
-                className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-xl font-bold shadow-sm cursor-pointer text-xs"
-              >
-                CI Değişikliklerini Kaydet
-              </button>
-            </div>
-
-          </div>
-        </div>
+      {cardProject && (
+        <CiProjectCard
+          project={cardProject}
+          projectNo={getProjectNo(cardProject)}
+          currentUser={currentUser}
+          people={teamPeople}
+          departments={ciSettings.departments}
+          phases={ciSettings.phases}
+          currencySymbol={currency}
+          currencyOptions={currencyOptions}
+          currencyChoices={currencyChoices}
+          onSave={async (changes) => {
+            const saved = await onUpdateKaizen(changes as KaizenCard);
+            if (saved) syncWithGantt(saved, 'update');
+            return saved;
+          }}
+          onStageAction={(action, note) => runStageAction(cardProject, action, note)}
+          onClose={() => setCardProjectId(null)}
+          onExportExcel={() => exportKaizenCardToExcel(cardProject, selectedCustomer?.companyName, currency)}
+          onOpenFinancials={() => handleOpenFinancials(cardProject)}
+          onCreateBeforeAfter={() => handleOpenBeforeAfterModal(cardProject)}
+          onExportBeforeAfter={(study) => exportBeforeAfterKaizenToExcel(study, selectedCustomer?.companyName, currency)}
+          onDeleteBeforeAfter={(studyId) => handleDeleteBeforeAfterStudy(studyId, cardProject.id)}
+        />
       )}
 
       {/* LIGHTBOX PHOTO ZOOM MODAL */}
       {lightboxPhoto && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full overflow-hidden border border-slate-700 flex flex-col max-h-[90vh]">
             <div className="bg-slate-900 text-white px-5 py-3.5 flex justify-between items-center">
               <span className="font-bold text-xs text-slate-200 truncate pr-4">{lightboxPhoto.title}</span>

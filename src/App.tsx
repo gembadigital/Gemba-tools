@@ -549,7 +549,15 @@ export default function App() {
     }).then(r => r.json());
     if (res.success) {
       setKaizens(prev => prev.map(item => item.id === res.data.id ? res.data : item));
+      return res.data as KaizenCard;
     }
+    alert(res.error || "CI projesi kaydedilemedi.");
+    return undefined;
+  };
+
+  // A CI project returned by the server outside a save (lifecycle action) — replace the local copy.
+  const handleKaizenChanged = (kaizen: KaizenCard) => {
+    setKaizens(prev => prev.map(item => item.id === kaizen.id ? kaizen : item));
   };
 
   const handleDeleteKaizen = async (id: string) => {
@@ -1097,13 +1105,14 @@ export default function App() {
                   onAddKaizen={handleAddKaizen}
                   onUpdateKaizen={handleUpdateKaizen}
                   onDeleteKaizen={handleDeleteKaizen}
+                  onKaizenChanged={handleKaizenChanged}
                   processes={processes}
                   activities={activities}
                   onAddActivity={handleAddActivity}
                   onUpdateActivity={handleUpdateActivity}
                   onDeleteActivity={handleDeleteActivity}
                   selectedCustomer={selectedCustomer}
-                  currentUserRole={currentUser?.role}
+                  currentUser={currentUser}
                 />
               </div>
             )}
