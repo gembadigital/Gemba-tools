@@ -53,6 +53,9 @@ interface CiProjectCardProps {
   onCreateBeforeAfter: (taskId?: string) => void; // optional: link the new study to this action
   onExportBeforeAfter: (study: BeforeAfterKaizenStudy) => void;
   onDeleteBeforeAfter: (studyId: string) => void;
+  // Kaizen ↔ CI bridge (plan C10): present only when the customer uses the Kaizen suggestion system.
+  kaizenActive?: boolean;
+  onShareToKaizen?: (study: BeforeAfterKaizenStudy, share: boolean) => Promise<{ ok: boolean; error?: string }>;
 }
 
 // Fields this card edits; the diff for "Kaydet" is taken over these.
@@ -944,6 +947,15 @@ function TasksEditor({ step, draft, set, people, canEdit, props, project }: {
                     <p className="text-xs text-slate-500 truncate">{byTasks.length ? `Aksiyon: ${byTasks.join(", ")}` : "Aksiyona bağlı değil"}</p>
                   </div>
                   <span className="text-slate-500 shrink-0">{fmtDate(st.date)}</span>
+                  {props.kaizenActive && props.onShareToKaizen && (
+                    st.sharedToKaizenAt ? (
+                      <button type="button" disabled={!canEdit} onClick={() => window.confirm("Bu kayıt Kaizen sergisinden kaldırılsın mı?") && props.onShareToKaizen!(st, false).then(r => { if (!r.ok) alert(r.error); })} title="Kaizen Önce-Sonra sergisinden kaldır"
+                        className="shrink-0"><Pill tone="amber"><Star className="w-3 h-3" fill="currentColor" /> Kaizen sergisinde</Pill></button>
+                    ) : canEdit && (
+                      <button type="button" onClick={() => props.onShareToKaizen!(st, true).then(r => { if (!r.ok) alert(r.error); })} title="Kaizen öneri sisteminin Önce-Sonra sergisine gönder"
+                        className="shrink-0 h-8 px-3 rounded-full text-xs font-semibold ring-1 ring-inset ring-amber-300 text-amber-800 hover:bg-amber-50 cursor-pointer">Kaizen sergisine gönder</button>
+                    )
+                  )}
                   <button type="button" onClick={() => props.onExportBeforeAfter(st)} className="p-2 text-slate-500 hover:text-emerald-700 cursor-pointer" aria-label="Excel indir"><Download className="w-4 h-4" /></button>
                   {canEdit && <button type="button" onClick={() => props.onDeleteBeforeAfter(st.id)} className="p-2 text-slate-400 hover:text-red-600 cursor-pointer" aria-label="Sil"><Trash2 className="w-4 h-4" /></button>}
                 </div>

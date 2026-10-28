@@ -67,3 +67,26 @@ export function Pill({ children, tone = "slate", className = "" }: { children: R
   }[tone];
   return <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap ${tones} ${className}`}>{children}</span>;
 }
+
+// Downscales an image data URL (JPEG, longest edge `maxEdge`) — for pictures that leave the project
+// record, e.g. the Kaizen showcase. Non-images and failures return the input unchanged.
+export function shrinkDataUrl(dataUrl: string | undefined, maxEdge = 1200, quality = 0.8): Promise<string> {
+  return new Promise(resolve => {
+    if (!dataUrl || !dataUrl.startsWith("data:image/")) return resolve(dataUrl || "");
+    const img = new Image();
+    img.onerror = () => resolve(dataUrl);
+    img.onload = () => {
+      const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return resolve(dataUrl);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.src = dataUrl;
+  });
+}

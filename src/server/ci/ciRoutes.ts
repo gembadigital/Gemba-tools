@@ -128,6 +128,13 @@ export function registerCiRoutes(app: express.Express, deps: CiRouteDeps) {
       Object.assign(payload, { stage: 1, closedAt: null, holdState: null, pendingApproval: null }, derivedStatusFields(1, false, null));
       const created = withHistory(payload, { at: now, by: who, byId: user.id, action: "Proje açıldı" });
       const saved = await db.createKaizenWithNumber(user.organization_id, payload.factory_id, created, user.id);
+      // Kaizen ↔ CI bridge (plan C10): a project opened from a Kaizen suggestion is written on the
+      // suggestion, so the Kaizen module shows "CI projesine yükseltildi".
+      const kaizenId = typeof saved.opportunityId === "string" && saved.opportunityId.startsWith("opp_kaizen_") ? saved.opportunityId.slice("opp_kaizen_".length) : "";
+      if (kaizenId && saved.factory_id) {
+        const suggestion = (await db.getKaizenRecords("kaizen_suggestions", user.organization_id, saved.factory_id)).find((x: any) => x.id === kaizenId);
+        if (suggestion) await db.saveKaizenRecord("kaizen_suggestions", user.organization_id, saved.factory_id, { id: suggestion.id, ciProjectId: saved.id, ciProjectNo: saved.projectNo }, user.id);
+      }
       if (saved.factory_id) {
         await mailUsers(user.organization_id, saved.factory_id, [saved.projectLeaderId, ...(saved.projectTeamIds || [])],
           `CI projesi: ${saved.projectNo} ${saved.title || ""}`.trim(),
@@ -274,6 +281,59 @@ export function registerCiRoutes(app: express.Express, deps: CiRouteDeps) {
     if (!existing || !canAccessFactory(req, factoryOf(existing))) return deny(res);
     await db.deleteKaizen(user.organization_id, req.params.id);
     res.json({ success: true });
+  });
+
+  // ---- Kaizen ↔ CI bridge (plan step C10) ----
+  // The Kaizen suggestion system counts as present for a customer once its personnel list exists.
+  const kaizenActive = async (orgId: string, factoryId: string) =>
+    (await db.getKaizenRecords("kaizen_personnel", orgId, factoryId)).length > 0;
+
+  app.get("/api/business/ci/kaizen-bridge", authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+    if (!scope.allowed || !scope.factoryId || isKaizenSession(user)) return deny(res);
+    res.json({ success: true, data: { kaizenActive: await kaizenActive(user.organization_id, scope.factoryId) } });
+  });
+
+  // Share / withdraw a before-after study of a CI project in the Kaizen "Önce-Sonra" showcase.
+  // The client sends the two pictures already downscaled (they are shown in a gallery).
+  const showcaseId = (studyId: string) => `kaizen_showcase_ci_${studyId}`;
+  app.post("/api/business/kaizens/:id/before-after/:studyId/kaizen", authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    if (isKaizenSession(user)) return deny(res);
+    const project = await db.getKaizenById(user.organization_id, req.params.id);
+    if (!project || !canAccessFactory(req, factoryOf(project)) || !canEditProject(user, project)) return deny(res);
+    const factory = factoryOf(project);
+    if (!(await kaizenActive(user.organization_id, factory))) return deny(res, 409, "Bu müşteride Kaizen öneri sistemi kurulu değil.");
+    const study = (project.beforeAfterStudies || []).find((s: any) => s.id === req.params.studyId);
+    if (!study) return deny(res, 404, "Önce-sonra kaydı bulunamadı.");
+    const img = (v: any) => typeof v === "string" && v.startsWith("data:image/") && v.length < 1_500_000 ? v : "";
+    const all = await db.getKaizens(user.organization_id, factory);
+    const now = new Date().toISOString();
+    await db.saveKaizenRecord("kaizen_showcase", user.organization_id, factory, {
+      id: showcaseId(study.id), source: "ci", ciProjectId: project.id, ciProjectNo: displayProjectNo(project, all), studyId: study.id,
+      title: study.subject || project.title, department: study.department || project.department || "", date: study.date || now.slice(0, 10),
+      category: study.category || "", beforeImage: img(req.body?.beforeImage), afterImage: img(req.body?.afterImage),
+      beforeText: study.descriptionBefore || "", afterText: study.descriptionAfter || "", benefit: study.benefitDescription || "",
+      sharedBy: user.full_name || user.email, sharedAt: now
+    }, user.id);
+    const studies = (project.beforeAfterStudies || []).map((s: any) => s.id === study.id ? { ...s, sharedToKaizenAt: now } : s);
+    const saved = await db.saveKaizen(user.organization_id, withHistory({ ...project, beforeAfterStudies: studies },
+      { at: now, by: user.full_name || user.email, byId: user.id, action: `Önce-sonra "${study.subject}" Kaizen sergisine gönderildi` }), user.id);
+    res.json({ success: true, data: saved });
+  });
+
+  app.delete("/api/business/kaizens/:id/before-after/:studyId/kaizen", authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    if (isKaizenSession(user)) return deny(res);
+    const project = await db.getKaizenById(user.organization_id, req.params.id);
+    if (!project || !canAccessFactory(req, factoryOf(project)) || !canEditProject(user, project)) return deny(res);
+    await db.deleteKaizenRecord("kaizen_showcase", user.organization_id, showcaseId(req.params.studyId));
+    const studies = (project.beforeAfterStudies || []).map((s: any) => s.id === req.params.studyId ? { ...s, sharedToKaizenAt: null } : s);
+    const now = new Date().toISOString();
+    const saved = await db.saveKaizen(user.organization_id, withHistory({ ...project, beforeAfterStudies: studies },
+      { at: now, by: user.full_name || user.email, byId: user.id, action: "Önce-sonra Kaizen sergisinden kaldırıldı" }), user.id);
+    res.json({ success: true, data: saved });
   });
 
   // Opportunity pool (plan step C5): improvement points from the other modules, each marked with the

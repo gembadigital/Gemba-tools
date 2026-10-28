@@ -219,7 +219,7 @@ export default function KaizenImplementation({
                         <p className="text-sm font-semibold text-slate-900 leading-snug">{s.subject}</p>
                         <StatusPill status={impl ? impl.status : "Plan yok"} overdue={isImplementationOverdue(impl)} />
                       </div>
-                      <p className="text-[11px] font-semibold text-emerald-700 mt-1">✓ Kurul onaylı</p>
+                      <p className="text-[11px] font-semibold text-emerald-700 mt-1">✓ Kurul onaylı{s.ciProjectNo && <span className="ml-2 text-indigo-700">· CI projesi {s.ciProjectNo}</span>}</p>
                       <p className="text-xs text-slate-500 mt-1">
                         {s.personnelName}{impl?.ownerName ? ` · Sorumlu: ${impl.ownerName}` : ""}
                         {impl?.targetDate ? ` · Hedef: ${fmtDate(impl.targetDate)}` : ""}

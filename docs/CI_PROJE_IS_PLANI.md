@@ -197,6 +197,7 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
 | C8 | ✅ kod (canlıda doğrulanmadı) | Tek sayfa A3 sunum kartı, PDF + Excel, isteğe bağlı önce-sonra. Ayrıntı aşağıda. |
 | C5 | ✅ kod (canlıda doğrulanmadı) | Sunucu tarafı fırsat havuzu (5 kaynak), tam ekran yeni proje akışı. Ayrıntı aşağıda. |
 | C9 | ✅ kod (canlıda doğrulanmadı) | Gerçek e-posta bildirimleri, haftalık özet (cron), manuel hatırlatma, 30/60/90 gün sürdürülebilirlik. Ayrıntı aşağıda. |
+| C10 | ✅ kod (canlıda doğrulanmadı) | Kaizen ↔ CI köprüsü: önce-sonra paylaşımı, Kaizen "Önce-Sonra" sergisi, öneri → CI projesi bağı. Ayrıntı aşağıda. |
 
 ### C0 — yapılanlar
 - **Sunucu (`/api/business/kaizens`):** müşteri gövdeden değil `x-factory-id` kapsamından alınır; güncellemede mevcut
@@ -498,4 +499,29 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
   kapalıyken ret, tutmayan kontrol uyarısı, önizleme yetkisi, cron gizli anahtarı) — gerçek e-posta gönderilmedi, sahte
   gönderici kullanıldı. C2/C3/C5 test düzenekleri yeni bağımlılıklarla güncellendi ve yeniden geçti. Sürdürülebilirlik
   bölümü ve hatırlatma penceresi yerel önizlemede denendi. Canlıda denenmedi.
+
+### C10 — yapılanlar (Kaizen ↔ CI köprüsü, A7)
+Modüller ayrı kalır; köprü yalnızca açık uç noktalarından ve özet alanlarından geçer (Kaizen kodunu CI çağırmaz, CI
+kodunu Kaizen çağırmaz; ortak veritabanı koleksiyonları üzerinden).
+- **Kaizen kurulu mu?** `GET /api/business/ci/kaizen-bridge` — müşteride Kaizen personel listesi varsa "var" sayılır;
+  CI ekranı köprü düğmelerini yalnızca o zaman gösterir ("eğer sistemde Kaizen öneri sistemi dahilse").
+- **CI → Kaizen önce-sonra:** proje kartı 6. adım önce-sonra kayıtlarında "Kaizen sergisine gönder" / "Kaizen
+  sergisinde" (geri çekme). Görseller tarayıcıda ≤1200 px JPEG'e küçültülüp gönderilir; sunucu yalnızca
+  `data:image/` ve 1,5 MB altını kabul eder. `POST|DELETE /api/business/kaizens/:id/before-after/:studyId/kaizen`
+  → `kaizen_showcase` koleksiyonu (yeni Kaizen koleksiyonu); kayıtta `sharedToKaizenAt`, geçmişe yazılır; CI'dan
+  silinen paylaşılmış kayıt sergiden de kalkar. Yetki: projeyi düzenleyebilen.
+- **Kaizen "Önce-Sonra" sekmesi** (`kaizen/KaizenShowcase.tsx`, Kaizen modülüne yeni sekme): tamamlanmış ve
+  reddedilmemiş Kaizen uygulamaları (önce/sonra fotoğrafı ve ölçümü, kazanç, doğrulama) + CI'dan paylaşılanlar;
+  kaynak filtresi, arama, ayrıntı penceresi. Liste ucu fotoğrafsızdır (`GET /api/business/kaizen/showcase`), her kart
+  görsellerini ekrana girince ayrı uçtan alır (`…/showcase/:key/media`) — Vercel ~4,5 MB yanıt sınırı.
+- **Kaizen önerisi → CI projesi:** onaylı öneriler C5 fırsat havuzunda; öneriden proje açılınca öneriye
+  `ciProjectId` / `ciProjectNo` yazılır. Kaizen'de "Önerilerim" kartında ve "Uygulama" listesinde "CI projesi CIP…"
+  etiketi, sergide de görünür.
+- **Açık kalanlar:** Kaizen tarafından doğrudan "CI projesine yükselt" düğmesi yok (yükseltme CI → Yeni proje → fırsat
+  havuzu → Kaizen önerisi ile yapılır); CI projesine yükseltilen öneri için Kaizen uygulama kaydı ayrıca açılırsa iş iki
+  yerde izlenebilir (süreç kararı); CI'nın eski "Önce-Sonra" sekmesi eski tasarımda.
+- **Doğrulama:** `tsc`, `npm run build`, native ESM yükleme; C10 köprü testleri 8 kontrol (Kaizen yokken paylaşım reddi,
+  sergi kaydı ve görsel süzgeci, işaret + geçmiş, bilinmeyen kayıt, geri çekme, öneriye proje bağı) + C2/C3/C5/C9 ve
+  istemci testleri. Kaizen sergisi yerel önizlemede (sahte veri) denendi. Kaizen sergi uçları (`app.ts`) yalnızca tip
+  kontrolü ve önizleme ile doğrulandı. Canlıda denenmedi.
 

@@ -102,6 +102,8 @@ export interface KaizenSuggestion {
   machineLeaderEmail: string;
 
   subject: string;                 // Öneri Konusu
+  ciProjectId?: string;            // CI projesine yükseltildiyse (CI ↔ Kaizen köprüsü) — CI modülü yazar
+  ciProjectNo?: string;
   suggestionTypes: string[];       // Öneri Sınıfı (multi-choice)
   currentState: string;            // Mevcut Durum
   improvementSuggestion: string;   // Önerilen İyileştirme

@@ -32,7 +32,7 @@ import CiMyTasks from "./ci/CiMyTasks";
 import CiGainBreakdown from "./ci/CiGainBreakdown";
 import CiFinanceDashboard from "./ci/CiFinanceDashboard";
 import CiOverview from "./ci/CiOverview";
-import { PageHeader, TabBar, Button } from "./ci/ciUi";
+import { PageHeader, TabBar, Button, shrinkDataUrl } from "./ci/ciUi";
 import {
   CI_STEPS, CiStageAction, CiUserLike, stageOf, isClosed, pdcaOfStage, stageRequirements, canApproveStage, isCiStaffUser,
   isTaskFinished, personKey, canEditProject, rootCauseOf
@@ -251,6 +251,31 @@ export default function KaizenManager({
     setTimeout(() => setEmailStatusMessage(null), 6000);
   };
 
+  // Kaizen ↔ CI bridge (plan C10): is the Kaizen suggestion system set up for this customer, and
+  // sharing / withdrawing a before-after study in its showcase.
+  const [kaizenActive, setKaizenActive] = useState(false);
+  useEffect(() => {
+    setKaizenActive(false);
+    if (!selectedCustomer?.id) return;
+    fetch("/api/business/ci/kaizen-bridge", { headers: { "Authorization": `Bearer ${token}`, "x-factory-id": selectedCustomer.id } })
+      .then(r => r.json()).then(res => { if (res.success) setKaizenActive(!!res.data.kaizenActive); }).catch(() => {});
+  }, [selectedCustomer?.id, token]);
+
+  const shareToKaizen = async (project: KaizenCard, study: BeforeAfterKaizenStudy, share: boolean) => {
+    try {
+      const url = `/api/business/kaizens/${project.id}/before-after/${study.id}/kaizen`;
+      const headers = { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "x-factory-id": selectedCustomer?.id || "" };
+      const res = share
+        ? await fetch(url, { method: "POST", headers, body: JSON.stringify({ beforeImage: await shrinkDataUrl(study.beforeImage), afterImage: await shrinkDataUrl(study.afterImage) }) }).then(r => r.json())
+        : await fetch(url, { method: "DELETE", headers }).then(r => r.json());
+      if (!res.success) return { ok: false, error: res.error || "İşlem yapılamadı." };
+      onKaizenChanged(res.data);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Sunucuya ulaşılamadı." };
+    }
+  };
+
   // Sustainability check result of a closed project.
   const recordFollowUp = async (project: KaizenCard, input: { index: number; value: number | null; sustained: boolean; note: string }) => {
     try {
@@ -370,12 +395,14 @@ export default function KaizenManager({
     setIsBeforeAfterModalOpen(false);
   };
 
-  const handleDeleteBeforeAfterStudy = (studyId: string, projectId?: string) => {
+  const handleDeleteBeforeAfterStudy = async (studyId: string, projectId?: string) => {
     const targetId = projectId || editingProject?.id;
     if (!targetId) return;
     const liveProject = kaizens.find(k => k.id === targetId);
     if (!liveProject) return;
     if (!window.confirm("Bu önce-sonra kaydı silinsin mi?")) return;
+    const study = (liveProject.beforeAfterStudies || []).find(s => s.id === studyId);
+    if (study?.sharedToKaizenAt) await shareToKaizen(liveProject, study, false);
     // Also drop the study from the actions linked to it; only these two fields are sent.
     const changes: Partial<KaizenCard> & { id: string } = {
       id: liveProject.id,
@@ -1901,6 +1928,8 @@ export default function KaizenManager({
           onCreateBeforeAfter={(taskId) => handleOpenBeforeAfterModal(cardProject, taskId)}
           onExportBeforeAfter={(study) => exportBeforeAfterKaizenToExcel(study, selectedCustomer?.companyName, currency)}
           onDeleteBeforeAfter={(studyId) => handleDeleteBeforeAfterStudy(studyId, cardProject.id)}
+          kaizenActive={kaizenActive}
+          onShareToKaizen={(study, share) => shareToKaizen(cardProject, study, share)}
         />
       )}
 

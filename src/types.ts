@@ -120,6 +120,8 @@ export interface BeforeAfterKaizenStudy {
   benefitDescription: string;
   benefits: BeforeAfterKaizenBenefits;
   createdAt: string;
+  // Shared to the Kaizen suggestion system's "Önce-Sonra" showcase (CI ↔ Kaizen bridge, plan C10).
+  sharedToKaizenAt?: string | null;
 }
 
 export interface KaizenCard {

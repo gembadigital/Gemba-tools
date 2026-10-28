@@ -164,6 +164,7 @@ export default function KaizenMySuggestions({ currentUser, suggestions, approval
                           <span className="inline-flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />{fmtDate(s.createdAt)}</span>
                           {!isMine && <span className="inline-flex items-center gap-1 font-semibold text-slate-700"><Users className="w-3.5 h-3.5" />{s.personnelName}</span>}
                           {(s.suggestionTypes || []).length > 0 && <span>{(s.suggestionTypes || []).join(" · ")}</span>}
+                          {s.ciProjectNo && <span className="inline-flex items-center rounded-full bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200 px-2 py-0.5 font-semibold" title="Bu öneri bir CI projesine yükseltildi">CI projesi {s.ciProjectNo}</span>}
                         </p>
                       </div>
                       <StatusBadge status={s.approvalStatus} requiredStages={s.requiredStages} feasibility={s.feasibility?.status === "open"} />

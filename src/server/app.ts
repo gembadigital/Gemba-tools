@@ -2938,6 +2938,63 @@ app.get("/api/business/kaizen/champions", authenticateToken, async (req, res) =>
   res.json({ success: true, data: d.people.filter(r => r.points > 0).slice(0, limit).map(d.strip) });
 });
 
+// Önce-Sonra sergisi (CI ↔ Kaizen köprüsü, plan C10): completed and not rejected Kaizen
+// implementations plus before / after studies shared from CI projects (kaizen_showcase). The list has
+// no photos (response size); each card loads its two pictures from /showcase/:key/media.
+const showcasePhoto = (list: any) => (Array.isArray(list) && list[0]?.dataUrl) || "";
+async function showcaseData(req: express.Request) {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed || !scope.factoryId) return null;
+  const [implementations, suggestions, shared] = await Promise.all([
+    db.getKaizenRecords("kaizen_implementations", user.organization_id, scope.factoryId),
+    db.getKaizenRecords("kaizen_suggestions", user.organization_id, scope.factoryId),
+    db.getKaizenRecords("kaizen_showcase", user.organization_id, scope.factoryId)
+  ]);
+  return { implementations, suggestions, shared };
+}
+
+app.get("/api/business/kaizen/showcase", authenticateToken, async (req, res) => {
+  const d = await showcaseData(req);
+  if (!d) return denyKaizen(res);
+  const fromKaizen = d.implementations
+    .filter((i: any) => i.status === "Tamamlandı" && i.verification?.status !== "Reddedildi")
+    .map((i: any) => {
+      const s = d.suggestions.find((x: any) => x.id === i.suggestionId) || {};
+      return {
+        key: `impl_${i.id}`, source: "kaizen", title: s.subject || "Kaizen önerisi", department: s.personnelDepartment || "",
+        person: s.personnelName || "", date: (i.completedAt || i.updatedAt || "").slice(0, 10),
+        before: { label: i.beforeMetric?.label || "", value: i.beforeMetric?.value ?? null, unit: i.beforeMetric?.unit || "", text: s.currentState || "" },
+        after: { label: i.afterMetric?.label || "", value: i.afterMetric?.value ?? null, unit: i.afterMetric?.unit || "", text: s.improvementSuggestion || "" },
+        benefit: i.benefitDescription || "", saving: Number(i.actualSaving) || 0, savingCurrency: i.actualSavingCurrency || "",
+        verified: i.verification?.status === "Doğrulandı", ciProjectNo: s.ciProjectNo || "",
+        hasMedia: (i.photoCounts?.photosBefore ?? (i.photosBefore || []).length) + (i.photoCounts?.photosAfter ?? (i.photosAfter || []).length) > 0
+      };
+    });
+  const fromCi = d.shared.map((x: any) => ({
+    key: `ci_${x.id}`, source: "ci", title: x.title || "CI önce-sonra", department: x.department || "", person: x.sharedBy || "",
+    date: (x.date || x.sharedAt || "").slice(0, 10),
+    before: { label: "", value: null, unit: "", text: x.beforeText || "" }, after: { label: "", value: null, unit: "", text: x.afterText || "" },
+    benefit: x.benefit || "", saving: 0, savingCurrency: "", verified: false, ciProjectNo: x.ciProjectNo || "",
+    hasMedia: !!(x.beforeImage || x.afterImage)
+  }));
+  res.json({ success: true, data: [...fromKaizen, ...fromCi].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 120) });
+});
+
+app.get("/api/business/kaizen/showcase/:key/media", authenticateToken, async (req, res) => {
+  const d = await showcaseData(req);
+  if (!d) return denyKaizen(res);
+  const key = req.params.key;
+  if (key.startsWith("impl_")) {
+    const i = d.implementations.find((x: any) => `impl_${x.id}` === key && x.status === "Tamamlandı");
+    if (!i) return denyKaizen(res, 404, "Bulunamadı.");
+    return res.json({ success: true, data: { before: showcasePhoto(i.photosBefore), after: showcasePhoto(i.photosAfter) } });
+  }
+  const x = d.shared.find((r: any) => `ci_${r.id}` === key);
+  if (!x) return denyKaizen(res, 404, "Bulunamadı.");
+  res.json({ success: true, data: { before: x.beforeImage || "", after: x.afterImage || "" } });
+});
+
 // Şampiyonlar sekmesi: people and departments for a month, plus the months that have activity.
 app.get("/api/business/kaizen/champions/board", authenticateToken, async (req, res) => {
   const d = await kaizenChampionData(req);
