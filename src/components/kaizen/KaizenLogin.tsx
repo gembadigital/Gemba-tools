@@ -15,6 +15,7 @@ export default function KaizenLogin({ customerId, kiosk, place, onAuthSuccess }:
 }) {
   const [company, setCompany] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [linkHint, setLinkHint] = useState("");
   const [step, setStep] = useState<Step>("sicil");
   const [employeeNo, setEmployeeNo] = useState("");
   const [name, setName] = useState("");
@@ -29,7 +30,13 @@ export default function KaizenLogin({ customerId, kiosk, place, onAuthSuccess }:
   useEffect(() => {
     fetch(`/api/auth/kaizen-login-info?c=${encodeURIComponent(customerId)}`)
       .then(r => r.json())
-      .then(d => (d.success ? setCompany(d.data.companyName || "") : setLinkError(d.error || "Giriş bağlantısı geçersiz.")))
+      .then(d => {
+        if (d.success) return setCompany(d.data.companyName || "");
+        setLinkError(d.error || "Giriş bağlantısı geçersiz.");
+        setLinkHint(d.reason === "no-personnel"
+          ? "Kurul Yöneticisi Kurulum > Personel'den çalışanları sicil no ile eklemeli."
+          : "Bağlantıyı Kurul Yöneticinizden yeniden isteyin.");
+      })
       .catch(() => setLinkError("Sunucuya ulaşılamadı."));
   }, [customerId]);
   useEffect(() => { firstInput.current?.focus(); }, [step, company]);
@@ -89,7 +96,7 @@ export default function KaizenLogin({ customerId, kiosk, place, onAuthSuccess }:
 
         <div className="bg-white rounded-3xl shadow-2xl p-6 sm:p-8">
           {linkError ? (
-            <p className="text-center text-sm text-red-600 py-6">{linkError}<br /><span className="text-slate-500">Bağlantıyı Kurul Yöneticinizden yeniden isteyin.</span></p>
+            <p className="text-center text-sm text-red-600 py-6">{linkError}<br /><span className="text-slate-500">{linkHint}</span></p>
           ) : (
             <form onSubmit={submit} className="space-y-5">
               {step === "sicil" && (

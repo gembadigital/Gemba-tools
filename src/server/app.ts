@@ -437,11 +437,25 @@ async function kaizenSessionUser(payload: any): Promise<{ user: any } | { error:
 
 // Public: tells the login page which company the link belongs to (nothing else).
 app.get("/api/auth/kaizen-login-info", async (req, res) => {
+  try {
+    await kaizenLoginInfo(req, res);
+  } catch (e: any) {
+    console.error("[kaizen-login] login-info failed:", e.message);
+    res.status(500).json({ success: false, error: "Sunucu hatası, biraz sonra tekrar deneyin." });
+  }
+});
+
+async function kaizenLoginInfo(req: express.Request, res: express.Response) {
   const fid = typeof req.query.c === "string" ? req.query.c.slice(0, 100) : "";
   const found = fid ? await db.findKaizenPersonnelByFactory(fid) : null;
-  if (!found) return res.status(404).json({ success: false, error: "Giriş bağlantısı geçersiz." });
+  if (!found) {
+    // A real customer without a roster is a setup gap, not a broken link — say which one it is.
+    const known = fid ? await db.customerExists(fid) : false;
+    console.warn(`[kaizen-login] login-info miss for c=${fid.slice(0, 40)} (customer ${known ? "exists, no personnel" : "unknown"})`);
+    return res.status(404).json({ success: false, error: known ? "Bu müşteri için henüz personel tanımlanmamış." : "Giriş bağlantısı geçersiz.", reason: known ? "no-personnel" : "unknown" });
+  }
   res.json({ success: true, data: { companyName: await db.getCustomerName(found.orgId, fid) } });
-});
+}
 
 app.post("/api/auth/kaizen-login", async (req, res) => {
   try {

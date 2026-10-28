@@ -50,7 +50,7 @@ export default function KaizenSetup({ personnel, criteria, personnelCrud, criter
       />
       {tab === "personnel" && <PersonnelTab personnel={personnel} personnelCrud={personnelCrud} onChanged={onPersonnelChanged} canGrantBoardAdmin={canGrantBoardAdmin} api={api} showToast={showToast} pinPolicy={settings.pinPolicy} loginLink={loginLink} />}
       {tab === "criteria" && <CriteriaTab criteria={criteria} criteriaCrud={criteriaCrud} baseCurrency={settings.baseCurrency} />}
-      {tab === "settings" && <SettingsTab settings={settings} onSave={onSaveSettings} loginLink={loginLink} companyName={companyName || ""} api={api} showToast={showToast} />}
+      {tab === "settings" && <SettingsTab settings={settings} onSave={onSaveSettings} loginLink={loginLink} companyName={companyName || ""} api={api} showToast={showToast} sicilCount={personnel.filter(p => (p.employeeNo || "").trim()).length} />}
     </div>
   );
 }
@@ -306,7 +306,7 @@ function CriteriaTab({ criteria, criteriaCrud, baseCurrency }: { criteria: Kaize
 
 // Müşteri bazında ayarlar (Faz 2-B). Inputs are kept as strings while editing; the shared
 // normalizeKaizenSettings() (same one the server runs) decides what is actually valid on save.
-function SettingsTab({ settings, onSave, loginLink, companyName, api, showToast }: { settings: KaizenSettings; onSave: (s: KaizenSettings) => Promise<any>; loginLink: string; companyName: string; api: KaizenApi; showToast: (m: string) => void }) {
+function SettingsTab({ settings, onSave, loginLink, companyName, api, showToast, sicilCount }: { settings: KaizenSettings; onSave: (s: KaizenSettings) => Promise<any>; loginLink: string; companyName: string; api: KaizenApi; showToast: (m: string) => void; sicilCount: number }) {
   const [qrOpen, setQrOpen] = useState(false);
   const fromSettings = (st: KaizenSettings) => ({
     baseCurrency: st.baseCurrency,
@@ -429,6 +429,11 @@ function SettingsTab({ settings, onSave, loginLink, companyName, api, showToast 
         <SectionTitle icon={IdCard} title="Sicil no ile giriş" hint="Saha çalışanları hesap açmadan bu bağlantıdan girer; bağlantıyı QR olarak panoya asabilirsiniz" />
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-4">
           <div className="space-y-3">
+            {sicilCount === 0 && (
+              <p role="alert" className="text-xs font-medium text-amber-800 bg-amber-50 ring-1 ring-amber-200 rounded-lg px-3 py-2">
+                Bu müşteride sicil no'su girilmiş personel yok; bağlantı ve QR "geçersiz" hatası verir. Önce Personel sekmesinden çalışanları sicil no ile ekleyin.
+              </p>
+            )}
             <LinkRow label="Telefon / bilgisayar (oturum 30 gün açık kalır)" url={loginLink} />
             <p className="text-xs text-slate-500">Ortak tablet için aşağıdaki <b>Kiosk modu</b> bağlantısını kullanın.</p>
             <Button variant="brand" onClick={() => setQrOpen(true)}><QrCode className="w-4 h-4" />QR kodu ve A4 afiş</Button>

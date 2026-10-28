@@ -1150,12 +1150,18 @@ export class GeminiDb {
   // organization is known. Customer (factory) ids are globally unique, so look them up across orgs.
   public async findKaizenPersonnelByFactory(factoryId: string): Promise<{ orgId: string; personnel: any[] } | null> {
     const { rows } = await getPool().query(
-      `select organization_id, data from records where collection = 'kaizen_personnel' and factory_id = $1`,
+      `select organization_id, data from records where collection = 'kaizen_personnel' and (factory_id = $1 or data->>'factory_id' = $1)`,
       [factoryId]
     );
     if (!rows.length) return null;
     const orgId = rows[0].organization_id;
     return { orgId, personnel: rows.filter(r => r.organization_id === orgId).map(r => r.data) };
+  }
+
+  // Login link diagnostics: does this customer id exist at all (any organization)?
+  public async customerExists(customerId: string): Promise<boolean> {
+    const { rows } = await getPool().query(`select 1 from records where collection = 'customers' and id = $1 limit 1`, [customerId]);
+    return rows.length > 0;
   }
 
   // Hatırlatmalar (Faz 4.4): every customer that has Kaizen suggestions, across organizations.
