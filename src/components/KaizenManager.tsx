@@ -2328,6 +2328,7 @@ export default function KaizenManager({
           phases={ciSettings.phases}
           fishboneCategories={ciSettings.fishboneCategories}
           currencySymbol={currency}
+          companyName={selectedCustomer?.companyName}
           currencyOptions={currencyOptions}
           currencyChoices={currencyChoices}
           onSave={async (changes) => {
