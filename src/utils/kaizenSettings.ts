@@ -29,6 +29,8 @@ export interface KaizenSettings {
   boardThreshold: number;            // in baseCurrency; estimate below this needs no Kurul (0 = Kurul always)
   boardScoreRequired: boolean;       // Kurul must pick a criteria (score) to approve
   pinPolicy: PinPolicy;              // sicil no girişinde PIN kimden istenir (Faz 3.5)
+  kioskIdleSeconds: number;          // kiosk: inactivity before the "still there?" warning (Faz 3.6)
+  kioskAfterSubmitSeconds: number;   // kiosk: auto sign-out countdown after a submitted suggestion
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -48,7 +50,9 @@ export const DEFAULT_KAIZEN_SETTINGS: KaizenSettings = {
   managerStageEnabled: true,
   boardThreshold: 0,
   boardScoreRequired: true,
-  pinPolicy: "authorized"
+  pinPolicy: "authorized",
+  kioskIdleSeconds: 120,
+  kioskAfterSubmitSeconds: 15
 };
 
 export const MAX_OPTIONS = 30;
@@ -115,6 +119,8 @@ export function normalizeKaizenSettings(input: any): KaizenSettings {
     boardThreshold: Number.isFinite(threshold) && threshold > 0 ? Math.round(threshold * 100) / 100 : 0,
     boardScoreRequired: typeof src.boardScoreRequired === "boolean" ? src.boardScoreRequired : d.boardScoreRequired,
     pinPolicy: (PIN_POLICIES as string[]).includes(src.pinPolicy) ? src.pinPolicy : d.pinPolicy,
+    kioskIdleSeconds: intIn(src.kioskIdleSeconds, 30, 900) ?? d.kioskIdleSeconds,
+    kioskAfterSubmitSeconds: intIn(src.kioskAfterSubmitSeconds, 5, 120) ?? d.kioskAfterSubmitSeconds,
     ...(typeof src.updatedAt === "string" ? { updatedAt: src.updatedAt } : {}),
     ...(typeof src.updatedBy === "string" ? { updatedBy: src.updatedBy } : {})
   };

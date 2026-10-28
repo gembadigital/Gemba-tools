@@ -235,7 +235,7 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
             <Send className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
             <span>{submitted.approvalStatus === "First Approval" ? "Doğrudan Kaizen Kurulu'na değerlendirmeye gitti." : nextStop} Durumunu <b>Önerilerim</b> ekranından takip edebilirsiniz.</span>
           </div>
-          {kiosk && <KioskExitCountdown seconds={15} onExit={() => onKioskExit?.()} />}
+          {kiosk && <KioskExitCountdown seconds={settings.kioskAfterSubmitSeconds} onExit={() => onKioskExit?.()} />}
           <div className="mt-7 flex flex-col sm:flex-row gap-3 justify-center">
             {kiosk && <Button variant="primary" className="h-12 px-6" onClick={() => onKioskExit?.()}><LogOut className="w-4 h-4" />Bitir ve çık</Button>}
             <Button variant="brand" className="h-12 px-6" onClick={() => onSaved(submitted)}><ListChecks className="w-4 h-4" />Önerilerime git</Button>

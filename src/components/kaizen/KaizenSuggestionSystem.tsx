@@ -61,7 +61,7 @@ function makeCrud<T extends { id: string }>(
 
 // Kiosk (Faz 3.6): a shared tablet session — only Ana Sayfa / Yeni Öneri / Önerilerim, larger
 // touch targets, a visible Çıkış, and automatic sign-out after inactivity or a submitted suggestion.
-export const KIOSK_IDLE_SECONDS = 120;
+// Idle / after-submit durations come from the customer's settings (Kurulum → Ayarlar → Kiosk modu).
 export const KIOSK_WARN_SECONDS = 20;
 
 export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: { kiosk?: boolean; onKioskExit?: () => void } = {}) {
@@ -207,8 +207,10 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
   ];
   const NAV_ITEMS = kiosk ? ALL_NAV_ITEMS.filter(i => i.key === "home" || i.key === "new" || i.key === "mine") : ALL_NAV_ITEMS;
 
-  // Kiosk inactivity: after KIOSK_IDLE_SECONDS without a touch/key, warn for KIOSK_WARN_SECONDS, then sign out.
+  // Kiosk inactivity: after kioskIdleSeconds without a touch/key, warn for KIOSK_WARN_SECONDS, then sign out.
   const lastActivity = React.useRef(Date.now());
+  const idleLimit = React.useRef(settings.kioskIdleSeconds);
+  idleLimit.current = settings.kioskIdleSeconds;
   const [idleLeft, setIdleLeft] = useState<number | null>(null);
   useEffect(() => {
     if (!kiosk) return;
@@ -217,8 +219,8 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
     events.forEach(e => window.addEventListener(e, touch, { passive: true }));
     const timer = setInterval(() => {
       const idle = (Date.now() - lastActivity.current) / 1000;
-      if (idle < KIOSK_IDLE_SECONDS) return;
-      const left = Math.ceil(KIOSK_IDLE_SECONDS + KIOSK_WARN_SECONDS - idle);
+      if (idle < idleLimit.current) return;
+      const left = Math.ceil(idleLimit.current + KIOSK_WARN_SECONDS - idle);
       if (left <= 0) { clearInterval(timer); onKioskExit?.(); } else setIdleLeft(left);
     }, 1000);
     return () => { clearInterval(timer); events.forEach(e => window.removeEventListener(e, touch)); };

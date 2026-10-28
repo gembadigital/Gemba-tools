@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, IdCard, Download, Upload, Copy, KeyRound, SlidersHorizontal, Coins, Clock, ListChecks, Gift, GitBranch } from "lucide-react";
+import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, IdCard, Download, Upload, Copy, KeyRound, MonitorSmartphone, SlidersHorizontal, Coins, Clock, ListChecks, Gift, GitBranch } from "lucide-react";
 import { KaizenPersonnel, KaizenCriteria } from "./kaizenTypes";
 import { buildOrg, subordinateIds, managerChain } from "../../utils/kaizenOrg";
 import KaizenPersonnelImport, { exportPersonnel, downloadPersonnelTemplate } from "./KaizenPersonnelImport";
@@ -301,7 +301,9 @@ function SettingsTab({ settings, onSave, loginLink }: { settings: KaizenSettings
     managerStageEnabled: st.managerStageEnabled,
     boardThreshold: st.boardThreshold ? String(st.boardThreshold) : "",
     boardScoreRequired: st.boardScoreRequired,
-    pinPolicy: st.pinPolicy
+    pinPolicy: st.pinPolicy,
+    kioskIdle: String(st.kioskIdleSeconds),
+    kioskAfter: String(st.kioskAfterSubmitSeconds)
   });
   const [d, setD] = useState(() => fromSettings(settings));
   const [saving, setSaving] = useState(false);
@@ -323,7 +325,9 @@ function SettingsTab({ settings, onSave, loginLink }: { settings: KaizenSettings
     managerStageEnabled: d.managerStageEnabled,
     boardThreshold: d.boardThreshold,
     boardScoreRequired: d.boardScoreRequired,
-    pinPolicy: d.pinPolicy
+    pinPolicy: d.pinPolicy,
+    kioskIdleSeconds: d.kioskIdle,
+    kioskAfterSubmitSeconds: d.kioskAfter
   });
   const foreign = next.currencies.filter(c => c !== next.baseCurrency && c !== IN_KIND_CURRENCY);
 
@@ -398,8 +402,8 @@ function SettingsTab({ settings, onSave, loginLink }: { settings: KaizenSettings
         <SectionTitle icon={IdCard} title="Sicil no ile giriş" hint="Saha çalışanları hesap açmadan bu bağlantıdan girer; bağlantıyı QR olarak panoya asabilirsiniz" />
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-4">
           <div className="space-y-3">
-            <LinkRow label="Telefon / bilgisayar" url={loginLink} />
-            <LinkRow label="Kiosk (ortak tablet, kısa oturum)" url={`${loginLink}&kiosk=1`} />
+            <LinkRow label="Telefon / bilgisayar (oturum 30 gün açık kalır)" url={loginLink} />
+            <p className="text-xs text-slate-500">Ortak tablet için aşağıdaki <b>Kiosk modu</b> bağlantısını kullanın.</p>
           </div>
           <div>
             <p className="text-sm font-semibold text-slate-800 mb-2">PIN kimden istensin?</p>
@@ -415,6 +419,40 @@ function SettingsTab({ settings, onSave, loginLink }: { settings: KaizenSettings
                 </label>
               ))}
             </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="xl:col-span-2">
+        <SectionTitle icon={MonitorSmartphone} title="Kiosk modu" hint="Üretim alanına konan ortak tablet: çalışanlar sırayla sicil no ile girip öneri verir" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+          <div className="space-y-4">
+            <ol className="space-y-2.5 text-sm text-slate-700">
+              {[
+                ["Tableti hazırlayın", "Tablette aşağıdaki kiosk bağlantısını açın (kopyalayın ya da ileride QR ile okutun)."],
+                ["Tam ekran yapın", "Tarayıcıda \"Ana ekrana ekle\" ile uygulama gibi açın; tablet şarjda ve ekran açık kalsın."],
+                ["Çalışanlar sırayla kullanır", "Sicil no ile girer, öneri verir; oturum kendiliğinden kapanır ve ekran sıradaki kişiye hazır olur."]
+              ].map(([t, d], i) => (
+                <li key={t} className="flex gap-3">
+                  <span className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
+                  <span><b className="text-slate-900">{t}.</b> {d}</span>
+                </li>
+              ))}
+            </ol>
+            <LinkRow label="Kiosk bağlantısı" url={`${loginLink}&kiosk=1`} />
+            <Button variant="outline" onClick={() => window.open(`${loginLink}&kiosk=1`, "_blank", "noopener")}><MonitorSmartphone className="w-4 h-4" />Kiosku yeni sekmede aç (deneme)</Button>
+          </div>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Hareketsizlikte uyarı (sn)"><input type="number" min={30} max={900} value={d.kioskIdle} onChange={e => setD(x => ({ ...x, kioskIdle: e.target.value }))} className={inputCls} /></Field>
+              <Field label="Gönderimden sonra çıkış (sn)"><input type="number" min={5} max={120} value={d.kioskAfter} onChange={e => setD(x => ({ ...x, kioskAfter: e.target.value }))} className={inputCls} /></Field>
+            </div>
+            <ul className="text-xs text-slate-500 space-y-1.5 list-disc list-inside">
+              <li>{next.kioskIdleSeconds} sn dokunulmazsa "Hâlâ orada mısınız?" çıkar; 20 sn içinde dokunulmazsa oturum kapanır.</li>
+              <li>Öneri gönderildikten {next.kioskAfterSubmitSeconds} sn sonra oturum kapanır (ekrana dokunmak süreyi uzatır).</li>
+              <li>Kioskta yalnızca Ana Sayfa, Yeni Öneri ve Önerilerim görünür; oturum en fazla 15 dk sürer ve tablette kalıcı olarak saklanmaz.</li>
+              <li>Amir ve Kurul üyeleri kioskta PIN ile girer; onaylarını telefon ya da bilgisayardan yapar.</li>
+            </ul>
           </div>
         </div>
       </Card>

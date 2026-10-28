@@ -47,7 +47,7 @@ export default function App() {
   // gate and "sign out" merely reset back to that same default account.
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const [token, setToken] = useState<string>(() => {
-    return localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
+    return sessionStorage.getItem("gemba_token") || localStorage.getItem("gemba_token") || ""; // tab-scoped (kiosk) first
   });
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [currentOrg, setCurrentOrg] = useState<any>(null);
@@ -207,7 +207,7 @@ export default function App() {
 
     // 2. Resolve any existing session — only ever grant access if the server actually confirms
     // the stored token is a valid, unexpired session for a real user. No token → no auto-login.
-    const savedToken = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token");
+    const savedToken = sessionStorage.getItem("gemba_token") || localStorage.getItem("gemba_token");
 
     if (!savedToken) {
       setIsAuthorized(false);
@@ -225,8 +225,10 @@ export default function App() {
         setCurrentOrg(data.organization);
         setIsAuthorized(true);
       } else {
-        localStorage.removeItem("gemba_token");
-        sessionStorage.removeItem("gemba_token");
+        // Drop only the token that failed: an expired kiosk tab token must not sign out the
+        // remembered account on the same device.
+        if (sessionStorage.getItem("gemba_token") === savedToken) sessionStorage.removeItem("gemba_token");
+        else localStorage.removeItem("gemba_token");
         setIsAuthorized(false);
       }
     })
@@ -378,7 +380,10 @@ export default function App() {
   const handleSignOut = () => {
     // Actually sign out — previously this reset back to the same default admin account instead
     // of ending the session, so there was no real way to log out of this app.
-    localStorage.removeItem("gemba_token");
+    // A kiosk session lives only in this tab (sessionStorage); leave any other account on the
+    // device signed in (e.g. a Kurul Yöneticisi trying the kiosk in a second tab).
+    const kioskSession = currentUser?.authType === "kaizen" && currentUser.kaizenDevice === "kiosk";
+    if (!kioskSession) localStorage.removeItem("gemba_token");
     sessionStorage.removeItem("gemba_token");
     // A sicil no session goes back to its own login link (phone / kiosk), not the e-mail login.
     if (currentUser?.authType === "kaizen" && currentUser.assigned_customer_ids?.[0]) {

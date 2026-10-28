@@ -30,6 +30,8 @@
 
 - **Faz 3.6 (kiosk modu)** — 2026-10-28, canlıda denenmedi. Kiosk bağlantısıyla (`/?kaizen=<müşteriId>&kiosk=1`) girilen oturum (`kaizenDevice: "kiosk"`, JWT `dev`) uygulama kabuğu olmadan yalnızca Kaizen kiosk ekranını açar: Ana Sayfa / Yeni Öneri / Önerilerim, %12 büyütülmüş dokunma alanları, üstte ad + **Çıkış**. Ana sayfada amir/Kurul/uygulama kartları gizli. Otomatik çıkış: 2 dk dokunulmazsa 20 sn geri sayımlı "Hâlâ orada mısınız?" penceresi, süre dolunca çıkış; öneri gönderilince teşekkür ekranında 15 sn sayaç ve "Bitir ve çık" (ekrana dokunmak sayacı yeniler). Çıkış aynı kiosk giriş ekranına döner; token kioskta 15 dk geçerli ve yalnızca o sekmede (sessionStorage) tutulur. Test: Playwright sanal saatiyle hareketsizlik uyarısı/sıfırlama/çıkış ve gönderim sonrası tek seferlik çıkış.
 
+- **Faz 3.6 ek (2026-10-28):** Kurulum → Ayarlar'da ayrı **Kiosk modu** kartı: kurulum adımları, kiosk bağlantısı, "Kiosku yeni sekmede aç", müşteri bazında süreler (`kioskIdleSeconds` 30–900, varsayılan 120; `kioskAfterSubmitSeconds` 5–120, varsayılan 15). Kiosk çıkışı yalnızca sekme oturumunu siler; uygulama ve `getAuthToken` sekme oturumunu (sessionStorage) önce okur, süresi dolan kiosk token'ı aynı cihazdaki "Beni hatırla" oturumunu kapatmaz.
+
 ## Öneriler / Sıradaki işler
 - **Ana iş planı:** [KAIZEN_IS_PLANI.md](KAIZEN_IS_PLANI.md) — kullanıcının gereksinim dosyasıyla karşılaştırma ve
   Faz 3 (kimlik/roller/görünürlük, sicil+PIN, kiosk, QR) → Faz 4 (fizibilite durumu, mesajlaşma, bildirim, fırsat havuzu)
