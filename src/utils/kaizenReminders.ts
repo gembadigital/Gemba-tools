@@ -2,11 +2,13 @@
 // Pure (no I/O) so the weekly cron, the Kurulum preview and the tests share it. Recipients are keyed
 // by roster id when known (in-app + e-mail), else by e-mail.
 import type { KaizenSettings } from "./kaizenSettings.js";
+import { effectiveManagerId } from "./kaizenOrg.js";
 
-export type ReminderKind = "manager-pending" | "board-pending" | "feasibility-overdue" | "accepted-noplan" | "impl-overdue" | "followup-due";
+export type ReminderKind = "manager-pending" | "manager-escalation" | "board-pending" | "feasibility-overdue" | "accepted-noplan" | "impl-overdue" | "followup-due";
 
 export const REMINDER_LABELS: Record<ReminderKind, string> = {
   "manager-pending": "Amir onayınızı bekleyen öneriler",
+  "manager-escalation": "Ekibinizde gecikmiş amir onayları",
   "board-pending": "Kurul değerlendirmesi bekleyen öneriler",
   "feasibility-overdue": "Hedef tarihi geçen fizibilite çalışmaları",
   "accepted-noplan": "Kabul edildi, uygulama planı yok",
@@ -53,6 +55,12 @@ export function buildReminders(input: {
     if (s.approvalStatus === "Pending") {
       const days = daysSince(s.createdAt, now);
       if (days >= settings.waitingWarningDays) push({ id: s.teamLeaderId, email: s.teamLeaderEmail }, { ...base, kind: "manager-pending", days });
+      // Eskalasyon: past the "gecikmiş" threshold, the approving manager's own manager sees it too.
+      if (days >= settings.waitingOverdueDays) {
+        const mgr = (s.teamLeaderId && byId.get(s.teamLeaderId)) || byEmail.get(lc(s.teamLeaderEmail));
+        const up = mgr ? effectiveManagerId(mgr, roster) : undefined;
+        if (mgr && up && up !== mgr.id) push({ id: up }, { ...base, kind: "manager-escalation", days });
+      }
     } else if (s.approvalStatus === "First Approval") {
       const f = s.feasibility?.status === "open" ? s.feasibility : null;
       if (f) {

@@ -98,10 +98,10 @@ kazanç/rapor, en son ayırma. Boyut: S ≈ 1 oturum, M ≈ 2–3, L ≈ 4+.
 (yıllık hacim × yıl), QR girişinde personel aramasının sağlamlaştırılması (2026-10-28, telefonda doğrulandı).
 
 **Sıradaki işler (bu sırayla):**
-1. §4 açık kararları: 6 (eskalasyon), 4 (katılım puanı), 2 (mobil).
-2. Eskalasyon — karara göre (4.4 hatırlatmalarına ek kural).
-3. Faz 5: 5.1 kazanç revizyonu + gerçekleşen yatırım → 5.2 ROI/geri ödeme → 5.3 rapor KPI'ları → 5.4 katılım puanı →
-   5.5 Şampiyonlar sekmesi → 5.6 amir raporu → 5.7 PDF/Excel rapor.
+1. ~~§4 açık kararları 2, 4, 6~~ — verildi (2026-10-28), aşağıda.
+2. ~~Eskalasyon~~ — yapıldı (2026-10-28).
+3. Faz 5: 5.1 kazanç revizyonu + gerçekleşen yatırım → 5.2 ROI/geri ödeme → 5.3 rapor KPI'ları →
+   5.5 Şampiyonlar sekmesi (Kurul puanı + öneri sayısı) → 5.6 amir raporu → 5.7 PDF/Excel rapor. (5.4 iptal.)
 4. Faz 6: 6.1 benzer öneri (metin) → 6.3 PWA → 6.2 anlamsal benzerlik.
 5. Faz 7: 7.1 modül ayırma → 7.3 Opx Suite entegrasyonu → 7.2 stand-alone (madde 5 kararıyla).
 
@@ -109,11 +109,11 @@ kazanç/rapor, en son ayırma. Boyut: S ≈ 1 oturum, M ≈ 2–3, L ≈ 4+.
 
 ## 4. Kullanıcı kararı gereken noktalar
 1. ~~**Giriş**~~ — **karar verildi:** sicil no; PIN yalnızca yetkili rollerden (ayarlardan değiştirilebilir). Eski soru: sicil no + PIN mi, sicil no + kart (barkod/RFID) mi, ya da ikisi? PIN'i kim dağıtır?
-2. **Mobil**: önce PWA (önerilen) mı, doğrudan mağaza uygulaması mı?
+2. ~~**Mobil**~~ — **karar verildi:** önce PWA; mağaza uygulaması gerekirse sonra. Eski soru: önce PWA (önerilen) mı, doğrudan mağaza uygulaması mı?
 3. ~~**Kurul yöneticisi**~~ — **karar verildi:** müşteri çalışanı, yetkiyi Gemba personeli verir. Eski soru: Kurul yöneticisi müşteri çalışanı mı olacak (önerilen), yoksa yalnızca Gemba danışmanı mı?
-4. **Katılım puanı** kuralları (öneri verme / onay / uygulama başına kaç puan) ve ödülle ilişkisi.
+4. ~~**Katılım puanı**~~ — **karar verildi:** olmayacak; Şampiyonlar Kurul puanı ve öneri sayısıyla sıralanır (5.4 iptal). Eski soru: Katılım puanı kuralları (öneri verme / onay / uygulama başına kaç puan) ve ödülle ilişkisi.
 5. **Opx Suite entegrasyon biçimi**: frame içinde Gemba Tools ekranı mı, Opx Suite içinde yerel ekran mı; veri MySQL'de mi kalacak?
-6. Öneri sahibinin amirine mesajı amirin amirine de (eskalasyon) gitmeli mi?
+6. ~~Eskalasyon~~ — **karar verildi:** mesajların hepsi değil; amir onayı "gecikmiş" eşiğini aşınca haftalık özet amirin amirine de gider. Eski soru: Öneri sahibinin amirine mesajı amirin amirine de (eskalasyon) gitmeli mi?
 
 ## 5. Önerilen başlangıç
 Faz 3.1 → 3.3 → 3.4 (personel modeli, roller, sunucu görünürlüğü): kiosk, telefon ve amir raporlarının hepsi

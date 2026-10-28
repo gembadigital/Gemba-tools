@@ -44,6 +44,8 @@
 
 - **Faz 4.3–4.4 (bildirim katmanı ve haftalık hatırlatmalar)** — 2026-10-28, canlıda denenmedi. Tüm Kaizen bildirimleri `notifyKaizen` üzerinden gider: listedeki kişiye uygulama içi kayıt (`kaizen_notifications`) + gerçek adreslere e-posta (`@kaizen.local` sanal adreslere e-posta gitmez). Uçlar: `GET /api/business/kaizen/notifications`, `POST .../notifications/read`. Üst çubukta zil (okunmamış sayısı, 60 sn yoklama). Hatırlatma kuralları `src/utils/kaizenReminders.ts` (amir/Kurul bekleyen, fizibilite ve uygulama gecikmesi, planı olmayan kabul, kalıcılık kontrolü); kişi başına tek özet. Ayarlar → Haftalık hatırlatmalar kartı (aç/kapa, planı olmayan gün eşiği, önizle, şimdi gönder — `GET reminders/preview`, `POST reminders/send`, Kurul Yöneticisi). Vercel Cron `GET /api/cron/kaizen-reminders` pazartesi 05:30 UTC; **Vercel ortamında `CRON_SECRET` tanımlı olmalı** (yoksa 503).
 
+- **Eskalasyon** — 2026-10-28. Amir onayı ayarlardaki "gecikmiş" gün eşiğini aşınca haftalık hatırlatma özeti onaylayan amirin amirine de gider (`manager-escalation`, `src/utils/kaizenReminders.ts`). Mesajlar eskale edilmez. Aynı gün: QR girişinde personel araması hem `factory_id` sütunundan hem JSON alanından yapılıyor; personeli olmayan müşteri için ayrı mesaj ve Ayarlar uyarısı (telefonda doğrulandı). Kararlar: katılım puanı yok, mobil için önce PWA (bkz. `KAIZEN_IS_PLANI.md` §4).
+
 ## Öneriler / Sıradaki işler
 - **Ana iş planı:** [KAIZEN_IS_PLANI.md](KAIZEN_IS_PLANI.md) — kullanıcının gereksinim dosyasıyla karşılaştırma ve
   Faz 3 (kimlik/roller/görünürlük, sicil+PIN, kiosk, QR) → Faz 4 (fizibilite durumu, mesajlaşma, bildirim, fırsat havuzu)

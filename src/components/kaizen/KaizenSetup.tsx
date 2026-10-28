@@ -504,6 +504,7 @@ function SettingsTab({ settings, onSave, loginLink, companyName, api, showToast,
             </Field>
             <ul className="text-xs text-slate-500 space-y-1.5 list-disc list-inside">
               <li>Amir / Kurul onayı bekleyenler, hedef tarihi geçen fizibilite ve uygulamalar, zamanı gelen kalıcılık kontrolleri.</li>
+              <li>Amir onayı {next.waitingOverdueDays} günü (gecikmiş eşiği) aşınca amirin amiri de özette görür.</li>
               <li>Kabul edilip {next.noPlanReminderDays} gün içinde uygulama planı girilmeyen öneriler takım liderine ve Kurul Yöneticisine.</li>
               <li>E-postası olmayan (sicil no ile giren) kişiler hatırlatmayı uygulamadaki zilden görür.</li>
             </ul>
