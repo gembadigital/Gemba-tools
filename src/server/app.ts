@@ -14,6 +14,7 @@ import { KNOWN_CURRENCIES, normalizeKaizenSettings, KaizenSettings, rewardFor, r
 import { preparePersonnel, buildOrg, effectiveManagerId, managerChain, visibleSuggestionIds, planPersonnelImport } from "../utils/kaizenOrg.js";
 import { isPerPiece, parsePerPiece, perPieceSaving } from "../utils/kaizenSaving.js";
 import { buildReminders, reminderText } from "../utils/kaizenReminders.js";
+import { championsFor, championMonths } from "../utils/kaizenChampions.js";
 import { pinRequired, findBySicil, pinProblem, newPinCode, isLocked, failedAttempt, codeValid, pinValid, hashSecret, publicPersonnel, stripSecretInput, virtualEmail, isAuthorizedRole, PIN_LOCK_MINUTES, PIN_CODE_DAYS, KIOSK_SESSION, PHONE_SESSION } from "./kaizenAuth.js";
 import * as XLSX from "xlsx";
 
@@ -2945,29 +2946,36 @@ for (const [path, collection] of [["suggestions", "kaizen_suggestions"], ["appro
 
 // Ayın şampiyonları: company-wide, but only name / department / points / count — no suggestion
 // content, so it is safe for everyone in the customer's scope despite the visibility rule above.
-app.get("/api/business/kaizen/champions", authenticateToken, async (req, res) => {
+// Ayın Kaizen Şampiyonları (Faz 5.5) — visible to everyone in the customer (motivation board):
+// names, departments, points and counts only. Rules in src/utils/kaizenChampions.ts.
+async function kaizenChampionData(req: express.Request) {
   const user = (req as any).user;
   const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
-  if (!scope.allowed) return denyKaizen(res);
+  if (!scope.allowed) return null;
   const month = typeof req.query.month === "string" && /^\d{4}-\d{2}$/.test(req.query.month) ? req.query.month : new Date().toISOString().slice(0, 7);
   const [suggestions, evaluations] = await Promise.all([
     db.getKaizenRecords("kaizen_suggestions", user.organization_id, scope.factoryId),
     db.getKaizenRecords("kaizen_evaluations", user.organization_id, scope.factoryId)
   ]);
-  const byId = new Map(suggestions.map((s: any) => [s.id, s]));
-  const rows = new Map<string, { name: string; department: string; points: number; count: number }>();
-  for (const e of evaluations as any[]) {
-    if (!(e.createdAt || "").startsWith(month) || !(Number(e.point) > 0)) continue;
-    const s: any = byId.get(e.suggestionId);
-    if (!s) continue;
-    const key = s.personnelId || s.personnelName || "—";
-    const row = rows.get(key) || { name: s.personnelName || "—", department: s.personnelDepartment || "", points: 0, count: 0 };
-    row.points += Number(e.point) || 0;
-    row.count += 1;
-    rows.set(key, row);
-  }
-  const data = Array.from(rows.values()).sort((a, b) => b.points - a.points || b.count - a.count).slice(0, Math.min(10, Number(req.query.limit) || 3));
-  res.json({ success: true, data });
+  const strip = ({ key, ...r }: any) => r;
+  return { month, suggestions, evaluations, ...championsFor(suggestions, evaluations, month), strip };
+}
+
+// Home card: this month's top people (scored only, as before).
+app.get("/api/business/kaizen/champions", authenticateToken, async (req, res) => {
+  const d = await kaizenChampionData(req);
+  if (!d) return denyKaizen(res);
+  const limit = Math.min(10, Number(req.query.limit) || 3);
+  res.json({ success: true, data: d.people.filter(r => r.points > 0).slice(0, limit).map(d.strip) });
+});
+
+// Şampiyonlar sekmesi: people and departments for a month, plus the months that have activity.
+app.get("/api/business/kaizen/champions/board", authenticateToken, async (req, res) => {
+  const d = await kaizenChampionData(req);
+  if (!d) return denyKaizen(res);
+  const months = championMonths(d.suggestions, d.evaluations);
+  if (!months.includes(d.month)) months.unshift(d.month);
+  res.json({ success: true, data: { month: d.month, months, people: d.people.slice(0, 10).map(d.strip), departments: d.departments.slice(0, 10).map(d.strip) } });
 });
 
 // Full records (with photos), same visibility rule as the lists.

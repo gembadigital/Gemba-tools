@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Home, Plus, ListChecks, Star, BarChart3, Settings, Hammer, AlertCircle, CheckCircle2, X, LogOut } from "lucide-react";
+import { Home, Plus, ListChecks, Star, BarChart3, Settings, Hammer, AlertCircle, CheckCircle2, X, LogOut, Trophy } from "lucide-react";
 import { useFactory } from "../../context/FactoryContext";
 import { KaizenPersonnel, KaizenCriteria, KaizenSuggestion, KaizenApproval, KaizenEvaluation, KaizenImplementation as KaizenImpl, KaizenMessage } from "./kaizenTypes";
 import { canDecideAsManager } from "./kaizenCalc";
@@ -11,6 +11,7 @@ import KaizenReports from "./KaizenReports";
 import KaizenSetup from "./KaizenSetup";
 import KaizenImplementation from "./KaizenImplementation";
 import KaizenBell, { KaizenNotification } from "./KaizenBell";
+import KaizenChampions from "./KaizenChampions";
 import { daysWaiting } from "./kaizenCalc";
 import { KaizenSettings, DEFAULT_KAIZEN_SETTINGS, normalizeKaizenSettings } from "../../utils/kaizenSettings";
 import { getAuthToken } from "../../utils/authToken";
@@ -71,7 +72,7 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
   // Sicil no sessions know their customer before the customer list has loaded.
   const factoryId = selectedCustomer?.id || globalState?.CurrentUser?.assigned_customer_ids?.[0] || "default";
 
-  const [section, setSection] = useState<"home" | "new" | "mine" | "approvals" | "impl" | "reports" | "setup">("home");
+  const [section, setSection] = useState<"home" | "new" | "mine" | "approvals" | "impl" | "champions" | "reports" | "setup">("home");
   const [editingSuggestion, setEditingSuggestion] = useState<KaizenSuggestion | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -210,6 +211,7 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
     { key: "mine", label: "Önerilerim", icon: ListChecks },
     ...(canSeeApprovals ? [{ key: "approvals" as const, label: "Değerlendirmeler", icon: Star, badge: approvalsBadge }] : []),
     { key: "impl", label: "Uygulama", icon: Hammer },
+    { key: "champions", label: "Şampiyonlar", icon: Trophy },
     ...(isBoardMember ? [{ key: "reports" as const, label: "Rapor", icon: BarChart3 }] : []),
     ...(isKaizenAdmin ? [{ key: "setup" as const, label: "Kurulum", icon: Settings }] : [])
   ];
@@ -333,6 +335,7 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
           onShowMine={() => setSection("mine")}
           onShowApprovals={() => setSection("approvals")}
           onShowImplementation={() => setSection(kiosk ? "mine" : "impl")}
+          onShowChampions={kiosk ? undefined : () => setSection("champions")}
           onEditSuggestion={openEdit}
           canSeeApprovals={canSeeApprovals && !kiosk}
           kiosk={kiosk}
@@ -419,6 +422,8 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
           settings={settings}
         />
       )}
+
+      {section === "champions" && <KaizenChampions api={api} />}
 
       {section === "reports" && isBoardMember && (
         <KaizenReports suggestions={suggestions} evaluations={evaluations} personnel={personnel} implementations={implementations} api={api} settings={settings} />

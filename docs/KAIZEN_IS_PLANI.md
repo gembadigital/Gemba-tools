@@ -101,7 +101,7 @@ kazanç/rapor, en son ayırma. Boyut: S ≈ 1 oturum, M ≈ 2–3, L ≈ 4+.
 1. ~~§4 açık kararları 2, 4, 6~~ — verildi (2026-10-28), aşağıda.
 2. ~~Eskalasyon~~ — yapıldı (2026-10-28).
 3. Faz 5: ~~5.1 kazanç revizyonu + gerçekleşen yatırım~~ (2026-10-28) → ~~5.2 ROI/geri ödeme~~ (2026-10-28) → ~~5.3 rapor KPI'ları~~ (2026-10-28) →
-   5.5 Şampiyonlar sekmesi (Kurul puanı + öneri sayısı) → 5.6 amir raporu → 5.7 PDF/Excel rapor. (5.4 iptal.)
+   ~~5.5 Şampiyonlar sekmesi~~ (2026-10-28) → 5.6 amir raporu → 5.7 PDF/Excel rapor. (5.4 iptal.)
 4. Faz 6: 6.1 benzer öneri (metin) → 6.3 PWA → 6.2 anlamsal benzerlik.
 5. Faz 7: 7.1 modül ayırma → 7.3 Opx Suite entegrasyonu → 7.2 stand-alone (madde 5 kararıyla).
 

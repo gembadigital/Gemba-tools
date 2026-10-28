@@ -23,6 +23,7 @@ interface Props {
   onShowMine: () => void;
   onShowApprovals: () => void;
   onShowImplementation: () => void;
+  onShowChampions?: () => void;
   onEditSuggestion: (s: KaizenSuggestion) => void;
   canSeeApprovals: boolean;
   api: KaizenApi;
@@ -42,7 +43,7 @@ const fmtDate = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("tr-TR
 export default function KaizenHome({
   currentUser, personnelRecord, suggestions, evaluations, managerQueueCount, boardQueueCount,
   oldestWaitingDays, waitingWarningDays, waitingOverdueDays, onNewSuggestion, onShowMine, onShowApprovals,
-  onShowImplementation, onEditSuggestion, canSeeApprovals, api, kiosk
+  onShowImplementation, onShowChampions, onEditSuggestion, canSeeApprovals, api, kiosk
 }: Props) {
   const myEmail = (currentUser?.email || "").toLowerCase();
   const mine = useMemo(() => suggestions.filter(s => (s.authorEmail || "").toLowerCase() === myEmail), [suggestions, myEmail]);
@@ -257,7 +258,8 @@ export default function KaizenHome({
           <Card className="relative overflow-hidden">
             <div aria-hidden className="pointer-events-none absolute -top-10 -right-10 w-40 h-40 rounded-full bg-amber-200/40 blur-2xl" />
             <div className="relative">
-              <SectionTitle icon={Medal} title="Ayın Kaizen şampiyonları" hint={new Date().toLocaleDateString("tr-TR", { month: "long", year: "numeric" })} />
+              <SectionTitle icon={Medal} title="Ayın Kaizen şampiyonları" hint={new Date().toLocaleDateString("tr-TR", { month: "long", year: "numeric" })}
+                right={onShowChampions && <button onClick={onShowChampions} className="text-xs font-semibold text-emerald-700 hover:underline cursor-pointer">Tümü</button>} />
               {champions.length === 0 ? (
                 <p className="text-sm text-slate-500 flex items-center gap-2"><PartyPopper className="w-4 h-4 text-amber-500" />Bu ay henüz puanlanan öneri yok — ilk siz olun.</p>
               ) : (
