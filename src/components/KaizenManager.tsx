@@ -17,21 +17,28 @@ import {
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { sumExpected, sumRealized, realizedInCurrency, excludedNote } from "./ci/ciMoney";
 
 interface KaizenManagerProps {
   kaizens: KaizenCard[];
-  onAddKaizen: (k: KaizenCard) => void;
+  // Resolves to the saved record (with its server-assigned project number), or undefined on failure.
+  onAddKaizen: (k: KaizenCard) => Promise<KaizenCard | undefined>;
   onUpdateKaizen: (k: KaizenCard) => void;
-  onDeleteKaizen: (id: string) => void;
+  // Resolves to false when the server refused (e.g. customer users may not delete projects).
+  onDeleteKaizen: (id: string) => Promise<boolean>;
   processes: ProcessRecord[];
   activities: GanttActivity[];
   onAddActivity: (a: GanttActivity) => void;
   onUpdateActivity: (a: GanttActivity) => void;
   onDeleteActivity: (id: string) => void;
   selectedCustomer: Customer;
+  currentUserRole?: string;
 }
 
 type TabType = "kanban" | "list" | "timeline" | "dashboard" | "beforeafter";
+
+// Project categories (getKaizenCategory) whose savings count as cost-of-poor-quality reduction.
+const COPQ_CATEGORIES = ["Kalite", "Hurda / Fire"];
 
 interface CITask {
   id: string;
@@ -92,9 +99,12 @@ export default function KaizenManager({
   onAddActivity,
   onUpdateActivity,
   onDeleteActivity,
-  selectedCustomer
+  selectedCustomer,
+  currentUserRole
 }: KaizenManagerProps) {
   const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
+  // Only Admin / Consultant may delete a whole CI project (enforced by the server too).
+  const canDeleteProject = currentUserRole === "Admin" || currentUserRole === "Consultant";
   const [activeTab, setActiveTab] = useState<TabType>("kanban");
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [selectedDeptFilter, setSelectedDeptFilter] = useState("all");
@@ -485,12 +495,17 @@ export default function KaizenManager({
 
   // Helper to calculate project number (CIPYYAA-No)
   const getProjectNo = (proj: KaizenCard) => {
+    // New projects carry a permanent number from the server (assigned at creation).
+    if (proj.projectNo) return proj.projectNo;
+
     const dateStr = proj.dateProposed || new Date().toISOString().split('T')[0];
     const year = dateStr.substring(2, 4);
     const month = dateStr.substring(5, 7);
-    
-    // Sort all kaizens to get a stable sequence number for the index
-    const sortedAll = [...kaizens].sort((a, b) => {
+
+    // Older projects without a stored number keep their previous display number: their position in
+    // date order among the other unnumbered projects (numbered ones are excluded so they never shift
+    // these). Deleting an old project can still shift the old ones after it.
+    const sortedAll = kaizens.filter(k => !k.projectNo).sort((a, b) => {
       const da = a.dateProposed || "";
       const db = b.dateProposed || "";
       if (da !== db) return da.localeCompare(db);
@@ -1304,7 +1319,7 @@ export default function KaizenManager({
     setAssignTeamMembers(prev => prev.filter(m => m !== name));
   };
 
-  const handleConfirmProjectCreation = () => {
+  const handleConfirmProjectCreation = async () => {
     if (!pendingCreation || !assignLeader.trim()) return;
     const opp = pendingCreation.opp;
     const leaderName = assignLeader.trim();
@@ -1410,11 +1425,15 @@ export default function KaizenManager({
       };
     }
 
-    onAddKaizen(newK);
-    syncWithGantt(newK, 'add');
+    const saved = await onAddKaizen(newK);
+    if (!saved) {
+      alert("CI projesi kaydedilemedi.");
+      return;
+    }
+    syncWithGantt(saved, 'add');
     setPendingCreation(null);
     setIsWizardOpen(false);
-    handleOpenProjectDetails(newK);
+    handleOpenProjectDetails(saved);
   };
 
   // Status Change (PLAN -> DO -> CHECK -> ACT)
@@ -1454,11 +1473,11 @@ export default function KaizenManager({
     setActiveDropCol(null);
   };
 
-  const handleDeleteProject = (id: string) => {
+  const handleDeleteProject = async (id: string) => {
     if (window.confirm("Bu sürekli iyileştirme projesini kalıcı olarak silmek istediğinizden emin misiniz?")) {
       const proj = kaizens.find(k => k.id === id);
-      onDeleteKaizen(id);
-      if (proj) {
+      // Remove the linked Master Plan row only once the server has actually deleted the project.
+      if ((await onDeleteKaizen(id)) && proj) {
         syncWithGantt(proj, 'delete');
       }
     }
@@ -1582,31 +1601,43 @@ export default function KaizenManager({
     return new Date(k.plannedFinishDate) < new Date();
   }).length;
 
-  const totalExpectedFinancialGain = filteredProjects.reduce((sum, k) => {
-    const opp = opportunitiesList.find(o => o.id === k.opportunityId);
-    return sum + (typeof k.expectedGain === "number" ? k.expectedGain : opp ? opp.expectedGain : (k.actualSavings ? k.actualSavings * 1.2 : 0));
-  }, 0);
+  // Money totals only add amounts in the customer's currency (see ci/ciMoney.ts); projects in
+  // another currency are counted in `*.excluded` and named under the figure.
+  // Expected gain: the project's own figure; a project created from an opportunity that has no
+  // figure yet falls back to that opportunity's estimate (customer currency). No invented values.
+  const expectedSum = sumExpected(filteredProjects, currency);
+  const totalExpectedFinancialGain = expectedSum.total + filteredProjects
+    .filter(k => typeof k.expectedGain !== "number")
+    .reduce((sum, k) => sum + (opportunitiesList.find(o => o.id === k.opportunityId)?.expectedGain || 0), 0);
 
-  const realizedFinancialGain = filteredProjects.reduce((sum, k) => sum + (k.actualSavings || 0), 0);
-  const totalCOPQReduction = Math.round(realizedFinancialGain * 0.72); // 72% of gains count as COPQ elimination
+  const realizedSum = sumRealized(filteredProjects, currency);
+  const realizedFinancialGain = realizedSum.total;
+  const moneyExcludedNote = excludedNote(Math.max(expectedSum.excluded, realizedSum.excluded));
+  // COPQ reduction = realized savings of quality / scrap projects (previously a flat 72% of all
+  // savings, which was not derived from anything).
+  const totalCOPQReduction = filteredProjects
+    .filter(k => COPQ_CATEGORIES.includes(getKaizenCategory(k)))
+    .reduce((sum, k) => sum + realizedInCurrency(k, currency), 0);
   
-  // Plant profit increase contribution and customer operating profit
+  // Operating profit is estimated as 12% of the customer's annual revenue; without a revenue figure
+  // there is no basis, so the share is not shown (previously a fixed 12.000.000 was assumed).
   const estimatedOperatingProfit = selectedCustomer?.annualRevenue 
     ? Math.round(selectedCustomer.annualRevenue * 0.12)
-    : 12000000;
+    : null;
 
-  const profitImpactPercentage = estimatedOperatingProfit > 0
+  const profitImpactPercentage = estimatedOperatingProfit
     ? ((realizedFinancialGain / estimatedOperatingProfit) * 100).toFixed(2)
-    : "0.00";
+    : "—";
 
-  // COPQ calculation from VSM process records
+  // Starting COPQ from the cost-table (process) records; none recorded → no basis (previously a
+  // fixed 4.500.000 was assumed).
   const initialCOPQ = processes && processes.length > 0
     ? processes.reduce((sum, p) => sum + (p.scrapCost || 0) + (p.reworkCost || 0) + (p.downtimeCost || 0), 0)
-    : 4500000;
+    : 0;
 
   const copqReductionPercentage = initialCOPQ > 0
     ? ((totalCOPQReduction / initialCOPQ) * 100).toFixed(2)
-    : "0.00";
+    : "—";
 
   const averageProjectSuccessRate = totalCIProjects > 0 
     ? Math.round((filteredProjects.filter(k => k.status === "Completed" || k.kanbanStatus === "ACT").length / totalCIProjects) * 100) 
@@ -1620,7 +1651,7 @@ export default function KaizenManager({
   const totalROI = totalBudget > 0 ? ((realizedFinancialGain / totalBudget) * 100).toFixed(1) : "0.0";
 
   // Category mapping helper for deep insights
-  const getKaizenCategory = (proj: KaizenCard) => {
+  function getKaizenCategory(proj: KaizenCard) {
     const title = (proj.title || "").toLowerCase();
     const desc = ((proj.description || "") + " " + (proj.descriptionBefore || "")).toLowerCase();
     const oppType = (proj.opportunityType || "").toLowerCase();
@@ -1641,14 +1672,14 @@ export default function KaizenManager({
       return "Üretkenlik";
     }
     return "Diğer / Operasyonel";
-  };
+  }
 
   // Categories Distribution Data
   const categoriesList = ["Kalite", "Verimlilik", "İSG (HSE)", "Hurda / Fire", "Üretkenlik", "Diğer / Operasyonel"];
   const categoryDistributionData = categoriesList.map(cat => {
     const list = filteredProjects.filter(k => getKaizenCategory(k) === cat);
     const count = list.length;
-    const gain = list.reduce((sum, k) => sum + (k.actualSavings || 0), 0);
+    const gain = list.reduce((sum, k) => sum + realizedInCurrency(k, currency), 0);
     const totalCount = filteredProjects.length || 1;
     const ratio = Math.round((count / totalCount) * 100);
     return { name: cat, Adet: count, Kazanım: gain, Oran: ratio };
@@ -1682,7 +1713,7 @@ export default function KaizenManager({
   const phase3Count = filteredProjects.filter(k => k.phase?.includes("Phase 3")).length;
 
   const departmentGainData = Array.from(new Set(kaizens.map(k => k.department))).map(dept => {
-    const gain = kaizens.filter(k => k.department === dept).reduce((sum, k) => sum + (k.actualSavings || 0), 0);
+    const gain = kaizens.filter(k => k.department === dept).reduce((sum, k) => sum + realizedInCurrency(k, currency), 0);
     return { name: dept, Kazanım: gain };
   }).filter(d => d.Kazanım > 0);
 
@@ -2008,7 +2039,7 @@ export default function KaizenManager({
             <div className="text-xl font-mono font-bold text-indigo-950">
               {currency}{totalExpectedFinancialGain.toLocaleString()}
             </div>
-            <span className="text-[11px] text-slate-400">Fırsat Toplamı</span>
+            <span className="text-[11px] text-slate-400" title={excludedNote(expectedSum.excluded)}>Fırsat Toplamı{expectedSum.excluded > 0 && ` · ${expectedSum.excluded} proje hariç`}</span>
           </div>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-indigo-500"></div>
         </div>
@@ -2022,7 +2053,7 @@ export default function KaizenManager({
             <div className="text-xl font-mono font-bold text-emerald-700">
               {currency}{realizedFinancialGain.toLocaleString()}
             </div>
-            <span className="text-[11px] text-slate-400">Gerçek P&L Teyidi</span>
+            <span className="text-[11px] text-slate-400" title={excludedNote(realizedSum.excluded)}>Gerçek P&L Teyidi{realizedSum.excluded > 0 && ` · ${realizedSum.excluded} proje hariç`}</span>
           </div>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-600"></div>
         </div>
@@ -2363,19 +2394,14 @@ export default function KaizenManager({
                               >
                                 <Edit2 className="w-3 h-3" />
                               </button>
-                              <button
+                              {canDeleteProject && <button
                                 type="button"
-                                onClick={() => {
-                                  if (window.confirm("Bu sürekli iyileştirme projesini silmek istediğinizden emin misiniz?")) {
-                                    onDeleteKaizen(proj.id);
-                                    syncWithGantt(proj, 'delete');
-                                  }
-                                }}
+                                onClick={() => handleDeleteProject(proj.id)}
                                 className="text-slate-400 hover:text-red-600 p-0.5 rounded hover:bg-slate-100 transition-all cursor-pointer"
                                 title="Projeyi Sil"
                               >
                                 <Trash2 className="w-3 h-3" />
-                              </button>
+                              </button>}
                             </div>
                           </div>
 
@@ -2607,9 +2633,9 @@ export default function KaizenManager({
                       <button onClick={() => handleOpenFinancials(proj)} className="p-1.5 text-indigo-600" title="Finansal Kayıt">
                         <DollarSign className="w-4 h-4" />
                       </button>
-                      <button onClick={() => handleDeleteProject(proj.id)} className="p-1.5 text-red-500" title="Sil">
+                      {canDeleteProject && <button onClick={() => handleDeleteProject(proj.id)} className="p-1.5 text-red-500" title="Sil">
                         <Trash2 className="w-4 h-4" />
-                      </button>
+                      </button>}
                     </div>
                   </div>
                 );
@@ -2730,13 +2756,13 @@ export default function KaizenManager({
                         >
                           <DollarSign className="w-4 h-4" />
                         </button>
-                        <button 
+                        {canDeleteProject && <button 
                           onClick={() => handleDeleteProject(proj.id)}
                           className="p-2 text-slate-400 hover:text-red-500 inline-block"
                           title="Projeyi Sil"
                         >
                           <Trash2 className="w-4 h-4" />
-                        </button>
+                        </button>}
                       </td>
                     </tr>
                   );
@@ -3081,10 +3107,15 @@ export default function KaizenManager({
                 <TrendingUp className="w-4 h-4 text-indigo-600" />
               </div>
               <div>
-                <div className="text-2xl font-mono font-bold text-slate-900">+{profitImpactPercentage}%</div>
+                <div className="text-2xl font-mono font-bold text-slate-900">{estimatedOperatingProfit ? `+${profitImpactPercentage}%` : "—"}</div>
                 <div className="text-xs font-semibold text-indigo-600 mt-0.5">+{currency}{realizedFinancialGain.toLocaleString()} Toplam Getiri</div>
               </div>
-              <span className="text-[11px] text-slate-400">Fabrika Yıllık Faaliyet Karı Katkısı ({currency}{estimatedOperatingProfit.toLocaleString()})</span>
+              <span className="text-[11px] text-slate-400">
+                {estimatedOperatingProfit
+                  ? `Fabrika Yıllık Faaliyet Karı Katkısı (ciro × %12 = ${currency}${estimatedOperatingProfit.toLocaleString("tr-TR")})`
+                  : "Müşteri kartında yıllık ciro girilmedi — katkı oranı hesaplanamıyor"}
+                {moneyExcludedNote && ` · ${moneyExcludedNote}`}
+              </span>
               <div className="absolute bottom-0 left-0 right-0 h-1 bg-indigo-600"></div>
             </div>
 
@@ -3095,10 +3126,14 @@ export default function KaizenManager({
                 <Percent className="w-4 h-4 text-emerald-600" />
               </div>
               <div>
-                <div className="text-2xl font-mono font-bold text-slate-900">-{copqReductionPercentage}% COPQ</div>
+                <div className="text-2xl font-mono font-bold text-slate-900">{initialCOPQ > 0 ? `-${copqReductionPercentage}% COPQ` : "—"}</div>
                 <div className="text-xs font-semibold text-emerald-600 mt-0.5">-{currency}{totalCOPQReduction.toLocaleString()} Kalite Tasarrufu</div>
               </div>
-              <span className="text-[11px] text-slate-400">VSM ve Hurda Kaynaklı COPQ Etkisi ({currency}{initialCOPQ.toLocaleString()})</span>
+              <span className="text-[11px] text-slate-400">
+                {initialCOPQ > 0
+                  ? `Kalite / hurda projelerinin gerçekleşen kazancı ÷ maliyet tablosu COPQ (${currency}${initialCOPQ.toLocaleString("tr-TR")})`
+                  : "Maliyet tablosunda hurda / rework / duruş maliyeti yok — oran hesaplanamıyor"}
+              </span>
               <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500"></div>
             </div>
 

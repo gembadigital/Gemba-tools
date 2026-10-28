@@ -531,7 +531,9 @@ export default function App() {
     }).then(r => r.json());
     if (res.success) {
       setKaizens(prev => [...prev, res.data]);
+      return res.data as KaizenCard;
     }
+    return undefined;
   };
 
   const handleUpdateKaizen = async (kaizen: any) => {
@@ -561,7 +563,10 @@ export default function App() {
     }).then(r => r.json());
     if (res.success) {
       setKaizens(prev => prev.filter(k => k.id !== id));
+      return true;
     }
+    alert(res.error || "CI projesi silinemedi.");
+    return false;
   };
 
   // GATED AUTHENTICATION CHECK RENDERS
@@ -1098,6 +1103,7 @@ export default function App() {
                   onUpdateActivity={handleUpdateActivity}
                   onDeleteActivity={handleDeleteActivity}
                   selectedCustomer={selectedCustomer}
+                  currentUserRole={currentUser?.role}
                 />
               </div>
             )}

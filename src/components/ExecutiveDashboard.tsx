@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Customer, ProcessRecord, GanttActivity, FlowSegment, KaizenCard } from "../types";
 import { useFactory } from "../context/FactoryContext";
+import { sumExpected, sumRealized, realizedInCurrency } from "./ci/ciMoney";
 import { 
   BarChart3, TrendingUp, DollarSign, Award, Target, Flame, GitCommit, 
   CheckCircle, ShieldAlert, Sparkles, Activity, FileText, ChevronRight,
@@ -118,11 +119,11 @@ export default function ExecutiveDashboard({
     const completedProjectsCount = consultantFilteredActivities.filter(a => (a.status as string) === "Completed").length;
     const totalCiProjectsCount = consultantFilteredActivities.length;
     const totalKaizensCount = consultantFilteredKaizens.length;
-    const realizedSavingsSum = consultantFilteredKaizens
-      .filter(k => k.status === "Completed")
-      .reduce((sum, k) => sum + (k.actualSavings || k.realizedGain || 0), 0);
-    const expectedSavingsSum = consultantFilteredKaizens
-      .reduce((sum, k) => sum + (k.estimatedCost || k.expectedGain || 0), 0);
+    // Only amounts in the customer's currency are summed (ci/ciMoney.ts). Expected gain is the
+    // projects' expectedGain — previously estimatedCost (the project's cost) was read first and
+    // counted as gain.
+    const realizedSavingsSum = sumRealized(consultantFilteredKaizens.filter(k => k.status === "Completed"), currencySymbol).total;
+    const expectedSavingsSum = sumExpected(consultantFilteredKaizens, currencySymbol).total;
 
     // On-time delivery rate among activities that have actually completed or are overdue —
     // real, derived from GanttActivity.status, not a per-consultant fabricated "deadline success" %.
@@ -157,7 +158,7 @@ export default function ExecutiveDashboard({
       const activeProjects = consultantActivities.filter(a => a.status === "In Progress").length;
       const closedProjects = consultantActivities.filter(a => a.status === "Completed").length;
       const kaizensCount = consultantKaizens.length;
-      const savings = consultantKaizens.filter(k => k.status === "Completed").reduce((sum, k) => sum + (k.actualSavings || 0), 0);
+      const savings = consultantKaizens.filter(k => k.status === "Completed").reduce((sum, k) => sum + realizedInCurrency(k, currencySymbol), 0);
       const decided = consultantActivities.filter(a => a.status === "Completed" || a.status === "Delayed");
       const deadlineSuccess = decided.length > 0 ? Math.round((decided.filter(a => a.status === "Completed").length / decided.length) * 100) : 0;
 

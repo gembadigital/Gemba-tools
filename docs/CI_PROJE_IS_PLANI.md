@@ -170,10 +170,42 @@ Gerekçe: C0 güvenlik; C1–C2 veri modeli oturmadan ekran işleri iki kez yap�
 değiştirenler; C8 sunum kartı C2'nin tek KPI/finans modeline dayanır; C5 fırsat havuzu her kaynak modül için ayrı iş
 olduğundan parça parça ilerler.
 
-## 7. Kullanıcı kararı gereken noktalar
-1. **8 adım**: §4'teki Toyota 8 adımı uygun mu, yoksa kastedilen başka bir 8 adım mı (ör. 8D)?
-2. **Kapı onayı**: hangi adımlarda, kim onaylar (sponsor / baş danışman / müşteri yöneticisi)?
-3. **Customer User**: CI projelerini görür mü, düzenler mi, siler mi?
-4. **Finans onayı**: gerçekleşen kazancı kim doğrular?
-5. **Ürün biçimi**: Kaizen + CI tek program mı, ayrı modüller mi (C10–C11 kapsamı)?
-6. **Canlı kayıt taşıması** (C2): mevcut projelerin yeni modele dönüştürülmesi — yedek alınıp onayla yapılır.
+## 7. Kullanıcı kararları (2026-10-28)
+1. **8 adım:** Toyota 8 adım A3 (§4).
+2. **Onay:** her projede bir **proje lideri** seçilir; aşama onaylarını proje lideri verir.
+3. **Yetkiler:** Customer User projeyi **silemez**. Proje lideriyse proje açar, düzenler, içindeki maddeleri siler;
+   yalnızca proje üyesiyse görür, düzenler ve hatalı veriyi (madde) silebilir; projeyi silemez.
+   Proje silme yalnızca Admin / Danışman.
+4. **Kazanç doğrulama:** sistem raporlar → **danışman** gerçek değeri teyit eder → **proje lideri** teyit edilen veriyi onaylar.
+5. **Ürün biçimi:** Kaizen ve CI **ayrı modüller**; gerekirse ortak bir program adı altında birleşir (C10–C11 buna göre).
+6. **Canlı kayıt taşıması** (C2): yedek alınıp onayla yapılır — açık.
+
+Bu kararların plana etkisi: C2'de proje lideri ve üyeler serbest metin yerine **kullanıcı kimliği** olur (yetki ve
+görünürlük buna dayanır: lider/üye olmayan Customer User projeyi görmez); kapı onayı = proje lideri onayı;
+C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
+
+## 8. İlerleme
+| Adım | Durum | Not |
+|---|---|---|
+| C0 | ✅ kod (canlıda doğrulanmadı) | Ayrıntı aşağıda. |
+
+### C0 — yapılanlar
+- **Sunucu (`/api/business/kaizens`):** müşteri gövdeden değil `x-factory-id` kapsamından alınır; güncellemede mevcut
+  kaydın müşterisine erişim kontrol edilir ve proje başka müşteriye taşınamaz (403). `projectNo`, `projectSeq`,
+  `created_*` sunucu alanıdır, istemci değiştiremez. **Proje silme yalnızca Admin/Danışman** (Customer User → 403);
+  ekranda sil butonları da yalnızca bu rollere görünür, proje içi madde silme herkese açık.
+- **Kalıcı proje no:** yeni projelere oluşturmada `CIP<yy><mm>-<seq>` atanır (`db.nextKaizenProjectNo`; müşteri başına
+  sıra). Numarası olmayan eski projeler ekranda eskisi gibi tarih sırasıyla numaralanır; yeni numaralar onların üstünden
+  başlar, çakışmaz ve onları kaydırmaz. **Açık:** eski projelere numaranın kalıcı yazılması (bir kerelik, canlı veri
+  yazımı — yedek + onay gerekir); eski bir proje silinirse ondan sonraki eski projelerin numarası hâlâ kayar.
+  Aynı anda iki proje açılırsa aynı numara alabilir (kilit yok; C1 sunucu servisiyle çözülecek).
+- **Silme sırası:** Master Plan satırı yalnızca sunucu projeyi gerçekten sildikten sonra kaldırılır (önce koşulsuz
+  siliniyordu). Yeni proje detay penceresi sunucudan dönen kayıtla (numarasıyla) açılır.
+- **Para birimi:** `src/components/ci/ciMoney.ts` — "₺/TL/TRY", "$/USD", "€/EUR" aynı sayılır; toplamlara yalnızca
+  müşterinin para birimindeki tutarlar girer, diğerleri "n proje hariç" notuyla belirtilir (kur ayarı C1'de).
+  KaizenManager, Executive Dashboard ve Opex Proje Dashboard bunu kullanır.
+- **Hatalı/uydurma rakamlar kaldırıldı:** Executive Dashboard beklenen kazancı `estimatedCost`'tan (maliyet) okuyordu
+  → `expectedGain`. CI dashboard'da COPQ azalışı "gerçekleşen kazancın %72'si" → kalite/hurda kategorisindeki
+  projelerin gerçekleşen kazancı; ciro yoksa sabit 12.000.000 faaliyet karı, maliyet tablosu yoksa sabit 4.500.000
+  COPQ varsayımı → "—" ve açıklama; beklenen kazançta "gerçekleşen × 1,2" tahmini kaldırıldı.
+- Not: PTR ekranı da CI projesi açıyor (`PtrTimeStudy.tsx`) → C5 fırsat havuzunda kaynak olarak ele alınmalı.

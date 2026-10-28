@@ -123,6 +123,9 @@ export interface BeforeAfterKaizenStudy {
 
 export interface KaizenCard {
   id: string;
+  // Permanent "CIP<yy><mm>-<seq>", set by the server at creation (absent on older projects).
+  projectNo?: string;
+  projectSeq?: number;
   title: string;
   originator: string;
   department: string;

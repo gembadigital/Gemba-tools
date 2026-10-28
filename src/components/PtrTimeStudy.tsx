@@ -181,7 +181,7 @@ interface PtrTimeStudyProps {
   activities?: GanttActivity[];
   onAddActivity?: (activity: any) => Promise<void> | void;
   onUpdateActivity?: (activity: any) => Promise<void> | void;
-  onAddKaizen?: (kaizen: any) => Promise<void> | void;
+  onAddKaizen?: (kaizen: any) => Promise<unknown> | void;
   kaizens?: any[];
 }
 

@@ -563,6 +563,23 @@ export class GeminiDb {
     });
   }
 
+  public async getKaizenById(orgId: string, id: string): Promise<any | null> {
+    return this.getRecordById("kaizens", id, orgId);
+  }
+
+  // Permanent CI project number "CIP<yy><mm>-<seq>", assigned once at creation. <seq> runs per
+  // customer. Projects created before numbers were stored have none; the client still numbers those
+  // by their date order (1..n among unnumbered projects), so a new sequence starts above both that
+  // count and the highest stored one — stored numbers never collide with or shift the old display.
+  public async nextKaizenProjectNo(orgId: string, factoryId: string | undefined, dateProposed?: string): Promise<{ projectNo: string; projectSeq: number }> {
+    const all = await this.getKaizens(orgId, factoryId);
+    const legacyCount = all.filter(k => !k.projectSeq).length;
+    const maxSeq = all.reduce((m, k) => Math.max(m, Number(k.projectSeq) || 0), 0);
+    const projectSeq = Math.max(legacyCount, maxSeq) + 1;
+    const date = /^\d{4}-\d{2}/.test(dateProposed || "") ? dateProposed! : new Date().toISOString();
+    return { projectNo: `CIP${date.slice(2, 4)}${date.slice(5, 7)}-${String(projectSeq).padStart(2, "0")}`, projectSeq };
+  }
+
   public async saveKaizen(orgId: string, kaizen: any, userId: string): Promise<any> {
     if (!kaizen.id) {
       kaizen.id = randomId("kai");
