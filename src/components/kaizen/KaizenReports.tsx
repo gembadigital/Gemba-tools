@@ -9,6 +9,8 @@ import { APPROVAL_STATUS_LABELS, APPROVAL_STATUS_COLORS, actionProgress, statusL
 import { KaizenApi } from "./KaizenSuggestionSystem";
 import { KaizenSettings, toBaseCurrency, optionChoices, stagesOf, awaitingFirstDecision } from "../../utils/kaizenSettings";
 import { Card, KpiCard, Button, EmptyState, PageHeader, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
+import { suggestionRoi } from "./KaizenRoi";
+import { portfolioRoi, paybackText } from "../../utils/kaizenRoi";
 
 // Native replacement for the legacy Power BI report (two pages: a KPI/chart dashboard with five
 // filters, and a per-suggestion "Personel Bazlı Kaizen Puan Tablosu"). Same grouping, plus the
@@ -103,6 +105,22 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
   });
   const verifiedActualBase = verifiedConverted.reduce<number>((sum, v) => sum + (v ?? 0), 0);
   const verifiedExcluded = verifiedConverted.filter(v => v === null).length;
+
+  // Geri dönüş (Faz 5.2): expected over approved suggestions, actual over Kurul-verified implementations.
+  // Same per-suggestion rule as the ROI card; rows whose amounts cannot be converted are left out.
+  const portfolio = (kind: "expected" | "actual") => {
+    const rows = filtered.flatMap(s => {
+      const e = filteredEvaluations.find(ev => ev.suggestionId === s.id);
+      const i = implBySuggestion.get(s.id);
+      if (kind === "expected" ? s.approvalStatus !== "Second Approval" : i?.verification?.status !== "Doğrulandı") return [];
+      const r = suggestionRoi(s, e, i, settings, kind);
+      return r ? [r] : [];
+    });
+    const ok = rows.flatMap(r => ("roi" in r ? [r.roi] : []));
+    return { ...portfolioRoi(ok.map(r => ({ saving: r.saving, cost: r.cost, recurrence: r.recurrence }))), skipped: rows.length - ok.length };
+  };
+  const roiExpected = portfolio("expected");
+  const roiActual = portfolio("actual");
 
   // Fırsat havuzu (Faz 4.5) for the filtered set.
   const pool = useMemo(() => opportunityPool(filtered, evaluations, implementations, settings), [filtered, evaluations, implementations, settings]);
@@ -214,6 +232,7 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
         <Gauge label="Kabul Edilen Öneri Oranı" hint={`${acceptedCount} / ${decided.length} karar verilen öneri`} value={acceptanceRate} color="#3b82f6" />
         <Gauge label="Katılım Oranı" hint={`${participants} / ${personnel.length} personel`} value={participationRate} color="#00A280" />
       </div>
+      <RoiSummary base={base} expected={roiExpected} actual={roiActual} />
 
       {filtered.length === 0 ? (
         <Card><EmptyState icon={Lightbulb} title="Seçili filtrelerle öneri bulunamadı" /></Card>
@@ -290,7 +309,7 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
             <div className="overflow-x-auto">
               <table className={tableCls}>
                 <thead className={theadCls}><tr>
-                  <th className={thCls}>Ad Soyad</th><th className={thCls}>Bölüm</th><th className={thCls}>Görev</th><th className={thCls}>Tarih</th><th className={thCls}>Sınıf</th><th className={thCls}>Durum</th><th className={thCls}>Kontrol Tarihi</th><th className={`${thCls} text-right`}>Tahmini Getiri</th><th className={`${thCls} text-right`}>Gerçek Getiri</th><th className={`${thCls} text-right`}>Puan</th><th className={thCls}>Tamamlanma</th>
+                  <th className={thCls}>Ad Soyad</th><th className={thCls}>Bölüm</th><th className={thCls}>Görev</th><th className={thCls}>Tarih</th><th className={thCls}>Sınıf</th><th className={thCls}>Durum</th><th className={thCls}>Kontrol Tarihi</th><th className={`${thCls} text-right`}>Tahmini Getiri</th><th className={`${thCls} text-right`}>Gerçek Getiri</th><th className={`${thCls} text-right`}>Geri Ödeme</th><th className={`${thCls} text-right`}>Puan</th><th className={thCls}>Tamamlanma</th>
                 </tr></thead>
                 <tbody>{detailRows.map(s => {
                   const e = evaluationBySuggestion.get(s.id);
@@ -302,6 +321,11 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
                       <td className={`${tdCls} tabular-nums whitespace-nowrap`}>{e?.createdAt ? e.createdAt.slice(0, 10) : "—"}</td>
                       <td className={`${tdCls} text-right tabular-nums`}>{(() => { const x = expectedSaving(s, e); return e || x.source === "revised" ? `${x.amount.toLocaleString("tr-TR")} ${x.currency}` : "—"; })()}</td>
                       <td className={`${tdCls} text-right tabular-nums`}>{impl && impl.verification?.status === "Doğrulandı" ? `${impl.actualSaving.toLocaleString("tr-TR")} ${impl.actualSavingCurrency}` : "—"}</td>
+                      <td className={`${tdCls} text-right tabular-nums whitespace-nowrap`}>{(() => {
+                        // verified actual if any, else the expectation (Faz 5.2)
+                        const r = suggestionRoi(s, e, impl, settings, impl?.verification?.status === "Doğrulandı" ? "actual" : "expected");
+                        return r && "roi" in r && r.roi.cost > 0 ? paybackText(r.roi.paybackMonths) : "—";
+                      })()}</td>
                       <td className={`${tdCls} text-right font-bold tabular-nums`}>{e?.point ?? "—"}</td>
                       <td className={`${tdCls} whitespace-nowrap`}>{impl ? `${impl.status}${actionProgress(impl).total ? ` · ${actionProgress(impl).done}/${actionProgress(impl).total}` : ""}` : s.completed ? "Uygulandı" : "—"}</td>
                     </tr>
@@ -359,5 +383,48 @@ function TreemapCell(props: any) {
         </>
       )}
     </g>
+  );
+}
+
+// Geri dönüş özeti (Faz 5.2): expected (approved) next to actual (Kurul-verified), in the base currency.
+type Portfolio = ReturnType<typeof portfolioRoi> & { skipped: number };
+function RoiSummary({ base, expected, actual }: { base: string; expected: Portfolio; actual: Portfolio }) {
+  if (!expected.count && !actual.count) return null;
+  const money = (n: number) => `${Math.round(n).toLocaleString("tr-TR")} ${base}`;
+  const rows: [string, (p: Portfolio) => string][] = [
+    ["Öneri sayısı", p => String(p.count)],
+    ["Yıllık kazanç", p => money(p.annual)],
+    ["Tek seferlik kazanç", p => money(p.oneOff)],
+    ["Yatırım / maliyet", p => money(p.cost)],
+    ["Net kazanç (ilk yıl)", p => money(p.net)],
+    ["ROI", p => (p.roiPct === null ? "—" : `%${p.roiPct.toLocaleString("tr-TR")}`)],
+    ["Geri ödeme süresi", p => paybackText(p.paybackMonths)]
+  ];
+  return (
+    <Card>
+      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+        <h3 className="text-base font-bold text-slate-900">Geri Dönüş</h3>
+        <p className="text-xs text-slate-500">Beklenen: Kurul'un kabul ettiği öneriler · Gerçekleşen: Kurul'un doğruladığı uygulamalar</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full max-w-3xl text-sm min-w-[28rem]">
+          <thead><tr className="text-xs text-slate-500"><th className="text-left font-semibold pb-2" /><th className="text-right font-semibold pb-2">Beklenen</th><th className="text-right font-semibold pb-2">Gerçekleşen</th></tr></thead>
+          <tbody>
+            {rows.map(([l, f]) => (
+              <tr key={l} className="border-t border-slate-100">
+                <td className="py-2 text-slate-600">{l}</td>
+                <td className="py-2 text-right font-semibold tabular-nums">{expected.count ? f(expected) : "—"}</td>
+                <td className="py-2 text-right font-semibold tabular-nums">{actual.count ? f(actual) : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <ul className="text-xs text-slate-500 mt-3 space-y-0.5 list-disc list-inside">
+        <li>Kazanç Süresi "Parça Başı" ve "Senelik" olanlar yıllık, diğerleri tek seferlik sayılır. ROI ilk yıl içindir: (yıllık + tek seferlik − yatırım) ÷ yatırım.</li>
+        <li>Geri ödeme: tek seferlik kazançların karşılamadığı yatırım ÷ yıllık kazanç × 12. Gerçekleşende yatırım girilmemişse tahmini maliyet kullanılır.</li>
+        {expected.skipped + actual.skipped > 0 && <li className="text-amber-700">{expected.skipped + actual.skipped} kayıt çevrilemeyen para birimiyle, hesaba dahil değil.</li>}
+      </ul>
+    </Card>
   );
 }

@@ -6,6 +6,7 @@ import {
 import { KaizenPersonnel, KaizenSuggestion, KaizenSuggestionPhoto } from "./kaizenTypes";
 import { KaizenSettings, currencyChoices, optionChoices, requiredStagesFor } from "../../utils/kaizenSettings";
 import { isPerPiece, perPieceSaving, parsePerPiece } from "../../utils/kaizenSaving";
+import { computeRoi, recurrenceOf, paybackText } from "../../utils/kaizenRoi";
 import { KaizenApi } from "./KaizenSuggestionSystem";
 import { readAndShrink } from "./kaizenImage";
 import { Card, Button, FormField, ChoiceChip, inputCls, areaCls, errCls } from "./kaizenUi";
@@ -519,8 +520,9 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
             </div>
             {sameCurrency && (savingNum > 0 || costNum > 0) && (
               <div className={`rounded-xl p-3 mt-3 ${net >= 0 ? "bg-teal-50 text-teal-800" : "bg-red-50 text-red-700"}`}>
-                <p className="text-xs font-semibold">Net etki</p>
+                <p className="text-xs font-semibold">Net etki{recurrenceOf(form.paybackPeriod) === "annual" ? " (ilk yıl)" : ""}</p>
                 <p className="font-bold tabular-nums mt-0.5">{net.toLocaleString("tr-TR")} {form.estimatedSavingCurrency}</p>
+                {costNum > 0 && <p className="text-[11px] mt-0.5">Geri ödeme: {paybackText(computeRoi({ saving: savingNum, cost: costNum, recurrence: recurrenceOf(form.paybackPeriod) }).paybackMonths)}</p>}
               </div>
             )}
             <p className="text-xs text-slate-500 mt-4 flex gap-2"><Send className="w-3.5 h-3.5 shrink-0 mt-0.5" />{nextStop}</p>

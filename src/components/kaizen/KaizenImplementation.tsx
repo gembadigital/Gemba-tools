@@ -14,6 +14,7 @@ import { KaizenApi, useFullRecord } from "./KaizenSuggestionSystem";
 import KaizenOnePager from "./KaizenOnePager";
 import { Card, KpiCard, SectionTitle, Button, EmptyState, PageHeader, inputCls as baseInputCls } from "./kaizenUi";
 import KaizenSavingRevision from "./KaizenSavingRevision";
+import KaizenRoi from "./KaizenRoi";
 
 // Uygulama Takibi (Faz 2-A): Kurulca onaylanan her öneri için plan (sorumlu, hedef tarih, aksiyon
 // listesi), önce/sonra ölçüm + fotoğraf, gerçekleşen kazanç, Kurul doğrulaması ve 30/90 gün
@@ -516,6 +517,9 @@ function ImplementationDetail({
         </div>
         <div className="mt-3">
           <KaizenSavingRevision s={s} evaluation={evaluation} settings={settings} api={api} showToast={showToast} canRevise={isBoardMember} onSaved={() => onReload()} />
+        </div>
+        <div className="mt-3">
+          <KaizenRoi s={s} evaluation={evaluation} impl={impl} settings={settings} />
         </div>
         <div className="mt-3">
           <label className={labelCls}>Not</label>

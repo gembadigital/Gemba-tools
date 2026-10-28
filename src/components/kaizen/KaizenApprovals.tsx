@@ -3,6 +3,7 @@ import { CheckCircle2, XCircle, Download, Share2, Gift, Clock, Inbox, ClipboardC
 import { KaizenSuggestion, KaizenCriteria, KaizenApproval, KaizenEvaluation, KaizenPersonnel, KaizenMessage } from "./kaizenTypes";
 import KaizenThread from "./KaizenThread";
 import KaizenSavingRevision from "./KaizenSavingRevision";
+import KaizenRoi from "./KaizenRoi";
 import { canDecideAsManager, daysWaiting, WAITING_SEVERITY_COLORS, statusLabel, feasibilityOverdue, expectedSaving } from "./kaizenCalc";
 import { KaizenSettings, currencyChoices, toBaseCurrency, waitingSeverityFor, rewardFor, stagesOf } from "../../utils/kaizenSettings";
 
@@ -485,6 +486,7 @@ function DecisionPanel({ suggestion: s, stage, criteria, approvals, evaluations,
         {perPieceText(s) && <p className="text-sm text-emerald-800 bg-emerald-50/60 ring-1 ring-emerald-200/60 rounded-xl px-3.5 py-2.5 -mt-2 tabular-nums">Parça başı hesap: {perPieceText(s)}</p>}
         <KaizenSavingRevision s={s} evaluation={evaluations[0]} settings={settings} api={api} showToast={showToast} onSaved={onChanged}
           canRevise={s.approvalStatus !== "Rejected" && s.approvalStatus !== "Rejected 2nd" && (stage === "board" || (!readOnly && s.approvalStatus === "Pending"))} />
+        <KaizenRoi s={s} evaluation={evaluations[0]} settings={settings} />
         {photoCount > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {photos.length
