@@ -601,6 +601,12 @@ export default function App() {
       currentLanguage={currentLang}
       setCurrentLanguage={(lang) => changeLanguage(lang as "tr" | "en" | "de")}
     >
+      {currentUser?.authType === "kaizen" && currentUser.kaizenDevice === "kiosk" ? (
+        // Kiosk (Faz 3.6): no sidebar/header — only the Kaizen kiosk screen, which signs itself out.
+        <div className="min-h-screen bg-[#fafafa] p-3 sm:p-5 font-sans antialiased">
+          <KaizenSuggestionSystem kiosk onKioskExit={handleSignOut} />
+        </div>
+      ) : (
       <div className="h-screen overflow-hidden bg-[#f1f3f5] text-gray-800 flex flex-col font-sans select-none antialiased">
       
       {/* PROFESSIONAL LOGO HEADER */}
@@ -1180,6 +1186,7 @@ export default function App() {
       />
 
     </div>
+      )}
     </FactoryProvider>
   );
 }

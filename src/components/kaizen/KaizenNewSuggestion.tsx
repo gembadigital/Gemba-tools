@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import {
   ChevronLeft, ChevronRight, Send, Camera, X, Check, User, FileText, Lightbulb, Coins, Eye, PencilLine,
-  ShieldAlert, Leaf, Smile, Tag, Gauge, BadgeCheck, Zap, Sparkles, Wrench, PiggyBank, CircleCheckBig, ListChecks, Plus
+  ShieldAlert, Leaf, Smile, Tag, Gauge, BadgeCheck, Zap, Sparkles, Wrench, PiggyBank, CircleCheckBig, ListChecks, Plus, LogOut
 } from "lucide-react";
 import { KaizenPersonnel, KaizenSuggestion, KaizenSuggestionPhoto } from "./kaizenTypes";
 import { KaizenSettings, currencyChoices, optionChoices, requiredStagesFor } from "../../utils/kaizenSettings";
@@ -19,6 +19,8 @@ interface Props {
   // stay=true: the user chose "Yeni öneri ver" on the success screen (stay in the wizard).
   onSaved: (s: KaizenSuggestion, stay?: boolean) => void;
   settings: KaizenSettings;
+  kiosk?: boolean;          // shared tablet: after submitting, sign out automatically
+  onKioskExit?: () => void;
 }
 
 interface FormState {
@@ -70,7 +72,7 @@ function CharCount({ value, min = 30 }: { value: string; min?: number }) {
   return <span className={`text-xs tabular-nums ${n === 0 ? "text-slate-400" : n < min ? "text-amber-600" : "text-emerald-600"}`}>{n < min && n > 0 ? `${n} karakter — biraz daha ayrıntı iyi olur` : `${n} karakter`}</span>;
 }
 
-export default function KaizenNewSuggestion({ currentUser, personnel, editingSuggestion, teamIds, api, showToast, onSaved, settings }: Props) {
+export default function KaizenNewSuggestion({ currentUser, personnel, editingSuggestion, teamIds, api, showToast, onSaved, settings, kiosk, onKioskExit }: Props) {
   // A new form starts in the customer's base currency.
   const blankForm: FormState = { ...blank, estimatedSavingCurrency: settings.baseCurrency, estimatedCostCurrency: settings.baseCurrency };
   const isEdit = !!editingSuggestion;
@@ -233,7 +235,9 @@ export default function KaizenNewSuggestion({ currentUser, personnel, editingSug
             <Send className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
             <span>{submitted.approvalStatus === "First Approval" ? "Doğrudan Kaizen Kurulu'na değerlendirmeye gitti." : nextStop} Durumunu <b>Önerilerim</b> ekranından takip edebilirsiniz.</span>
           </div>
+          {kiosk && <KioskExitCountdown seconds={15} onExit={() => onKioskExit?.()} />}
           <div className="mt-7 flex flex-col sm:flex-row gap-3 justify-center">
+            {kiosk && <Button variant="primary" className="h-12 px-6" onClick={() => onKioskExit?.()}><LogOut className="w-4 h-4" />Bitir ve çık</Button>}
             <Button variant="brand" className="h-12 px-6" onClick={() => onSaved(submitted)}><ListChecks className="w-4 h-4" />Önerilerime git</Button>
             <Button variant="outline" className="h-12 px-6" onClick={() => { onSaved(submitted, true); setSubmitted(null); setForm(blankForm); setStep(1); }}><Plus className="w-4 h-4" />Yeni öneri ver</Button>
           </div>
@@ -513,4 +517,18 @@ function PhotoUploader({ label, photos, onAdd, onRemove }: { label: string; phot
       </div>
     </FormField>
   );
+}
+
+// Kiosk: after a submission the next person is waiting — sign out unless someone touches the screen.
+function KioskExitCountdown({ seconds, onExit }: { seconds: number; onExit: () => void }) {
+  const [left, setLeft] = useState(seconds);
+  useEffect(() => {
+    const reset = () => setLeft(seconds);
+    window.addEventListener("pointerdown", reset);
+    const t = setInterval(() => setLeft(l => l - 1), 1000);
+    return () => { clearInterval(t); window.removeEventListener("pointerdown", reset); };
+  }, [seconds]);
+  const done = React.useRef(false);
+  useEffect(() => { if (left <= 0 && !done.current) { done.current = true; onExit(); } }, [left]);
+  return <p className="mt-5 text-sm font-semibold text-slate-500" aria-live="polite">{Math.max(left, 0)} saniye içinde oturum kapanacak</p>;
 }

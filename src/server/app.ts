@@ -425,6 +425,8 @@ async function kaizenSessionUser(payload: any): Promise<{ user: any } | { error:
       last_login: null,
       assigned_customer_ids: [payload.fid],
       authType: "kaizen",
+      // Kiosk (Faz 3.6): shared tablet — the client shows the reduced kiosk screen and signs out itself.
+      kaizenDevice: payload.dev === "kiosk" ? "kiosk" : "phone",
       kaizenPersonnelId: person.id,
       employeeNo: person.employeeNo || ""
     }
@@ -482,8 +484,9 @@ app.post("/api/auth/kaizen-login", async (req, res) => {
     if (current.pinFailed || current.pinLockedUntil) await save({ pinFailed: 0, pinLockedUntil: "" });
 
     const kiosk = req.body.device === "kiosk";
-    const token = jwt.sign({ kind: "kaizen", pid: person.id, org: orgId, fid, pin: needPin, pv: pinVersion }, getJwtSecret(), { expiresIn: kiosk ? KIOSK_SESSION : PHONE_SESSION });
-    const session = await kaizenSessionUser({ pid: person.id, org: orgId, fid, pin: needPin, pv: pinVersion });
+    const dev = kiosk ? "kiosk" : "phone";
+    const token = jwt.sign({ kind: "kaizen", pid: person.id, org: orgId, fid, pin: needPin, pv: pinVersion, dev }, getJwtSecret(), { expiresIn: kiosk ? KIOSK_SESSION : PHONE_SESSION });
+    const session = await kaizenSessionUser({ pid: person.id, org: orgId, fid, pin: needPin, pv: pinVersion, dev });
     if ("error" in session) return res.status(401).json({ success: false, error: session.error });
     const organization = (await db.getOrganizations()).find(o => o.id === orgId);
     res.json({ success: true, step: "done", token, user: session.user, organization });
@@ -506,7 +509,7 @@ app.get("/api/auth/me", authenticateToken, async (req, res) => {
         status: user.status,
         organization_id: user.organization_id,
         last_login: user.last_login,
-        ...(user.authType === "kaizen" ? { authType: "kaizen", kaizenPersonnelId: user.kaizenPersonnelId, employeeNo: user.employeeNo, assigned_customer_ids: user.assigned_customer_ids } : {})
+        ...(user.authType === "kaizen" ? { authType: "kaizen", kaizenDevice: user.kaizenDevice, kaizenPersonnelId: user.kaizenPersonnelId, employeeNo: user.employeeNo, assigned_customer_ids: user.assigned_customer_ids } : {})
       },
       organization
     });

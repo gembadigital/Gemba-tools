@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Home, Plus, ListChecks, Star, BarChart3, Settings, Hammer, AlertCircle, CheckCircle2, X } from "lucide-react";
+import { Home, Plus, ListChecks, Star, BarChart3, Settings, Hammer, AlertCircle, CheckCircle2, X, LogOut } from "lucide-react";
 import { useFactory } from "../../context/FactoryContext";
 import { KaizenPersonnel, KaizenCriteria, KaizenSuggestion, KaizenApproval, KaizenEvaluation, KaizenImplementation as KaizenImpl } from "./kaizenTypes";
 import { canDecideAsManager } from "./kaizenCalc";
@@ -59,10 +59,16 @@ function makeCrud<T extends { id: string }>(
   };
 }
 
-export default function KaizenSuggestionSystem() {
+// Kiosk (Faz 3.6): a shared tablet session — only Ana Sayfa / Yeni Öneri / Önerilerim, larger
+// touch targets, a visible Çıkış, and automatic sign-out after inactivity or a submitted suggestion.
+export const KIOSK_IDLE_SECONDS = 120;
+export const KIOSK_WARN_SECONDS = 20;
+
+export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: { kiosk?: boolean; onKioskExit?: () => void } = {}) {
   const { selectedCustomer, globalState } = useFactory();
   const appUser = globalState?.CurrentUser;
-  const factoryId = selectedCustomer?.id || "default";
+  // Sicil no sessions know their customer before the customer list has loaded.
+  const factoryId = selectedCustomer?.id || globalState?.CurrentUser?.assigned_customer_ids?.[0] || "default";
 
   const [section, setSection] = useState<"home" | "new" | "mine" | "approvals" | "impl" | "reports" | "setup">("home");
   const [editingSuggestion, setEditingSuggestion] = useState<KaizenSuggestion | null>(null);
@@ -190,7 +196,7 @@ export default function KaizenSuggestionSystem() {
     setSection("new");
   };
 
-  const NAV_ITEMS: { key: typeof section; label: string; icon: any; badge?: number }[] = [
+  const ALL_NAV_ITEMS: { key: typeof section; label: string; icon: any; badge?: number }[] = [
     { key: "home", label: "Ana Sayfa", icon: Home },
     { key: "new", label: "Yeni Öneri", icon: Plus },
     { key: "mine", label: "Önerilerim", icon: ListChecks },
@@ -199,6 +205,24 @@ export default function KaizenSuggestionSystem() {
     ...(isBoardMember ? [{ key: "reports" as const, label: "Rapor", icon: BarChart3 }] : []),
     ...(isKaizenAdmin ? [{ key: "setup" as const, label: "Kurulum", icon: Settings }] : [])
   ];
+  const NAV_ITEMS = kiosk ? ALL_NAV_ITEMS.filter(i => i.key === "home" || i.key === "new" || i.key === "mine") : ALL_NAV_ITEMS;
+
+  // Kiosk inactivity: after KIOSK_IDLE_SECONDS without a touch/key, warn for KIOSK_WARN_SECONDS, then sign out.
+  const lastActivity = React.useRef(Date.now());
+  const [idleLeft, setIdleLeft] = useState<number | null>(null);
+  useEffect(() => {
+    if (!kiosk) return;
+    const touch = () => { lastActivity.current = Date.now(); setIdleLeft(null); };
+    const events = ["pointerdown", "keydown", "touchstart", "wheel"] as const;
+    events.forEach(e => window.addEventListener(e, touch, { passive: true }));
+    const timer = setInterval(() => {
+      const idle = (Date.now() - lastActivity.current) / 1000;
+      if (idle < KIOSK_IDLE_SECONDS) return;
+      const left = Math.ceil(KIOSK_IDLE_SECONDS + KIOSK_WARN_SECONDS - idle);
+      if (left <= 0) { clearInterval(timer); onKioskExit?.(); } else setIdleLeft(left);
+    }, 1000);
+    return () => { clearInterval(timer); events.forEach(e => window.removeEventListener(e, touch)); };
+  }, [kiosk]);
 
   if (loading) {
     return (
@@ -213,7 +237,18 @@ export default function KaizenSuggestionSystem() {
   const isError = !!toast && /^hata|oturum/i.test(toast);
 
   return (
-    <div className="space-y-6 font-sans w-full">
+    <div className="space-y-6 font-sans w-full" style={kiosk ? { zoom: 1.12 } : undefined}>
+      {kiosk && idleLeft !== null && (
+        <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-6" role="alertdialog" aria-live="assertive">
+          <div className="bg-white rounded-3xl shadow-2xl p-8 text-center max-w-sm w-full">
+            <p className="text-6xl font-bold text-slate-900 tabular-nums">{idleLeft}</p>
+            <p className="text-lg font-semibold text-slate-800 mt-3">Hâlâ orada mısınız?</p>
+            <p className="text-sm text-slate-500 mt-1">Ekrana dokunmazsanız oturum kapanacak.</p>
+            <button onClick={() => { lastActivity.current = Date.now(); setIdleLeft(null); }} className="mt-6 w-full h-14 rounded-2xl bg-emerald-600 text-white text-lg font-bold cursor-pointer">Devam et</button>
+            <button onClick={() => onKioskExit?.()} className="mt-3 w-full h-12 rounded-2xl text-slate-600 font-semibold hover:bg-slate-100 cursor-pointer">Çıkış yap</button>
+          </div>
+        </div>
+      )}
       {toast && (
         <div role="status" aria-live="polite" className="fixed bottom-6 right-6 left-6 sm:left-auto z-50 sm:max-w-md animate-toast-in">
           <div className={`flex items-start gap-3 rounded-2xl px-4 py-3.5 shadow-2xl ring-1 backdrop-blur ${isError ? "bg-white ring-red-200 text-slate-800" : "bg-slate-900/95 ring-white/10 text-white"}`}>
@@ -258,6 +293,12 @@ export default function KaizenSuggestionSystem() {
               );
             })}
           </nav>
+          {kiosk && (
+            <div className="flex items-center gap-2 shrink-0 pl-2 border-l border-slate-200">
+              <span className="hidden sm:block text-sm font-semibold text-slate-700 max-w-[10rem] truncate">{appUser?.full_name}</span>
+              <button onClick={() => onKioskExit?.()} className="h-11 px-4 rounded-xl bg-slate-900 text-white text-sm font-bold flex items-center gap-2 cursor-pointer hover:bg-slate-800"><LogOut className="w-4 h-4" />Çıkış</button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -275,9 +316,10 @@ export default function KaizenSuggestionSystem() {
           onNewSuggestion={() => { setEditingSuggestion(null); setSection("new"); }}
           onShowMine={() => setSection("mine")}
           onShowApprovals={() => setSection("approvals")}
-          onShowImplementation={() => setSection("impl")}
+          onShowImplementation={() => setSection(kiosk ? "mine" : "impl")}
           onEditSuggestion={openEdit}
-          canSeeApprovals={canSeeApprovals}
+          canSeeApprovals={canSeeApprovals && !kiosk}
+          kiosk={kiosk}
           api={api}
         />
       )}
@@ -287,6 +329,8 @@ export default function KaizenSuggestionSystem() {
           currentUser={currentUser}
           personnel={personnel}
           editingSuggestion={editingSuggestion}
+          kiosk={kiosk}
+          onKioskExit={onKioskExit}
           teamIds={myTeamIds}
           api={api}
           showToast={showToast}

@@ -26,6 +26,7 @@ interface Props {
   onEditSuggestion: (s: KaizenSuggestion) => void;
   canSeeApprovals: boolean;
   api: KaizenApi;
+  kiosk?: boolean; // shared tablet: only the person's own next steps
 }
 
 const greeting = () => {
@@ -41,7 +42,7 @@ const fmtDate = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("tr-TR
 export default function KaizenHome({
   currentUser, personnelRecord, suggestions, evaluations, managerQueueCount, boardQueueCount,
   oldestWaitingDays, waitingWarningDays, waitingOverdueDays, onNewSuggestion, onShowMine, onShowApprovals,
-  onShowImplementation, onEditSuggestion, canSeeApprovals, api
+  onShowImplementation, onEditSuggestion, canSeeApprovals, api, kiosk
 }: Props) {
   const myEmail = (currentUser?.email || "").toLowerCase();
   const mine = useMemo(() => suggestions.filter(s => (s.authorEmail || "").toLowerCase() === myEmail), [suggestions, myEmail]);
@@ -92,7 +93,7 @@ export default function KaizenHome({
     key: "revise", icon: PencilLine, tone: "red", title: `${toRevise.length} önerinizi güncelleyebilirsiniz`,
     text: "Reddedilen öneriyi gerekçeye göre düzenleyip yeniden gönderin.", cta: "Düzenle", onClick: () => onEditSuggestion(toRevise[0])
   });
-  if (pipeline.accepted > 0) actions.push({
+  if (pipeline.accepted > 0 && !kiosk) actions.push({
     key: "impl", icon: Hammer, tone: "emerald", title: `${pipeline.accepted} kabul edilen öneri uygulamada`,
     text: "Uygulama planını ve önce/sonra ölçümünü takip edin.", cta: "Uygulamaya git", onClick: onShowImplementation
   });
