@@ -192,6 +192,7 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
 | C2 | ✅ kod (canlıda doğrulanmadı) | 8 adımlı A3 kartı, lider onayı, lider/üye yetkileri, geçmiş. Ayrıntı aşağıda. |
 | C3 | ✅ kod (canlıda doğrulanmadı) | Uygulama planı (Gantt, başlangıç/ilerleme, önce-sonra bağı), Görevlerim, tek hafta bazlı Master Plan bağı. Ayrıntı aşağıda. |
 | C6 | ✅ kod (canlıda doğrulanmadı) | Tek finans modeli, yeni finansal dashboard, kazanç kırılımı penceresi, binlik ayraç. Ayrıntı aşağıda. |
+| C7 | ✅ kod (canlıda doğrulanmadı) | Genel Bakış açılış panosu, sade başlık/sekmeler, sorumlu performansı. Ayrıntı aşağıda. |
 
 ### C0 — yapılanlar
 - **Sunucu (`/api/business/kaizens`):** müşteri gövdeden değil `x-factory-id` kapsamından alınır; güncellemede mevcut
@@ -358,4 +359,28 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
   geri dönüşleri, teyit/tarih, ay aralığı, geri ödeme) + C1/C2/C3 testleri yeniden geçti. Dashboard ve kırılım
   penceresi yerel önizlemede (sahte veri) denendi; KPI kartlarının daralması, tarihsiz raporlanan kazancın grafikte
   görünmemesi ve negatif fark biçimi düzeltildi. Canlıda denenmedi.
+
+### C7 — yapılanlar
+- **Modül kendi panosuyla açılır (A2):** yeni varsayılan sekme **Genel Bakış** (`ci/CiOverview.tsx`).
+  - 4 gösterge: aktif proje (askıdakiler ayrı), geciken (aşama / hedef tarih / aksiyon termini geçen), teyitli kazanç
+    (beklenenle birlikte; tıklayınca Finans), kapanış oranı.
+  - **Onayınızı bekleyen adımlar:** oturumdaki kullanıcının proje lideri olarak onaylaması gereken adımlar.
+  - **Dikkat gerektirenler:** aktif projelerde aşama planlanan tarihi geçti / hedef bitiş geçti / termini geçen aksiyon
+    / 30 gündür değişiklik yok — gün sayısıyla, en ağırdan başlayarak; tıklayınca kart açılır.
+  - **A3 adımlarında projeler:** aktif projelerin 8 adıma dağılımı + kapanan / askıda sayısı.
+  - **Proje sorumlularının performansı (A1):** lider başına aktif, kapanan, **zamanında adım oranı** (planlanan tarihi
+    olan onaylı adımların kaçı planlanan tarihte ya da önce onaylandı), geç onaylananlarda ortalama gecikme, şu an
+    geciken proje, geciken aksiyon. Lider hesabıyla, eski projelerde isimle gruplanır; iptal edilenler hariç.
+    Hesaplar `ci/ciPerformance.ts`'te, yalnızca A3 alanlarından (tahmin yok).
+- **Sadeleştirme (A8):** üstteki 10 kartlık gösterge şeridi (COPQ, faaliyet karı, P&L katkısı, başarı oranı …),
+  finans satırı ve "Weekly Alert Hub" kaldırıldı; yerine Kaizen tasarımında başlık (Excel / PDF / Yeni CI projesi),
+  sekme çubuğu (Genel Bakış, Kanban, Liste, Zaman Çizelgesi, Görevlerim + sayı, Finans, Önce-Sonra, Ayarlar) ve sade
+  filtre satırı (departman, faz, temizle, "n / m proje"). Kullanılmayan 7 hesap daha silindi (KaizenManager 2.374 satır).
+- **Not:** eski uyarı panelindeki "hatırlatma kaydı" düğmesi kanban kartında duruyor; gerçek e-posta bildirimi C9.
+- **Açık kalanlar:** Kanban, Liste ve Zaman Çizelgesi sekmelerinin içi hâlâ eski görsel dilde (işlevleri C2/C3 ile
+  güncel); adım planı tarihleri girilmemiş projelerde zamanında oranı "—" görünür.
+- **Doğrulama:** `tsc`, `npm run build`, native ESM yükleme; performans hesapları 9 kontrol + önceki adımların
+  testleri yeniden geçti. Genel Bakış ve tüm sayfa (KaizenManager, sahte veri) yerel önizlemede masaüstü ve telefon
+  genişliğinde denendi; adım etiketinin kesilmesi ve kısa tutarların ("₺1,1 Mn") satır kırması düzeltildi.
+  Canlıda denenmedi.
 

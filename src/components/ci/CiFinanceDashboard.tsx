@@ -28,7 +28,7 @@ interface Props {
 }
 
 const ALL_YEARS = "all";
-const short = (n: number) => Math.abs(n) >= 1e6 ? `${formatAmount(n / 1e6, 1)} Mn` : Math.abs(n) >= 1e3 ? `${formatAmount(n / 1e3, 0)} B` : formatAmount(n, 0);
+const short = (n: number) => Math.abs(n) >= 1e6 ? `${formatAmount(n / 1e6, 1)}\u00a0Mn` : Math.abs(n) >= 1e3 ? `${formatAmount(n / 1e3, 0)}\u00a0B` : formatAmount(n, 0);
 
 export default function CiFinanceDashboard({ projects, currencySymbol, baseCurrency, fxRates, opportunityGain, projectNo, onOpenProject }: Props) {
   const [year, setYear] = useState<string>(ALL_YEARS);

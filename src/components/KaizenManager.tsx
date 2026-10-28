@@ -6,7 +6,7 @@ import {
   Calendar, List, AlertTriangle, Check, RotateCcw, FileText, 
   ChevronRight, ChevronDown, Info, Users, Clock, Percent, Shield, ArrowDownUp,
   GripVertical, Maximize2, Minimize2, FileUp, File, FileSpreadsheet, Image,
-  Camera, Upload, ZoomIn, X, Eye
+  Camera, Upload, ZoomIn, X, Eye, LayoutDashboard, Columns3, CalendarRange, ListChecks, BarChart3, Images, Settings
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -30,6 +30,8 @@ import CiProjectCard, { CiPerson, StageBadge } from "./ci/CiProjectCard";
 import CiMyTasks from "./ci/CiMyTasks";
 import CiGainBreakdown from "./ci/CiGainBreakdown";
 import CiFinanceDashboard from "./ci/CiFinanceDashboard";
+import CiOverview from "./ci/CiOverview";
+import { PageHeader, TabBar, Button } from "./ci/ciUi";
 import {
   CI_STEPS, CiStageAction, CiUserLike, stageOf, isClosed, pdcaOfStage, stageRequirements, canApproveStage, isCiStaffUser,
   isTaskFinished, personKey, canEditProject
@@ -56,7 +58,7 @@ interface KaizenManagerProps {
   currentUser?: CiUserLike | null;
 }
 
-type TabType = "kanban" | "list" | "timeline" | "mytasks" | "dashboard" | "beforeafter" | "settings";
+type TabType = "overview" | "kanban" | "list" | "timeline" | "mytasks" | "dashboard" | "beforeafter" | "settings";
 
 
 export default function KaizenManager({
@@ -77,7 +79,7 @@ export default function KaizenManager({
   // Admin / Consultant: may delete a whole CI project and change the CI settings (enforced by the
   // server too).
   const isCiStaff = isCiStaffUser(currentUser);
-  const [activeTab, setActiveTab] = useState<TabType>("kanban");
+  const [activeTab, setActiveTab] = useState<TabType>("overview");
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [selectedDeptFilter, setSelectedDeptFilter] = useState("all");
   const [selectedPhaseFilter, setSelectedPhaseFilter] = useState("all");
@@ -756,7 +758,6 @@ export default function KaizenManager({
   });
 
   const totalCIProjects = filteredProjects.length;
-  const totalBeforeAfterStudies = filteredProjects.reduce((sum, k) => sum + (k.beforeAfterStudies?.length || 0), 0);
 
   // Flat, portfolio-wide gallery of every saved Önce-Sonra (Before-After) study across all CI
   // projects — previously these were only visible one-by-one inside each project's own detail
@@ -764,15 +765,8 @@ export default function KaizenManager({
   const allBeforeAfterStudies = filteredProjects
     .flatMap(k => (k.beforeAfterStudies || []).map(s => ({ study: s, projectId: k.id, projectTitle: k.title })))
     .sort((a, b) => (b.study.date || "").localeCompare(a.study.date || ""));
-  const inProgressProjects = filteredProjects.filter(k => k.status === "In Progress" && k.kanbanStatus !== "ACT").length;
   const completedProjects = filteredProjects.filter(k => k.status === "Completed" || k.kanbanStatus === "ACT").length;
-  const pendingProjects = filteredProjects.filter(k => k.status === "Draft" || k.kanbanStatus === "PLAN").length;
   
-  const delayedProjects = filteredProjects.filter(k => {
-    if (k.status === "Completed") return false;
-    if (!k.plannedFinishDate) return false;
-    return new Date(k.plannedFinishDate) < new Date();
-  }).length;
 
   // Money totals only add amounts in the customer's currency (see ci/ciMoney.ts); projects in
   // another currency are counted in `*.excluded` and named under the figure.
@@ -785,27 +779,17 @@ export default function KaizenManager({
 
   const realizedSum = sumRealized(filteredProjects, currency, ciSettings.fxRates);
   const realizedFinancialGain = realizedSum.total;
-  // COPQ reduction = realized savings of quality / scrap projects (previously a flat 72% of all
-  // savings, which was not derived from anything).
-  const totalCOPQReduction = filteredProjects
-    .filter(k => COPQ_CATEGORIES.includes(getKaizenCategory(k)))
-    .reduce((sum, k) => sum + realizedInCurrency(k, currency, ciSettings.fxRates), 0);
   
 
 
 
 
-  const averageProjectSuccessRate = totalCIProjects > 0 
-    ? Math.round((filteredProjects.filter(k => k.status === "Completed" || k.kanbanStatus === "ACT").length / totalCIProjects) * 100) 
-    : 0;
 
 
 
 
 
 
-  // Plant profit increase contribution variable for the KPI grid
-  const operatingProfitIncrease = realizedFinancialGain;
 
 
 
@@ -839,369 +823,69 @@ export default function KaizenManager({
         </div>
       )}
 
-      {/* HEADER ROW WITH LAUNCH ACTION */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 border border-slate-200 rounded-2xl shadow-xs">
-        <div>
-          <h2 className="text-xl font-bold font-sans tracking-tight text-slate-900 flex items-center space-x-2">
-            <Sparkles className="w-5 h-5 text-indigo-500 animate-pulse" />
-            <span>CI Proje Yönetimi (Continuous Improvement Portfolio)</span>
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            VSM, COPQ ve Recovery Matrix çıktılarından filtrelenen fırsatları projeye dönüştürerek yönetin.
-          </p>
-        </div>
+      {/* Header + tabs (Kaizen module design). The old 10-card KPI strip, financial row and alert
+          panel were replaced by the Genel Bakış tab (plan step C7). */}
+      <PageHeader
+        title="CI Proje Yönetimi"
+        subtitle={`${selectedCustomer?.companyName ? `${selectedCustomer.companyName} · ` : ""}Sürekli iyileştirme projeleri — Toyota 8 adım A3`}
+        actions={<>
+          <Button variant="outline" onClick={handleExportPortfolioExcel} title="Portföyü Excel olarak indir"><FileSpreadsheet className="w-4 h-4" /> Excel</Button>
+          <Button variant="outline" onClick={handleExportPortfolioPdf} title="Portföyü PDF olarak indir"><FileText className="w-4 h-4" /> PDF</Button>
+          <Button variant="brand" onClick={() => setIsWizardOpen(true)}><Plus className="w-4 h-4" /> Yeni CI projesi</Button>
+        </>}
+      />
 
+      <TabBar<TabType>
+        value={activeTab}
+        onChange={setActiveTab}
+        tabs={[
+          { key: "overview", label: "Genel Bakış", icon: LayoutDashboard },
+          { key: "kanban", label: "Kanban (PDCA)", icon: Columns3 },
+          { key: "list", label: "Liste", icon: List },
+          { key: "timeline", label: "Zaman Çizelgesi", icon: CalendarRange },
+          { key: "mytasks", label: "Görevlerim", icon: ListChecks, count: myOpenTaskCount },
+          { key: "dashboard", label: "Finans", icon: BarChart3 },
+          { key: "beforeafter", label: "Önce-Sonra", icon: Images },
+          ...(isCiStaff ? [{ key: "settings" as TabType, label: "Ayarlar", icon: Settings }] : [])
+        ]}
+      />
+
+      {activeTab !== "mytasks" && activeTab !== "settings" && (
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={handleExportPortfolioExcel}
-            className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-xs px-3.5 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer"
-            title="Tüm portföyü Excel olarak indir"
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>Excel</span>
-          </button>
-          <button
-            onClick={handleExportPortfolioPdf}
-            className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs px-3.5 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer"
-            title="Tüm portföyü PDF olarak indir"
-          >
-            <FileText className="w-4 h-4" />
-            <span>PDF</span>
-          </button>
-          <button
-            onClick={() => setIsWizardOpen(true)}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center space-x-2 transition-all cursor-pointer shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ CI Projesi Başlat</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 10 MODERN KPI CARDS (Power BI Style) */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3.5">
-        
-        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Toplam Proje</span>
-            <Layers className="w-3.5 h-3.5 text-slate-400" />
-          </div>
-          <div>
-            <div className="text-2xl font-mono font-bold text-slate-800">{totalCIProjects}</div>
-            <span className="text-[11px] text-slate-400">Aktif CI Proje Hacmi</span>
-          </div>
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-300"></div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] text-blue-500 font-bold uppercase tracking-wider">Devam Eden</span>
-            <TrendingUp className="w-3.5 h-3.5 text-blue-500" />
-          </div>
-          <div>
-            <div className="text-2xl font-mono font-bold text-blue-600">{inProgressProjects}</div>
-            <span className="text-[11px] text-slate-400">Do/Check Aşamasında</span>
-          </div>
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-500"></div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider">Tamamlanan</span>
-            <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
-          </div>
-          <div>
-            <div className="text-2xl font-mono font-bold text-emerald-600">{completedProjects}</div>
-            <span className="text-[11px] text-slate-400">Standartlaşan Projeler</span>
-          </div>
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500"></div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider">Bekleyen</span>
-            <Clock className="w-3.5 h-3.5 text-amber-500" />
-          </div>
-          <div>
-            <div className="text-2xl font-mono font-bold text-amber-600">{pendingProjects}</div>
-            <span className="text-[11px] text-slate-400">Planlama Aşamasında</span>
-          </div>
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500"></div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] text-purple-500 font-bold uppercase tracking-wider">Geciken</span>
-            <Clock className="w-3.5 h-3.5 text-purple-500" />
-          </div>
-          <div>
-            <div className="text-2xl font-mono font-bold text-purple-600">{delayedProjects}</div>
-            <span className="text-[11px] text-slate-400">Termini Geçmiş</span>
-          </div>
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-purple-500"></div>
-        </div>
-
-        {/* FINANCIAL METRICS ROW */}
-        <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] text-indigo-700 font-bold uppercase tracking-wider">Beklenen Finansal Kazanç</span>
-            <DollarSign className="w-3.5 h-3.5 text-indigo-600" />
-          </div>
-          <div>
-            <div className="text-xl font-mono font-bold text-indigo-950">
-              {currency}{totalExpectedFinancialGain.toLocaleString("tr-TR")}
-            </div>
-            <span className="text-[11px] text-slate-400" title={excludedNote(expectedSum.excluded)}>Fırsat Toplamı{expectedSum.excluded > 0 && ` · ${expectedSum.excluded} proje hariç`}</span>
-          </div>
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-indigo-500"></div>
-        </div>
-
-        <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] text-emerald-700 font-bold uppercase tracking-wider">Gerçekleşen Kazanım</span>
-            <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
-          </div>
-          <div>
-            <div className="text-xl font-mono font-bold text-emerald-700">
-              {currency}{realizedFinancialGain.toLocaleString("tr-TR")}
-            </div>
-            <span className="text-[11px] text-slate-400" title={excludedNote(realizedSum.excluded)}>Gerçek P&L Teyidi{realizedSum.excluded > 0 && ` · ${realizedSum.excluded} proje hariç`}</span>
-          </div>
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-600"></div>
-        </div>
-
-        <div className="bg-cyan-50/50 border border-cyan-100 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] text-cyan-700 font-bold uppercase tracking-wider">Toplam COPQ Azalışı</span>
-            <Percent className="w-3.5 h-3.5 text-cyan-600" />
-          </div>
-          <div>
-            <div className="text-xl font-mono font-bold text-cyan-700">
-              {currency}{totalCOPQReduction.toLocaleString("tr-TR")}
-            </div>
-            <span className="text-[11px] text-slate-400">Kalitesizlik Maliyeti</span>
-          </div>
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-cyan-500"></div>
-        </div>
-
-        <div className="bg-violet-50/50 border border-violet-100 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] text-violet-700 font-bold uppercase tracking-wider">Faaliyet Karı Artışı</span>
-            <TrendingUp className="w-3.5 h-3.5 text-violet-600" />
-          </div>
-          <div>
-            <div className="text-xl font-mono font-bold text-violet-700">
-              +{currency}{operatingProfitIncrease.toLocaleString("tr-TR")}
-            </div>
-            <span className="text-[11px] text-slate-400">P&L Katkı Oranı</span>
-          </div>
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-violet-600"></div>
-        </div>
-
-        <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] text-slate-600 font-bold uppercase tracking-wider">Proje Başarı Oranı</span>
-            <Percent className="w-3.5 h-3.5 text-slate-500" />
-          </div>
-          <div>
-            <div className="text-xl font-mono font-bold text-slate-700">{averageProjectSuccessRate}%</div>
-            <span className="text-[11px] text-slate-400">Kapatılma Oranı</span>
-          </div>
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-500"></div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs relative overflow-hidden flex flex-col justify-between h-[105px]">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] text-pink-600 font-bold uppercase tracking-wider">Önce-Sonra Kaizen</span>
-            <Camera className="w-3.5 h-3.5 text-pink-500" />
-          </div>
-          <div>
-            <div className="text-2xl font-mono font-bold text-pink-600">{totalBeforeAfterStudies}</div>
-            <span className="text-[11px] text-slate-400">Oluşturulan Form Sayısı</span>
-          </div>
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-pink-500"></div>
-        </div>
-
-      </div>
-
-      {/* GECİKME TAKİP & HAFTALIK CI UYARI PANELİ */}
-      {delayedProjects > 0 && (
-        <div className="bg-rose-50/70 border border-rose-200 rounded-2xl p-4.5 space-y-3 shadow-xs">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <AlertTriangle className="w-5 h-5 text-rose-600 animate-pulse" />
-              <h3 className="font-bold text-sm text-rose-950 tracking-tight">Gecikme & Haftalık Takip Uyarı Paneli (Weekly Alert Hub)</h3>
-            </div>
-            <span className="bg-rose-100 text-rose-800 text-[10px] font-bold px-2.5 py-1 rounded-full">
-              {delayedProjects} Kritik Gecikme Saptanmıştır
-            </span>
-          </div>
-          <p className="text-xs text-rose-700 leading-relaxed">
-            Aşağıdaki sürekli iyileştirme projelerinde planlanan bitiş tarihleri aşılmıştır. Sistem haftalık süreç takibi verilerine göre gecikme sürelerini hesaplamış ve uyarı durumunu aktif etmiştir:
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-            {filteredProjects.filter(k => {
-              if (k.status === "Completed") return false;
-              if (!k.plannedFinishDate) return false;
-              return new Date(k.plannedFinishDate) < new Date();
-            }).map(proj => {
-              const weeks = getDelayWeeksSinceDeadline(proj.plannedFinishDate!);
-              return (
-                <div key={proj.id} className="bg-white border border-rose-150 rounded-xl p-3.5 flex flex-col justify-between space-y-3 shadow-3xs hover:shadow-2xs transition-all border-l-4 border-l-red-500">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <div className="flex items-center space-x-1.5">
-                        <span className="bg-red-100 text-red-800 text-[11px] font-bold uppercase px-1.5 py-0.2 rounded">Kritik Gecikme</span>
-                        <span className="text-[10px] font-bold text-slate-500 font-mono">{getProjectNo(proj)}</span>
-                      </div>
-                      <h4 className="font-bold text-xs text-slate-800 tracking-tight mt-1">{proj.title}</h4>
-                    </div>
-                    <span className="bg-red-100 text-red-800 text-[10px] font-bold font-mono px-2.5 py-0.5 rounded-lg flex items-center space-x-1 animate-pulse">
-                      <span>{weeks} Hafta Gecikti</span>
-                    </span>
-                  </div>
-                  
-                  {/* Miniature Weekly Progress Bar */}
-                  <div className="space-y-1 bg-slate-50 p-2 rounded border border-slate-100">
-                    <div className="flex justify-between text-[11px] text-slate-500">
-                      <span>Haftalık Otomatik Süreç Takip Durumu</span>
-                      <span className="text-red-600 font-bold">Planlanandan +{weeks} Hafta Sapma</span>
-                    </div>
-                    <div className="w-full bg-slate-200 h-1 rounded-full overflow-hidden">
-                      <div className="bg-red-500 h-full" style={{ width: `${Math.min(100, weeks * 12)}%` }}></div>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-between items-center text-[10px] text-slate-500 font-medium">
-                    <span>Sorumlu Lider: <strong className="text-slate-700">{proj.projectLeader || proj.originator}</strong></span>
-                    <span>Planlanan Termin: <strong className="text-slate-700">{proj.plannedFinishDate}</strong></span>
-                  </div>
-                  
-                  <div className="flex space-x-2 pt-2.5 border-t border-slate-100 justify-end">
-                    <button
-                      type="button"
-                      onClick={() => handleOpenProjectDetails(proj)}
-                      className="text-[10px] font-bold text-slate-600 hover:text-slate-800 px-3 py-1 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer transition-all hover:bg-slate-100"
-                    >
-                      Kartı Aç & Düzenle
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => logManualReminder(proj)}
-                      className="text-[10px] font-bold bg-indigo-600 text-white hover:bg-indigo-700 px-3.5 py-1 rounded-lg flex items-center space-x-1 cursor-pointer shadow-sm transition-all"
-                    >
-                      <span>📌 Hatırlatma Kaydet</span>
-                      {proj.emailSentCount && proj.emailSentCount > 0 && (
-                        <span className="bg-white/20 text-white text-[11px] font-bold px-1.5 py-0.2 rounded-full">
-                          {proj.emailSentCount}
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* FILTER & CONTROL TOOLBAR */}
-      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        
-        {/* View selection tabs */}
-        <div className="flex items-center space-x-1.5 bg-white p-1 rounded-xl border border-slate-200">
-          <button
-            onClick={() => setActiveTab("kanban")}
-            className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-              activeTab === "kanban" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            Kanban (PDCA) Panosu
-          </button>
-          <button
-            onClick={() => setActiveTab("list")}
-            className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-              activeTab === "list" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            Liste Görünümü
-          </button>
-          <button
-            onClick={() => setActiveTab("timeline")}
-            className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-              activeTab === "timeline" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            Timeline (Gantt)
-          </button>
-          <button
-            onClick={() => setActiveTab("mytasks")}
-            className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-              activeTab === "mytasks" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            Görevlerim
-            {myOpenTaskCount > 0 && (
-              <span className={`min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center ${activeTab === "mytasks" ? "bg-white text-slate-900" : "bg-amber-400 text-slate-900"}`}>{myOpenTaskCount}</span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab("dashboard")}
-            className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-              activeTab === "dashboard" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            Finansal Dashboard
-          </button>
-          <button
-            onClick={() => setActiveTab("beforeafter")}
-            className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-              activeTab === "beforeafter" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            Önce-Sonra Galerisi
-          </button>
-          {isCiStaff && (
-            <button
-              onClick={() => setActiveTab("settings")}
-              className={`py-1.5 px-4 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                activeTab === "settings" ? "bg-slate-900 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              Ayarlar
-            </button>
-          )}
-        </div>
-
-        {/* Global Select Dropdowns */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center space-x-1">
-            <Filter className="w-3.5 h-3.5 text-slate-400" />
-            <select
-              value={selectedDeptFilter}
-              onChange={(e) => setSelectedDeptFilter(e.target.value)}
-              className="text-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none text-slate-700 font-bold"
-            >
-              <option value="all">Tüm Departmanlar</option>
-              {Array.from(new Set(kaizens.map(k => k.department))).map(dept => (
-                <option key={dept} value={dept}>{dept}</option>
-              ))}
-            </select>
-          </div>
-
-          <select
-            value={selectedPhaseFilter}
-            onChange={(e) => setSelectedPhaseFilter(e.target.value)}
-            className="text-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none text-slate-700 font-bold"
-          >
-            <option value="all">Tüm Fazlar</option>
+          <Filter className="w-4 h-4 text-slate-400" />
+          <select value={selectedDeptFilter} onChange={(e) => setSelectedDeptFilter(e.target.value)} aria-label="Departman"
+            className="h-10 px-3 rounded-xl bg-white ring-1 ring-inset ring-slate-200 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-600/40">
+            <option value="all">Tüm departmanlar</option>
+            {Array.from(new Set(kaizens.map(k => k.department).filter(Boolean))).map(dept => (
+              <option key={dept} value={dept}>{dept}</option>
+            ))}
+          </select>
+          <select value={selectedPhaseFilter} onChange={(e) => setSelectedPhaseFilter(e.target.value)} aria-label="Faz"
+            className="h-10 px-3 rounded-xl bg-white ring-1 ring-inset ring-slate-200 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-600/40">
+            <option value="all">Tüm fazlar</option>
             {ciSettings.phases.map(label => (
               <option key={label} value={String(phaseNumber(label))}>{label}</option>
             ))}
           </select>
+          {(selectedDeptFilter !== "all" || selectedPhaseFilter !== "all") && (
+            <button type="button" onClick={() => { setSelectedDeptFilter("all"); setSelectedPhaseFilter("all"); }}
+              className="h-10 px-3 text-sm font-semibold text-slate-500 hover:text-slate-800 cursor-pointer">Filtreyi temizle</button>
+          )}
+          <span className="text-sm text-slate-500 ml-auto">{filteredProjects.length} / {kaizens.length} proje</span>
         </div>
+      )}
 
-      </div>
+      {activeTab === "overview" && (
+        <CiOverview
+          projects={filteredProjects}
+          currentUser={currentUser}
+          currencySymbol={currency}
+          fxRates={ciSettings.fxRates}
+          projectNo={getProjectNo}
+          onOpenProject={handleOpenProjectDetails}
+          onShowFinance={() => setActiveTab("dashboard")}
+        />
+      )}
 
       {/* VIEW PANEL RENDERINGS */}
 
