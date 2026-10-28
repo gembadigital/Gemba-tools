@@ -180,3 +180,132 @@ export function visibleSuggestionIds(
   }
   return out;
 }
+
+// ---- Excel ile personel yükleme (Faz 3.2) ----
+// One template, read by header name (order and extra columns do not matter; Turkish and common
+// alternative spellings accepted). Rows are matched to the roster by sicil no: a known sicil
+// updates that person (empty cells leave the field as it is), an unknown one creates a person.
+// "Amir Sicil No" may point at someone created further down in the same file.
+export const IMPORT_COLUMNS: { key: string; header: string; aliases: string[]; required?: boolean; hint?: string }[] = [
+  { key: "employeeNo", header: "Sicil No", aliases: ["sicil", "sicil numarası", "sicil numarasi", "personel no", "employee no"], required: true },
+  { key: "name", header: "Ad Soyad", aliases: ["adı soyadı", "adi soyadi", "ad", "isim", "personel", "name"], required: true },
+  { key: "email", header: "E-posta", aliases: ["eposta", "e posta", "email", "e-mail", "mail"] },
+  { key: "department", header: "Bölüm", aliases: ["bolum", "departman", "department"] },
+  { key: "jobTitle", header: "Görev", aliases: ["gorev", "unvan", "pozisyon", "job title"] },
+  { key: "shift", header: "Vardiya", aliases: ["shift"] },
+  { key: "managerNo", header: "Amir Sicil No", aliases: ["amir sicil", "amir sicili", "amir sicil numarası", "amir no", "manager no"], hint: "Boş bırakılırsa mevcut amir değişmez. Amiri kaldırmak için - yazın." },
+  { key: "machineLeaderName", header: "Makine Lideri", aliases: ["makine lideri adı"] },
+  { key: "machineLeaderEmail", header: "Makine Lideri E-posta", aliases: ["makine lideri eposta", "makine lideri email"] },
+  { key: "isBoardMember", header: "Kurul Üyesi", aliases: ["kurul", "kurul uyesi", "kaizen kurulu"], hint: "Evet / Hayır" }
+];
+export const MAX_IMPORT_ROWS = 2000;
+
+const normHeader = (h: string) => h.toLocaleLowerCase("tr").replace(/\*/g, "").replace(/\s+/g, " ").trim()
+  .replace(/ı/g, "i").replace(/ş/g, "s").replace(/ğ/g, "g").replace(/ü/g, "u").replace(/ö/g, "o").replace(/ç/g, "c");
+const HEADER_INDEX: Map<string, string> = new Map(
+  IMPORT_COLUMNS.flatMap(c => [c.header, ...c.aliases].map(a => [normHeader(a), c.key] as [string, string]))
+);
+
+export function mapImportRow(raw: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [h, v] of Object.entries(raw || {})) {
+    const key = HEADER_INDEX.get(normHeader(String(h)));
+    if (key && v !== null && v !== undefined && String(v).trim() !== "") out[key] = String(v).trim();
+  }
+  return out;
+}
+
+const parseYesNo = (v: string): boolean | undefined => {
+  const t = normHeader(v);
+  if (["evet", "e", "1", "x", "var", "true", "yes", "y"].includes(t)) return true;
+  if (["hayir", "h", "0", "yok", "false", "no", "n", "-"].includes(t)) return false;
+  return undefined;
+};
+
+export type ImportAction = "create" | "update" | "unchanged" | "error";
+export interface ImportRowResult { row: number; employeeNo: string; name: string; action: ImportAction; messages: string[] }
+
+// Builds the import plan. `newId` makes ids for new people (they may be referenced as Amir by
+// later rows). Returns per-row results and the records to save (only created/changed ones).
+export function planPersonnelImport<T extends OrgPerson & Record<string, any>>(
+  rawRows: Record<string, unknown>[],
+  roster: T[],
+  newId: () => string
+): { results: ImportRowResult[]; toSave: Record<string, any>[] } {
+  const working: Record<string, any>[] = roster.map(p => ({ ...p }));
+  // "Changed?" compares the meaningful fields only (normalization may add empty defaults).
+  const sig = (p: Record<string, any>) => JSON.stringify([
+    normEmployeeNo(p.employeeNo), p.name || "", lc(p.email), p.department || "", p.jobTitle || "", p.shift || "",
+    p.machineLeaderName || "", lc(p.machineLeaderEmail), !!p.isBoardMember, p.managerId || "", p.teamLeaderName || "", lc(p.teamLeaderEmail)
+  ]);
+  const original = new Map(roster.map(p => [p.id, sig(p)]));
+  const results: ImportRowResult[] = [];
+  const seen = new Map<string, number>();
+  const pendingManager: { res: ImportRowResult; id: string; managerNo: string }[] = [];
+  const bySicil = () => new Map(working.map(p => [normEmployeeNo(p.employeeNo), p]));
+
+  if (rawRows.length > MAX_IMPORT_ROWS) {
+    return { results: [{ row: 0, employeeNo: "", name: "", action: "error", messages: [`En fazla ${MAX_IMPORT_ROWS} satır yüklenebilir (dosyada ${rawRows.length}).`] }], toSave: [] };
+  }
+
+  rawRows.forEach((raw, i) => {
+    const rowNo = i + 2; // row 1 is the header in the sheet
+    const r = mapImportRow(raw);
+    if (Object.keys(r).length === 0) return; // blank line
+    const employeeNo = normEmployeeNo(r.employeeNo);
+    const res: ImportRowResult = { row: rowNo, employeeNo, name: r.name || "", action: "error", messages: [] };
+    results.push(res);
+    if (!employeeNo) { res.messages.push("Sicil no boş."); return; }
+    if (seen.has(employeeNo)) { res.messages.push(`Bu sicil no dosyada ${seen.get(employeeNo)}. satırda da var.`); return; }
+    seen.set(employeeNo, rowNo);
+
+    const existing = bySicil().get(employeeNo);
+    const input: Record<string, any> = { ...(existing || {}), employeeNo };
+    for (const k of ["name", "email", "department", "jobTitle", "shift", "machineLeaderName", "machineLeaderEmail"]) {
+      if (r[k] !== undefined) input[k] = r[k];
+    }
+    if (r.isBoardMember !== undefined) {
+      const yn = parseYesNo(r.isBoardMember);
+      if (yn === undefined) { res.messages.push(`Kurul Üyesi değeri anlaşılamadı: "${r.isBoardMember}" (Evet/Hayır).`); return; }
+      input.isBoardMember = yn || !!input.isBoardAdmin;
+    }
+    if (!existing) input.id = newId();
+    delete input.managerId; // supervisor is resolved in the second pass (may be later in the file)
+    const prepared = preparePersonnel(input, working as any);
+    if (!prepared.record) { res.messages.push(prepared.error || "Geçersiz satır."); return; }
+    const rec: Record<string, any> = { ...prepared.record, managerId: existing?.managerId, teamLeaderName: existing?.teamLeaderName || "", teamLeaderEmail: existing?.teamLeaderEmail || "" };
+    if (rec.managerId === undefined) delete rec.managerId;
+    if (existing) Object.assign(working.find(p => p.id === existing.id)!, rec);
+    else working.push(rec);
+    res.action = existing ? "update" : "create";
+    res.name = rec.name;
+    if (r.managerNo !== undefined) pendingManager.push({ res, id: rec.id, managerNo: r.managerNo });
+  });
+
+  // Second pass: supervisors by sicil, now that every row of the file is known.
+  for (const { res, id, managerNo } of pendingManager) {
+    const person = working.find(p => p.id === id)!;
+    if (managerNo.trim() === "-") { person.managerId = ""; person.teamLeaderName = ""; person.teamLeaderEmail = ""; continue; }
+    const manager = bySicil().get(normEmployeeNo(managerNo));
+    if (!manager) { res.messages.push(`Amir sicil no ${normEmployeeNo(managerNo)} bulunamadı; amir değiştirilmedi.`); continue; }
+    if (wouldCycle(id, manager.id, working as OrgPerson[])) { res.messages.push(`${manager.name} bu kişinin ekibinde; döngü oluşacağı için amir değiştirilmedi.`); continue; }
+    person.managerId = manager.id;
+  }
+
+  // Keep every denormalized supervisor name/e-mail in step (names may have changed in this file).
+  for (const p of working) {
+    if (!p.managerId) continue;
+    const m = working.find(x => x.id === p.managerId);
+    if (m) { p.teamLeaderName = m.name || ""; p.teamLeaderEmail = (m.email || "").toLowerCase(); }
+  }
+
+  const toSave = working.filter(p => original.get(p.id) !== sig(p));
+  const changed = new Set(toSave.map(p => p.id));
+  for (const res of results) {
+    if (res.action === "update") {
+      const p = working.find(x => normEmployeeNo(x.employeeNo) === res.employeeNo);
+      if (p && !changed.has(p.id)) res.action = "unchanged";
+    }
+  }
+  return { results, toSave };
+}

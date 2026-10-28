@@ -361,6 +361,8 @@ export default function KaizenSuggestionSystem() {
       {section === "setup" && isKaizenAdmin && (
         <KaizenSetup
           canGrantBoardAdmin={isStaffUser}
+          api={api}
+          showToast={showToast}
           personnel={personnel}
           criteria={criteria}
           personnelCrud={personnelCrud}

@@ -11,7 +11,7 @@ import { buildFacts, generateConsultantBrief } from "./opexReport/consultantBrie
 import { applyFinding, canWriteFinding } from "./opexFindings.js";
 import { renderReportHtml } from "./opexReport/render.js";
 import { KNOWN_CURRENCIES, normalizeKaizenSettings, KaizenSettings, rewardFor, requiredStagesFor, stagesOf, afterManagerApprovalStatus } from "../utils/kaizenSettings.js";
-import { preparePersonnel, buildOrg, effectiveManagerId, managerChain, visibleSuggestionIds } from "../utils/kaizenOrg.js";
+import { preparePersonnel, buildOrg, effectiveManagerId, managerChain, visibleSuggestionIds, planPersonnelImport } from "../utils/kaizenOrg.js";
 import * as XLSX from "xlsx";
 
 // This module only builds and configures the Express app (all /api/* routes) and exports it —
@@ -2837,6 +2837,35 @@ app.get("/api/business/kaizen/implementations/:id", authenticateToken, async (re
   if (!loaded) return;
   if (!(await canSeeKaizenSuggestion(user, loaded.suggestion))) return denyKaizen(res, 404, "Uygulama kaydı bulunamadı.");
   res.json({ success: true, data: loaded.impl });
+});
+
+// Excel ile personel yükleme (Faz 3.2). dryRun:true returns the per-row plan without saving, so
+// the screen can show exactly what will happen; the same body without dryRun applies it.
+app.post("/api/business/kaizen/personnel/import", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed || !scope.factoryId) return denyKaizen(res);
+  if (!(await isKaizenAdmin(user, scope.factoryId))) return denyKaizen(res, 403, "Bu işlem için Kurul Yöneticisi yetkisi gereklidir.");
+  if (!Array.isArray(req.body.rows)) return denyKaizen(res, 400, "Satır listesi bekleniyor.");
+  const rows = req.body.rows.filter((r: any) => r && typeof r === "object" && !Array.isArray(r));
+  const roster = await db.getKaizenRecords("kaizen_personnel", user.organization_id, scope.factoryId);
+  const plan = planPersonnelImport(rows, roster, () => `kaizen_personnel_${crypto.randomUUID().slice(0, 12)}`);
+  const summary = {
+    created: plan.results.filter(r => r.action === "create").length,
+    updated: plan.results.filter(r => r.action === "update").length,
+    unchanged: plan.results.filter(r => r.action === "unchanged").length,
+    errors: plan.results.filter(r => r.action === "error").length,
+    warnings: plan.results.filter(r => r.action !== "error" && r.messages.length > 0).length,
+    // Records outside the file whose supervisor name/e-mail is refreshed as a side effect.
+    cascaded: plan.toSave.length - plan.results.filter(r => r.action === "create" || r.action === "update").length
+  };
+  if (req.body.dryRun !== true) {
+    for (const rec of plan.toSave) {
+      await db.saveKaizenRecord("kaizen_personnel", user.organization_id, scope.factoryId, rec, user.id);
+    }
+    console.info(`[kaizen-audit] personnel import by ${user.email}: ${JSON.stringify(summary)}`);
+  }
+  res.json({ success: true, data: { dryRun: req.body.dryRun === true, summary, results: plan.results } });
 });
 
 // Reads are open to anyone in the customer's scope (forms and reports need them); writes are staff-only.

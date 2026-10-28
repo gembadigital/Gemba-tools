@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from "react";
-import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, IdCard, SlidersHorizontal, Coins, Clock, ListChecks, Gift, GitBranch } from "lucide-react";
+import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, IdCard, Download, Upload, SlidersHorizontal, Coins, Clock, ListChecks, Gift, GitBranch } from "lucide-react";
 import { KaizenPersonnel, KaizenCriteria } from "./kaizenTypes";
 import { buildOrg, subordinateIds, managerChain } from "../../utils/kaizenOrg";
+import KaizenPersonnelImport, { exportPersonnel, downloadPersonnelTemplate } from "./KaizenPersonnelImport";
+import type { KaizenApi } from "./KaizenSuggestionSystem";
 import { Card, SectionTitle, Button, EmptyState, PageHeader, TabBar, Avatar, inputCls, tableCls, theadCls, thCls, tdCls, trCls } from "./kaizenUi";
 import { KaizenSettings, KNOWN_CURRENCIES, IN_KIND_CURRENCY, normalizeKaizenSettings, DEFAULT_KAIZEN_SETTINGS, MAX_OPTIONS, MAX_OPTION_LENGTH } from "../../utils/kaizenSettings";
 
@@ -19,6 +21,8 @@ interface Props {
   onSaveSettings: (s: KaizenSettings) => Promise<any>;
   onPersonnelChanged: () => void;
   canGrantBoardAdmin: boolean; // only Gemba staff may grant/revoke Kurul Yöneticisi
+  api: KaizenApi;
+  showToast: (m: string) => void;
 }
 
 
@@ -26,7 +30,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">{label}</label>{children}</div>;
 }
 
-export default function KaizenSetup({ personnel, criteria, personnelCrud, criteriaCrud, settings, onSaveSettings, onPersonnelChanged, canGrantBoardAdmin }: Props) {
+export default function KaizenSetup({ personnel, criteria, personnelCrud, criteriaCrud, settings, onSaveSettings, onPersonnelChanged, canGrantBoardAdmin, api, showToast }: Props) {
   const [tab, setTab] = useState<"personnel" | "criteria" | "settings">("personnel");
   return (
     <div className="space-y-6">
@@ -40,7 +44,7 @@ export default function KaizenSetup({ personnel, criteria, personnelCrud, criter
         value={tab}
         onChange={setTab}
       />
-      {tab === "personnel" && <PersonnelTab personnel={personnel} personnelCrud={personnelCrud} onChanged={onPersonnelChanged} canGrantBoardAdmin={canGrantBoardAdmin} />}
+      {tab === "personnel" && <PersonnelTab personnel={personnel} personnelCrud={personnelCrud} onChanged={onPersonnelChanged} canGrantBoardAdmin={canGrantBoardAdmin} api={api} showToast={showToast} />}
       {tab === "criteria" && <CriteriaTab criteria={criteria} criteriaCrud={criteriaCrud} baseCurrency={settings.baseCurrency} />}
       {tab === "settings" && <SettingsTab settings={settings} onSave={onSaveSettings} />}
     </div>
@@ -54,7 +58,8 @@ const blankPersonnel: Partial<KaizenPersonnel> = {
 
 // Personel listesi (Faz 3.1): sicil no is the identity; the supervisor is picked from the roster
 // (no more typing a name + e-mail), which gives an unlimited-depth hierarchy.
-function PersonnelTab({ personnel, personnelCrud, onChanged, canGrantBoardAdmin }: { personnel: KaizenPersonnel[]; personnelCrud: Crud<KaizenPersonnel>; onChanged: () => void; canGrantBoardAdmin: boolean }) {
+function PersonnelTab({ personnel, personnelCrud, onChanged, canGrantBoardAdmin, api, showToast }: { personnel: KaizenPersonnel[]; personnelCrud: Crud<KaizenPersonnel>; onChanged: () => void; canGrantBoardAdmin: boolean; api: KaizenApi; showToast: (m: string) => void }) {
+  const [importOpen, setImportOpen] = useState(false);
   const [form, setForm] = useState<Partial<KaizenPersonnel> | null>(null);
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
@@ -110,7 +115,11 @@ function PersonnelTab({ personnel, personnelCrud, onChanged, canGrantBoardAdmin 
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Sicil, ad, bölüm veya amir ara…" className={`${inputCls} !h-11 !pl-10`} />
             </div>
-            <Button variant="primary" onClick={() => setForm({ ...blankPersonnel })}><Plus className="w-4 h-4" />Personel ekle</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => (personnel.length ? exportPersonnel(personnel) : downloadPersonnelTemplate())} title={personnel.length ? "Mevcut listeyi şablon biçiminde indir; düzenleyip geri yükleyebilirsiniz" : "Boş şablonu indir"}><Download className="w-4 h-4" />{personnel.length ? "Excel'e aktar" : "Şablon"}</Button>
+              <Button variant="outline" onClick={() => setImportOpen(true)}><Upload className="w-4 h-4" />Excel'den yükle</Button>
+              <Button variant="primary" onClick={() => setForm({ ...blankPersonnel })}><Plus className="w-4 h-4" />Personel ekle</Button>
+            </div>
           </div>
           {list.length === 0 ? <EmptyState icon={Users} title="Personel bulunamadı" text="Personel ekleyerek sicil no, amir ve Kurul üyeliği ilişkilerini tanımlayın." /> : (
             <div className="overflow-x-auto max-h-[70vh]">
@@ -140,6 +149,7 @@ function PersonnelTab({ personnel, personnelCrud, onChanged, canGrantBoardAdmin 
           )}
         </Card>
 
+        {importOpen && <KaizenPersonnelImport api={api} showToast={showToast} onDone={onChanged} onClose={() => setImportOpen(false)} />}
         <Card className="xl:sticky xl:top-20">
           {!form ? (
             <EmptyState icon={Pencil} title="Bir kayıt seçin veya yeni ekleyin" text="Seçtiğiniz personelin bilgileri burada düzenlenir." />
