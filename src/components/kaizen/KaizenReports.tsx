@@ -22,6 +22,9 @@ interface Props {
   personnel: KaizenPersonnel[];
   implementations: KaizenImplementation[];
   api: KaizenApi;
+  // Amir raporu (Faz 5.6): the lists above are already limited to the manager's team; the ranking
+  // groups by sub-team (direct report's branch) instead of department, and there is no Excel export.
+  team?: { leaderName: string; groupTitle: string; groupOf: (s: KaizenSuggestion) => string; headcount: Map<string, number> };
 }
 
 const ALL = "__ALL__";
@@ -38,7 +41,7 @@ function statusBucket(s: KaizenSuggestion): "approved" | "pending" | "rejected" 
 
 const selectCls = "h-11 w-full px-3 rounded-xl bg-slate-50/80 ring-1 ring-inset ring-slate-200 text-sm text-slate-800 transition-all focus:outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600/40";
 
-export default function KaizenReports({ suggestions, evaluations, personnel, implementations, api, settings }: Props) {
+export default function KaizenReports({ suggestions, evaluations, personnel, implementations, api, settings, team }: Props) {
   const base = settings.baseCurrency;
   // Filters list the customer's current options plus any older value still present in the data.
   const typeFilterOptions = useMemo(() => optionChoices(settings.suggestionTypes, suggestions.flatMap(s => s.suggestionTypes || [])), [settings, suggestions]);
@@ -142,15 +145,16 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
   // Bölüm sıralaması: one row per department of the filtered suggestions.
   const [deptSort, setDeptSort] = useState<DeptKey>("count");
   const departmentRows = useMemo(() => {
-    const headcount = new Map<string, number>();
-    personnel.forEach(p => { const d = p.department || "Belirtilmemiş"; headcount.set(d, (headcount.get(d) || 0) + 1); });
+    const headcount = team?.headcount ?? new Map<string, number>();
+    if (!team) personnel.forEach(p => { const d = p.department || "Belirtilmemiş"; headcount.set(d, (headcount.get(d) || 0) + 1); });
     const rows = new Map<string, DeptRow>();
     for (const s of filtered) {
-      const d = s.personnelDepartment || "Belirtilmemiş";
+      const d = team ? team.groupOf(s) : s.personnelDepartment || "Belirtilmemiş";
       const r = rows.get(d) || { department: d, count: 0, people: new Set<string>(), accepted: 0, decided: 0, completed: 0, points: 0, expected: 0, actual: 0, headcount: headcount.get(d) || 0, perPerson: 0, rate: 0 };
       r.count++;
       r.people.add(s.personnelId || s.personnelName);
-      if (s.approvalStatus !== "Pending" && !awaitingFirstDecision(s)) r.decided++;
+      // Kabul oranı counts final outcomes only — a suggestion still waiting for the Kurul is not "decided".
+      if (s.approvalStatus === "Second Approval" || s.approvalStatus === "Rejected" || s.approvalStatus === "Rejected 2nd") r.decided++;
       if (s.approvalStatus === "Second Approval") {
         r.accepted++;
         const x = expectedSaving(s, evaluationBySuggestion.get(s.id));
@@ -164,7 +168,7 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
     }
     const list = Array.from(rows.values()).map(r => ({ ...r, perPerson: r.headcount ? r.count / r.headcount : 0, rate: r.decided ? Math.round((r.accepted / r.decided) * 100) : 0 }));
     return list.sort((a, b) => (b[deptSort] as number) - (a[deptSort] as number) || b.count - a.count);
-  }, [filtered, personnel, evaluationBySuggestion, implBySuggestion, settings, deptSort]);
+  }, [filtered, personnel, evaluationBySuggestion, implBySuggestion, settings, deptSort, team]);
 
   // Fırsat havuzu (Faz 4.5) for the filtered set.
   const pool = useMemo(() => opportunityPool(filtered, evaluations, implementations, settings), [filtered, evaluations, implementations, settings]);
@@ -242,11 +246,13 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Kaizen raporu"
-        subtitle={`${filtered.length} / ${suggestions.length} öneri · katılım, kazanç ve süreç görünümü`}
+        title={team ? "Ekip raporu" : "Kaizen raporu"}
+        subtitle={team
+          ? `${team.leaderName} ekibi (alt kademeler dahil) · ${filtered.length} / ${suggestions.length} öneri · ${personnel.length} kişi`
+          : `${filtered.length} / ${suggestions.length} öneri · katılım, kazanç ve süreç görünümü`}
         actions={<>
           {hasFilter && <Button variant="outline" onClick={resetFilters}><RotateCcw className="w-4 h-4" />Filtreleri sıfırla</Button>}
-          <Button variant="primary" onClick={download} disabled={downloading}><Download className="w-4 h-4" />{downloading ? "Hazırlanıyor…" : "Excel indir"}</Button>
+          {!team && <Button variant="primary" onClick={download} disabled={downloading}><Download className="w-4 h-4" />{downloading ? "Hazırlanıyor…" : "Excel indir"}</Button>}
         </>}
       />
       {/* Filters */}
@@ -281,7 +287,8 @@ export default function KaizenReports({ suggestions, evaluations, personnel, imp
         <Gauge label="Katılım Oranı" hint={`${participants} / ${personnel.length} personel`} value={participationRate} color="#00A280" />
       </div>
       <RoiSummary base={base} expected={roiExpected} actual={roiActual} />
-      {departmentRows.length > 0 && <DepartmentRanking rows={departmentRows} base={base} sort={deptSort} onSort={setDeptSort} />}
+      {departmentRows.length > 0 && <DepartmentRanking rows={departmentRows} base={base} sort={deptSort} onSort={setDeptSort}
+        title={team?.groupTitle} groupLabel={team ? "Alt ekip" : undefined} headcountHint={team ? "kişi başı = öneri ÷ alt ekipteki kişi" : undefined} />}
 
       {filtered.length === 0 ? (
         <Card><EmptyState icon={Lightbulb} title="Seçili filtrelerle öneri bulunamadı" /></Card>
@@ -481,7 +488,9 @@ function RoiSummary({ base, expected, actual }: { base: string; expected: Portfo
 // Bölüm sıralama tablosu (Faz 5.3). Kişi başı öneri uses the department's roster headcount.
 type DeptRow = { department: string; count: number; people: Set<string>; accepted: number; decided: number; completed: number; points: number; expected: number; actual: number; headcount: number; perPerson: number; rate: number };
 type DeptKey = "count" | "perPerson" | "rate" | "completed" | "points" | "expected" | "actual";
-function DepartmentRanking({ rows, base, sort, onSort }: { rows: DeptRow[]; base: string; sort: DeptKey; onSort: (k: DeptKey) => void }) {
+function DepartmentRanking({ rows, base, sort, onSort, title = "Bölüm Sıralaması", groupLabel = "Bölüm", headcountHint = "kişi başı = öneri ÷ bölümdeki personel" }: {
+  rows: DeptRow[]; base: string; sort: DeptKey; onSort: (k: DeptKey) => void; title?: string; groupLabel?: string; headcountHint?: string;
+}) {
   const money = (n: number) => Math.round(n).toLocaleString("tr-TR");
   const cols: [DeptKey, string, (r: DeptRow) => string][] = [
     ["count", "Öneri", r => String(r.count)],
@@ -495,13 +504,13 @@ function DepartmentRanking({ rows, base, sort, onSort }: { rows: DeptRow[]; base
   return (
     <Card padded={false} className="overflow-hidden">
       <div className="flex flex-wrap items-baseline justify-between gap-2 px-5 pt-5 pb-3">
-        <h3 className="text-base font-bold text-slate-900 flex items-center gap-2"><Building2 className="w-4 h-4 text-slate-500" />Bölüm Sıralaması</h3>
-        <p className="text-xs text-slate-500">Sütun başlığına basarak sıralayın · kişi başı = öneri ÷ bölümdeki personel</p>
+        <h3 className="text-base font-bold text-slate-900 flex items-center gap-2"><Building2 className="w-4 h-4 text-slate-500" />{title}</h3>
+        <p className="text-xs text-slate-500">Sütun başlığına basarak sıralayın · {headcountHint}</p>
       </div>
       <div className="overflow-x-auto">
         <table className={tableCls}>
           <thead className={theadCls}><tr>
-            <th className={thCls}>#</th><th className={thCls}>Bölüm</th>
+            <th className={thCls}>#</th><th className={thCls}>{groupLabel}</th>
             {cols.map(([k, l]) => (
               <th key={k} className={`${thCls} text-right`} aria-sort={sort === k ? "descending" : "none"}>
                 <button onClick={() => onSort(k)} className={`inline-flex items-center gap-1 cursor-pointer hover:text-slate-900 ${sort === k ? "text-slate-900" : ""}`}>{l}<ArrowUpDown className="w-3 h-3" /></button>

@@ -15,7 +15,7 @@ import KaizenChampions from "./KaizenChampions";
 import { daysWaiting } from "./kaizenCalc";
 import { KaizenSettings, DEFAULT_KAIZEN_SETTINGS, normalizeKaizenSettings } from "../../utils/kaizenSettings";
 import { getAuthToken } from "../../utils/authToken";
-import { buildOrg, subordinateIds } from "../../utils/kaizenOrg";
+import { buildOrg, subordinateIds, personOfSuggestion } from "../../utils/kaizenOrg";
 
 export type KaizenApi = {
   get: (path: string) => Promise<any[]>;
@@ -182,6 +182,30 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
   const org = React.useMemo(() => buildOrg(personnel), [personnel]);
   const myTeamIds = React.useMemo(() => (myPersonnelRecord ? subordinateIds(myPersonnelRecord.id, org) : new Set<string>()), [myPersonnelRecord?.id, org]);
   const isTeamLeader = myTeamIds.size > 0 || suggestions.some(s => canDecideAsManager(currentUser?.email || "", currentUser?.role || "", s.teamLeaderEmail, s.teamLeaderId, myPersonnelRecord?.id));
+  // Amir raporu (Faz 5.6): a manager outside the Kurul gets a report of their own team only — the
+  // server already returns just their own and their team's suggestions (Faz 3.4); here the manager's
+  // own suggestions and other people's records they merely implement are left out as well.
+  const teamReport = React.useMemo(() => {
+    if (isBoardMember || !myPersonnelRecord || !myTeamIds.size) return null;
+    const branchOf = new Map<string, string>();
+    for (const d of org.reportsOf.get(myPersonnelRecord.id) || []) {
+      const label = personnel.find(p => p.id === d)?.name || "—";
+      branchOf.set(d, label);
+      subordinateIds(d, org).forEach(id => branchOf.set(id, label));
+    }
+    const headcount = new Map<string, number>();
+    branchOf.forEach(label => headcount.set(label, (headcount.get(label) || 0) + 1));
+    const personIdOf = (s: KaizenSuggestion) => personOfSuggestion(s, personnel)?.id || "";
+    const teamSuggestions = suggestions.filter(s => myTeamIds.has(personIdOf(s)));
+    const ids = new Set(teamSuggestions.map(s => s.id));
+    return {
+      suggestions: teamSuggestions,
+      evaluations: evaluations.filter(e => ids.has(e.suggestionId)),
+      implementations: implementations.filter(i => ids.has(i.suggestionId)),
+      personnel: personnel.filter(p => myTeamIds.has(p.id)),
+      team: { leaderName: myPersonnelRecord.name, groupTitle: "Alt Ekip Sıralaması", groupOf: (s: KaizenSuggestion) => branchOf.get(personIdOf(s)) || "—", headcount }
+    };
+  }, [isBoardMember, myPersonnelRecord, myTeamIds, org, personnel, suggestions, evaluations, implementations]);
   const canSeeApprovals = isBoardMember || isTeamLeader || currentUser?.role === "Admin" || currentUser?.role === "Consultant";
 
   // Queue sizes drive the nav badge and the Home to-do card.
@@ -212,7 +236,7 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
     ...(canSeeApprovals ? [{ key: "approvals" as const, label: "Değerlendirmeler", icon: Star, badge: approvalsBadge }] : []),
     { key: "impl", label: "Uygulama", icon: Hammer },
     { key: "champions", label: "Şampiyonlar", icon: Trophy },
-    ...(isBoardMember ? [{ key: "reports" as const, label: "Rapor", icon: BarChart3 }] : []),
+    ...(isBoardMember ? [{ key: "reports" as const, label: "Rapor", icon: BarChart3 }] : teamReport ? [{ key: "reports" as const, label: "Ekip Raporu", icon: BarChart3 }] : []),
     ...(isKaizenAdmin ? [{ key: "setup" as const, label: "Kurulum", icon: Settings }] : [])
   ];
   // Bell click: work items open the decision queue (if allowed), the rest open Önerilerim.
@@ -427,6 +451,9 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
 
       {section === "reports" && isBoardMember && (
         <KaizenReports suggestions={suggestions} evaluations={evaluations} personnel={personnel} implementations={implementations} api={api} settings={settings} />
+      )}
+      {section === "reports" && !isBoardMember && teamReport && (
+        <KaizenReports {...teamReport} api={api} settings={settings} />
       )}
 
       {section === "setup" && isKaizenAdmin && (
