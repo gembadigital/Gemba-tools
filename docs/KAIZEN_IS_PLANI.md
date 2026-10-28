@@ -36,6 +36,39 @@ ileride ayrılabilecek şekilde yazılır (bkz. §3 "Tasarım kuralları").
 | G20 | Personel verisi Opx Suite'ten alınmalı; stand-alone'da kurulumda girilmeli | 🟡 | Stand-alone kurulum (Personel Listesi) var; dış kaynaktan personel alma yok → Faz 7. |
 | G21 | Stand-alone SaaS **veya** Opx Suite Pro/Plus içinde (frame) çalışma | 🟡 | Ön yüz modülü uygulamaya yalnızca 2 noktadan bağlı (müşteri/oturum bağlamı, token). Sunucu rotaları `app.ts` içinde, giriş/e-posta/veri Gemba Tools'a bağlı → Faz 7. |
 
+## 1a. Güncel durum (2026-10-28)
+
+G1–G19 Gemba Tools içinde karşılandı; G20–G21 (Opx Suite / stand-alone) bilinçli olarak Faz 7'ye bırakıldı.
+
+| # | Durum | Nasıl karşılandı |
+|---|---|---|
+| G1 | ✅ | 3.1 sicil no, amir personel kaydına bağlı, çok kademeli ekip; 3.2 Excel içe aktarma |
+| G2 | ✅ | 3.5 sicil no girişi, 3.7 QR, 6.3 PWA (ana ekran, taslak, kamera) |
+| G3 | ✅ | 3.6 kiosk modu |
+| G4 | ✅ | 3.4 sunucu taraflı görünürlük |
+| G5 | ✅ | 4.2 öneri altı mesaj ve hazır talepler |
+| G6 | 🟡 | 4.3 uygulama içi + e-posta bildirim katmanı (`notifyKaizen`); **WhatsApp/SMS ve kişi bazında kanal tercihi yok** (Opx Suite servisleriyle Faz 7) |
+| G7 | ✅ | 3.1 çok kademe, 5.6 ekip raporu |
+| G8 | ✅ | (önceden vardı) |
+| G9 | ✅ | 3.4 |
+| G10 | ✅ | 3.3 Kurul Yöneticisi |
+| G11 | ✅ | 4.1 fizibilite durumu |
+| G12 | ✅ | 4.5 fırsat havuzu, 4.4 hatırlatmalar + eskalasyon |
+| G13 | ✅ | 6.1 kelime benzerliği, 6.2 anlam benzerliği (isteğe bağlı) |
+| G14 | ✅ | 5.1 kazanç revizyonu + gerçekleşen yatırım, 5.2 ROI / geri ödeme |
+| G15 | ✅ | (önceden vardı) |
+| G16 | ✅ | 5.3 |
+| G17 | ✅ | 5.3 bölüm sıralaması; katılım puanı kararla kaldırıldı (Kurul puanı + öneri sayısı) |
+| G18 | ✅ | 5.7 PDF yönetici özeti + filtreli Excel |
+| G19 | ✅ | 5.5 Şampiyonlar sekmesi |
+| G20 | ⏸ | Faz 7 (kullanıcı kararıyla ertelendi) |
+| G21 | ⏸ | Faz 7 (kullanıcı kararıyla ertelendi) |
+
+**Açık kalanlar (Faz 7 dışı):** canlıda uçtan uca deneme (yalnızca QR girişi telefonda doğrulandı); Vercel'de
+`CRON_SECRET`; çevrimdışı gönderilen önerinin kendiliğinden gönderilmesi (şimdi taslak + elle tekrar);
+benzer öneri listesinde herkesin başka önerilerin konusunu görmesi kuralı (kullanıcı onayı bekliyor);
+kullanılmayan eski `GET suggestions/export-excel` ucu.
+
 ## 2. İş planı
 
 Sıra bağımlılığa göre: önce kimlik ve yetki (her şey buna dayanıyor), sonra akış ve iletişim, sonra
