@@ -9,7 +9,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft, Save, FileSpreadsheet, CheckCircle2, Circle, Clock, Lock, Send, Undo2, PauseCircle,
   PlayCircle, XCircle, Users, Paperclip, History, ListChecks, Plus, Trash2, Camera, Download,
-  ShieldCheck, Target, AlertTriangle, ChevronLeft, Layers, BarChart3, RotateCcw, Star, ArrowRightLeft
+  ShieldCheck, Target, AlertTriangle, ChevronLeft, Layers, BarChart3, RotateCcw, Star, ArrowRightLeft, Presentation
 } from "lucide-react";
 import type { KaizenCard, BeforeAfterKaizenStudy } from "../../types";
 import {
@@ -21,6 +21,7 @@ import { choicesWith } from "../../utils/ciSettings";
 import { taskProgress } from "../../utils/ciPlan";
 import CiTaskGantt from "./CiTaskGantt";
 import CiFishbone from "./CiFishbone";
+import CiA3Dialog from "./CiA3Dialog";
 import {
   Card, SectionTitle, Button, FormField, ChoiceChip, Avatar, EmptyState, TabBar, AmountInput, Pill, inputCls, areaCls,
   readAndShrink, formatAmount
@@ -37,6 +38,7 @@ interface CiProjectCardProps {
   phases: string[];
   fishboneCategories: string[];               // bones of the step-4 fishbone (CI settings)
   currencySymbol: string;                     // customer currency, e.g. "₺"
+  companyName?: string;                       // shown on the A3 presentation card
   currencyOptions: { value: string; label: string }[];
   currencyChoices: (current: string) => { value: string; label: string }[];
   onSave: (changes: Partial<KaizenCard> & { id: string }) => Promise<KaizenCard | undefined>;
@@ -101,6 +103,7 @@ export default function CiProjectCard(props: CiProjectCardProps) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [note, setNote] = useState("");
+  const [showA3, setShowA3] = useState(false);
 
   // A fresh project version (after save / action / someone else's change) refreshes the draft but
   // keeps the fields this user changed and hasn't saved yet.
@@ -194,6 +197,7 @@ export default function CiProjectCard(props: CiProjectCardProps) {
                 <div className="text-slate-500">Proje lideri</div>
               </div>
             </div>
+            <Button variant="outline" onClick={() => setShowA3(true)} title="Tek sayfa A3 sunum kartı (PDF / Excel)"><Presentation className="w-4 h-4" /><span className="hidden sm:inline">A3 sunum</span></Button>
             <Button variant="outline" onClick={props.onExportExcel} title="Proje kartını Excel olarak indir"><FileSpreadsheet className="w-4 h-4" /><span className="hidden sm:inline">Excel</span></Button>
             {canEdit && (
               <Button variant="brand" onClick={save} disabled={!dirty || busy}>
@@ -347,7 +351,10 @@ export default function CiProjectCard(props: CiProjectCardProps) {
                 <Card>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="text-sm text-emerald-700 flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Proje {fmtDate(project.closedAt)} tarihinde kapatıldı.</p>
-                    {(canApprove || staff) && <Button variant="outline" onClick={() => act("reopen")} disabled={busy}><RotateCcw className="w-4 h-4" /> Yeniden aç</Button>}
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="brand" onClick={() => setShowA3(true)}><Presentation className="w-4 h-4" /> A3 sunum kartı</Button>
+                      {(canApprove || staff) && <Button variant="outline" onClick={() => act("reopen")} disabled={busy}><RotateCcw className="w-4 h-4" /> Yeniden aç</Button>}
+                    </div>
                   </div>
                 </Card>
               )}
@@ -361,6 +368,16 @@ export default function CiProjectCard(props: CiProjectCardProps) {
         {view === "files" && <FilesView draft={draft} set={set} canEdit={canEdit} />}
         {view === "history" && <HistoryView project={project} />}
       </div>
+
+      {showA3 && (
+        <CiA3Dialog
+          project={{ ...project, ...draft } as KaizenCard}
+          projectNo={props.projectNo}
+          companyName={props.companyName}
+          currencySymbol={props.currencySymbol}
+          onClose={() => setShowA3(false)}
+        />
+      )}
     </div>
   );
 }

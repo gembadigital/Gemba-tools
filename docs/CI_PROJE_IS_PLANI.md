@@ -194,6 +194,7 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
 | C6 | ✅ kod (canlıda doğrulanmadı) | Tek finans modeli, yeni finansal dashboard, kazanç kırılımı penceresi, binlik ayraç. Ayrıntı aşağıda. |
 | C7 | ✅ kod (canlıda doğrulanmadı) | Genel Bakış açılış panosu, sade başlık/sekmeler, sorumlu performansı. Ayrıntı aşağıda. |
 | C4 | ✅ kod (canlıda doğrulanmadı) | Balık kılçığı (6M) kök neden analizi, ayarlanabilir kategoriler. Ayrıntı aşağıda. |
+| C8 | ✅ kod (canlıda doğrulanmadı) | Tek sayfa A3 sunum kartı, PDF + Excel, isteğe bağlı önce-sonra. Ayrıntı aşağıda. |
 
 ### C0 — yapılanlar
 - **Sunucu (`/api/business/kaizens`):** müşteri gövdeden değil `x-factory-id` kapsamından alınır; güncellemede mevcut
@@ -405,4 +406,30 @@ C6'da kazanç akışı "sistem → danışman teyidi → lider onayı".
   neden, 4. adım şartı, kategori ayarı sınırları, eski ayar kaydı) + önceki tüm testler. Yerel önizlemede (sahte veri)
   1024 px ve 1440 px'te denendi: neden ekleme, kök neden işaretleme, "5 Neden ile derinleştir". İlk sürümde dar
   ekranda neden metni görünmüyordu ve omurga bandı gereğinden yüksekti → düzeltildi. Canlıda denenmedi.
+
+### C8 — yapılanlar
+- **A3 sunum kartı (B9–B11)** `ci/CiA3Card.tsx`: tek sayfa, A4 yatay (1123×794 px), yönetici sunumu düzeni.
+  - Başlık: proje no, müşteri, ad, lider / ekip / departman, durum (adım ya da kapanış tarihi), açılış / hedef, sonuç.
+  - Sol (PLAN): 1 problem + yıllık kayıp (vurgulu), 2 mevcut durum, 3 hedef (KPI başlangıç → hedef grafiği, iyi yön,
+    beklenen kazanç).
+  - Sağ: 4 kök neden (`rootCauseOf` + 5 Neden zinciri + ★ balık kılçığı nedenleri), 5–6 aksiyon tablosu (sorumlu,
+    termin, durum simgesi), 7 sonuçlar (KPI başlangıç + ölçümler + hedef çizgisi grafiği, son ölçüm, hedefe ulaşıldı mı,
+    beklenen vs gerçekleşen kazanç çubukları; ✔ teyitli / ? teyit bekliyor), 8 standartlaştırma kontrolleri,
+    yaygınlaştırma, dersler, sonuç.
+  - Alt (isteğe bağlı): önce-sonra şeridi — projedeki bir önce-sonra kaydı (seçilir) ya da proje fotoğrafları
+    (problem / sonuç) ve açıklamaları, fayda.
+  - PDCA renkleri (Plan mavi, Do turuncu, Check mor, Act yeşil); uzun metinler sayfaya sığacak şekilde kısaltılır.
+- **Pencere** `ci/CiA3Dialog.tsx`: kart ekrana ölçeklenmiş önizleme; önce-sonra aç/kapa + kaynak seçimi;
+  **PDF** (kart `modern-screenshot` ile yakalanır, jsPDF ile A4 yatay tek sayfa — dashboard PDF'iyle aynı yöntem,
+  sunucu / Chromium gerekmez) ve **Excel** (`ciExcelExport.exportA3Excel`: aynı bölümler; KPI ölçümleri ve aksiyonlar
+  tablo olarak; grafik ve fotoğraflar PDF'te). Kart kaydedilmemiş düzenlemeleri de gösterir.
+- **Giriş:** proje kartı başlığında "A3 sunum"; kapanan projede "A3 sunum kartı" düğmesi.
+- **Doğrulama:** `tsc`, `npm run build`, native ESM yükleme, önceki testler. Yerel önizlemede (sahte, kapanmış ve tam
+  dolu proje) önce-sonra açık / kapalı denendi; bölümlerin taşması ölçüldü ve düzeltildi (sonuç ve standart
+  kutuları sıkıştırıldı, önce-sonra açıkken aksiyon tablosu 4 satır + "n aksiyon daha"). PDF üretimi sayfa içinde
+  çalıştırıldı (indirilmeden): 1 sayfa, 2246×1588 görüntü, ~344 KB, ~0,6 sn; yakalanan görüntü kartla aynı. Excel
+  çıktısı indirilmeden okundu: tüm bölümler, 3 ölçüm satırı, kök neden ve balık kılçığı nedenleri var. Canlıda
+  denenmedi.
+- **Açık kalanlar:** PDF metni görüntü olarak gömülü (seçilebilir/aranabilir değil); sunucu tarafı (Chromium) PDF
+  istenirse OpEx rapor altyapısı kullanılabilir. Çok uzun metinler kısaltılır — tam metin proje kartında ve Excel'de.
 

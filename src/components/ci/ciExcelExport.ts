@@ -1,7 +1,8 @@
 // CI project Excel exports (project card, before-after form). Moved out of KaizenManager (plan step
 // C1); output unchanged. Both build an HTML table saved as .xls, which Excel opens with the styling.
 import type { KaizenCard, BeforeAfterKaizenStudy } from "../../types";
-import { rootCauseOf } from "../../utils/ciLifecycle";
+import { rootCauseOf, kpiOf, taskStatusOf, fishboneRootCauses, stageOf, isClosed, CI_STEPS } from "../../utils/ciLifecycle";
+import type { A3BeforeAfter } from "./CiA3Card";
 
 const esc = (v: unknown) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -374,3 +375,78 @@ export const exportBeforeAfterKaizenToExcel = (study: BeforeAfterKaizenStudy, cu
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 };
+
+// A3 presentation card as a structured Excel sheet (plan step C8): the same sections as the PDF card,
+// with the KPI measurements and actions as tables (charts and photos stay in the PDF).
+export function exportA3Excel(proj: KaizenCard, projNo: string, opts: { companyName?: string; currencySymbol: string; beforeAfter?: A3BeforeAfter | null }) {
+  const cur = opts.currencySymbol;
+  const n = (v: number | null | undefined) => v === null || v === undefined ? "-" : v.toLocaleString("tr-TR");
+  const d = (iso?: string | null) => iso ? new Date(iso.length === 10 ? `${iso}T00:00:00` : iso).toLocaleDateString("tr-TR") : "-";
+  const kpi = kpiOf(proj);
+  const stage = stageOf(proj);
+  const td = "border:1px solid #cbd5e1;padding:4px 8px;font-family:Calibri,sans-serif;font-size:10pt;vertical-align:top;";
+  const th = td + "background:#f1f5f9;font-weight:bold;color:#334155;";
+  const band = (title: string, color: string) => `<tr><td colspan="6" style="${td}background:${color};color:#ffffff;font-weight:bold;font-size:11pt;">${esc(title)}</td></tr>`;
+  const row = (label: string, value: string) => `<tr><td style="${th}">${esc(label)}</td><td colspan="5" style="${td}">${value}</td></tr>`;
+  const whys = (proj.rootCauseWhys || []).map(w => (w || "").trim()).filter(Boolean);
+  const marked = fishboneRootCauses(proj);
+  const tasks: any[] = (proj.tasks || []).filter((t: any) => (t.name || "").trim());
+  const measurements = [...kpi.measurements].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const realized = proj.realizedGain ?? proj.actualSavings ?? 0;
+  const status = proj.holdState === "cancelled" ? "İptal" : proj.holdState === "onHold" ? "Askıda" : isClosed(proj) ? `Kapandı (${d(proj.closedAt)})` : `Adım ${stage}/8 – ${CI_STEPS[stage - 1].title}`;
+  const ba = opts.beforeAfter;
+
+  const html = `
+    <html xmlns:o="urn:schemas-microsoft-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+    <head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+      <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>A3 Sunum</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+    </head>
+    <body>
+      <table style="border-collapse:collapse;width:1000px;">
+        <col width="200"/><col width="200"/><col width="160"/><col width="160"/><col width="140"/><col width="140"/>
+        <tr><td colspan="6" style="${td}background:#0f172a;color:#ffffff;font-size:14pt;font-weight:bold;">A3 – ${esc(proj.title)}</td></tr>
+        ${row("Proje no", esc(projNo))}
+        ${opts.companyName ? row("Müşteri", esc(opts.companyName)) : ""}
+        ${row("Proje lideri / ekip", esc([(proj.projectLeader || proj.originator || "-"), ...(proj.projectTeam || [])].join(", ")))}
+        ${row("Departman / faz", esc(`${proj.department || "-"} / ${proj.phase || "-"}`))}
+        ${row("Durum", esc(status))}
+        ${row("Açılış / hedef bitiş", `${d(proj.dateProposed)} / ${d(proj.plannedFinishDate)}`)}
+        ${band("PLAN – 1. Problem ve kayıp boyutu", "#2563eb")}
+        ${row("Problem", esc(proj.problemDefinition || proj.descriptionBefore || "-"))}
+        ${row("Yıllık kayıp", (proj.currentLoss || 0) > 0 ? `${cur}${n(proj.currentLoss)}` : "-")}
+        ${band("PLAN – 2. Mevcut durum", "#2563eb")}
+        ${row("Mevcut durum", esc(proj.problemDetail || "-"))}
+        ${band("PLAN – 3. Hedef", "#2563eb")}
+        <tr><td style="${th}">KPI</td><td style="${th}">Birim</td><td style="${th}">Başlangıç</td><td style="${th}">Hedef</td><td style="${th}">İyi yön</td><td style="${th}">Beklenen kazanç</td></tr>
+        <tr><td style="${td}">${esc(kpi.name || "-")}</td><td style="${td}">${esc(kpi.unit || "-")}</td><td style="${td}">${n(kpi.baseline)}</td><td style="${td}">${n(kpi.target)}</td><td style="${td}">${kpi.direction === "increase" ? "Artması" : "Düşmesi"}</td><td style="${td}">${(proj.expectedGain || proj.targetCostReduction || 0) > 0 ? `${cur}${n(proj.expectedGain || proj.targetCostReduction)}` : "-"}</td></tr>
+        ${band("PLAN – 4. Kök neden", "#2563eb")}
+        ${row("Kök neden", `<b>${esc(rootCauseOf(proj) || "-")}</b>`)}
+        ${whys.length ? row("5 Neden", whys.map((w, i) => `${i + 1}. ${esc(w)}`).join("<br/>")) : ""}
+        ${marked.length ? row("Balık kılçığı (★)", marked.map(c => `${esc(c.text)} (${esc(c.category)})`).join("<br/>")) : ""}
+        ${band("DO – 5–6. Karşı önlemler ve uygulama", "#d97706")}
+        <tr><td colspan="2" style="${th}">Aksiyon</td><td style="${th}">Sorumlu</td><td style="${th}">Başlangıç</td><td style="${th}">Termin</td><td style="${th}">Durum</td></tr>
+        ${tasks.length ? tasks.map(t => `<tr><td colspan="2" style="${td}">${esc(t.name)}</td><td style="${td}">${esc(t.responsible || "-")}</td><td style="${td}">${d(t.startDate)}</td><td style="${td}">${d(t.deadline)}</td><td style="${td}">${esc(taskStatusOf(t))}</td></tr>`).join("") : `<tr><td colspan="6" style="${td}">-</td></tr>`}
+        ${band("CHECK – 7. Sonuçlar", "#7c3aed")}
+        <tr><td style="${th}">Ölçüm tarihi</td><td style="${th}">Değer</td><td colspan="4" style="${th}">Not</td></tr>
+        ${measurements.length ? measurements.map(m => `<tr><td style="${td}">${d(m.date)}</td><td style="${td}">${n(m.value)} ${esc(kpi.unit)}</td><td colspan="4" style="${td}">${esc(m.note || "")}</td></tr>`).join("") : `<tr><td colspan="6" style="${td}">Ölçüm yok</td></tr>`}
+        ${row("Hedefe ulaşıldı mı", proj.kpiTargetMet === true ? "Evet" : proj.kpiTargetMet === false ? "Hayır" : "-")}
+        ${row("Gerçekleşen yıllık kazanç", realized ? `${esc(proj.realizedGainCurrency || cur)} ${n(realized)}${proj.gainConfirmedAt ? ` — teyit: ${esc(proj.gainConfirmedBy || "")} ${d(proj.gainConfirmedAt)}` : " — teyit bekliyor"}` : "-")}
+        ${band("ACT – 8. Standartlaştırma ve yaygınlaştırma", "#059669")}
+        ${row("Standartlaştırma", [["Standart iş", proj.stdWorkUpdated], ["Talimat", proj.instructionRevised], ["Kontrol planı", proj.controlPlanUpdated], ["Eğitim", proj.trainingGiven], ["Denetim listesi", proj.auditListUpdated]].map(([l, on]) => `${on ? "☑" : "☐"} ${l}`).join("&nbsp;&nbsp; "))}
+        ${row("Yaygınlaştırma", esc(proj.horizontalDeployment || "-"))}
+        ${row("Öğrenilen dersler", esc(proj.lessonsLearned || "-"))}
+        ${row("Sonuç", esc(`${proj.projectResult || "-"}${proj.resultDescription ? ` – ${proj.resultDescription}` : ""}`))}
+        ${ba ? `${band(`Önce / Sonra – ${ba.title}`, "#334155")}${row("Önce", esc(ba.beforeText || "-"))}${row("Sonra", esc(ba.afterText || "-"))}${ba.benefit ? row("Fayda", esc(ba.benefit)) : ""}` : ""}
+      </table>
+    </body></html>`;
+
+  const blob = new Blob(['\ufeff' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `${projNo}_A3_Sunum.xls`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
