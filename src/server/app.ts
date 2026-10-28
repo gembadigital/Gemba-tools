@@ -13,6 +13,7 @@ import { renderReportHtml } from "./opexReport/render.js";
 import { KNOWN_CURRENCIES, normalizeKaizenSettings, KaizenSettings, rewardFor, requiredStagesFor, stagesOf, afterManagerApprovalStatus } from "../utils/kaizenSettings.js";
 import { preparePersonnel, buildOrg, effectiveManagerId, managerChain, visibleSuggestionIds, planPersonnelImport } from "../utils/kaizenOrg.js";
 import { isPerPiece, parsePerPiece, perPieceSaving } from "../utils/kaizenSaving.js";
+import { buildReminders, reminderText } from "../utils/kaizenReminders.js";
 import { pinRequired, findBySicil, pinProblem, newPinCode, isLocked, failedAttempt, codeValid, pinValid, hashSecret, publicPersonnel, stripSecretInput, virtualEmail, isAuthorizedRole, PIN_LOCK_MINUTES, PIN_CODE_DAYS, KIOSK_SESSION, PHONE_SESSION } from "./kaizenAuth.js";
 import * as XLSX from "xlsx";
 
@@ -3131,17 +3132,15 @@ app.post("/api/business/kaizen/suggestions", authenticateToken, async (req, res)
 
   if (suggestion.approvalStatus === "First Approval") {
     // No Amir stage for this customer: the suggestion goes straight to the Kurul.
-    const board = personnel.filter((p: any) => p.isBoardMember).map((p: any) => p.email).filter(Boolean);
-    if (board.length > 0) {
-      sendMail({
-        to: board,
-        subject: `Değerlendirmeye Hazır: ${suggestion.subject}`,
-        text: `${suggestion.personnelName} tarafından gönderilen ${suggestion.subject} konulu öneri Kaizen Kurulu değerlendirmesini bekliyor.`
-      }).catch(() => {});
-    }
-  } else if (suggestion.teamLeaderEmail) {
-    sendMail({
-      to: suggestion.teamLeaderEmail,
+    notifyKaizen(user.organization_id, scope.factoryId, {
+      ids: personnel.filter((p: any) => p.isBoardMember || p.isBoardAdmin).map((p: any) => p.id),
+      subject: `Değerlendirmeye Hazır: ${suggestion.subject}`,
+      text: `${suggestion.personnelName} tarafından gönderilen ${suggestion.subject} konulu öneri Kaizen Kurulu değerlendirmesini bekliyor.`,
+      suggestionId: suggestion.id, kind: "board-queue"
+    }).catch(() => {});
+  } else if (suggestion.teamLeaderEmail || suggestion.teamLeaderId) {
+    notifyKaizen(user.organization_id, scope.factoryId, {
+      ids: [suggestion.teamLeaderId], emails: [suggestion.teamLeaderEmail], suggestionId: suggestion.id, kind: "manager-queue",
       subject: `Yeni Kaizen Önerisi: ${suggestion.subject}`,
       text: `${suggestion.personnelName} tarafından yeni bir Kaizen önerisi gönderildi ve onayınızı bekliyor.\n\nKonu: ${suggestion.subject}\n\nGemba Tools üzerinden inceleyip onaylayabilirsiniz.`
     }).catch(() => {});
@@ -3229,12 +3228,11 @@ app.post("/api/business/kaizen/suggestions/:id/manager-decision", authenticateTo
 
   // Board notification stays inside the suggestion's own factory (was: every board member in the org).
   // Below the Kurul threshold the Amir's approval is final, so the author is told directly.
-  const notifyEmail = approved && needsBoard
-    ? (await db.getKaizenRecords("kaizen_personnel", user.organization_id, suggestion.factory_id)).filter((p: any) => p.isBoardMember).map((p: any) => p.email).filter(Boolean)
-    : [result.suggestion.authorEmail].filter(Boolean);
-  if (notifyEmail.length > 0) {
-    sendMail({
-      to: notifyEmail,
+  const boardIds = (await db.getKaizenRecords("kaizen_personnel", user.organization_id, suggestion.factory_id)).filter((p: any) => p.isBoardMember || p.isBoardAdmin).map((p: any) => p.id);
+  {
+    notifyKaizen(user.organization_id, suggestion.factory_id, {
+      ...(approved && needsBoard ? { ids: boardIds } : { ids: [result.suggestion.authorPersonnelId], emails: [result.suggestion.authorEmail] }),
+      suggestionId: suggestion.id, kind: approved && needsBoard ? "board-queue" : "decision",
       subject: !approved ? `Öneriniz Reddedildi: ${result.suggestion.subject}`
         : needsBoard ? `Değerlendirmeye Hazır: ${result.suggestion.subject}` : `Öneriniz Onaylandı: ${result.suggestion.subject}`,
       text: !approved
@@ -3245,6 +3243,124 @@ app.post("/api/business/kaizen/suggestions/:id/manager-decision", authenticateTo
     }).catch(() => {});
   }
   res.json({ success: true, data: result });
+});
+
+// ---- Bildirim katmanı (Faz 4.3) ----
+// One entry point for every Kaizen notification. Recipients are given as roster ids and/or e-mails;
+// each person gets an in-app notification (so sicil no users without e-mail see it too, under the
+// bell) and everyone with a real address gets the e-mail. New channels (WhatsApp, SMS, push) plug
+// in here without touching the routes.
+const VIRTUAL_MAIL = /@kaizen\.local$/i;
+async function notifyKaizen(orgId: string, factoryId: string, n: {
+  ids?: (string | undefined)[]; emails?: (string | undefined)[]; subject: string; text: string; suggestionId?: string; kind: string; exceptEmail?: string;
+}): Promise<number> {
+  const roster = await db.getKaizenRecords("kaizen_personnel", orgId, factoryId);
+  const ids = new Set((n.ids || []).filter(Boolean) as string[]);
+  const emails = new Set((n.emails || []).map(e => (e || "").trim().toLowerCase()).filter(e => e && !VIRTUAL_MAIL.test(e)));
+  const except = (n.exceptEmail || "").toLowerCase();
+  const people = roster.filter((p: any) => ids.has(p.id) || (p.email && emails.has(p.email.toLowerCase())));
+  people.forEach((p: any) => { if (p.email) emails.add(p.email.toLowerCase()); });
+  emails.delete(except);
+  const nowIso = new Date().toISOString();
+  for (const p of people) {
+    if (except && (p.email || "").toLowerCase() === except) continue;
+    await db.saveKaizenRecord("kaizen_notifications", orgId, factoryId, {
+      id: `kaizen_notifications_${crypto.randomUUID().slice(0, 12)}`,
+      personnelId: p.id, suggestionId: n.suggestionId || "", kind: n.kind,
+      title: n.subject, text: n.text.slice(0, 2000), createdAt: nowIso, readAt: ""
+    }, "system");
+  }
+  if (emails.size) await sendMail({ to: Array.from(emails), subject: n.subject, text: n.text }).catch(() => {});
+  return Math.max(emails.size, people.length);
+}
+
+// ---- Haftalık hatırlatmalar (Faz 4.4) ----
+async function kaizenReminderDigests(orgId: string, factoryId: string) {
+  const [suggestions, implementations, roster, settings] = await Promise.all([
+    db.getKaizenRecords("kaizen_suggestions", orgId, factoryId),
+    db.getKaizenRecords("kaizen_implementations", orgId, factoryId),
+    db.getKaizenRecords("kaizen_personnel", orgId, factoryId),
+    loadKaizenSettings(orgId, factoryId)
+  ]);
+  return { settings, digests: buildReminders({ suggestions, implementations, roster, settings }) };
+}
+
+async function sendKaizenReminders(orgId: string, factoryId: string, link: string): Promise<{ sent: number; skipped?: string }> {
+  const { settings, digests } = await kaizenReminderDigests(orgId, factoryId);
+  if (!settings.remindersEnabled) return { sent: 0, skipped: "Hatırlatmalar bu müşteri için kapalı." };
+  const company = await db.getCustomerName(orgId, factoryId);
+  for (const d of digests) {
+    await notifyKaizen(orgId, factoryId, {
+      ids: [d.personnelId], emails: [d.email], kind: "reminder",
+      subject: `Kaizen hatırlatma: ${d.items.length} konu ilginizi bekliyor`,
+      text: reminderText(d, company, link)
+    });
+  }
+  return { sent: digests.length };
+}
+
+// Weekly, every customer (Vercel Cron, CRON_SECRET) — same protection as the consultant digest.
+app.get("/api/cron/kaizen-reminders", async (req, res) => {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) return res.status(503).json({ success: false, error: "CRON_SECRET ortam değişkeni tanımlı değil." });
+  if (req.headers.authorization !== `Bearer ${cronSecret}`) return res.status(401).json({ success: false, error: "Unauthorized." });
+  const results: any[] = [];
+  for (const { orgId, factoryId } of await db.listKaizenFactories()) {
+    try {
+      results.push({ factoryId, ...(await sendKaizenReminders(orgId, factoryId, process.env.APP_URL || getBaseUrl(req))) });
+    } catch (e: any) {
+      results.push({ factoryId, error: e.message }); // one customer's bad data must not stop the others
+    }
+  }
+  res.json({ success: true, data: results });
+});
+
+// Kurulum → Ayarlar: what this week's reminders would say (no sending), and "send now".
+app.get("/api/business/kaizen/reminders/preview", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed || !scope.factoryId) return denyKaizen(res);
+  if (!(await isKaizenAdmin(user, scope.factoryId))) return denyKaizen(res, 403, "Bu işlem için Kurul Yöneticisi yetkisi gereklidir.");
+  const { digests } = await kaizenReminderDigests(user.organization_id, scope.factoryId);
+  res.json({ success: true, data: digests });
+});
+
+app.post("/api/business/kaizen/reminders/send", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed || !scope.factoryId) return denyKaizen(res);
+  if (!(await isKaizenAdmin(user, scope.factoryId))) return denyKaizen(res, 403, "Bu işlem için Kurul Yöneticisi yetkisi gereklidir.");
+  const result = await sendKaizenReminders(user.organization_id, scope.factoryId, getBaseUrl(req));
+  console.info(`[kaizen-audit] reminders sent manually by ${user.email}: ${JSON.stringify(result)}`);
+  res.json({ success: true, data: result });
+});
+
+// My in-app notifications (by my roster record) and marking them read.
+app.get("/api/business/kaizen/notifications", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed) return denyKaizen(res);
+  const me = await myKaizenPersonnel(user, scope.factoryId);
+  if (!me) return res.json({ success: true, data: [] });
+  const mine = (await db.getKaizenRecords("kaizen_notifications", user.organization_id, scope.factoryId))
+    .filter((x: any) => x.personnelId === me.id)
+    .sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || ""))
+    .slice(0, 60);
+  res.json({ success: true, data: mine });
+});
+
+app.post("/api/business/kaizen/notifications/read", authenticateToken, async (req, res) => {
+  const user = (req as any).user;
+  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+  if (!scope.allowed || !scope.factoryId) return denyKaizen(res);
+  const me = await myKaizenPersonnel(user, scope.factoryId);
+  if (!me) return res.json({ success: true, data: 0 });
+  const only = Array.isArray(req.body.ids) ? new Set(req.body.ids) : null;
+  const nowIso = new Date().toISOString();
+  const unread = (await db.getKaizenRecords("kaizen_notifications", user.organization_id, scope.factoryId))
+    .filter((x: any) => x.personnelId === me.id && !x.readAt && (!only || only.has(x.id)));
+  for (const x of unread) await db.saveKaizenRecord("kaizen_notifications", user.organization_id, scope.factoryId, { ...x, readAt: nowIso }, user.id);
+  res.json({ success: true, data: unread.length });
 });
 
 // ---- Öneri altı yazışma ve hazır talepler (Faz 4.2) ----
@@ -3271,25 +3387,20 @@ async function kaizenThreadRole(user: any, suggestion: any): Promise<string> {
   return "Ekip";
 }
 
-// Who should hear about new activity on this suggestion, given its stage (never the writer).
-async function kaizenThreadRecipients(orgId: string, suggestion: any, writer: any, toResponsible: boolean): Promise<string[]> {
+// Who should hear about new activity on this suggestion, given its stage (the writer is excluded
+// by notifyKaizen via exceptEmail). Returned as roster ids + e-mails for the notification layer.
+async function kaizenThreadRecipients(orgId: string, suggestion: any, toResponsible: boolean): Promise<{ ids: string[]; emails: string[] }> {
   const roster = await db.getKaizenRecords("kaizen_personnel", orgId, suggestion.factory_id);
-  const emails = new Set<string>();
-  const add = (e?: string) => { const v = (e || "").trim().toLowerCase(); if (v && !v.endsWith("@kaizen.local")) emails.add(v); };
-  if (!toResponsible) {
-    add(suggestion.authorEmail);
-  } else if (suggestion.approvalStatus === "Pending") {
-    add(suggestion.teamLeaderEmail);
-    if (suggestion.teamLeaderId) add(roster.find((p: any) => p.id === suggestion.teamLeaderId)?.email);
-  } else if (suggestion.approvalStatus === "First Approval") {
-    roster.filter((p: any) => p.isBoardMember || p.isBoardAdmin).forEach((p: any) => add(p.email));
-    if (suggestion.feasibility?.status === "open") add(suggestion.feasibility.ownerEmail);
-  } else {
-    const impl = (await db.getKaizenRecords("kaizen_implementations", orgId, suggestion.factory_id)).find((i: any) => i.suggestionId === suggestion.id);
-    add(impl?.ownerEmail || suggestion.teamLeaderEmail);
+  if (!toResponsible) return { ids: [suggestion.authorPersonnelId].filter(Boolean), emails: [suggestion.authorEmail].filter(Boolean) };
+  if (suggestion.approvalStatus === "Pending") return { ids: [suggestion.teamLeaderId].filter(Boolean), emails: [suggestion.teamLeaderEmail].filter(Boolean) };
+  if (suggestion.approvalStatus === "First Approval") {
+    return {
+      ids: [...roster.filter((p: any) => p.isBoardMember || p.isBoardAdmin).map((p: any) => p.id), suggestion.feasibility?.status === "open" ? suggestion.feasibility.ownerId : ""].filter(Boolean),
+      emails: []
+    };
   }
-  emails.delete((writer.email || "").toLowerCase());
-  return Array.from(emails);
+  const impl = (await db.getKaizenRecords("kaizen_implementations", orgId, suggestion.factory_id)).find((i: any) => i.suggestionId === suggestion.id);
+  return { ids: [suggestion.teamLeaderId].filter(Boolean), emails: [impl?.ownerEmail || suggestion.teamLeaderEmail].filter(Boolean) };
 }
 
 app.post("/api/business/kaizen/suggestions/:id/messages", authenticateToken, async (req, res) => {
@@ -3326,15 +3437,13 @@ app.post("/api/business/kaizen/suggestions/:id/messages", authenticateToken, asy
   const saved = await db.saveKaizenRecord("kaizen_messages", user.organization_id, suggestion.factory_id, message, user.id);
 
   // Author writes / requests → the party holding the suggestion; anyone else → the author.
-  const to = await kaizenThreadRecipients(user.organization_id, suggestion, user, isAuthor);
-  if (to.length) {
-    sendMail({
-      to,
+  const rcpt = await kaizenThreadRecipients(user.organization_id, suggestion, isAuthor);
+  const notified = await notifyKaizen(user.organization_id, suggestion.factory_id, {
+      ...rcpt, exceptEmail: user.email, suggestionId: suggestion.id, kind: requestType ? "request" : "message",
       subject: `${requestType ? REQUEST_TYPES[requestType] : "Yeni mesaj"}: ${suggestion.subject}`,
       text: `${message.authorName} (${message.authorRole}) "${suggestion.subject}" konulu Kaizen önerisine yazdı:\n\n${text}\n\nYanıtlamak için: ${getBaseUrl(req)}`
-    }).catch(() => {});
-  }
-  res.json({ success: true, data: saved, notified: to.length });
+  }).catch(() => 0);
+  res.json({ success: true, data: saved, notified });
 });
 
 // Değerlendiriliyor / fizibilite (Faz 4.1): instead of deciding at once, the Kurul can put a
@@ -3362,9 +3471,9 @@ app.post("/api/business/kaizen/suggestions/:id/feasibility", authenticateToken, 
   };
   const updated = { ...suggestion, feasibility, updatedAt: nowIso };
   await db.saveKaizenRecord("kaizen_suggestions", user.organization_id, suggestion.factory_id, updated, user.id);
-  if (owner.email && (!prev || prev.ownerId !== owner.id)) {
-    sendMail({
-      to: owner.email,
+  if (!prev || prev.ownerId !== owner.id) {
+    notifyKaizen(user.organization_id, suggestion.factory_id, {
+      ids: [owner.id], suggestionId: suggestion.id, kind: "feasibility",
       subject: `Fizibilite sorumlusu oldunuz: ${suggestion.subject}`,
       text: `${suggestion.subject} konulu Kaizen önerisinin fizibilite çalışması size atandı.\nHedef tarih: ${dueDate}${feasibility.note ? `\n\nNot: ${feasibility.note}` : ""}`
     }).catch(() => {});
@@ -3417,9 +3526,9 @@ app.post("/api/business/kaizen/suggestions/:id/board-decision", authenticateToke
     res.status(400).json({ success: false, error: "Bu öneri artık Kurul onayı bekleyen durumda değil." });
     return;
   }
-  if (result.suggestion.authorEmail) {
-    sendMail({
-      to: result.suggestion.authorEmail,
+  {
+    notifyKaizen(user.organization_id, suggestion.factory_id, {
+      ids: [result.suggestion.authorPersonnelId], emails: [result.suggestion.authorEmail], suggestionId: suggestion.id, kind: "decision",
       subject: approved ? `Öneriniz Onaylandı: ${result.suggestion.subject}` : `Öneriniz Reddedildi: ${result.suggestion.subject}`,
       text: approved
         ? `Tebrikler! ${result.suggestion.subject} konulu Kaizen öneriniz Kaizen Kurulu tarafından onaylandı.`

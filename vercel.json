@@ -29,6 +29,10 @@
     {
       "path": "/api/cron/weekly-consultant-digest",
       "schedule": "0 5 * * 1"
+    },
+    {
+      "path": "/api/cron/kaizen-reminders",
+      "schedule": "30 5 * * 1"
     }
   ]
 }

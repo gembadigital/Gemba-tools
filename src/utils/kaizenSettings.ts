@@ -31,6 +31,8 @@ export interface KaizenSettings {
   pinPolicy: PinPolicy;              // sicil no girişinde PIN kimden istenir (Faz 3.5)
   kioskIdleSeconds: number;          // kiosk: inactivity before the "still there?" warning (Faz 3.6)
   kioskAfterSubmitSeconds: number;   // kiosk: auto sign-out countdown after a submitted suggestion
+  remindersEnabled: boolean;         // weekly reminder digests (Faz 4.4)
+  noPlanReminderDays: number;        // accepted but no implementation plan for this many days → remind
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -52,7 +54,9 @@ export const DEFAULT_KAIZEN_SETTINGS: KaizenSettings = {
   boardScoreRequired: true,
   pinPolicy: "authorized",
   kioskIdleSeconds: 120,
-  kioskAfterSubmitSeconds: 15
+  kioskAfterSubmitSeconds: 15,
+  remindersEnabled: true,
+  noPlanReminderDays: 14
 };
 
 export const MAX_OPTIONS = 30;
@@ -121,6 +125,8 @@ export function normalizeKaizenSettings(input: any): KaizenSettings {
     pinPolicy: (PIN_POLICIES as string[]).includes(src.pinPolicy) ? src.pinPolicy : d.pinPolicy,
     kioskIdleSeconds: intIn(src.kioskIdleSeconds, 30, 900) ?? d.kioskIdleSeconds,
     kioskAfterSubmitSeconds: intIn(src.kioskAfterSubmitSeconds, 5, 120) ?? d.kioskAfterSubmitSeconds,
+    remindersEnabled: typeof src.remindersEnabled === "boolean" ? src.remindersEnabled : d.remindersEnabled,
+    noPlanReminderDays: intIn(src.noPlanReminderDays, 1, 365) ?? d.noPlanReminderDays,
     ...(typeof src.updatedAt === "string" ? { updatedAt: src.updatedAt } : {}),
     ...(typeof src.updatedBy === "string" ? { updatedBy: src.updatedBy } : {})
   };

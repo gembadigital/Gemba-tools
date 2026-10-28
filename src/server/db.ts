@@ -71,7 +71,7 @@ type FiveSCollection = typeof FIVE_S_COLLECTIONS[number];
 
 // Kaizen Suggestions module — same generic collection-CRUD pattern as FIVE_S_COLLECTIONS above.
 const KAIZEN_COLLECTIONS = [
-  "kaizen_personnel", "kaizen_criteria", "kaizen_suggestions", "kaizen_approvals", "kaizen_evaluations", "kaizen_implementations", "kaizen_settings", "kaizen_messages"
+  "kaizen_personnel", "kaizen_criteria", "kaizen_suggestions", "kaizen_approvals", "kaizen_evaluations", "kaizen_implementations", "kaizen_settings", "kaizen_messages", "kaizen_notifications"
 ] as const;
 type KaizenCollection = typeof KAIZEN_COLLECTIONS[number];
 
@@ -1156,6 +1156,14 @@ export class GeminiDb {
     if (!rows.length) return null;
     const orgId = rows[0].organization_id;
     return { orgId, personnel: rows.filter(r => r.organization_id === orgId).map(r => r.data) };
+  }
+
+  // Hatırlatmalar (Faz 4.4): every customer that has Kaizen suggestions, across organizations.
+  public async listKaizenFactories(): Promise<{ orgId: string; factoryId: string }[]> {
+    const { rows } = await getPool().query(
+      `select distinct organization_id, factory_id from records where collection = 'kaizen_suggestions' and factory_id is not null`
+    );
+    return rows.map(r => ({ orgId: r.organization_id, factoryId: r.factory_id }));
   }
 
   public async getCustomerName(orgId: string, customerId: string): Promise<string> {

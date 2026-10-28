@@ -10,6 +10,7 @@ import KaizenApprovals from "./KaizenApprovals";
 import KaizenReports from "./KaizenReports";
 import KaizenSetup from "./KaizenSetup";
 import KaizenImplementation from "./KaizenImplementation";
+import KaizenBell, { KaizenNotification } from "./KaizenBell";
 import { daysWaiting } from "./kaizenCalc";
 import { KaizenSettings, DEFAULT_KAIZEN_SETTINGS, normalizeKaizenSettings } from "../../utils/kaizenSettings";
 import { getAuthToken } from "../../utils/authToken";
@@ -212,6 +213,11 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
     ...(isBoardMember ? [{ key: "reports" as const, label: "Rapor", icon: BarChart3 }] : []),
     ...(isKaizenAdmin ? [{ key: "setup" as const, label: "Kurulum", icon: Settings }] : [])
   ];
+  // Bell click: work items open the decision queue (if allowed), the rest open Önerilerim.
+  const openNotification = (n: KaizenNotification) => {
+    const work = ["manager-queue", "board-queue", "request", "reminder", "feasibility"].includes(n.kind);
+    setSection(work && canSeeApprovals && !kiosk ? "approvals" : "mine");
+  };
   const NAV_ITEMS = kiosk ? ALL_NAV_ITEMS.filter(i => i.key === "home" || i.key === "new" || i.key === "mine") : ALL_NAV_ITEMS;
 
   // Kiosk inactivity: after kioskIdleSeconds without a touch/key, warn for KIOSK_WARN_SECONDS, then sign out.
@@ -302,6 +308,7 @@ export default function KaizenSuggestionSystem({ kiosk = false, onKioskExit }: {
               );
             })}
           </nav>
+          <KaizenBell api={api} onOpen={openNotification} />
           {kiosk && (
             <div className="flex items-center gap-2 shrink-0 pl-2 border-l border-slate-200">
               <span className="hidden sm:block text-sm font-semibold text-slate-700 max-w-[10rem] truncate">{appUser?.full_name}</span>

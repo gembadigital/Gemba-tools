@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
-import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, IdCard, Download, Upload, Copy, KeyRound, MonitorSmartphone, QrCode, SlidersHorizontal, Coins, Clock, ListChecks, Gift, GitBranch } from "lucide-react";
+import { Plus, Trash2, Users, Star, Search, Pencil, X, Save, IdCard, Download, Upload, Copy, KeyRound, MonitorSmartphone, QrCode, SlidersHorizontal, Coins, Clock, ListChecks, Gift, GitBranch, BellRing, Send, Eye, Loader2 } from "lucide-react";
+import { REMINDER_LABELS, ReminderDigest } from "../../utils/kaizenReminders";
 import { KaizenPersonnel, KaizenCriteria } from "./kaizenTypes";
 import { buildOrg, subordinateIds, managerChain } from "../../utils/kaizenOrg";
 import KaizenPersonnelImport, { exportPersonnel, downloadPersonnelTemplate } from "./KaizenPersonnelImport";
@@ -49,7 +50,7 @@ export default function KaizenSetup({ personnel, criteria, personnelCrud, criter
       />
       {tab === "personnel" && <PersonnelTab personnel={personnel} personnelCrud={personnelCrud} onChanged={onPersonnelChanged} canGrantBoardAdmin={canGrantBoardAdmin} api={api} showToast={showToast} pinPolicy={settings.pinPolicy} loginLink={loginLink} />}
       {tab === "criteria" && <CriteriaTab criteria={criteria} criteriaCrud={criteriaCrud} baseCurrency={settings.baseCurrency} />}
-      {tab === "settings" && <SettingsTab settings={settings} onSave={onSaveSettings} loginLink={loginLink} companyName={companyName || ""} />}
+      {tab === "settings" && <SettingsTab settings={settings} onSave={onSaveSettings} loginLink={loginLink} companyName={companyName || ""} api={api} showToast={showToast} />}
     </div>
   );
 }
@@ -305,7 +306,7 @@ function CriteriaTab({ criteria, criteriaCrud, baseCurrency }: { criteria: Kaize
 
 // Müşteri bazında ayarlar (Faz 2-B). Inputs are kept as strings while editing; the shared
 // normalizeKaizenSettings() (same one the server runs) decides what is actually valid on save.
-function SettingsTab({ settings, onSave, loginLink, companyName }: { settings: KaizenSettings; onSave: (s: KaizenSettings) => Promise<any>; loginLink: string; companyName: string }) {
+function SettingsTab({ settings, onSave, loginLink, companyName, api, showToast }: { settings: KaizenSettings; onSave: (s: KaizenSettings) => Promise<any>; loginLink: string; companyName: string; api: KaizenApi; showToast: (m: string) => void }) {
   const [qrOpen, setQrOpen] = useState(false);
   const fromSettings = (st: KaizenSettings) => ({
     baseCurrency: st.baseCurrency,
@@ -324,7 +325,9 @@ function SettingsTab({ settings, onSave, loginLink, companyName }: { settings: K
     boardScoreRequired: st.boardScoreRequired,
     pinPolicy: st.pinPolicy,
     kioskIdle: String(st.kioskIdleSeconds),
-    kioskAfter: String(st.kioskAfterSubmitSeconds)
+    kioskAfter: String(st.kioskAfterSubmitSeconds),
+    remindersEnabled: st.remindersEnabled,
+    noPlanDays: String(st.noPlanReminderDays)
   });
   const [d, setD] = useState(() => fromSettings(settings));
   const [saving, setSaving] = useState(false);
@@ -348,7 +351,9 @@ function SettingsTab({ settings, onSave, loginLink, companyName }: { settings: K
     boardScoreRequired: d.boardScoreRequired,
     pinPolicy: d.pinPolicy,
     kioskIdleSeconds: d.kioskIdle,
-    kioskAfterSubmitSeconds: d.kioskAfter
+    kioskAfterSubmitSeconds: d.kioskAfter,
+    remindersEnabled: d.remindersEnabled,
+    noPlanReminderDays: d.noPlanDays
   });
   const foreign = next.currencies.filter(c => c !== next.baseCurrency && c !== IN_KIND_CURRENCY);
 
@@ -484,6 +489,25 @@ function SettingsTab({ settings, onSave, loginLink, companyName }: { settings: K
       </Card>
 
       <Card className="xl:col-span-2">
+        <SectionTitle icon={BellRing} title="Haftalık hatırlatmalar" hint="Her pazartesi sabahı bekleyen işler kişi başına tek özet olarak gönderilir (uygulama içi + e-posta)" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+          <div className="space-y-4">
+            <Toggle checked={d.remindersEnabled} onChange={v => setD(x => ({ ...x, remindersEnabled: v }))} title="Hatırlatmalar açık"
+              text={d.remindersEnabled ? "Amir, Kurul, fizibilite sorumlusu ve uygulama sorumlularına haftalık özet gider." : "Haftalık özet gönderilmez; kararlar ve mesajlar yine bildirilir."} />
+            <Field label="Kabul edilip planı yapılmayanlar için hatırlatma (gün)">
+              <input type="number" min={1} max={365} value={d.noPlanDays} onChange={e => setD(x => ({ ...x, noPlanDays: e.target.value }))} className={inputCls} />
+            </Field>
+            <ul className="text-xs text-slate-500 space-y-1.5 list-disc list-inside">
+              <li>Amir / Kurul onayı bekleyenler, hedef tarihi geçen fizibilite ve uygulamalar, zamanı gelen kalıcılık kontrolleri.</li>
+              <li>Kabul edilip {next.noPlanReminderDays} gün içinde uygulama planı girilmeyen öneriler takım liderine ve Kurul Yöneticisine.</li>
+              <li>E-postası olmayan (sicil no ile giren) kişiler hatırlatmayı uygulamadaki zilden görür.</li>
+            </ul>
+          </div>
+          <ReminderPreview api={api} showToast={showToast} enabled={settings.remindersEnabled} />
+        </div>
+      </Card>
+
+      <Card className="xl:col-span-2">
         <SectionTitle icon={GitBranch} title="Onay Akışı" hint="Yeni gönderilen önerilere uygulanır; süreçteki öneriler gönderildikleri andaki akışla devam eder" />
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
           <Toggle
@@ -575,6 +599,57 @@ function OptionListEditor({ label, items, defaults, onChange }: { label: string;
         <Button variant="ghost" onClick={add} disabled={!canAdd} className="shrink-0"><Plus className="w-4 h-4" />Ekle</Button>
       </div>
       {exists && value && <p className="text-xs text-amber-700 mt-1">Bu seçenek zaten listede.</p>}
+    </div>
+  );
+}
+
+// What this week's digest would contain (computed by the server from the saved settings), and a
+// manual "send now" for the Kurul Yöneticisi — e.g. before a Kurul meeting.
+function ReminderPreview({ api, showToast, enabled }: { api: KaizenApi; showToast: (m: string) => void; enabled: boolean }) {
+  const [digests, setDigests] = useState<ReminderDigest[] | null>(null);
+  const [busy, setBusy] = useState<"" | "preview" | "send">("");
+  const preview = async () => {
+    setBusy("preview");
+    setDigests((await api.get("reminders/preview")) || []);
+    setBusy("");
+  };
+  const send = async () => {
+    if (!window.confirm("Bekleyen işler için hatırlatma özetleri şimdi gönderilsin mi?")) return;
+    setBusy("send");
+    const res = await api.post("reminders/send", {});
+    setBusy("");
+    if (res?.success) showToast(res.data?.skipped || `${res.data?.sent ?? 0} kişiye hatırlatma gönderildi.`);
+  };
+  return (
+    <div className="rounded-xl border border-slate-200 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-slate-800">Bu haftanın özeti</p>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={preview} disabled={!!busy}>{busy === "preview" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}Önizle</Button>
+          <Button variant="brand" onClick={send} disabled={!!busy || !enabled}>{busy === "send" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}Şimdi gönder</Button>
+        </div>
+      </div>
+      {!enabled && <p className="text-xs text-amber-700 mt-2">Hatırlatmalar kayıtlı ayarlarda kapalı; göndermek için açıp kaydedin.</p>}
+      {digests === null ? (
+        <p className="text-xs text-slate-500 mt-3">Kimin hangi konular için hatırlatma alacağını görmek için Önizle'ye basın. Önizleme kayıtlı ayarlara göre hesaplanır.</p>
+      ) : digests.length === 0 ? (
+        <p className="text-sm text-emerald-700 mt-3">Bekleyen iş yok; bu hafta hatırlatma gitmez.</p>
+      ) : (
+        <ul className="mt-3 max-h-80 overflow-y-auto divide-y divide-slate-100">
+          {digests.map(dg => {
+            const byKind = dg.items.reduce<Record<string, number>>((acc, i) => ({ ...acc, [i.kind]: (acc[i.kind] || 0) + 1 }), {});
+            return (
+              <li key={dg.key} className="py-2.5 flex gap-3">
+                <Avatar name={dg.name} size="sm" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900">{dg.name}{!dg.email && <span className="ml-2 text-[11px] font-medium text-slate-400">yalnızca uygulama içi</span>}</p>
+                  <p className="text-xs text-slate-500">{Object.entries(byKind).map(([k, n]) => `${REMINDER_LABELS[k as keyof typeof REMINDER_LABELS]}: ${n}`).join(" · ")}</p>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
