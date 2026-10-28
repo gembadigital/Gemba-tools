@@ -161,6 +161,15 @@ Boyut: S (≤ yarım gün) · M (1–2 gün) · L (3+ gün). Her adım ayrı com
 |---|---|
 | CI önce-sonra kaydını Kaizen önce-sonra galerisine gönder (Kaizen modülü açıksa); Kaizen önerisini CI projesine yükselt | Aynı iyileştirme iki yerde tekrar girilmez. |
 
+### C8b — A3 sunum kartı iyileştirmesi (kullanıcı notu, 2026-10-28) — yapılacak
+| İş | Kabul ölçütü |
+|---|---|
+| Veriler grafiklerle: kayıp / kazanç, KPI trendi, aksiyon ilerlemesi, kazanç kırılımı görsel olarak (metin yerine) | Sunum kartı tablo/metin ağırlıklı değil, grafik ağırlıklı. |
+| Kök neden sunumda: balık kılçığı diyagramı ve/veya 5 Neden zinciri görsel olarak | Seçilen yöntem kartta diyagram olarak görünür (★ kök nedenler vurgulu). |
+| Uygulama takvimi formatı: aksiyonların zaman çizelgesi (Gantt) | Kartta başlangıç–termin çubukları ve durum. |
+| PDCA planı: 8 adımın PDCA'ya göre planlanan / gerçekleşen tarihleri | Kartta PDCA şeridi (Plan–Do–Check–Act) adım tarihleriyle. |
+Not: tek sayfa A4 sığması korunacak; gerekirse 2. sayfa (ek) seçeneği.
+
 ### C11 — Ayırma / Opx Suite (L)
 Kaizen Faz 7 ile birlikte: tek "İyileştirme" programı (Kaizen öneri + CI proje) ya da ayrı modüller; ortak personel, ayar, bildirim, giriş adaptörleri.
 **Karar (2026-10-28):** ayırma tek tek değil, **bütün modüller birlikte** yapılacak (Kaizen Faz 7, CI C11 ve diğer
