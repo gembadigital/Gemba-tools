@@ -1094,7 +1094,7 @@ export default function App() {
 
             {activeTab === "vsm" && (
               <div key={selectedCustomerId}>
-                <VsmPage />
+                <VsmPage currentUser={currentUser} />
               </div>
             )}
 

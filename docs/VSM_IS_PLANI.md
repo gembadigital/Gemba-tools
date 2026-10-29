@@ -239,30 +239,62 @@ push ve `docs/VSM_CANLI_TEST.md`'ye canlı test satırları.
 ### V11 — Ayırma / Opx Suite (L)
 - Kaizen, CI ve diğer modüllerle **birlikte, en sonda** (CI C11 kararı). Bu planda yalnızca ayrılabilir yazılır.
 
-## 4. Önerilen sıra
+### V12 — AI VSM analizi ve yönlendirme (M) — kullanıcı kararı 6
+- Sunucuda Gemini (`GEMINI_API_KEY`): girdi = VSM projesinin tüm verisi (talep/takt, prosesler, stoklar, zaman
+  çizgisi, darboğaz, gelecek durum, kaizen patlamaları, uygulama planı durumu) + müşterinin diğer modül özetleri
+  (Loss Capacity, SMED, Yamazumi, OEE, OpEx). Çıktı: bulgular, VSM özelinde yönlendirme (sürekli akış / süpermarket
+  / FIFO nerede, pacemaker, harmanlama, pitch, öncelikli kaizenler ve gerekçesi), açık sorular.
+- Uydurma sayı yok: yalnızca girdideki sayılar kullanılır; sonuç projeye kaydedilir (tarih + veri özeti), "yenile"
+  ile yeniden üretilir; üretilemezse kısa hata gösterilir.
 
-V0 → V1 → V2 → V3 → V4 → V5 → V6 → V7 → V8 → V9 → V10 (V11 en sonda, diğer modüllerle).
-Gerekçe: V0 canlıdaki güvenlik açığını ve müşteriye gösterilen uydurma sayıları hemen kapatır; V1 olmadan sonraki
-adımlar 5.348 satırlık dosyada yapılmak zorunda kalır; V2 veri modeli V3–V8'in temelidir. V8 (çıktılar) müşteri
-sunumu için öne alınabilir ama V3–V5 bitmeden rapor içeriği eksik kalır.
+## 4. Sıra (kullanıcı kararıyla, 2026-10-29)
 
-## 5. Kullanıcı kararı gereken noktalar
+**V0 → V1 (+ veri kaynağı katmanı) → V2 (+ ürün–proses matrisi) → V8 (çıktılar, mevcut içerikle; sonraki adımlarda
+genişler) → V3 → V4 → V5 → örnek proje → V6 → V12 (AI) → V7 → V9 → V10.** V11 (ayırma) en sonda, diğer modüllerle.
 
-1. **Yetki:** Customer User VSM'de ne yapabilsin? (a) yalnızca görüntüle, (b) veri girişi yapsın ama silemesin,
-   (c) her şey. Öneri: (b) — proses/stok verisini müşteri ekibi sahada girebilsin; proje oluşturma/silme ve gelecek
-   durum Admin/Consultant.
-2. **Mevcut canlı VSM projeleri:** içlerindeki örnek hat verisi (KESME & PRE-FORM … KALİTE KONTROL) ve uydurma
-   değerler olduğu gibi mi kalsın, yoksa yedek alınıp kullanıcı onayıyla temizlensin mi? (Önce sayıyı salt okunur
-   sorguyla çıkarabilirim.)
-3. **Gelecek durum modeli:** ayrı harita kopyası (öneri, V5) mi, yoksa bugünkü "aynı proseslere düzeltme katmanı"
-   korunsun mu?
-4. **"Yalın Gelecek Durum Şablonu"** (tek tıkla %50/%65/%12 iyileştirme): kaldırılsın mı (öneri), yoksa "öneri
-   taslağı" etiketiyle kalsın mı?
-5. **Yapay zekâ:** dashboard'daki özet gerçek Gemini analizine çevrilsin mi (OpEx Danışman Özet Sunumu gibi), yoksa
-   yalnızca hesaplanan metin mi kalsın?
-6. **Ürün ailesi seçimi (A1):** ürün–proses matrisi isteniyor mu, yoksa proje başına tek ürün ailesi metni yeterli mi?
-7. **Mobil kapsam:** telefonda yalnızca veri girişi + harita görüntüleme mi (öneri), yoksa harita düzenleme de mi?
-8. **Sıra:** V8 (PDF/Excel çıktı) müşteri sunumu için öne alınsın mı?
+## 5. Kullanıcı kararları (2026-10-29)
+
+1. **Yetki:** Customer User veri girebilir (proje açma, proses/stok verisi) ve **yalnızca kendi girdiği veriyi**
+   (kendi açtığı proje, kendi eklediği proses) silebilir. Admin/Consultant her şeyi. Sunucuda zorlanır (V0):
+   proses ve projelerde `createdBy` sunucu tarafından yazılır; başkasının prosesini çıkaran kayıt 403 alır.
+2. **Canlı örnek veri:** silinir (yedek alınarak). Canlıda yalnızca 1 VSM projesi vardı: ACME demo
+   (`cust_acmedemo1`, `vsm_proj_71re5yz5r`, 4 örnek proses) + ona bağlı 4 maliyet tablosu satırı (`vsm_p1…p4`).
+   Yedek: `~/Claude/5SAudit/yedekler/vsm_projects_backup_2026-10-29.json`, `processes_backup_2026-10-29.json`.
+3. **Yeni örnek proje (kullanıcı isteği):** ACME demo müşterisinde **8 prosesli mevcut durum**; ideal/gelecek durumda
+   iş birleştirme ile **6 prosese** inen ve **çekme (süpermarket/kanban/FIFO)** modeliyle çizilmiş harita. Gelecek
+   durumda proses birleştirme V5 ile geldiği için örnek V5'ten hemen sonra hazırlanır (mevcut durum kısmı V2'den
+   sonra girilebilir). Gerçek müşteri verisi değildir; proje adında "Örnek" yazar.
+4. **Gelecek durum:** ayrı harita kopyası (V5).
+5. **"Yalın Gelecek Durum Şablonu":** kaldırılır (V0).
+6. **AI:** gerçek analiz — VSM'in tüm verilerini (proje, talep/takt, prosesler, stoklar, zaman çizgisi, gelecek durum,
+   kaizen patlamaları) ve müşterinin diğer modül özetlerini alıp yorumlar, **VSM özelinde yönlendirme** yapar
+   (darboğaz, nerede sürekli akış / süpermarket / FIFO, pacemaker, harmanlama, hangi kaizen önce). Yeni adım **V12**
+   (OpEx Danışman Özet Sunumu deseni: sunucuda Gemini, sonuç projeye kaydedilir, yenileme butonu). V0'da şablon
+   metin "hesaplanan özet" olarak yeniden adlandırılır, gerçekleşmiş sonuç dili kaldırılır.
+7. **Ürün–proses matrisi:** önemli → V2 kapsamına alındı (ürün listesi × proses matrisi, hacim payı, aile gruplama
+   önerisi, seçilen aile projeye bağlanır).
+8. **Mobil ve tablet:** telefonda veri girişi (kart/form) + harita görüntüleme; tablette harita düzenleme de (V3).
+9. **Çıktılar (V8):** öne alındı.
+10. **Harita tasarımı:** genel tasarım ve çizim başarılı bulundu — **genel akış değiştirilmez**, V3 mevcut görünümü
+    koruyarak sembolleri ekler. **Varsayılan görünüm açık (light) mod** (V0).
+
+### Veri kaynağı mimarisi (kullanıcı kararı 10; V1'de iskelet, V2'de manuel kaynak, Opx Suite bağlayıcısı ayırma sırasında)
+
+VSM hesap motoru verinin nereden geldiğini bilmez; prosesler bir **veri kaynağı bağdaştırıcısı** üzerinden gelir:
+
+| Kaynak | Nerede | Ne verir |
+|---|---|---|
+| `manual` | Gemba Tools (bugün) ve tek başına uygulama | Elle girilen proses/stok verisi (bugünkü sekmeler). |
+| `import` | Tek başına uygulama / Gemba Tools | Excel saha formu ya da başka bir panelden aktarım (V8 şablonu). |
+| `opxSuite` | Opx Suite içinde | Hat → makine/proses kartı (C/T, makine, operatör, vardiya), iş emri kapamaları (toplam adet, hurda, süre), makine OEE/duruş. **Hat + tarih aralığı + ürün** seçilir; kaynak bu filtreyle proses verisini hesaplar (ortalama C/T, gerçekleşen adet, hurda, kullanılabilirlik, C/O). |
+
+Tasarım: `src/components/vsm/dataSources/` altında ortak arayüz —
+`listLines()`, `listProducts(lineId, from, to)`, `loadProcessSnapshot({ lineId, productId, from, to }) →
+VsmProcessInput[]` (her alan için kaynak etiketi: `manual` / `opxSuite:<kayıt>` ve tarih aralığı). Proje kaydı hangi
+kaynaktan, hangi filtreyle ve hangi tarihte çekildiğini saklar (`dataSource: { kind, lineId, productId, from, to,
+pulledAt }`); çekilen değerler **anlık görüntü** olarak versiyona yazılır (V7), kaynak verisi değişse de harita
+değişmez, "yeniden çek" ile yeni versiyon oluşur. Gemba Tools'ta yalnızca `manual` etkin; `opxSuite` bağlayıcısı
+arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11) sırasında Opx Suite veri tabanına bağlanır.
 
 ## 6. İlerleme
 

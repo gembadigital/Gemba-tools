@@ -25,6 +25,7 @@ import {
   Cell as RechartsCell
 } from "recharts";
 import { ProcessRecord, Customer } from "../types";
+import { VsmUserLike, canDeleteVsmProcess, canDeleteVsmProject } from "../utils/vsmAccess";
 import { domToCanvas } from "modern-screenshot";
 import { jsPDF } from "jspdf";
 
@@ -66,6 +67,8 @@ interface VsmProcess {
   isSupermarket: boolean;
   notes: string;
   kaizenOpp: string;
+  // User who added the process — stamped by the server; a Customer User may delete only their own.
+  createdBy?: string;
 
   // Tab 2 Process Definition extra fields
   planningFrequency?: string;
@@ -101,6 +104,34 @@ interface VsmProcess {
   inventoryBetweenProcesses?: number;
   leadTimeContribution?: number;
   changeoverMinutes?: number;
+}
+
+// Project-level parameters (Kurulum sekmesi). Text fields feed the map's customer / supplier /
+// production-control boxes; numbers left 0 mean "not entered".
+interface VsmFactorySetup {
+  workingDays: number;
+  shiftStructure: string;
+  shiftDuration: number;
+  breakTimes: number;
+  plannedMaintenance: number;
+  weeklyDemand: number;
+  productFamily: string;
+  customerName: string;
+  shippingFrequency: string;
+  productVolumeShare: number;
+  scrapUnitCost: number;
+  holdingCostPerWipYearly: number;
+  downtimeHourlyCost: number;
+  supplierName: string;
+  supplierMaterial: string;
+  supplierDelivery: string;
+  supplierBatch: string;
+  supplierLeadTime: string;
+  supplierLogistics: string;
+  planningSystem: string;
+  planningFrequency: string;
+  planningSequencing: string;
+  planningCalendar: string;
 }
 
 // --- GRAPH-BASED PROCESS FLOW HELPERS ---
@@ -280,7 +311,7 @@ function computeCriticalPath(
   return { totalDays: Math.round(maxVal * 100) / 100, criticalPathIds };
 }
 
-export default function VsmPage() {
+export default function VsmPage({ currentUser = null }: { currentUser?: VsmUserLike | null }) {
   const { selectedCustomerId, selectedCustomer } = useFactory();
   const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
 
@@ -316,21 +347,35 @@ export default function VsmPage() {
   const [vsmProcesses, setVsmProcesses] = useState<VsmProcess[]>([]);
   const [activeTab, setActiveTab] = useState<"setup" | "definition" | "production" | "quality" | "vsm" | "dashboard">("vsm");
   
-  const [factorySetup, setFactorySetup] = useState({
-    workingDays: 5,
-    shiftStructure: "2 Vardiya",
-    shiftDuration: 8,
-    breakTimes: 75,
-    plannedMaintenance: 15,
-    weeklyDemand: 3000,
-    productFamily: "Isıtıcı Grubu",
-    customerName: "Beko Global",
-    shippingFrequency: "Günlük (Daily)",
-    productVolumeShare: 30,
-    scrapUnitCost: 450,
-    holdingCostPerWipYearly: 150,
-    downtimeHourlyCost: 2500
-  });
+  // A new project starts empty: no demand, cost or partner names are invented (they used to be
+  // pre-filled with a sample factory's figures and "çalışan sayısı × 12" as weekly demand).
+  const emptyFactorySetup = (): VsmFactorySetup => ({
+      workingDays: 5,
+      shiftStructure: "",
+      shiftDuration: 8,
+      breakTimes: 0,
+      plannedMaintenance: 0,
+      weeklyDemand: 0,
+      productFamily: "",
+      customerName: "",
+      shippingFrequency: "",
+      productVolumeShare: 0,
+      scrapUnitCost: 0,
+      holdingCostPerWipYearly: 0,
+      downtimeHourlyCost: 0,
+      // Map boxes (Tedarikçi / Üretim Planlama) — entered by the user, never pre-filled.
+      supplierName: "",
+      supplierMaterial: "",
+      supplierDelivery: "",
+      supplierBatch: "",
+      supplierLeadTime: "",
+      supplierLogistics: "",
+      planningSystem: "",
+      planningFrequency: "",
+      planningSequencing: "",
+      planningCalendar: ""
+    });
+  const [factorySetup, setFactorySetup] = useState<VsmFactorySetup>(emptyFactorySetup);
 
   // İş Gücü Analizi (Norm Kadro) — which method the dashboard's workforce section uses to
   // derive "Gerekli İş Gücü" per process from the existing VSM data (no new inputs required).
@@ -411,18 +456,11 @@ export default function VsmPage() {
       ? { ...editingProject, ...projForm }
       : { 
           ...projForm,
-          vsmProcesses: defaultVsmProcesses, // initialize with defaults
+          vsmProcesses: [],
           factorySetup: {
-            workingDays: 5,
-            shiftStructure: "2 Vardiya",
-            shiftDuration: 8,
-            breakTimes: 75,
-            plannedMaintenance: 15,
-            weeklyDemand: selectedCustomer?.employeeCount ? Math.round(selectedCustomer.employeeCount * 12) : 3000,
-            productFamily: projForm.productGroup || "Ürün Grubu",
-            customerName: selectedCustomer?.companyName || "Fabrika",
-            shippingFrequency: "Günlük (Daily)",
-            productVolumeShare: 30
+            ...emptyFactorySetup(),
+            productFamily: projForm.productGroup || "",
+            customerName: selectedCustomer?.companyName || ""
           }
         };
 
@@ -447,6 +485,8 @@ export default function VsmPage() {
           setProjects(prev => [data.data, ...prev]);
         }
         setIsProjectModalOpen(false);
+      } else {
+        alert(data.error || "VSM projesi kaydedilemedi.");
       }
       setIsSavingProject(false);
     })
@@ -473,6 +513,8 @@ export default function VsmPage() {
         if (selectedProject?.id === id) {
           setSelectedProject(null);
         }
+      } else {
+        alert(data.error || "VSM projesi silinemedi.");
       }
     })
     .catch(err => {
@@ -483,45 +525,13 @@ export default function VsmPage() {
   const handleSelectProject = (project: any) => {
     setSelectedProject(project);
     if (project) {
-      if (project.factorySetup) {
-        setFactorySetup({
-          workingDays: project.factorySetup.workingDays ?? 5,
-          shiftStructure: project.factorySetup.shiftStructure || "2 Vardiya",
-          shiftDuration: project.factorySetup.shiftDuration ?? 8,
-          breakTimes: project.factorySetup.breakTimes ?? 75,
-          plannedMaintenance: project.factorySetup.plannedMaintenance ?? 15,
-          weeklyDemand: project.factorySetup.weeklyDemand ?? 3000,
-          productFamily: project.factorySetup.productFamily || "Ürün Grubu",
-          customerName: project.factorySetup.customerName || "Fabrika",
-          shippingFrequency: project.factorySetup.shippingFrequency || "Günlük (Daily)",
-          productVolumeShare: project.factorySetup.productVolumeShare ?? 30,
-          scrapUnitCost: project.factorySetup.scrapUnitCost ?? 45,
-          holdingCostPerWipYearly: project.factorySetup.holdingCostPerWipYearly ?? 18,
-          downtimeHourlyCost: project.factorySetup.downtimeHourlyCost ?? 350
-        });
-      } else {
-        setFactorySetup({
-          workingDays: 5,
-          shiftStructure: "2 Vardiya",
-          shiftDuration: 8,
-          breakTimes: 75,
-          plannedMaintenance: 15,
-          weeklyDemand: selectedCustomer?.employeeCount ? Math.round(selectedCustomer.employeeCount * 12) : 3000,
-          productFamily: project.productGroup || "Ürün Grubu",
-          customerName: selectedCustomer?.companyName || "Fabrika",
-          shippingFrequency: "Günlük (Daily)",
-          productVolumeShare: 30,
-          scrapUnitCost: 45,
-          holdingCostPerWipYearly: 18,
-          downtimeHourlyCost: 350
-        });
-      }
-
-      if (project.vsmProcesses && project.vsmProcesses.length > 0) {
-        setVsmProcesses(project.vsmProcesses);
-      } else {
-        setVsmProcesses(defaultVsmProcesses);
-      }
+      setFactorySetup({
+        ...emptyFactorySetup(),
+        customerName: selectedCustomer?.companyName || "",
+        productFamily: project.productGroup || "",
+        ...(project.factorySetup || {})
+      });
+      setVsmProcesses(Array.isArray(project.vsmProcesses) ? project.vsmProcesses : []);
 
       if (project.simulationEdits) {
         setSimulationEdits(project.simulationEdits);
@@ -563,18 +573,16 @@ export default function VsmPage() {
       // different origin (untagged legacy process, or another project's own manual cost-table
       // edit) keeps its existing cost figures untouched, exactly as before.
       const ownsCostFields = !matched || matched.vsmProjectId === vsmProjectId;
-      const costFields = ownsCostFields ? (() => {
-        const scrapQty = vp.scrap ?? 10;
-        const reworkQty = vp.rework ?? 5;
-        return {
-          scrapCost: su ? scrapQty * su * 250 : scrapQty * 800,
-          // 40% of item cost for rework matches the same ratio calculateFinancialImpact already
-          // assumes (helpers.ts) — no dedicated rework-unit-cost field exists on factorySetup.
-          reworkCost: su ? reworkQty * su * 0.4 * 250 : reworkQty * 350,
-          downtimeCost: dh ? (vp.downtimeMinutes / 60) * dh * 250 : vp.downtimeMinutes * 2500,
-          waitingLoss: hc ? vp.inventoryBefore * hc : vp.inventoryBefore * 50
-        };
-      })() : {};
+      // Cost fields only from quantities and unit costs the user actually entered; a missing one is left
+      // out (the row keeps whatever it had) instead of being invented.
+      const costFields: Record<string, number> = {};
+      if (ownsCostFields) {
+        if (su > 0 && vp.scrap !== undefined) costFields.scrapCost = vp.scrap * su * workDaysPerYear;
+        // 40% of item cost for rework matches the ratio calculateFinancialImpact assumes (helpers.ts).
+        if (su > 0 && vp.rework !== undefined) costFields.reworkCost = vp.rework * su * 0.4 * workDaysPerYear;
+        if (dh > 0) costFields.downtimeCost = (vp.downtimeMinutes / 60) * dh * workDaysPerYear;
+        if (hc > 0) costFields.waitingLoss = vp.inventoryBefore * hc;
+      }
 
       const updatedProcess = {
         ...(matched || {}),
@@ -633,6 +641,7 @@ export default function VsmPage() {
       if (data.success) {
         setProjects(prev => prev.map(p => p.id === data.data.id ? data.data : p));
         setSelectedProject(data.data);
+        if (Array.isArray(data.data.vsmProcesses)) setVsmProcesses(data.data.vsmProcesses);
         // Use the fresh server response's id, not `selectedProject` — React state setters are
         // async, so `selectedProject` in this closure is still the pre-save value here (a real
         // stale-closure bug: a brand-new project's very first save would otherwise sync with an
@@ -640,6 +649,8 @@ export default function VsmPage() {
         syncVsmProcessesToCostTable(vsmProcesses, data.data.id);
         setJustSavedProject(true);
         setTimeout(() => setJustSavedProject(false), 2000);
+      } else {
+        alert(data.error || "VSM projesi kaydedilemedi.");
       }
       setIsSavingProject(false);
     })
@@ -659,7 +670,7 @@ export default function VsmPage() {
   const [isPanning, setIsPanning] = useState<boolean>(false);
   const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
-  const [vsmBrightMode, setVsmBrightMode] = useState<boolean>(false);
+  const [vsmBrightMode, setVsmBrightMode] = useState<boolean>(true);
 
   // Drag and drop state
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
@@ -696,257 +707,15 @@ export default function VsmPage() {
     });
   };
 
-  // --- MAPPED RAW PROCESSES FOR VSM COMPATIBILITY ---
-  const defaultVsmProcesses = useMemo<VsmProcess[]>(() => {
-    // Standard backup set of processes if no operational data exists yet
-    const fallbackList: VsmProcess[] = [
-      {
-        id: "vsm_p1",
-        name: "KESME & PRE-FORM",
-        type: "Automatic",
-        productionModel: "Batch",
-        machineCount: 1,
-        operatorCount: 1,
-        shifts: 2,
-        workingHours: 8,
-        cycleTime: 45,
-        oee: 75,
-        availability: 85,
-        performance: 90,
-        quality: 98,
-        capacity: 1000,
-        downtimeMinutes: 15,
-        inventoryBefore: 1200,
-        isKanbanEnabled: false,
-        isSupermarket: false,
-        notes: "Lazer kesim toleransı ±0.1mm. Kalıp ayar süresi yüksek.",
-        kaizenOpp: "SMED çalışması ile kalıp değişim süresi 45 dk'dan 15 dk'ya indirilebilir."
-      },
-      {
-        id: "vsm_p2",
-        name: "PRES FORM VERME",
-        type: "Automatic",
-        productionModel: "Batch",
-        machineCount: 1,
-        operatorCount: 1,
-        shifts: 2,
-        workingHours: 8,
-        cycleTime: 50,
-        oee: 70,
-        availability: 80,
-        performance: 90,
-        quality: 97,
-        capacity: 900,
-        downtimeMinutes: 25,
-        inventoryBefore: 650,
-        isKanbanEnabled: true,
-        isSupermarket: true,
-        notes: "250 Ton hidrolik pres gövde bükümü gerçekleştirir.",
-        kaizenOpp: "Malzeme besleme milk-run sistemine geçilerek bekleme elenebilir."
-      },
-      {
-        id: "vsm_p3",
-        name: "ROBOTİK KAYNAK",
-        type: "Semi Automatic",
-        productionModel: "Cell",
-        machineCount: 2,
-        operatorCount: 2,
-        shifts: 2,
-        workingHours: 8,
-        cycleTime: 72,
-        oee: 84,
-        availability: 92,
-        performance: 95,
-        quality: 96,
-        capacity: 1100,
-        downtimeMinutes: 10,
-        inventoryBefore: 300,
-        isKanbanEnabled: false,
-        isSupermarket: false,
-        notes: "Gövde birleştirme kaynak robot hücresi.",
-        kaizenOpp: "Fikstür yükleme ergonomisi iyileştirilerek çevrim süresi 8sn kısaltılabilir."
-      },
-      {
-        id: "vsm_p4",
-        name: "BOYAHANE / KAPLAMA",
-        type: "Automatic",
-        productionModel: "Assembly Line",
-        machineCount: 1,
-        operatorCount: 2,
-        shifts: 2,
-        workingHours: 8,
-        cycleTime: 110, // Exceeds Takt Time
-        oee: 68,
-        availability: 78,
-        performance: 90,
-        quality: 97,
-        capacity: 480,
-        downtimeMinutes: 45,
-        inventoryBefore: 1600, // Large bottleneck inventory
-        isKanbanEnabled: false,
-        isSupermarket: false,
-        notes: "Toz boya fırın kürlenme süresi kısıtlıdır.",
-        kaizenOpp: "Fırın askılama yoğunluğu optimize edilerek kapasite %25 artırılabilir."
-      },
-      {
-        id: "vsm_p5",
-        name: "MONTAJ HATTI",
-        type: "Manual",
-        productionModel: "Assembly Line",
-        machineCount: 0,
-        operatorCount: 8,
-        shifts: 2,
-        workingHours: 8,
-        cycleTime: 65,
-        oee: 78,
-        availability: 88,
-        performance: 92,
-        quality: 96,
-        capacity: 1400,
-        downtimeMinutes: 8,
-        inventoryBefore: 180,
-        isKanbanEnabled: true,
-        isSupermarket: true,
-        notes: "Hücresel montaj hattı düzeni.",
-        kaizenOpp: "Hat dengeleme (Yamazumi) çalışması ile operatör verimi artırılabilir."
-      },
-      {
-        id: "vsm_p6",
-        name: "KALİTE KONTROL & SEVK",
-        type: "Manual",
-        productionModel: "Cell",
-        machineCount: 1,
-        operatorCount: 2,
-        shifts: 2,
-        workingHours: 8,
-        cycleTime: 55,
-        oee: 88,
-        availability: 95,
-        performance: 96,
-        quality: 97,
-        capacity: 1200,
-        downtimeMinutes: 2,
-        inventoryBefore: 90,
-        isKanbanEnabled: false,
-        isSupermarket: false,
-        notes: "Kamera destekli sızdırmazlık kontrolü ve paketleme.",
-        kaizenOpp: "Poka-Yoke entegrasyonu ile manuel kontrol süreleri azaltılabilir."
-      }
-    ];
-
-    if (dbProcesses && dbProcesses.length > 0) {
-      // Map existing Operational Data processes into beautiful, comprehensive VSM processes!
-      return dbProcesses.map((p, index) => {
-        const qualityRate = p.scrapCost > 0 ? Math.max(80, 100 - (p.scrapCost / 4000)) : 98;
-        const downtimeMin = p.downtimeCost > 0 ? Math.min(120, Math.round(p.downtimeCost / 1200)) : 15;
-        
-        // Formulate reasonable VSM mapping fields
-        return {
-          id: p.id,
-          name: p.name.toUpperCase(),
-          type: p.machineCount === 0 ? "Manual" : (p.operatorCount === 0 ? "Automatic" : "Semi Automatic"),
-          productionModel: p.machineCount > 2 ? "Cell" : "Assembly Line",
-          machineCount: p.machineCount || 1,
-          operatorCount: p.operatorCount || 2,
-          shifts: p.shiftCount || 2,
-          shiftHours: Array.from({ length: p.shiftCount || 2 }, () => p.workingHours || 8),
-          workingHours: (p.shiftCount || 2) * (p.workingHours || 8),
-          cycleTime: p.cycleTime || 60,
-          oee: p.oee || 75,
-          availability: p.utilizationRate || 85,
-          performance: 90,
-          quality: qualityRate,
-          capacity: p.capacity || 1000,
-          downtimeMinutes: downtimeMin,
-          inventoryBefore: index === 0 ? 1200 : (index === 3 ? 1500 : 250), // Realistic WIP layout
-          isKanbanEnabled: index % 2 === 1,
-          isSupermarket: index === 1 || index === 4,
-          notes: `${p.name} operasyon süreci. OEE seviyesi %${p.oee}.`,
-          kaizenOpp: p.scrapCost > 40000 
-            ? "Yüksek fire oranını düşürmek için Pokayoke veya kalite Kaizeni tasarlanmalı." 
-            : "Standart iş adımları tescil edilerek dengesizlik giderilebilir."
-        };
-      });
-    }
-    
-    return fallbackList;
-  }, [dbProcesses]);
-
+  // dbProcesses (the cost table) is only read to merge the VSM sync into existing rows; it never feeds
+  // the map — a VSM project shows exactly the processes stored in it.
   useEffect(() => {
     fetchProcesses();
   }, [selectedCustomerId]);
 
-  // --- SYNC FACTORY SETUP WITH SELECTED CUSTOMER ---
-  useEffect(() => {
-    if (selectedCustomer) {
-      setFactorySetup(prev => ({
-        ...prev,
-        customerName: selectedCustomer.companyName || prev.customerName,
-        productFamily: selectedCustomer.productionType || prev.productFamily,
-        weeklyDemand: selectedCustomer.employeeCount ? Math.round(selectedCustomer.employeeCount * 12) : prev.weeklyDemand
-      }));
-    }
-  }, [selectedCustomer]);
-
-  // --- INITIALIZE VSMPROCESSES FROM DEFAULTVSMPROCESSES ---
-  useEffect(() => {
-    if (defaultVsmProcesses && defaultVsmProcesses.length > 0) {
-      const initialized = defaultVsmProcesses.map((p, idx, arr) => {
-        const calculatedOee = p.oee || 75;
-        const calculatedAvail = p.availability || 85;
-        const calculatedQuality = p.quality || 98;
-        const actualQuantity = p.capacity || 1000;
-        const plannedQuantity = Math.round(actualQuantity * 1.1);
-        const idealCycleTime = p.cycleTime || 45;
-        
-        // Setup shift hours and daily total working hours
-        const shiftHours = p.shiftHours || Array.from({ length: p.shifts || 2 }, () => p.workingHours || 8);
-        const totalWorkingHours = shiftHours.reduce((sum, h) => sum + h, 0);
-        const productionTime = totalWorkingHours * 60; // in minutes
-        
-        const changeoverTime = 30; // default changeover mins
-        const breakdownTime = p.downtimeMinutes || 15;
-        const firstPieceApproval = 10;
-        const waitingTime = 15;
-        const minorStops = 5;
-        
-        const goodParts = Math.round(actualQuantity * (calculatedQuality / 100));
-        const scrap = actualQuantity - goodParts;
-        const rework = Math.round(actualQuantity * 0.05);
-        
-        return {
-          ...p,
-          shiftHours,
-          workingHours: totalWorkingHours,
-          planningFrequency: p.isKanbanEnabled ? "Daily" : "Weekly",
-          prevProcessId: idx > 0 ? arr[idx - 1].id : undefined,
-          nextProcessId: idx < arr.length - 1 ? arr[idx + 1].id : undefined,
-          plannedQuantity,
-          actualQuantity,
-          idealCycleTime,
-          productionTime,
-          changeoverTime,
-          changeoverFrequency: "1/Vardiya",
-          firstPieceApproval,
-          breakdownTime,
-          waitingTime,
-          minorStops,
-          goodParts,
-          scrap,
-          rework,
-          wipQuantity: p.inventoryBefore,
-          inventoryBetweenProcesses: p.inventoryBefore
-        };
-      });
-      setVsmProcesses(initialized);
-    }
-  }, [defaultVsmProcesses]);
-
-
-
   // --- AUTOMATED MANUFACTURING CALCULATIONS ---
   const activeProcesses = useMemo<VsmProcess[]>(() => {
-    const baseList = vsmProcesses.length > 0 ? vsmProcesses : defaultVsmProcesses;
+    const baseList = vsmProcesses;
     
     return baseList.map((p) => {
       // 1. Merge edits if in simulationMode and edits exist
@@ -954,30 +723,30 @@ export default function VsmPage() {
       const merged = { ...p, ...edits };
       
       // 2. Perform automated manufacturing calculations
-      const finalGoodParts = merged.goodParts !== undefined ? merged.goodParts : Math.round((merged.actualQuantity || 900) * ((merged.quality || 98) / 100));
-      const finalScrap = merged.scrap !== undefined ? merged.scrap : Math.round((merged.actualQuantity || 900) * (1 - (merged.quality || 98) / 100));
+      const finalGoodParts = merged.goodParts !== undefined ? merged.goodParts : Math.round((merged.actualQuantity ?? 0) * ((merged.quality ?? 0) / 100));
+      const finalScrap = merged.scrap !== undefined ? merged.scrap : Math.round((merged.actualQuantity ?? 0) * (1 - (merged.quality ?? 0) / 100));
       const calculatedQuality = (finalGoodParts + finalScrap) > 0 
         ? Math.round((finalGoodParts / (finalGoodParts + finalScrap)) * 1000) / 10 
-        : (merged.quality || 98);
+        : (merged.quality ?? 0);
 
       const finalShiftHours = merged.shiftHours || Array.from({ length: merged.shifts || 2 }, () => 8);
       const totalHours = finalShiftHours.reduce((sum, h) => sum + h, 0);
       const finalProdTime = totalHours * 60;
-      const finalCOTime = merged.changeoverTime || 0;
-      const finalBDTime = merged.breakdownTime || merged.downtimeMinutes || 0;
-      const finalFPApproval = merged.firstPieceApproval || 0;
+      const finalCOTime = merged.changeoverTime ?? 0;
+      const finalBDTime = merged.breakdownTime ?? merged.downtimeMinutes ?? 0;
+      const finalFPApproval = merged.firstPieceApproval ?? 0;
 
       // Availability = (Production Time - Changeover - Breakdown - First Piece Approval) / Production Time * 100
       const availTime = finalProdTime - finalCOTime - finalBDTime - finalFPApproval;
       const calculatedAvailability = finalProdTime > 0 
         ? Math.max(0, Math.min(100, Math.round((availTime / finalProdTime) * 1000) / 10)) 
-        : (merged.availability || 85);
+        : (merged.availability ?? 0);
 
       // Performance = (Actual Quantity * Ideal Cycle Time) / (Avail Time * 60) * 100
       const idealCT = merged.idealCycleTime || merged.cycleTime;
       const calculatedPerformance = (availTime > 0 && merged.actualQuantity !== undefined) 
         ? Math.max(0, Math.min(100, Math.round(((merged.actualQuantity * idealCT) / (availTime * 60)) * 1000) / 10)) 
-        : (merged.performance || 90);
+        : (merged.performance ?? 0);
 
       // OEE = Availability * Performance * Quality / 10000
       const calculatedOee = Math.round((calculatedAvailability * calculatedPerformance * calculatedQuality) / 10000 * 10) / 10;
@@ -985,7 +754,7 @@ export default function VsmPage() {
       // Capacity = (Avail Time * 60) / Ideal Cycle Time (units per day)
       const calculatedCapacity = idealCT > 0
         ? Math.round((availTime * 60) / idealCT)
-        : (merged.capacity || 1000);
+        : (merged.capacity ?? 0);
 
       return {
         ...merged,
@@ -1009,27 +778,31 @@ export default function VsmPage() {
         scrap: finalScrap
       };
     });
-  }, [vsmProcesses, defaultVsmProcesses, simulationMode, simulationEdits]);
+  }, [vsmProcesses, simulationMode, simulationEdits]);
 
   // --- CORE SYSTEM METRICS & DEMAND ---
   const companyCurrency = selectedCustomer?.currency || "₺";
   const workingDays = factorySetup.workingDays;
   const weeklyDemand = factorySetup.weeklyDemand;
   
+  // Annualization of daily losses: working days per week × 52 (was a fixed 250).
+  const workDaysPerYear = (workingDays || 0) * 52;
+
   const dailyDemand = useMemo(() => {
+    if (!workingDays) return 0;
     return Math.round(weeklyDemand / workingDays);
   }, [weeklyDemand, workingDays]);
 
   const monthlyDemand = useMemo(() => {
-    return Math.round(dailyDemand * 22);
+    return Math.round(weeklyDemand * 52 / 12);
   }, [dailyDemand]);
 
   // Net Available time for calculation (usually based on bottleneck shift parameters)
   const netAvailableSecondsPerDay = useMemo(() => {
-    const activeShifts = activeProcesses[0]?.shifts || 2;
-    const activeHours = factorySetup.shiftDuration || 8;
-    const breakTimes = factorySetup.breakTimes || 75;
-    const plannedMaint = factorySetup.plannedMaintenance || 15;
+    const activeShifts = activeProcesses[0]?.shifts ?? 0;
+    const activeHours = factorySetup.shiftDuration ?? 0;
+    const breakTimes = factorySetup.breakTimes ?? 0;
+    const plannedMaint = factorySetup.plannedMaintenance ?? 0;
     const netMinsPerShift = (activeHours * 60) - breakTimes - plannedMaint;
     return activeShifts * netMinsPerShift * 60;
   }, [activeProcesses, factorySetup]);
@@ -1182,7 +955,7 @@ export default function VsmPage() {
   const handleSyncToCiProjects = async () => {
     try {
       const generatedKaizens: any[] = [];
-      const factoryId = selectedCustomerId || factorySetup.customerName || "default";
+      const factoryId = selectedCustomerId || "";
 
       activeProcesses.forEach((p) => {
         // 1. Bottleneck OEE Check
@@ -1194,8 +967,6 @@ export default function VsmPage() {
             status: "New Idea",
             originator: "VSM Simülasyon Motoru",
             department: "Üretim & Metot",
-            estimatedCost: 12000,
-            expectedGain: Math.round((estimatedAnnualWasteCost || 50000) * 0.35),
             priority: "High",
             factory_id: factoryId
           });
@@ -1210,8 +981,6 @@ export default function VsmPage() {
             status: "New Idea",
             originator: "VSM Simülasyon Motoru",
             department: "Pres Atölyesi / Kalıphane",
-            estimatedCost: 8000,
-            expectedGain: Math.round((p.changeoverMinutes * 250 * 50) * 0.8),
             priority: "High",
             factory_id: factoryId
           });
@@ -1226,8 +995,6 @@ export default function VsmPage() {
             status: "New Idea",
             originator: "VSM Simülasyon Motoru",
             department: "Endüstri Mühendisliği",
-            estimatedCost: 5000,
-            expectedGain: 45000,
             priority: "High",
             factory_id: factoryId
           });
@@ -1242,8 +1009,6 @@ export default function VsmPage() {
             status: "New Idea",
             originator: "VSM Simülasyon Motoru",
             department: "Kalite Güvence",
-            estimatedCost: 15000,
-            expectedGain: 65000,
             priority: "Medium",
             factory_id: factoryId
           });
@@ -1258,8 +1023,6 @@ export default function VsmPage() {
             status: "New Idea",
             originator: "VSM Simülasyon Motoru",
             department: "Lojistik / Malzeme",
-            estimatedCost: 3000,
-            expectedGain: 38000,
             priority: "High",
             factory_id: factoryId
           });
@@ -1274,16 +1037,23 @@ export default function VsmPage() {
             status: "New Idea",
             originator: "VSM Simülasyon Motoru",
             department: "Bakım Onarım",
-            estimatedCost: 10000,
-            expectedGain: 52000,
             priority: "High",
             factory_id: factoryId
           });
         }
       });
 
+      // Re-running the transfer must not duplicate cards: skip titles that already exist for this customer.
+      const existingRes = await fetch("/api/business/kaizens", {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || ""}`,
+          "x-factory-id": factoryId
+        }
+      }).then(r => r.json()).catch(() => null);
+      const existingTitles = new Set(((existingRes && existingRes.data) || []).map((k: any) => k.title));
+
       let count = 0;
-      for (const k of generatedKaizens) {
+      for (const k of generatedKaizens.filter(k => !existingTitles.has(k.title))) {
         await fetch("/api/business/kaizens", {
           method: "POST",
           headers: {
@@ -1299,38 +1069,18 @@ export default function VsmPage() {
       // Tell App.tsx to re-fetch kaizens so the new cards show up in CI Proje Yönetimi immediately.
       window.dispatchEvent(new CustomEvent("gemba:refresh-factory-data"));
 
-      alert(`VSM Simülasyonundaki ${count} adet dar boğaz ve iyileştirme konusu CI Proje Yönetimi sekmesine başarıyla aktarıldı!`);
+      const skipped = generatedKaizens.length - count;
+      alert(`${count} iyileştirme konusu CI Proje Yönetimi'ne aktarıldı.${skipped > 0 ? ` ${skipped} konu zaten aktarılmıştı, tekrar eklenmedi.` : ""}`);
     } catch (err: any) {
       alert("CI Proje Yönetimine aktarım esnasında bir hata oluştu: " + err.message);
     }
   };
 
-  // Apply standard Lean Target simulation edits with one click
-  const handleApplyLeanSimulation = () => {
-    const edits: Record<string, Partial<VsmProcess>> = {};
-    const baseList = vsmProcesses.length > 0 ? vsmProcesses : defaultVsmProcesses;
-    
-    baseList.forEach((p) => {
-      edits[p.id] = {
-        inventoryBefore: Math.round(p.inventoryBefore * 0.5), // %50 WIP azaltımı (Süpermarket & Kanban)
-        changeoverTime: Math.round((p.changeoverTime || 30) * 0.5), // %50 SMED hızlı kalıp değişimi
-        breakdownTime: Math.round((p.breakdownTime || p.downtimeMinutes || 15) * 0.35), // %65 Duruş azaltımı (TPM)
-        downtimeMinutes: Math.round((p.downtimeMinutes || 15) * 0.35),
-        quality: Math.min(99.5, (p.quality || 95) + 3), // +%3 FPY iyileşmesi (Poka-yoke)
-        cycleTime: Math.round((p.cycleTime || 60) * 0.88), // %12 Çevrim süresi optimizasyonu (Yamazumi)
-        isKanbanEnabled: true,
-        isSupermarket: true
-      };
-    });
-    setSimulationEdits(edits);
-    setSimulationMode("future");
-  };
-
   // Annual Waste Cost Estimation
   const estimatedAnnualWasteCost = useMemo(() => {
-    const holdingCostPerWipUnitYearly = factorySetup.holdingCostPerWipYearly || 150;
-    const scrapUnitCost = factorySetup.scrapUnitCost || 450;
-    const downtimeHourlyCost = factorySetup.downtimeHourlyCost || 2500;
+    const holdingCostPerWipUnitYearly = factorySetup.holdingCostPerWipYearly ?? 0;
+    const scrapUnitCost = factorySetup.scrapUnitCost ?? 0;
+    const downtimeHourlyCost = factorySetup.downtimeHourlyCost ?? 0;
 
     const totalHoldingLoss = totalWip * holdingCostPerWipUnitYearly;
     const scrapLoss = processesWithTimeline.reduce((sum, p) => {
@@ -1340,12 +1090,12 @@ export default function VsmPage() {
       // number times the same defect rate yields more "scrap units" even though nothing is
       // actually run beyond real demand/output.
       const dailyOutput = p.actualQuantity ?? p.capacity;
-      const scrapQuantityYearly = dailyOutput * (1 - (p.quality / 100)) * 250;
+      const scrapQuantityYearly = dailyOutput * (1 - (p.quality / 100)) * workDaysPerYear;
       return sum + (scrapQuantityYearly * scrapUnitCost);
     }, 0);
 
     const downtimeLoss = processesWithTimeline.reduce((sum, p) => {
-      const annualDowntimeHours = (p.downtimeMinutes / 60) * 250;
+      const annualDowntimeHours = (p.downtimeMinutes / 60) * workDaysPerYear;
       return sum + (annualDowntimeHours * downtimeHourlyCost);
     }, 0);
 
@@ -1357,11 +1107,11 @@ export default function VsmPage() {
     const hasEdits = Object.keys(simulationEdits).length > 0;
     
     // Holding, scrap, and downtime unit rates from Fabrika Kurulum Parametreleri
-    const holdingRate = factorySetup.holdingCostPerWipYearly || 150;
-    const scrapRate = factorySetup.scrapUnitCost || 450;
-    const downtimeRate = factorySetup.downtimeHourlyCost || 2500;
+    const holdingRate = factorySetup.holdingCostPerWipYearly ?? 0;
+    const scrapRate = factorySetup.scrapUnitCost ?? 0;
+    const downtimeRate = factorySetup.downtimeHourlyCost ?? 0;
 
-    const baseList = vsmProcesses.length > 0 ? vsmProcesses : defaultVsmProcesses;
+    const baseList = vsmProcesses;
     const currentWip = baseList.reduce((sum, p) => sum + p.inventoryBefore, 0);
     const currentLeadTime = baseList.reduce((sum, p) => {
       const invDays = dailyDemand > 0 ? (p.inventoryBefore / dailyDemand) : 0;
@@ -1371,8 +1121,8 @@ export default function VsmPage() {
     const currentWasteCost = baseList.reduce((sum, p) => {
       const holding = p.inventoryBefore * holdingRate;
       const dailyOutput = (p as any).actualQuantity ?? p.capacity;
-      const scrap = dailyOutput * (1 - (p.quality / 100)) * 250 * scrapRate;
-      const downtime = (p.downtimeMinutes / 60) * 250 * downtimeRate;
+      const scrap = dailyOutput * (1 - (p.quality / 100)) * workDaysPerYear * scrapRate;
+      const downtime = (p.downtimeMinutes / 60) * workDaysPerYear * downtimeRate;
       return sum + holding + scrap + downtime;
     }, 0);
 
@@ -1383,8 +1133,6 @@ export default function VsmPage() {
         leadTimeReduction: 0,
         inventoryReduction: 0,
         costSavings: 0,
-        capacityIncrease: 0,
-        co2Reduction: 0
       };
     }
 
@@ -1396,52 +1144,48 @@ export default function VsmPage() {
     const leadTimeReduction = currentLeadTime > 0 ? ((currentLeadTime - futureLeadTime) / currentLeadTime) * 100 : 0;
     const inventoryReduction = currentWip > 0 ? ((currentWip - futureWip) / currentWip) * 100 : 0;
     const costSavings = currentWasteCost - futureWasteCost;
-    const capacityIncrease = currentVaSecs > 0 ? ((currentVaSecs - futureVaSecs) / currentVaSecs) * 15 : 0;
-    const co2Reduction = leadTimeReduction * 0.4;
 
     return {
       hasEdits: true,
       leadTimeReduction: Math.max(0, Math.round(leadTimeReduction)),
       inventoryReduction: Math.max(0, Math.round(inventoryReduction)),
-      costSavings: Math.max(0, Math.round(costSavings)),
-      capacityIncrease: Math.max(0, Math.round(capacityIncrease)),
-      co2Reduction: Math.max(0, Math.round(co2Reduction * 10) / 10)
+      costSavings: Math.max(0, Math.round(costSavings))
     };
-  }, [defaultVsmProcesses, vsmProcesses, activeProcesses, processesWithTimeline, dailyDemand, estimatedAnnualWasteCost, simulationEdits, factorySetup]);
+  }, [vsmProcesses, activeProcesses, processesWithTimeline, dailyDemand, estimatedAnnualWasteCost, simulationEdits, factorySetup]);
 
   // --- DETAILED SIMULATION CALCULATIONS (CURRENT VS FUTURE) ---
   const currentProcessesCalculated = useMemo(() => {
-    const baseList = vsmProcesses.length > 0 ? vsmProcesses : defaultVsmProcesses;
+    const baseList = vsmProcesses;
     return baseList.map((p) => {
       const merged = { ...p };
-      const finalGoodParts = merged.goodParts !== undefined ? merged.goodParts : Math.round((merged.actualQuantity || 900) * ((merged.quality || 98) / 100));
-      const finalScrap = merged.scrap !== undefined ? merged.scrap : Math.round((merged.actualQuantity || 900) * (1 - (merged.quality || 98) / 100));
+      const finalGoodParts = merged.goodParts !== undefined ? merged.goodParts : Math.round((merged.actualQuantity ?? 0) * ((merged.quality ?? 0) / 100));
+      const finalScrap = merged.scrap !== undefined ? merged.scrap : Math.round((merged.actualQuantity ?? 0) * (1 - (merged.quality ?? 0) / 100));
       const calculatedQuality = (finalGoodParts + finalScrap) > 0 
         ? Math.round((finalGoodParts / (finalGoodParts + finalScrap)) * 1000) / 10 
-        : (merged.quality || 98);
+        : (merged.quality ?? 0);
 
       const finalShiftHours = merged.shiftHours || Array.from({ length: merged.shifts || 2 }, () => 8);
       const totalHours = finalShiftHours.reduce((sum, h) => sum + h, 0);
       const finalProdTime = totalHours * 60;
-      const finalCOTime = merged.changeoverTime || 0;
-      const finalBDTime = merged.breakdownTime || merged.downtimeMinutes || 0;
-      const finalFPApproval = merged.firstPieceApproval || 0;
+      const finalCOTime = merged.changeoverTime ?? 0;
+      const finalBDTime = merged.breakdownTime ?? merged.downtimeMinutes ?? 0;
+      const finalFPApproval = merged.firstPieceApproval ?? 0;
 
       const availTime = finalProdTime - finalCOTime - finalBDTime - finalFPApproval;
       const calculatedAvailability = finalProdTime > 0 
         ? Math.max(0, Math.min(100, Math.round((availTime / finalProdTime) * 1000) / 10)) 
-        : (merged.availability || 85);
+        : (merged.availability ?? 0);
 
       const idealCT = merged.idealCycleTime || merged.cycleTime;
       const calculatedPerformance = (availTime > 0 && merged.actualQuantity !== undefined) 
         ? Math.max(0, Math.min(100, Math.round(((merged.actualQuantity * idealCT) / (availTime * 60)) * 1000) / 10)) 
-        : (merged.performance || 90);
+        : (merged.performance ?? 0);
 
       const calculatedOee = Math.round((calculatedAvailability * calculatedPerformance * calculatedQuality) / 10000 * 10) / 10;
 
       const calculatedCapacity = idealCT > 0
         ? Math.round((availTime * 60) / idealCT)
-        : (merged.capacity || 1000);
+        : (merged.capacity ?? 0);
 
       return {
         ...merged,
@@ -1458,42 +1202,42 @@ export default function VsmPage() {
         scrap: finalScrap
       };
     });
-  }, [vsmProcesses, defaultVsmProcesses]);
+  }, [vsmProcesses]);
 
   const futureProcessesCalculated = useMemo(() => {
-    const baseList = vsmProcesses.length > 0 ? vsmProcesses : defaultVsmProcesses;
+    const baseList = vsmProcesses;
     return baseList.map((p) => {
       const edits = simulationEdits[p.id] || {};
       const merged = { ...p, ...edits };
       
-      const finalGoodParts = merged.goodParts !== undefined ? merged.goodParts : Math.round((merged.actualQuantity || 900) * ((merged.quality || 98) / 100));
-      const finalScrap = merged.scrap !== undefined ? merged.scrap : Math.round((merged.actualQuantity || 900) * (1 - (merged.quality || 98) / 100));
+      const finalGoodParts = merged.goodParts !== undefined ? merged.goodParts : Math.round((merged.actualQuantity ?? 0) * ((merged.quality ?? 0) / 100));
+      const finalScrap = merged.scrap !== undefined ? merged.scrap : Math.round((merged.actualQuantity ?? 0) * (1 - (merged.quality ?? 0) / 100));
       const calculatedQuality = (finalGoodParts + finalScrap) > 0 
         ? Math.round((finalGoodParts / (finalGoodParts + finalScrap)) * 1000) / 10 
-        : (merged.quality || 98);
+        : (merged.quality ?? 0);
 
       const finalShiftHours = merged.shiftHours || Array.from({ length: merged.shifts || 2 }, () => 8);
       const totalHours = finalShiftHours.reduce((sum, h) => sum + h, 0);
       const finalProdTime = totalHours * 60;
-      const finalCOTime = merged.changeoverTime || 0;
-      const finalBDTime = merged.breakdownTime || merged.downtimeMinutes || 0;
-      const finalFPApproval = merged.firstPieceApproval || 0;
+      const finalCOTime = merged.changeoverTime ?? 0;
+      const finalBDTime = merged.breakdownTime ?? merged.downtimeMinutes ?? 0;
+      const finalFPApproval = merged.firstPieceApproval ?? 0;
 
       const availTime = finalProdTime - finalCOTime - finalBDTime - finalFPApproval;
       const calculatedAvailability = finalProdTime > 0 
         ? Math.max(0, Math.min(100, Math.round((availTime / finalProdTime) * 1000) / 10)) 
-        : (merged.availability || 85);
+        : (merged.availability ?? 0);
 
       const idealCT = merged.idealCycleTime || merged.cycleTime;
       const calculatedPerformance = (availTime > 0 && merged.actualQuantity !== undefined) 
         ? Math.max(0, Math.min(100, Math.round(((merged.actualQuantity * idealCT) / (availTime * 60)) * 1000) / 10)) 
-        : (merged.performance || 90);
+        : (merged.performance ?? 0);
 
       const calculatedOee = Math.round((calculatedAvailability * calculatedPerformance * calculatedQuality) / 10000 * 10) / 10;
 
       const calculatedCapacity = idealCT > 0
         ? Math.round((availTime * 60) / idealCT)
-        : (merged.capacity || 1000);
+        : (merged.capacity ?? 0);
 
       return {
         ...merged,
@@ -1510,7 +1254,7 @@ export default function VsmPage() {
         scrap: finalScrap
       };
     });
-  }, [vsmProcesses, defaultVsmProcesses, simulationEdits]);
+  }, [vsmProcesses, simulationEdits]);
 
   // --- DASHBOARD AGGREGATED METRICS & DATA ---
   const dashboardData = useMemo(() => {
@@ -1554,18 +1298,18 @@ export default function VsmPage() {
       : 0;
 
     // Waste Cost Current vs Future
-    const holdingCostPerWipUnitYearly = factorySetup.holdingCostPerWipYearly || 150;
-    const scrapUnitCost = factorySetup.scrapUnitCost || 450;
-    const downtimeHourlyCost = factorySetup.downtimeHourlyCost || 2500;
+    const holdingCostPerWipUnitYearly = factorySetup.holdingCostPerWipYearly ?? 0;
+    const scrapUnitCost = factorySetup.scrapUnitCost ?? 0;
+    const downtimeHourlyCost = factorySetup.downtimeHourlyCost ?? 0;
 
     const currHolding = currWip * holdingCostPerWipUnitYearly;
-    const currScrapCost = currentProcessesCalculated.reduce((sum, p) => sum + ((p.actualQuantity ?? p.capacity) * (1 - (p.quality / 100)) * 250 * scrapUnitCost), 0);
-    const currDowntimeCost = currentProcessesCalculated.reduce((sum, p) => sum + ((p.downtimeMinutes / 60) * 250 * downtimeHourlyCost), 0);
+    const currScrapCost = currentProcessesCalculated.reduce((sum, p) => sum + ((p.actualQuantity ?? p.capacity) * (1 - (p.quality / 100)) * workDaysPerYear * scrapUnitCost), 0);
+    const currDowntimeCost = currentProcessesCalculated.reduce((sum, p) => sum + ((p.downtimeMinutes / 60) * workDaysPerYear * downtimeHourlyCost), 0);
     const currWasteCostTotal = currHolding + currScrapCost + currDowntimeCost;
 
     const futHolding = futWip * holdingCostPerWipUnitYearly;
-    const futScrapCost = futureProcessesCalculated.reduce((sum, p) => sum + ((p.actualQuantity ?? p.capacity) * (1 - (p.quality / 100)) * 250 * scrapUnitCost), 0);
-    const futDowntimeCost = futureProcessesCalculated.reduce((sum, p) => sum + ((p.downtimeMinutes / 60) * 250 * downtimeHourlyCost), 0);
+    const futScrapCost = futureProcessesCalculated.reduce((sum, p) => sum + ((p.actualQuantity ?? p.capacity) * (1 - (p.quality / 100)) * workDaysPerYear * scrapUnitCost), 0);
+    const futDowntimeCost = futureProcessesCalculated.reduce((sum, p) => sum + ((p.downtimeMinutes / 60) * workDaysPerYear * downtimeHourlyCost), 0);
     const futWasteCostTotal = futHolding + futScrapCost + futDowntimeCost;
     
     const annualSavingsTotal = Math.max(0, Math.round(currWasteCostTotal - futWasteCostTotal));
@@ -1578,24 +1322,6 @@ export default function VsmPage() {
     const futTotalCap = futureProcessesCalculated.reduce((sum, p) => sum + p.capacity, 0);
     const futOperators = futureProcessesCalculated.reduce((sum, p) => sum + p.operatorCount, 0);
     const futOperatorProductivity = futOperators > 0 ? Math.round(futTotalCap / futOperators) : 0;
-
-    // Transport Distance (simulated based on Kanban and Supermarket counts)
-    const currKanbanCount = currentProcessesCalculated.filter(p => p.isKanbanEnabled).length;
-    const currSuperCount = currentProcessesCalculated.filter(p => p.isSupermarket).length;
-    const futKanbanCount = futureProcessesCalculated.filter(p => p.isKanbanEnabled).length;
-    const futSuperCount = futureProcessesCalculated.filter(p => p.isSupermarket).length;
-    
-    const currTransportDist = 480; // Baseline in meters
-    const transportReductionCoeff = Math.min(0.6, (futKanbanCount - currKanbanCount) * 0.08 + (futSuperCount - currSuperCount) * 0.12);
-    const futTransportDist = Math.max(120, Math.round(currTransportDist * (1 - Math.max(0, transportReductionCoeff))));
-
-    // Space Utilization (simulated based on Production Model changes)
-    const currCellCount = currentProcessesCalculated.filter(p => p.productionModel === "Cell" || p.productionModel === "Assembly Line").length;
-    const futCellCount = futureProcessesCalculated.filter(p => p.productionModel === "Cell" || p.productionModel === "Assembly Line").length;
-    
-    const currSpaceUtil = 55; // 55% space utilization
-    const spaceUtilImprovement = Math.min(35, (futCellCount - currCellCount) * 5);
-    const futSpaceUtil = Math.min(95, currSpaceUtil + Math.max(0, spaceUtilImprovement));
 
     // Scrap Reduction data per process
     const scrapChartData = currentProcessesCalculated.map((p, idx) => {
@@ -1683,10 +1409,6 @@ export default function VsmPage() {
       annualSavings: annualSavingsTotal,
       currentOperatorProductivity: currOperatorProductivity,
       futureOperatorProductivity: futOperatorProductivity,
-      currentTransportDist: currTransportDist,
-      futureTransportDist: futTransportDist,
-      currentSpaceUtil: currSpaceUtil,
-      futureSpaceUtil: futSpaceUtil,
       currentBlueCollar: currOperators,
       futureBlueCollar: futOperators,
       currentVaRatio: currVaRatio,
@@ -1943,46 +1665,36 @@ export default function VsmPage() {
     const newProcess: VsmProcess = {
       id: newId,
       name: `YENİ PROSES ${vsmProcesses.length + 1}`,
-      type: "Semi Automatic",
-      productionModel: "Assembly Line",
-      machineCount: 1,
-      operatorCount: 2,
-      shifts: 2,
-      shiftHours: [8, 8],
-      workingHours: 16,
-      cycleTime: 60,
-      oee: 80,
-      availability: 90,
-      performance: 95,
-      quality: 98,
-      capacity: 1000,
-      downtimeMinutes: 10,
-      inventoryBefore: 200,
+      type: "Manual",
+      productionModel: "Other",
+      machineCount: 0,
+      operatorCount: 0,
+      shifts: 1,
+      shiftHours: [factorySetup.shiftDuration || 8],
+      workingHours: factorySetup.shiftDuration || 8,
+      cycleTime: 0,
+      oee: 0,
+      availability: 0,
+      performance: 0,
+      quality: 0,
+      capacity: 0,
+      downtimeMinutes: 0,
+      inventoryBefore: 0,
       isKanbanEnabled: false,
       isSupermarket: false,
-      notes: "Yeni proses tanımlandı.",
-      kaizenOpp: "İyileştirme fırsatı araştırılacak.",
-      planningFrequency: "Weekly",
-      plannedQuantity: 1000,
-      actualQuantity: 900,
-      idealCycleTime: 55,
-      productionTime: 960,
-      changeoverTime: 15,
-      changeoverFrequency: "1/Vardiya",
-      firstPieceApproval: 5,
-      breakdownTime: 10,
-      waitingTime: 10,
-      minorStops: 5,
-      goodParts: 882,
-      scrap: 18,
-      rework: 10,
-      wipQuantity: 200,
-      inventoryBetweenProcesses: 200
+      notes: "",
+      kaizenOpp: "",
+      createdBy: currentUser?.id
     };
     setVsmProcesses(prev => [...prev, newProcess]);
   };
 
   const handleDeleteProcess = (id: string) => {
+    const target = vsmProcesses.find(p => p.id === id);
+    if (!canDeleteVsmProcess(currentUser, target)) {
+      alert("Yalnızca kendi eklediğiniz prosesleri silebilirsiniz.");
+      return;
+    }
     setVsmProcesses(prev => prev.filter(p => p.id !== id));
   };
 
@@ -2011,12 +1723,14 @@ export default function VsmPage() {
     const qualGain = Math.round((futQual - currQual) * 10) / 10;
 
     return {
-      biggestImprovement: `Darboğaz istasyonu olan "${dashboardData.currentBottleneckName}" operasyonunda verimliliğin %${dashboardData.currentBottleneckOee}'den %${dashboardData.futureBottleneckOee}'ye çıkarılmasıyla hat hızı arttırıldı ve kapasite limiti genişletildi.`,
-      leadTimeReduction: `Ara stok (WIP) seviyelerindeki %${wipRed} oranındaki agresif düşüş sayesinde, toplam değer akış süresi (Lead Time) ${dashboardData.currentLeadTime} günden ${dashboardData.futureLeadTime} güne indirildi (-%${ltRed}).`,
-      qualityImpact: qualGain > 0 
-        ? `Süreç içi hata önleme (Poka-Yoke) ve Kanban uygulamaları ile ortalama ürün kalitesi (FPY) %${qualGain.toFixed(1)} oranında iyileştirilerek hurda/fire maliyetlerinde ciddi tasarruf sağlandı.`
-        : `Kalite oranları tescil edilerek fire kaynaklı malzeme erozyonları asgari düzeye indirildi.`,
-      annualSavingsDesc: `Uygulanan yalın üretim dönüşüm aksiyonları sonucunda, işletmenizde yıllık toplam ${companyCurrency}${savings.toLocaleString()} tutarında kayıp maliyet elenmesi ve doğrudan kârlılık artışı öngörülmektedir.`
+      biggestImprovement: `Darboğaz (en yüksek çevrim süresi): mevcut durumda "${dashboardData.currentBottleneckName}" (OEE %${dashboardData.currentBottleneckOee}), gelecek simülasyonda "${dashboardData.futureBottleneckName}" (OEE %${dashboardData.futureBottleneckOee}).`,
+      leadTimeReduction: `Simülasyona göre ara stok (WIP) %${wipRed} azalır; toplam bekleme süresi ${dashboardData.currentLeadTime} günden ${dashboardData.futureLeadTime} güne iner (-%${ltRed}).`,
+      qualityImpact: qualGain > 0
+        ? `Simülasyonda ortalama kalite oranı (FPY) ${qualGain.toFixed(1)} puan yükselir.`
+        : `Simülasyonda ortalama kalite oranında (FPY) artış yok.`,
+      annualSavingsDesc: savings > 0
+        ? `Girilen birim maliyetlerle simülasyonun öngördüğü yıllık kayıp azalışı: ${savings.toLocaleString("tr-TR")} ${companyCurrency}.`
+        : `Yıllık kayıp azalışı hesaplanamadı (birim maliyetler girilmedi ya da simülasyonda maliyet etkisi yok).`
     };
   }, [dashboardData, currentProcessesCalculated, futureProcessesCalculated, companyCurrency]);
 
@@ -2116,11 +1830,6 @@ export default function VsmPage() {
     const suspendedCount = projects.filter(p => p.status === "Askıda").length;
     const companyCurrency = selectedCustomer?.currency || "₺";
 
-    const totalSavings = projects.reduce((acc, p) => {
-      const val = p.status === "Tamamlandı" ? 85000 : (p.status === "Aktif" ? 45000 : 15000);
-      return acc + val;
-    }, 0);
-
     const filteredProjects = projects.filter(p => {
       const matchesSearch = p.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
                             p.productGroup?.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -2159,7 +1868,7 @@ export default function VsmPage() {
         </div>
 
         {/* TRANSFORMATION JOURNEY DASHBOARD (Bento Grid) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-5" id="transformation_journey_bento">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5" id="transformation_journey_bento">
           <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs flex flex-col justify-between h-32 relative overflow-hidden" id="card_total_projects">
             <div className="space-y-1">
               <span className="text-[10px] text-slate-400 font-mono font-bold uppercase block tracking-wider">TOPLAM VSM PROJESİ</span>
@@ -2193,38 +1902,6 @@ export default function VsmPage() {
             </div>
           </div>
 
-          <div className="bg-slate-950 text-white rounded-2xl p-5 shadow-lg shadow-slate-100 flex flex-col justify-between h-32 lg:col-span-2" id="card_financial_savings">
-            <div className="space-y-1">
-              <span className="text-[10px] text-amber-400 font-mono font-bold uppercase block tracking-wider">KÜMÜLATİF MALİ YALIN KAZANIM</span>
-              <span className="text-3xl font-mono font-black text-amber-400">{totalSavings.toLocaleString()} {companyCurrency} <span className="text-xs text-white">/ yıl</span></span>
-            </div>
-            <div className="text-[11px] text-slate-400 flex items-center space-x-1.5">
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              <span>Değer akışı israf azaltımından elde edilen tasarruf</span>
-            </div>
-          </div>
-        </div>
-
-        {/* TRANSFORMATION PROGRESS ROADMAP SUMMARY */}
-        <div className="bg-slate-50 border border-slate-200/60 rounded-2xl p-5 flex flex-col md:flex-row items-center justify-between gap-6" id="transformation_milestone_summary">
-          <div className="space-y-1 text-center md:text-left">
-            <h3 className="text-xs font-black uppercase text-slate-800 tracking-wider">MÜŞTERİ YALIN DÖNÜŞÜM OLGUNLUĞU</h3>
-            <p className="text-[11px] text-slate-500">Kümülatif değer akışı israf seviyeleri, bekleme süreleri ve OEE optimizasyon tescil durumu.</p>
-          </div>
-          <div className="flex flex-wrap gap-8 items-center justify-center">
-            <div className="text-center">
-              <span className="text-xs font-bold text-slate-400 block uppercase font-mono">ORT. LEAD TIME İYİLEŞME</span>
-              <span className="text-xl font-mono font-black text-indigo-600">%41.2 <span className="text-xs text-slate-400 font-normal">Azalış</span></span>
-            </div>
-            <div className="text-center">
-              <span className="text-xs font-bold text-slate-400 block uppercase font-mono">ORT. WIP (STOK) DÜŞÜŞÜ</span>
-              <span className="text-xl font-mono font-black text-emerald-600">%38.5 <span className="text-xs text-slate-400 font-normal">Azalış</span></span>
-            </div>
-            <div className="text-center">
-              <span className="text-xs font-bold text-slate-400 block uppercase font-mono">KAPASİTE ARTIŞI (TEORİK)</span>
-              <span className="text-xl font-mono font-black text-amber-600">%18.7 <span className="text-xs text-slate-400 font-normal">Artış</span></span>
-            </div>
-          </div>
         </div>
 
         {/* SEARCH AND FILTERS */}
@@ -2367,13 +2044,13 @@ export default function VsmPage() {
                             >
                               <Settings className="w-3.5 h-3.5" />
                             </button>
-                            <button 
+                            {canDeleteVsmProject(currentUser, proj) && <button 
                               onClick={(e) => handleDeleteProject(proj.id, e)}
                               className="p-1.5 border border-red-150 bg-white hover:bg-red-50 rounded-lg text-red-500 hover:text-red-700 transition cursor-pointer"
                               title="Sil"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            </button>}
                           </div>
                         </td>
                       </tr>
@@ -2774,7 +2451,7 @@ export default function VsmPage() {
                 </p>
               </div>
               <span className="text-xs font-mono font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200 px-3 py-1.5 rounded-xl shrink-0 self-start sm:self-auto shadow-2xs">
-                Ürün Hacim Payı: %{factorySetup.productVolumeShare ?? 30}
+                Ürün Hacim Payı: %{factorySetup.productVolumeShare ?? 0}
               </span>
             </div>
 
@@ -2791,9 +2468,9 @@ export default function VsmPage() {
               <div className="bg-indigo-950 text-white rounded-2xl p-4 border border-indigo-900 space-y-1 shadow-xs">
                 <span className="text-[10px] text-indigo-300 font-mono font-bold uppercase block">ÜRÜN HACİM PAYI</span>
                 <div className="text-2xl font-mono font-black text-indigo-200">
-                  %{factorySetup.productVolumeShare ?? 30}
+                  %{factorySetup.productVolumeShare ?? 0}
                 </div>
-                <p className="text-[10px] text-indigo-300 truncate">Fabrika Geneli: ~{Math.round(dailyDemand / ((factorySetup.productVolumeShare || 30) / 100)).toLocaleString()} ad/gün</p>
+                <p className="text-[10px] text-indigo-300 truncate">Fabrika Geneli: ~{(factorySetup.productVolumeShare > 0 ? Math.round(dailyDemand / (factorySetup.productVolumeShare / 100)).toLocaleString() : "—")} ad/gün</p>
               </div>
 
               <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-1 shadow-xs">
@@ -2856,8 +2533,8 @@ export default function VsmPage() {
                         <span>Günlük Üretim Talebi</span>
                       </td>
                       <td className="py-2.5 px-4 text-center font-mono font-bold text-amber-600">{dailyDemand} adet/gün</td>
-                      <td className="py-2.5 px-4 text-center font-mono font-extrabold text-indigo-700 bg-indigo-50/70 rounded-lg">%{factorySetup.productVolumeShare ?? 30}</td>
-                      <td className="py-2.5 px-4 text-center font-mono font-bold text-slate-900">~{Math.round(dailyDemand / ((factorySetup.productVolumeShare || 30) / 100)).toLocaleString()} adet/gün</td>
+                      <td className="py-2.5 px-4 text-center font-mono font-extrabold text-indigo-700 bg-indigo-50/70 rounded-lg">%{factorySetup.productVolumeShare ?? 0}</td>
+                      <td className="py-2.5 px-4 text-center font-mono font-bold text-slate-900">~{(factorySetup.productVolumeShare > 0 ? Math.round(dailyDemand / (factorySetup.productVolumeShare / 100)).toLocaleString() : "—")} adet/gün</td>
                       <td className="py-2.5 px-4 text-right text-slate-500 text-[11px]">Haftalık {weeklyDemand} talebe göre hesaplanmıştır</td>
                     </tr>
                     <tr className="hover:bg-slate-50/60 transition-colors">
@@ -2876,8 +2553,8 @@ export default function VsmPage() {
                         <span>Yıllık İsraf &amp; Kayıp Maliyeti Tahsisi</span>
                       </td>
                       <td className="py-2.5 px-4 text-center font-mono font-bold text-emerald-600">{companyCurrency}{estimatedAnnualWasteCost.toLocaleString()}</td>
-                      <td className="py-2.5 px-4 text-center font-mono font-extrabold text-indigo-700 bg-indigo-50/70 rounded-lg">%{factorySetup.productVolumeShare ?? 30} Pay</td>
-                      <td className="py-2.5 px-4 text-center font-mono font-bold text-slate-900">{companyCurrency}{Math.round(estimatedAnnualWasteCost / ((factorySetup.productVolumeShare || 30) / 100)).toLocaleString()}</td>
+                      <td className="py-2.5 px-4 text-center font-mono font-extrabold text-indigo-700 bg-indigo-50/70 rounded-lg">%{factorySetup.productVolumeShare ?? 0} Pay</td>
+                      <td className="py-2.5 px-4 text-center font-mono font-bold text-slate-900">{companyCurrency}{(factorySetup.productVolumeShare > 0 ? Math.round(estimatedAnnualWasteCost / (factorySetup.productVolumeShare / 100)).toLocaleString() : "—")}</td>
                       <td className="py-2.5 px-4 text-right text-slate-500 text-[11px]">Hurda, bekleme, stok taşıma kayıpları</td>
                     </tr>
                   </tbody>
@@ -2922,7 +2599,7 @@ export default function VsmPage() {
                     type="number" 
                     min="1"
                     max="100"
-                    value={factorySetup.productVolumeShare ?? 30}
+                    value={factorySetup.productVolumeShare ?? 0}
                     onChange={e => setFactorySetup(p => ({ ...p, productVolumeShare: Number(e.target.value) }))}
                     className="w-full bg-indigo-50/30 border border-indigo-200 focus:border-indigo-600 rounded-xl pl-3 pr-8 py-2 text-xs font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-indigo-100 outline-hidden transition-all font-mono"
                     placeholder="30"
@@ -2999,6 +2676,103 @@ export default function VsmPage() {
               </div>
             </div>
 
+            {/* MAP BOXES — TEDARİKÇİ & ÜRETİM PLANLAMA (shown on the VSM map exactly as entered) */}
+            <div className="pt-4 border-t border-slate-100 space-y-3">
+              <h3 className="text-xs font-extrabold uppercase text-slate-800 font-mono tracking-wider">Harita Kutuları: Tedarikçi &amp; Üretim Planlama</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 block">Tedarikçi Adı</label>
+                  <input
+                    type="text"
+                    value={factorySetup.supplierName}
+                    onChange={e => setFactorySetup(p => ({ ...p, supplierName: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-950 outline-hidden"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 block">Malzeme</label>
+                  <input
+                    type="text"
+                    value={factorySetup.supplierMaterial}
+                    onChange={e => setFactorySetup(p => ({ ...p, supplierMaterial: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-950 outline-hidden"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 block">Tedarikçi Sevk Sıklığı</label>
+                  <input
+                    type="text"
+                    value={factorySetup.supplierDelivery}
+                    onChange={e => setFactorySetup(p => ({ ...p, supplierDelivery: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-950 outline-hidden"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 block">Parti Büyüklüğü</label>
+                  <input
+                    type="text"
+                    value={factorySetup.supplierBatch}
+                    onChange={e => setFactorySetup(p => ({ ...p, supplierBatch: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-950 outline-hidden"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 block">Tedarik Temin Süresi</label>
+                  <input
+                    type="text"
+                    value={factorySetup.supplierLeadTime}
+                    onChange={e => setFactorySetup(p => ({ ...p, supplierLeadTime: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-950 outline-hidden"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 block">Lojistik Yöntemi</label>
+                  <input
+                    type="text"
+                    value={factorySetup.supplierLogistics}
+                    onChange={e => setFactorySetup(p => ({ ...p, supplierLogistics: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-950 outline-hidden"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 block">Planlama Sistemi (MRP/ERP/Excel…)</label>
+                  <input
+                    type="text"
+                    value={factorySetup.planningSystem}
+                    onChange={e => setFactorySetup(p => ({ ...p, planningSystem: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-950 outline-hidden"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 block">Planlama Sıklığı</label>
+                  <input
+                    type="text"
+                    value={factorySetup.planningFrequency}
+                    onChange={e => setFactorySetup(p => ({ ...p, planningFrequency: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-950 outline-hidden"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 block">Sıralama Rejimi</label>
+                  <input
+                    type="text"
+                    value={factorySetup.planningSequencing}
+                    onChange={e => setFactorySetup(p => ({ ...p, planningSequencing: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-950 outline-hidden"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 block">Üretim Takvimi</label>
+                  <input
+                    type="text"
+                    value={factorySetup.planningCalendar}
+                    onChange={e => setFactorySetup(p => ({ ...p, planningCalendar: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-950 outline-hidden"
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* FINANCIAL & WASTE UNIT COST PARAMETERS SECTION */}
             <div className="pt-4 border-t border-slate-100 space-y-3">
               <div className="flex items-center space-x-2">
@@ -3009,7 +2783,7 @@ export default function VsmPage() {
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700 block flex items-center justify-between">
                     <span>Hurda / Iskarta Birim Maliyeti ({companyCurrency}/adet)</span>
-                    <span className="text-[10px] text-emerald-600 font-mono font-bold">Örnek: 450 {companyCurrency}</span>
+                    
                   </label>
                   <input 
                     type="number" 
@@ -3025,7 +2799,7 @@ export default function VsmPage() {
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700 block flex items-center justify-between">
                     <span>WIP Stok Birim Maliyeti ({companyCurrency}/adet/yıl)</span>
-                    <span className="text-[10px] text-emerald-600 font-mono font-bold">Örnek: 150 {companyCurrency}</span>
+                    
                   </label>
                   <input
                     type="number"
@@ -3041,7 +2815,7 @@ export default function VsmPage() {
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700 block flex items-center justify-between">
                     <span>Saatlik Duruş Kayıp Maliyeti ({companyCurrency}/saat)</span>
-                    <span className="text-[10px] text-emerald-600 font-mono font-bold">Örnek: 2500 {companyCurrency}</span>
+                    
                   </label>
                   <input 
                     type="number" 
@@ -3205,13 +2979,13 @@ export default function VsmPage() {
                       </div>
                     </td>
                     <td className="p-4 text-right">
-                      <button 
+                      {canDeleteVsmProcess(currentUser, p) && <button 
                         onClick={() => handleDeleteProcess(p.id)}
                         className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition cursor-pointer"
                         title="Prosesi Sil"
                       >
                         <Trash2 className="w-4 h-4" />
-                      </button>
+                      </button>}
                     </td>
                   </tr>
                 ))}
@@ -3266,7 +3040,7 @@ export default function VsmPage() {
                       <td className="p-4 text-center">
                         <input
                           type="number"
-                          value={p.plannedQuantity ?? 1000}
+                          value={p.plannedQuantity ?? ""}
                           onChange={e => handleUpdateProcessField(p.id, "plannedQuantity", Number(e.target.value))}
                           className="w-20 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-center font-mono font-bold text-slate-800 text-xs"
                         />
@@ -3275,7 +3049,7 @@ export default function VsmPage() {
                         <div className="inline-flex flex-col items-center gap-1">
                           <input
                             type="number"
-                            value={p.actualQuantity ?? 900}
+                            value={p.actualQuantity ?? ""}
                             onChange={e => handleUpdateProcessField(p.id, "actualQuantity", Number(e.target.value))}
                             title={isOverloaded ? `Bu miktar, kullanılabilir çalışma süresi içinde üretilebilecek maksimum ${p.capacity} adedi aşıyor.` : undefined}
                             className={`w-20 rounded-lg px-2 py-1 text-center font-mono font-bold text-xs ${
@@ -3375,8 +3149,8 @@ export default function VsmPage() {
               </thead>
               <tbody className="divide-y divide-slate-100 font-sans">
                 {activeProcesses.map((p, idx) => {
-                  const actual = p.actualQuantity || 900;
-                  const scrapVal = p.scrap ?? 10;
+                  const actual = p.actualQuantity ?? 0;
+                  const scrapVal = p.scrap ?? 0;
                   const goodVal = p.goodParts ?? (actual - scrapVal);
                   const isKanban = p.isKanbanEnabled;
                   const isSuper = p.isSupermarket;
@@ -3476,16 +3250,6 @@ export default function VsmPage() {
                 )}
               </div>
               <div className="flex items-center gap-6 text-xs font-semibold">
-                {!simulationComparison.hasEdits && (
-                  <button
-                    onClick={handleApplyLeanSimulation}
-                    className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl transition shadow-sm flex items-center space-x-1.5 cursor-pointer"
-                    title="Standart Yalın Dönüşüm Senaryosunu Otomatik Yükle (%50 SMED, %50 Stok Düşüşü, %65 Duruş Önleme)"
-                  >
-                    <Zap className="w-3.5 h-3.5 text-amber-200" />
-                    <span>⚡ Yalın Gelecek Durum Şablonu Uygula</span>
-                  </button>
-                )}
                 <div className="flex flex-col">
                   <span className="text-slate-500 text-[10px] uppercase font-mono">Lead Time Azalışı</span>
                   <span className="text-emerald-700 font-extrabold text-sm font-mono">-{simulationComparison.leadTimeReduction}%</span>
@@ -3493,14 +3257,6 @@ export default function VsmPage() {
                 <div className="border-l border-amber-200 pl-6 flex flex-col">
                   <span className="text-slate-500 text-[10px] uppercase font-mono">Ara Stok (WIP) Azalışı</span>
                   <span className="text-emerald-700 font-extrabold text-sm font-mono">-{simulationComparison.inventoryReduction}%</span>
-                </div>
-                <div className="border-l border-amber-200 pl-6 flex flex-col">
-                  <span className="text-slate-500 text-[10px] uppercase font-mono">İşçilik Verimi</span>
-                  <span className="text-emerald-700 font-extrabold text-sm font-mono">+{simulationComparison.capacityIncrease}%</span>
-                </div>
-                <div className="border-l border-amber-200 pl-6 flex flex-col">
-                  <span className="text-slate-500 text-[10px] uppercase font-mono">Sürdürülebilirlik CO₂</span>
-                  <span className="text-emerald-700 font-extrabold text-sm font-mono">-{simulationComparison.co2Reduction}%</span>
                 </div>
                 <div className="border-l border-amber-200 pl-6 flex flex-col">
                   <span className="text-slate-500 text-[10px] uppercase font-mono">Tahmini Yıllık Tasarruf</span>
@@ -3746,14 +3502,14 @@ export default function VsmPage() {
                   </div>
                   <div>
                     <h3 className="text-xs font-black tracking-wide uppercase">MÜŞTERİ (CUSTOMER)</h3>
-                    <p className={`text-[10px] ${vsmBrightMode ? 'text-slate-500' : 'text-slate-400'} truncate max-w-[160px]`}>{selectedCustomer?.companyName || "Beko Global"}</p>
+                    <p className={`text-[10px] ${vsmBrightMode ? 'text-slate-500' : 'text-slate-400'} truncate max-w-[160px]`}>{factorySetup.customerName || selectedCustomer?.companyName || "—"}</p>
                   </div>
                 </div>
 
                 <div className="space-y-1.5 text-[11px] font-mono">
                   <div className="flex justify-between">
                     <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Ürün Ailesi:</span>
-                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{selectedCustomer?.productionType || "Isıtıcı Grubu"}</span>
+                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{factorySetup.productFamily || "—"}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Günlük Talep:</span>
@@ -3769,11 +3525,11 @@ export default function VsmPage() {
                   </div>
                   <div className={`flex justify-between border-t ${vsmBrightMode ? 'border-slate-100' : 'border-slate-800'} pt-1.5 mt-1.5`}>
                     <span className={vsmBrightMode ? 'text-slate-500 font-bold' : 'text-slate-400 font-bold'}>Takt Süresi:</span>
-                    <span className="font-bold text-emerald-600 dark:text-emerald-400 text-xs">{taktTime} sn</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400 text-xs">{taktTime > 0 ? `${taktTime} sn` : "—"}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Sevk Sıklığı:</span>
-                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>Günlük (Daily)</span>
+                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{factorySetup.shippingFrequency || "—"}</span>
                   </div>
                 </div>
               </div>
@@ -3794,20 +3550,20 @@ export default function VsmPage() {
 
                 <div className="grid grid-cols-2 gap-2 text-left text-[10px] font-mono">
                   <div className={`${vsmBrightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'} p-2 rounded-lg border`}>
-                    <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Süreç Yönetimi</span>
-                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'} block mt-0.5`}>Yarı-Haftalık</span>
+                    <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Planlama Sistemi</span>
+                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'} block mt-0.5`}>{factorySetup.planningSystem || "—"}</span>
                   </div>
                   <div className={`${vsmBrightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'} p-2 rounded-lg border`}>
                     <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Planlama Sıklığı</span>
-                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'} block mt-0.5`}>Haftalık Dağıtım</span>
+                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'} block mt-0.5`}>{factorySetup.planningFrequency || "—"}</span>
                   </div>
                   <div className={`${vsmBrightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'} p-2 rounded-lg border`}>
                     <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Sıralama Rejimi</span>
-                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'} block mt-0.5`}>FIFO & Kanban</span>
+                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'} block mt-0.5`}>{factorySetup.planningSequencing || "—"}</span>
                   </div>
                   <div className={`${vsmBrightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'} p-2 rounded-lg border`}>
                     <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Üretim Takvimi</span>
-                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'} block mt-0.5`}>5 Gün - 2 Vardiya</span>
+                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'} block mt-0.5`}>{factorySetup.planningCalendar || "—"}</span>
                   </div>
                 </div>
               </div>
@@ -3827,30 +3583,30 @@ export default function VsmPage() {
                   </div>
                   <div>
                     <h3 className="text-xs font-black tracking-wide uppercase">TEDARİKÇİ (SUPPLIER)</h3>
-                    <p className={`text-[10px] ${vsmBrightMode ? 'text-slate-500' : 'text-slate-400'} truncate max-w-[160px]`}>{selectedCustomer?.companyName ? selectedCustomer.companyName + " Tedarikçisi" : "Ereğli Demir Çelik A.Ş."}</p>
+                    <p className={`text-[10px] ${vsmBrightMode ? 'text-slate-500' : 'text-slate-400'} truncate max-w-[160px]`}>{factorySetup.supplierName || "—"}</p>
                   </div>
                 </div>
 
                 <div className="space-y-1.5 text-[11px] font-mono">
                   <div className="flex justify-between">
                     <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Malzeme Rejimi:</span>
-                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>Rulo Sac / Profil</span>
+                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{factorySetup.supplierMaterial || "—"}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Sevk Sıklığı:</span>
-                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>Haftada 2 Sefer</span>
+                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{factorySetup.supplierDelivery || "—"}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Parti Büyüklüğü:</span>
-                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>3000 Kg</span>
+                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{factorySetup.supplierBatch || "—"}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Tedarik Temin:</span>
-                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>3 Gün (Lead Time)</span>
+                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{factorySetup.supplierLeadTime || "—"}</span>
                   </div>
                   <div className={`flex justify-between border-t ${vsmBrightMode ? 'border-slate-100' : 'border-slate-800'} pt-1.5 mt-1.5`}>
                     <span className={vsmBrightMode ? 'text-slate-500 font-bold' : 'text-slate-400 font-bold'}>Lojistik Yöntemi:</span>
-                    <span className="font-bold text-emerald-600 dark:text-emerald-400 text-xs">Truck Milk-Run</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400 text-xs">{factorySetup.supplierLogistics || "—"}</span>
                   </div>
                 </div>
               </div>
@@ -4166,7 +3922,7 @@ export default function VsmPage() {
               <span>Gezinmek için tuval üzerinde <strong>Sol Tıklayıp Sürükleyin</strong>. Yakınlaştırma için kontrol butonlarını kullanın.</span>
             </div>
             <div className={vsmBrightMode ? 'font-mono text-emerald-600' : 'font-mono text-emerald-400'}>
-              Müşteri: {selectedCustomer?.companyName || "Beko Global"} • Sektör: {selectedCustomer?.industry || "Beyaz Eşya"}
+              Müşteri: {selectedCustomer?.companyName || "—"}{selectedCustomer?.industry ? ` • Sektör: ${selectedCustomer.industry}` : ""}
             </div>
           </div>
 
@@ -4606,35 +4362,6 @@ export default function VsmPage() {
               </div>
             </div>
 
-            {/* Transport Distance Card */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm hover:border-slate-300 transition duration-200" id="kpi_transport_reduction">
-              <span className="text-[10px] uppercase text-slate-400 font-bold font-mono tracking-wider block">Yıllık İç Lojistik Taşıma Mesafesi</span>
-              <div className="flex items-baseline space-x-2 mt-2">
-                <span className="text-2xl font-extrabold text-slate-900 tracking-tight font-mono">{dashboardData.futureTransportDist} m</span>
-                <span className="text-xs text-slate-400 line-through font-mono">{dashboardData.currentTransportDist} m</span>
-              </div>
-              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-                <span className="text-slate-500 font-medium">Lojistik Israf Azalışı</span>
-                <span className="text-emerald-600 font-extrabold bg-emerald-50 px-2 py-0.5 rounded-full">
-                  -{Math.max(0, Math.round(((dashboardData.currentTransportDist - dashboardData.futureTransportDist) / (dashboardData.currentTransportDist || 1)) * 100))}%
-                </span>
-              </div>
-            </div>
-
-            {/* Space Utilization Card */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm hover:border-slate-300 transition duration-200" id="kpi_space_utilization">
-              <span className="text-[10px] uppercase text-slate-400 font-bold font-mono tracking-wider block">Fabrika Alanı Yerleşim Verimi</span>
-              <div className="flex items-baseline space-x-2 mt-2">
-                <span className="text-2xl font-extrabold text-slate-900 tracking-tight font-mono">{dashboardData.futureSpaceUtil}%</span>
-                <span className="text-xs text-slate-400 line-through font-mono">{dashboardData.currentSpaceUtil}%</span>
-              </div>
-              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-                <span className="text-slate-500 font-medium">M2 Başına Yoğunluk</span>
-                <span className="text-emerald-600 font-extrabold bg-emerald-50 px-2 py-0.5 rounded-full">
-                  +{Math.max(0, Math.round(((dashboardData.futureSpaceUtil - dashboardData.currentSpaceUtil) / (dashboardData.currentSpaceUtil || 1)) * 100))}%
-                </span>
-              </div>
-            </div>
 
           </div>
 
@@ -4683,7 +4410,7 @@ export default function VsmPage() {
           <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm hover:border-slate-300 transition duration-200" id="kpi_takt_time_dashboard">
             <span className="text-[10px] uppercase text-slate-400 font-bold font-mono tracking-wider block">Takt Zamanı (Müşteri Talebi)</span>
             <div className="flex items-baseline space-x-2 mt-2">
-              <span className="text-2xl font-extrabold text-slate-900 tracking-tight font-mono">{taktTime} sn</span>
+              <span className="text-2xl font-extrabold text-slate-900 tracking-tight font-mono">{taktTime > 0 ? `${taktTime} sn` : "—"}</span>
             </div>
             <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
               <span className="text-slate-500 font-medium">Darboğaz Çevrimi (Gelecek)</span>
@@ -4921,8 +4648,8 @@ export default function VsmPage() {
               <Sparkles className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-black uppercase tracking-wider font-mono text-indigo-300">AI Değer Akışı Yönetici Özeti (AI Executive Summary)</h3>
-              <p className="text-[10px] text-slate-400">Veri analitik algoritmaları tarafından oluşturulan stratejik yönetim ve yalın dönüşüm raporu</p>
+              <h3 className="text-sm font-black uppercase tracking-wider font-mono text-indigo-300">Hesaplanan Özet (Mevcut ↔ Gelecek Simülasyonu)</h3>
+              <p className="text-[10px] text-slate-400">Girilen verilerden kural tabanlı üretilir; yapay zekâ analizi değildir. Gelecek durum bir simülasyondur, gerçekleşmiş sonuç değildir.</p>
             </div>
           </div>
 
@@ -4951,8 +4678,8 @@ export default function VsmPage() {
           </div>
           
           <div className="mt-6 pt-4 border-t border-white/5 text-[10px] text-slate-500 flex items-center justify-between font-mono">
-            <span>Rapor No: VSM-SIM-{(selectedCustomerId || "DEMO").toUpperCase()}</span>
-            <span>Gerçek Zamanlı Endüstriyel Analitik</span>
+            <span>{selectedProject?.name}</span>
+            <span>Hesaplanan özet</span>
           </div>
         </div>
 

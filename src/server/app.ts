@@ -8,6 +8,7 @@ import { mergeOpexAssessmentSave } from "./opexMerge.js";
 import { loadExecutiveReport } from "./opexReport/load.js";
 import { analyzePtrRecords } from "./ptrDigest.js";
 import { registerCiRoutes } from "./ci/ciRoutes.js";
+import { registerVsmRoutes } from "./vsm/vsmRoutes.js";
 import { buildFacts, generateConsultantBrief } from "./opexReport/consultantBrief.js";
 import { applyFinding, canWriteFinding } from "./opexFindings.js";
 import { renderReportHtml } from "./opexReport/render.js";
@@ -4013,46 +4014,8 @@ app.get("/api/business/kaizen/suggestions/export-excel", authenticateToken, asyn
   res.send(buffer);
 });
 
-// 7. VSM Projects
-app.get("/api/business/vsm-projects", authenticateToken, async (req, res) => {
-  const user = (req as any).user;
-  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
-  if (!scope.allowed) {
-    res.status(403).json({ success: false, error: "Access Denied." });
-    return;
-  }
-  res.json({ success: true, data: await db.getVsmProjects(user.organization_id, scope.factoryId) });
-});
-
-app.post("/api/business/vsm-projects", authenticateToken, async (req, res) => {
-  const user = (req as any).user;
-  const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
-  if (!scope.allowed) {
-    res.status(403).json({ success: false, error: "Access Denied." });
-    return;
-  }
-  const payload = { ...req.body };
-  if (scope.factoryId && !payload.factory_id) {
-    payload.factory_id = scope.factoryId;
-  }
-  const saved = await db.saveVsmProject(user.organization_id, payload, user.id);
-  res.json({ success: true, data: saved });
-});
-
-app.delete("/api/business/vsm-projects/:id", authenticateToken, async (req, res) => {
-  const user = (req as any).user;
-  const allowedCustomerIds = (req as any).allowedCustomerIds as string[] | null;
-  if (allowedCustomerIds !== null) {
-    const existing = (await db.getVsmProjects(user.organization_id)).find((r: any) => r.id === req.params.id);
-    if (!existing || !allowedCustomerIds.includes(existing.factory_id || "arcelik_bolu")) {
-      res.status(403).json({ success: false, error: "Access Denied." });
-      return;
-    }
-  }
-  await db.deleteVsmProject(user.organization_id, req.params.id);
-  res.json({ success: true });
-});
-
+// 7. VSM Projects — see vsm/vsmRoutes.ts
+registerVsmRoutes(app, { authenticateToken, resolveFactoryScope, canAccessFactory });
 
 // 8. OpEx Assessments
 app.get("/api/business/opex-assessments", authenticateToken, async (req, res) => {
