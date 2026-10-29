@@ -1,0 +1,1163 @@
+// VSM workspace state: projects, the open project's setup / processes / simulation, view state, handlers
+// and every derived figure (via vsmCalc.ts). One instance per VSM screen, shared with the tab components
+// through VsmContext. Kept free of layout so the module can later run outside Gemba Tools (plan step V11).
+import React, { useState, useMemo, useEffect, useRef } from "react";
+import { 
+  useFactory, 
+} from "../../context/FactoryContext";
+import { 
+  Building2, Users, BarChart3, Clock, Settings, HelpCircle, 
+  CheckCircle2, ChevronRight, Loader2, RefreshCw, FileText,
+  User, Percent, GitCommit, Trash2, Plus, AlertTriangle,
+  ChevronDown, ChevronUp, Activity, ArrowRight, Play, Save, Check, Award,
+  Info, Sparkles, LayoutDashboard, Sliders, PlayCircle, ClipboardList, Zap, ArrowDownUp,
+  Maximize2, Minimize2, ZoomIn, ZoomOut, Move, Download, Share2, Printer, CheckCircle,
+  Cpu, ArrowUp, ArrowDown, GripVertical, Sun, Moon, DollarSign, Home
+} from "lucide-react";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  Cell as RechartsCell
+} from "recharts";
+import { ProcessRecord, Customer } from "../../types";
+import { VsmUserLike, canDeleteVsmProcess, canDeleteVsmProject } from "../../utils/vsmAccess";
+import type { VsmConnectionType, VsmFactorySetup, VsmProcess } from "./vsmTypes";
+import { getEffectiveSuccessorIds, isLinearFlow } from "./vsmGraph";
+import {
+  annualWasteCost, applySimulation, bottleneckOf, compareStates, computeAll, demandOf, flowSummary, highestDowntimeOf,
+  highestInventoryOf, leadTimeOf, lowestOeeOf, netAvailableSecondsPerDay as netSecondsPerDay, simulationDeltas,
+  taktTimeOf, withInventoryDays, workforceAnalysis as computeWorkforce
+} from "./vsmCalc";
+import { domToCanvas } from "modern-screenshot";
+import { jsPDF } from "jspdf";
+
+
+const optionalNumber = (raw: string): number | undefined => (raw.trim() === "" ? undefined : Number(raw));
+
+export function useVsmWorkspace(currentUser: VsmUserLike | null) {
+  const { selectedCustomerId, selectedCustomer } = useFactory();
+  const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
+
+  // --- STATE PERSISTENCE & CONTROL ---
+  const [dbProcesses, setDbProcesses] = useState<ProcessRecord[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  // --- VSM MULTI-PROJECT STATE ---
+  const [projects, setProjects] = useState<any[]>([]);
+  const [selectedProject, setSelectedProject] = useState<any | null>(null);
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState<boolean>(false);
+  const [editingProject, setEditingProject] = useState<any | null>(null);
+  const [isSavingProject, setIsSavingProject] = useState<boolean>(false);
+  const [justSavedProject, setJustSavedProject] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<string>("All");
+
+  // Project form states
+  const [projForm, setProjForm] = useState({
+    name: "",
+    productGroup: "",
+    productCode: "",
+    productionLine: "",
+    department: "",
+    leader: "",
+    startDate: new Date().toISOString().split("T")[0],
+    targetDate: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split("T")[0],
+    status: "Aktif",
+    description: ""
+  });
+  
+  // --- PRIMARY TABS STATE ---
+  const [vsmProcesses, setVsmProcesses] = useState<VsmProcess[]>([]);
+  const [activeTab, setActiveTab] = useState<"setup" | "definition" | "production" | "quality" | "vsm" | "dashboard">("vsm");
+  
+  // A new project starts empty: no demand, cost or partner names are invented (they used to be
+  // pre-filled with a sample factory's figures and "çalışan sayısı × 12" as weekly demand).
+  const emptyFactorySetup = (): VsmFactorySetup => ({
+      workingDays: 5,
+      shiftStructure: "",
+      shiftDuration: 8,
+      breakTimes: 0,
+      plannedMaintenance: 0,
+      weeklyDemand: 0,
+      productFamily: "",
+      customerName: "",
+      shippingFrequency: "",
+      productVolumeShare: 0,
+      scrapUnitCost: 0,
+      holdingCostPerWipYearly: 0,
+      downtimeHourlyCost: 0,
+      // Map boxes (Tedarikçi / Üretim Planlama) — entered by the user, never pre-filled.
+      supplierName: "",
+      supplierMaterial: "",
+      supplierDelivery: "",
+      supplierBatch: "",
+      supplierLeadTime: "",
+      supplierLogistics: "",
+      planningSystem: "",
+      planningFrequency: "",
+      planningSequencing: "",
+      planningCalendar: ""
+    });
+  const [factorySetup, setFactorySetup] = useState<VsmFactorySetup>(emptyFactorySetup);
+
+  // İş Gücü Analizi (Norm Kadro) — which method the dashboard's workforce section uses to
+  // derive "Gerekli İş Gücü" per process from the existing VSM data (no new inputs required).
+  const [workforceMethod, setWorkforceMethod] = useState<"takt" | "capacity">("takt");
+
+  // Fetch VSM Projects
+  const fetchProjects = () => {
+    if (!selectedCustomerId) return;
+    setIsLoading(true);
+    fetch("/api/business/vsm-projects", {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "x-factory-id": selectedCustomerId
+      }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        setProjects(data.data);
+      }
+      setIsLoading(false);
+    })
+    .catch(err => {
+      console.error("Failed to load VSM projects", err);
+      setIsLoading(false);
+    });
+  };
+
+  useEffect(() => {
+    fetchProjects();
+    setSelectedProject(null); // Reset when customer changes
+  }, [selectedCustomerId]);
+
+  const handleOpenNewProjectModal = () => {
+    setEditingProject(null);
+    setProjForm({
+      name: "",
+      productGroup: "",
+      productCode: "",
+      productionLine: "",
+      department: "",
+      leader: "",
+      startDate: new Date().toISOString().split("T")[0],
+      targetDate: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split("T")[0],
+      status: "Aktif",
+      description: ""
+    });
+    setIsProjectModalOpen(true);
+  };
+
+  const handleOpenEditProjectModal = (proj: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingProject(proj);
+    setProjForm({
+      name: proj.name || "",
+      productGroup: proj.productGroup || "",
+      productCode: proj.productCode || "",
+      productionLine: proj.productionLine || "",
+      department: proj.department || "",
+      leader: proj.leader || "",
+      startDate: proj.startDate || "",
+      targetDate: proj.targetDate || "",
+      status: proj.status || "Aktif",
+      description: proj.description || ""
+    });
+    setIsProjectModalOpen(true);
+  };
+
+  const handleSaveProjectForm = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!projForm.name) {
+      alert("Lütfen proje adını giriniz.");
+      return;
+    }
+
+    setIsSavingProject(true);
+    const payload = editingProject 
+      ? { ...editingProject, ...projForm }
+      : { 
+          ...projForm,
+          vsmProcesses: [],
+          // Gemba Tools: figures are typed in (see dataSources/). Opx Suite will store line/product/range here.
+          dataSource: { kind: "manual" },
+          factorySetup: {
+            ...emptyFactorySetup(),
+            productFamily: projForm.productGroup || "",
+            customerName: selectedCustomer?.companyName || ""
+          }
+        };
+
+    fetch("/api/business/vsm-projects", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+        "x-factory-id": selectedCustomerId || ""
+      },
+      body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        if (editingProject) {
+          setProjects(prev => prev.map(p => p.id === data.data.id ? data.data : p));
+          if (selectedProject?.id === data.data.id) {
+            setSelectedProject(data.data);
+          }
+        } else {
+          setProjects(prev => [data.data, ...prev]);
+        }
+        setIsProjectModalOpen(false);
+      } else {
+        alert(data.error || "VSM projesi kaydedilemedi.");
+      }
+      setIsSavingProject(false);
+    })
+    .catch(err => {
+      console.error("Failed to save VSM project info", err);
+      setIsSavingProject(false);
+    });
+  };
+
+  const handleDeleteProject = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("Bu VSM projesini silmek istediğinize emin misiniz? Bu işlem geri alınamaz.")) return;
+
+    fetch(`/api/business/vsm-projects/${id}`, {
+      method: "DELETE",
+      headers: {
+        "Authorization": `Bearer ${token}`
+      }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        setProjects(prev => prev.filter(p => p.id !== id));
+        if (selectedProject?.id === id) {
+          setSelectedProject(null);
+        }
+      } else {
+        alert(data.error || "VSM projesi silinemedi.");
+      }
+    })
+    .catch(err => {
+      console.error("Failed to delete project", err);
+    });
+  };
+
+  const handleSelectProject = (project: any) => {
+    setSelectedProject(project);
+    if (project) {
+      setFactorySetup({
+        ...emptyFactorySetup(),
+        customerName: selectedCustomer?.companyName || "",
+        productFamily: project.productGroup || "",
+        ...(project.factorySetup || {})
+      });
+      setVsmProcesses(Array.isArray(project.vsmProcesses) ? project.vsmProcesses : []);
+
+      if (project.simulationEdits) {
+        setSimulationEdits(project.simulationEdits);
+      } else {
+        setSimulationEdits({});
+      }
+
+      if (project.simulationMode) {
+        setSimulationMode(project.simulationMode);
+      } else {
+        setSimulationMode("current");
+      }
+    }
+  };
+
+  // Push VSM process data into the cost-table `processes` collection (Loss Capacity Analizi's
+  // real data source) — both the operational fields the two screens genuinely share (cycleTime,
+  // oee, capacity, headcount, shifts, working hours, utilization) AND, for rows this VSM project
+  // itself owns (tagged via vsmProjectId), derived cost fields (scrapCost/reworkCost/downtimeCost/
+  // waitingLoss) computed from this project's own Tab 4 quantities (scrap/rework) and Fabrika
+  // Kurulum Parametreleri unit costs (scrapUnitCost/downtimeHourlyCost/holdingCostPerWipYearly) —
+  // the same rates estimatedAnnualWasteCost/simulationComparison already use elsewhere in this
+  // file, so this stays consistent with what VSM's own dashboard already tells the user its
+  // losses are worth. Previously this only ever UPDATED a pre-existing cost-table row with a
+  // matching id and silently did nothing otherwise — meaning a brand-new VSM process (or any
+  // project saved while the cost table was still empty, the removed `dbProcesses.length === 0`
+  // guard) never made it into Loss Capacity at all. Now creates the row when no match exists.
+  const syncVsmProcessesToCostTable = (processesToSync: VsmProcess[], vsmProjectId: string) => {
+    const dbById = new Map((dbProcesses || []).map(p => [p.id, p]));
+    const su = factorySetup.scrapUnitCost;
+    const dh = factorySetup.downtimeHourlyCost;
+    const hc = factorySetup.holdingCostPerWipYearly;
+
+    processesToSync.forEach((vp) => {
+      const matched = dbById.get(vp.id);
+      const perShiftHours = vp.shifts > 0 ? Math.round(vp.workingHours / vp.shifts) : (matched?.workingHours ?? vp.workingHours);
+
+      // Only recompute cost fields for rows this VSM project owns — a matched row belonging to a
+      // different origin (untagged legacy process, or another project's own manual cost-table
+      // edit) keeps its existing cost figures untouched, exactly as before.
+      const ownsCostFields = !matched || matched.vsmProjectId === vsmProjectId;
+      // Cost fields only from quantities and unit costs the user actually entered; a missing one is left
+      // out (the row keeps whatever it had) instead of being invented.
+      const costFields: Record<string, number> = {};
+      if (ownsCostFields) {
+        if (su > 0 && vp.scrap !== undefined) costFields.scrapCost = vp.scrap * su * workDaysPerYear;
+        // 40% of item cost for rework matches the ratio calculateFinancialImpact assumes (helpers.ts).
+        if (su > 0 && vp.rework !== undefined) costFields.reworkCost = vp.rework * su * 0.4 * workDaysPerYear;
+        if (dh > 0) costFields.downtimeCost = (vp.downtimeMinutes / 60) * dh * workDaysPerYear;
+        if (hc > 0) costFields.waitingLoss = vp.inventoryBefore * hc;
+      }
+
+      const updatedProcess = {
+        ...(matched || {}),
+        id: vp.id,
+        name: vp.name,
+        vsmProjectId,
+        cycleTime: vp.cycleTime,
+        oee: vp.oee,
+        capacity: vp.capacity,
+        operatorCount: vp.operatorCount,
+        machineCount: vp.machineCount,
+        shiftCount: vp.shifts,
+        workingHours: perShiftHours,
+        utilizationRate: vp.availability,
+        ...costFields
+      };
+
+      fetch("/api/business/processes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+          "x-factory-id": selectedCustomerId || ""
+        },
+        body: JSON.stringify(updatedProcess)
+      }).catch(err => console.error("Failed to sync VSM process into cost table", err));
+    });
+
+    // Tell App.tsx to re-fetch processes so Loss Capacity / CI Proje Yönetimi / Executive
+    // Dashboard pick up these updated cycle-time/OEE/capacity figures without a factory switch.
+    window.dispatchEvent(new CustomEvent("gemba:refresh-factory-data"));
+  };
+
+  const handlePersistWorkspaceState = () => {
+    if (!selectedProject) return;
+    setIsSavingProject(true);
+    const updatedPayload = {
+      ...selectedProject,
+      factorySetup,
+      vsmProcesses,
+      simulationEdits,
+      simulationMode
+    };
+
+    fetch("/api/business/vsm-projects", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+        "x-factory-id": selectedCustomerId || ""
+      },
+      body: JSON.stringify(updatedPayload)
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        setProjects(prev => prev.map(p => p.id === data.data.id ? data.data : p));
+        setSelectedProject(data.data);
+        if (Array.isArray(data.data.vsmProcesses)) setVsmProcesses(data.data.vsmProcesses);
+        // Use the fresh server response's id, not `selectedProject` — React state setters are
+        // async, so `selectedProject` in this closure is still the pre-save value here (a real
+        // stale-closure bug: a brand-new project's very first save would otherwise sync with an
+        // undefined/wrong project id).
+        syncVsmProcessesToCostTable(vsmProcesses, data.data.id);
+        setJustSavedProject(true);
+        setTimeout(() => setJustSavedProject(false), 2000);
+      } else {
+        alert(data.error || "VSM projesi kaydedilemedi.");
+      }
+      setIsSavingProject(false);
+    })
+    .catch(err => {
+      console.error("Failed to save project states", err);
+      setIsSavingProject(false);
+    });
+  };
+
+  // Simulation Mode (Current vs Future)
+  const [simulationMode, setSimulationMode] = useState<"current" | "future">("current");
+  const [simulationEdits, setSimulationEdits] = useState<Record<string, Partial<VsmProcess>>>({});
+
+  // Canvas View Controls
+  const [zoom, setZoom] = useState<number>(1);
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState<boolean>(false);
+  const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
+  const [vsmBrightMode, setVsmBrightMode] = useState<boolean>(true);
+
+  // Drag and drop state
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+
+  // Side Drawer & Modals
+  const [selectedProcessId, setSelectedProcessId] = useState<string | null>(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
+  const [exportModalOpen, setExportModalOpen] = useState<boolean>(false);
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
+
+  // Refs for tracking pan operations safely
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+
+  // --- FETCH PERSISTED PROCESSES FROM OPERATIONAL DATA ---
+  const fetchProcesses = () => {
+    if (!selectedCustomerId) return;
+    setIsLoading(true);
+    fetch("/api/business/processes", {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "x-factory-id": selectedCustomerId
+      }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        setDbProcesses(data.data);
+      }
+      setIsLoading(false);
+    })
+    .catch(err => {
+      console.error("Failed to load processes for VSM", err);
+      setIsLoading(false);
+    });
+  };
+
+  // dbProcesses (the cost table) is only read to merge the VSM sync into existing rows; it never feeds
+  // the map — a VSM project shows exactly the processes stored in it.
+  useEffect(() => {
+    fetchProcesses();
+  }, [selectedCustomerId]);
+
+  // --- CALCULATIONS — all figures come from the engine in vsm/vsmCalc.ts ---
+  // Current state = the processes as entered; future state = the same processes with the simulation
+  // overlay. `activeProcesses` is whichever of the two the map is showing.
+  const currentProcessesCalculated = useMemo(() => computeAll(vsmProcesses), [vsmProcesses]);
+  const futureProcessesCalculated = useMemo(
+    () => computeAll(applySimulation(vsmProcesses, simulationEdits)),
+    [vsmProcesses, simulationEdits]
+  );
+  const activeProcesses = simulationMode === "future" ? futureProcessesCalculated : currentProcessesCalculated;
+
+  const companyCurrency = selectedCustomer?.currency || "₺";
+  const demand = useMemo(() => demandOf(factorySetup), [factorySetup]);
+  const workingDays = factorySetup.workingDays;
+  const weeklyDemand = demand.weekly;
+  const dailyDemand = demand.daily;
+  const monthlyDemand = demand.monthly;
+  const workDaysPerYear = demand.workDaysPerYear;
+
+  // Net time uses the first process's shift count until the project-level shift model lands (V2).
+  const netAvailableSecondsPerDay = useMemo(
+    () => netSecondsPerDay(factorySetup, activeProcesses[0]?.shifts ?? 0),
+    [factorySetup, activeProcesses]
+  );
+  const taktTime = useMemo(() => taktTimeOf(netAvailableSecondsPerDay, dailyDemand), [netAvailableSecondsPerDay, dailyDemand]);
+
+  const processesWithTimeline = useMemo(() => withInventoryDays(activeProcesses, dailyDemand), [activeProcesses, dailyDemand]);
+
+  // --- GRAPH-BASED FLOW (parallel/branching VSM support) ---
+  const vsmLeadTime = useMemo(() => leadTimeOf(processesWithTimeline), [processesWithTimeline]);
+  const vsmGraphEdges = vsmLeadTime.edges;
+  const vsmGraphLayout = vsmLeadTime.layout;
+  const isFlowLinear = useMemo(() => isLinearFlow(processesWithTimeline, vsmGraphEdges), [processesWithTimeline, vsmGraphEdges]);
+  const vsmCriticalPath = { totalDays: vsmLeadTime.totalDays, criticalPathIds: vsmLeadTime.criticalPathIds };
+  const flow = useMemo(() => flowSummary(processesWithTimeline), [processesWithTimeline]);
+
+  const totalWip = flow.totalWip;
+  const totalLeadTimeDays = flow.leadTimeDays;
+  const totalLeadTimeSeconds = totalLeadTimeDays * 24 * 3600;
+  const totalProcessingTimeSeconds = flow.processingSeconds;
+  const totalWaitingTimeHours = Math.round(totalLeadTimeDays * 24 * 10) / 10;
+  const valueAddedRatio = Math.round(flow.pcePct * 1000) / 1000;
+
+  // Per-lane breakdown for the graph-mode timeline summary (branches cannot be drawn as one ladder).
+  const vsmLaneSummaries = useMemo(() => {
+    const byLane = new Map<number, typeof processesWithTimeline>();
+    processesWithTimeline.forEach(p => {
+      const lane = vsmGraphLayout.positions.get(p.id)?.lane ?? 0;
+      if (!byLane.has(lane)) byLane.set(lane, []);
+      byLane.get(lane)!.push(p);
+    });
+    return Array.from(byLane.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([lane, procs]) => {
+        const sorted = [...procs].sort((a, b) => (vsmGraphLayout.positions.get(a.id)?.rank || 0) - (vsmGraphLayout.positions.get(b.id)?.rank || 0));
+        const waitDays = sorted.reduce((sum, p) => sum + (p.inventoryDays || 0), 0);
+        const processingSeconds = sorted.reduce((sum, p) => sum + p.cycleTime, 0);
+        const isCritical = sorted.some(p => vsmLeadTime.criticalPathIds.has(p.id));
+        return { lane, processes: sorted, waitDays: Math.round(waitDays * 100) / 100, processingSeconds, isCritical };
+      });
+  }, [processesWithTimeline, vsmGraphLayout, vsmLeadTime]);
+
+  const count = processesWithTimeline.length;
+  const averageOee = count > 0 ? Math.round(processesWithTimeline.reduce((sum, p) => sum + p.oee, 0) / count) : 0;
+  const averageCapacity = count > 0 ? processesWithTimeline.reduce((sum, p) => sum + p.capacity, 0) / count : 0;
+  const averageCapacityUtilization = averageCapacity > 0 ? Math.min(100, Math.round((dailyDemand / averageCapacity) * 100)) : 0;
+  const totalOperators = processesWithTimeline.reduce((sum, p) => sum + p.operatorCount, 0);
+  const totalMachines = processesWithTimeline.reduce((sum, p) => sum + p.machineCount, 0);
+
+  // --- BOTTLENECK & CRITICAL KPI DETECTION ---
+  const bottleneckProcess = useMemo(() => bottleneckOf(processesWithTimeline), [processesWithTimeline]);
+  const highestDowntimeProcess = useMemo(() => highestDowntimeOf(processesWithTimeline), [processesWithTimeline]);
+  const highestInventoryProcess = useMemo(() => highestInventoryOf(processesWithTimeline), [processesWithTimeline]);
+  const lowestOeeProcess = useMemo(() => lowestOeeOf(processesWithTimeline), [processesWithTimeline]);
+
+  // Annual loss of the state on the map, from the unit costs entered in Kurulum.
+  const estimatedAnnualWasteCost = useMemo(
+    () => annualWasteCost(processesWithTimeline, factorySetup, workDaysPerYear).total,
+    [processesWithTimeline, factorySetup, workDaysPerYear]
+  );
+
+  // --- CURRENT VS FUTURE ---
+  const dashboardData = useMemo(
+    () => compareStates(currentProcessesCalculated, futureProcessesCalculated, dailyDemand, factorySetup),
+    [currentProcessesCalculated, futureProcessesCalculated, dailyDemand, factorySetup]
+  );
+  const simulationComparison = useMemo(
+    () => simulationDeltas(dashboardData, Object.keys(simulationEdits).length > 0),
+    [dashboardData, simulationEdits]
+  );
+
+  // --- İŞ GÜCÜ ANALİZİ (NORM KADRO) — current state only ---
+  const workforceAnalysis = useMemo(
+    () => computeWorkforce(currentProcessesCalculated, workforceMethod, taktTime, dailyDemand, factorySetup),
+    [currentProcessesCalculated, workforceMethod, taktTime, dailyDemand, factorySetup]
+  );
+
+  // Sync VSM simulation bottleneck & improvement topics directly to CI Project Management (Kaizens)
+  const handleSyncToCiProjects = async () => {
+    try {
+      const generatedKaizens: any[] = [];
+      const factoryId = selectedCustomerId || "";
+
+      activeProcesses.forEach((p) => {
+        // 1. Bottleneck OEE Check
+        if (p.oee < 75 || p.id === bottleneckProcess?.id) {
+          generatedKaizens.push({
+            title: `[VSM Simülasyon] ${p.name} OEE %${p.oee} Darboğaz İyileştirme`,
+            description: `${p.name} prosesi %${p.oee} OEE verimi ile hattın ana dar boğazıdır. Çevrim süresini optimize etme ve arıza/setup duruşlarının elenmesi gereklidir.`,
+            type: "Kaizen",
+            status: "New Idea",
+            originator: "VSM Simülasyon Motoru",
+            department: "Üretim & Metot",
+            priority: "High",
+            factory_id: factoryId
+          });
+        }
+
+        // 2. High C/O (Setup/SMED)
+        if (p.changeoverMinutes && p.changeoverMinutes > 15) {
+          generatedKaizens.push({
+            title: `[VSM Simülasyon] ${p.name} SMED Hızlı Kalıp/Ayar Değişimi`,
+            description: `${p.name} operasyonunda ${p.changeoverMinutes} dk setup/kalıp değişim süresi mevcuttur. SMED metodolojisi ile %50 süre düşürme hedeflenmelidir.`,
+            type: "SMED",
+            status: "New Idea",
+            originator: "VSM Simülasyon Motoru",
+            department: "Pres Atölyesi / Kalıphane",
+            priority: "High",
+            factory_id: factoryId
+          });
+        }
+
+        // 3. High Cycle Time vs Takt Time
+        if (p.cycleTime > taktTime) {
+          generatedKaizens.push({
+            title: `[VSM Simülasyon] ${p.name} Çevrim Zamanı (${p.cycleTime}s > Takt ${taktTime}s) Düşürme`,
+            description: `${p.name} çevrim zamanı (${p.cycleTime} sn) takt zamanını (${taktTime} sn) aştığı için müşteri talebi karşılanamıyor. Yamazumi hat dengeleme uygulanmalı.`,
+            type: "Hat Dengeleme",
+            status: "New Idea",
+            originator: "VSM Simülasyon Motoru",
+            department: "Endüstri Mühendisliği",
+            priority: "High",
+            factory_id: factoryId
+          });
+        }
+
+        // 4. Scrap & Quality / Rework
+        if (p.quality < 98) {
+          generatedKaizens.push({
+            title: `[VSM Simülasyon] ${p.name} Poka-Yoke & Hurda/Iskarta Azaltma`,
+            description: `${p.name} prosesindeki kalite oranı %${p.quality}. Hatalı üretimi ve rework oranını engellemek için süreç içi Poka-Yoke sensör sistemi kurulmalı.`,
+            type: "Kalite / Poka-Yoke",
+            status: "New Idea",
+            originator: "VSM Simülasyon Motoru",
+            department: "Kalite Güvence",
+            priority: "Medium",
+            factory_id: factoryId
+          });
+        }
+
+        // 5. High WIP Inventory
+        if (p.inventoryBefore > 400) {
+          generatedKaizens.push({
+            title: `[VSM Simülasyon] ${p.name} Süpermarket & Ara Stok (WIP: ${p.inventoryBefore} ad) Düşürme`,
+            description: `${p.name} öncesinde ${p.inventoryBefore} adet yığılmış ara stok bulunmaktadır. Kanban/Pull akış çekme sistemi kurulmalıdır.`,
+            type: "Süpermarket / Pull",
+            status: "New Idea",
+            originator: "VSM Simülasyon Motoru",
+            department: "Lojistik / Malzeme",
+            priority: "High",
+            factory_id: factoryId
+          });
+        }
+
+        // 6. High Downtime
+        if (p.downtimeMinutes > 15) {
+          generatedKaizens.push({
+            title: `[VSM Simülasyon] ${p.name} TPM Otonom Bakım & Arıza Duruş Önleme`,
+            description: `${p.name} makinesinde günlük ${p.downtimeMinutes} dk arıza/plansız duruş yaşanmaktadır. TPM Otonom ve Kestirimci Bakım devreye alınmalı.`,
+            type: "TPM Bakım",
+            status: "New Idea",
+            originator: "VSM Simülasyon Motoru",
+            department: "Bakım Onarım",
+            priority: "High",
+            factory_id: factoryId
+          });
+        }
+      });
+
+      // Re-running the transfer must not duplicate cards: skip titles that already exist for this customer.
+      const existingRes = await fetch("/api/business/kaizens", {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || ""}`,
+          "x-factory-id": factoryId
+        }
+      }).then(r => r.json()).catch(() => null);
+      const existingTitles = new Set(((existingRes && existingRes.data) || []).map((k: any) => k.title));
+
+      let count = 0;
+      for (const k of generatedKaizens.filter(k => !existingTitles.has(k.title))) {
+        await fetch("/api/business/kaizens", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || ""}`,
+            "x-factory-id": factoryId
+          },
+          body: JSON.stringify(k)
+        });
+        count++;
+      }
+
+      // Tell App.tsx to re-fetch kaizens so the new cards show up in CI Proje Yönetimi immediately.
+      window.dispatchEvent(new CustomEvent("gemba:refresh-factory-data"));
+
+      const skipped = generatedKaizens.length - count;
+      alert(`${count} iyileştirme konusu CI Proje Yönetimi'ne aktarıldı.${skipped > 0 ? ` ${skipped} konu zaten aktarılmıştı, tekrar eklenmedi.` : ""}`);
+    } catch (err: any) {
+      alert("CI Proje Yönetimine aktarım esnasında bir hata oluştu: " + err.message);
+    }
+  };
+
+  // --- CANVAS INTERACTIVE NAV HANDLERS ---
+  const handleZoomIn = () => setZoom(z => Math.min(2.5, z + 0.1));
+  const handleZoomOut = () => setZoom(z => Math.max(0.4, z - 0.1));
+  const handleZoomReset = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return; // Only left click pans
+    setIsPanning(true);
+    setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isPanning) return;
+    setPan({
+      x: e.clientX - panStart.x,
+      y: e.clientY - panStart.y
+    });
+  };
+
+  const handleMouseUp = () => {
+    setIsPanning(false);
+  };
+
+  // --- DRAWER OPEN HANDLER ---
+  const handleOpenProcessDrawer = (id: string) => {
+    setSelectedProcessId(id);
+    setIsDrawerOpen(true);
+  };
+
+  const activeProcess = useMemo<VsmProcess | null>(() => {
+    if (!selectedProcessId) return null;
+    return processesWithTimeline.find(p => p.id === selectedProcessId) || null;
+  }, [processesWithTimeline, selectedProcessId]);
+
+  // --- UPDATE PROCESS VALUES IN DRAWER OR SIMULATOR ---
+  // Current and Future are meant to stay two independent snapshots (as-is baseline vs. simulated
+  // improvement) so the dashboard can show a real before/after. This must route edits to exactly
+  // ONE of the two stores depending on which mode is active — never both, or Future edits would
+  // silently overwrite the Current baseline and destroy the comparison.
+  const handleUpdateProcessField = (id: string, field: keyof VsmProcess, value: any) => {
+    if (simulationMode === "current") {
+      // Editing the actual as-is factory data — this IS the baseline, write it directly.
+      setVsmProcesses(prev =>
+        prev.map(p => {
+          if (p.id !== id) return p;
+          if (field === "shifts") {
+            const numShifts = Number(value) || 1;
+            const currentShiftHours = p.shiftHours || [];
+            const newShiftHours = Array.from({ length: numShifts }, (_, idx) =>
+              currentShiftHours[idx] !== undefined ? currentShiftHours[idx] : 8
+            );
+            const totalHours = newShiftHours.reduce((sum, h) => sum + h, 0);
+            return { ...p, shifts: numShifts, shiftHours: newShiftHours, workingHours: totalHours };
+          } else if (field === "shiftHours") {
+            const hoursArray = value as number[];
+            const totalHours = hoursArray.reduce((sum, h) => sum + h, 0);
+            return { ...p, shiftHours: hoursArray, workingHours: totalHours };
+          } else {
+            return { ...p, [field]: value };
+          }
+        })
+      );
+    } else {
+      // Future simulation — record as an overlay edit only. vsmProcesses (Current) is never
+      // touched here, so switching back to Current always shows the untouched original data.
+      setSimulationEdits(prev => {
+        const currentEdit = prev[id] || {};
+        let updatedEdit = { ...currentEdit, [field]: value };
+        if (field === "shifts") {
+          const numShifts = Number(value) || 1;
+          const currentShiftHours = (currentEdit.shiftHours || []) as number[];
+          const newShiftHours = Array.from({ length: numShifts }, (_, idx) =>
+            currentShiftHours[idx] !== undefined ? currentShiftHours[idx] : 8
+          );
+          const totalHours = newShiftHours.reduce((sum, h) => sum + h, 0);
+          updatedEdit = {
+            ...updatedEdit,
+            shifts: numShifts,
+            shiftHours: newShiftHours,
+            workingHours: totalHours
+          };
+        } else if (field === "shiftHours") {
+          const hoursArray = value as number[];
+          const totalHours = hoursArray.reduce((sum, h) => sum + h, 0);
+          updatedEdit = {
+            ...updatedEdit,
+            shiftHours: hoursArray,
+            workingHours: totalHours
+          };
+        }
+        return {
+          ...prev,
+          [id]: updatedEdit
+        };
+      });
+    }
+  };
+
+  // --- GRAPH RELATIONSHIP EDITING (Sonraki Proses / Next Process) ---
+  // Seeds the edit from whatever's currently in effect (explicit nextProcessIds if set, otherwise
+  // the legacy array-order successor) so the first toggle on an existing linear-chain project
+  // converts its implicit relationship into an explicit one instead of silently discarding it.
+  const handleToggleNextProcess = (processId: string, targetId: string, checked: boolean) => {
+    const idx = processesWithTimeline.findIndex(p => p.id === processId);
+    const process = processesWithTimeline[idx];
+    if (!process) return;
+    const currentEffective = getEffectiveSuccessorIds(process, processesWithTimeline, idx);
+    const nextSet = new Set(currentEffective);
+    if (checked) nextSet.add(targetId); else nextSet.delete(targetId);
+    handleUpdateProcessField(processId, "nextProcessIds", Array.from(nextSet));
+  };
+
+  const handleSetConnectionType = (processId: string, targetId: string, type: VsmConnectionType) => {
+    const process = processesWithTimeline.find(p => p.id === processId);
+    const current = process?.connectionTypes || {};
+    handleUpdateProcessField(processId, "connectionTypes", { ...current, [targetId]: type });
+  };
+
+  // --- EXPORT IMPLEMENTATIONS ---
+  // Captures the actual on-screen VSM diagram (1:1, not a reconstruction) via modern-screenshot's
+  // domToCanvas, which renders through an SVG <foreignObject> (i.e. the browser's own engine)
+  // rather than reimplementing CSS parsing — unlike html2canvas, it correctly handles Tailwind
+  // v4's oklch()/color-mix() based palette instead of throwing on it.
+  const captureVsmMapCanvas = async (): Promise<HTMLCanvasElement> => {
+    if (activeTab !== "vsm") setActiveTab("vsm");
+    handleZoomReset();
+    // Let React re-render (tab switch / transform reset) before we snapshot the DOM.
+    await new Promise(resolve => setTimeout(resolve, 350));
+
+    const target = document.getElementById("vsm_map_capture_target");
+    if (!target) throw new Error("VSM canvas not found");
+
+    const captureHeight = isFlowLinear
+      ? 640
+      : 265 + (vsmGraphLayout.laneCount * (270 + 44)) + 110;
+
+    return domToCanvas(target, {
+      scale: 2,
+      backgroundColor: vsmBrightMode ? "#f8fafc" : "#0f172a",
+      width: 2240,
+      height: captureHeight
+    });
+  };
+
+  const handleTriggerExport = async (format: string) => {
+    setExportStatus(`Preparing high resolution ${format} report...`);
+    try {
+      if (format === "Excel") {
+        // Create direct CSV download of VSM data
+        const header = "Process Name,Cycle Time (CT),OEE (%),Availability,Performance,Quality,Capacity,WIP Inventory,WIP Days,Is Kanban\n";
+        const rows = processesWithTimeline.map(p =>
+          `"${p.name}",${p.cycleTime},${p.oee},${p.availability},${p.performance},${p.quality},${p.capacity},${p.inventoryBefore},${p.inventoryDays},${p.isKanbanEnabled ? 'YES' : 'NO'}`
+        ).join("\n");
+        const blob = new Blob([header + rows], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `VSM_Report_${selectedCustomer?.companyName || "Factory"}.csv`);
+        link.click();
+        URL.revokeObjectURL(url);
+      } else if (format === "High Res PNG") {
+        const canvas = await captureVsmMapCanvas();
+        const link = document.createElement("a");
+        link.setAttribute("download", `VSM_Sema_${selectedProject?.name || "Proje"}.png`);
+        link.setAttribute("href", canvas.toDataURL("image/png", 1.0));
+        link.click();
+      } else if (format === "PDF Report") {
+        const canvas = await captureVsmMapCanvas();
+        const imgData = canvas.toDataURL("image/png", 1.0);
+        const pdf = new jsPDF({
+          orientation: "landscape",
+          unit: "px",
+          format: [canvas.width, canvas.height]
+        });
+        pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
+        pdf.save(`VSM_Rapor_${selectedProject?.name || "Proje"}.pdf`);
+      }
+    } catch (err) {
+      alert("Export sırasında bir hata oluştu. Lütfen tekrar deneyin.");
+      console.error("VSM export error:", err);
+    } finally {
+      setExportStatus(null);
+      setExportModalOpen(false);
+    }
+  };
+
+  // --- TAB ACTION HANDLERS ---
+  const handleAddProcess = () => {
+    const newId = `proc-${Date.now()}`;
+    const newProcess: VsmProcess = {
+      id: newId,
+      name: `YENİ PROSES ${vsmProcesses.length + 1}`,
+      type: "Manual",
+      productionModel: "Other",
+      machineCount: 0,
+      operatorCount: 0,
+      shifts: 1,
+      shiftHours: [factorySetup.shiftDuration || 8],
+      workingHours: factorySetup.shiftDuration || 8,
+      cycleTime: 0,
+      oee: 0,
+      availability: 0,
+      performance: 0,
+      quality: 0,
+      capacity: 0,
+      downtimeMinutes: 0,
+      inventoryBefore: 0,
+      isKanbanEnabled: false,
+      isSupermarket: false,
+      notes: "",
+      kaizenOpp: "",
+      createdBy: currentUser?.id
+    };
+    setVsmProcesses(prev => [...prev, newProcess]);
+  };
+
+  const handleDeleteProcess = (id: string) => {
+    const target = vsmProcesses.find(p => p.id === id);
+    if (!canDeleteVsmProcess(currentUser, target)) {
+      alert("Yalnızca kendi eklediğiniz prosesleri silebilirsiniz.");
+      return;
+    }
+    setVsmProcesses(prev => prev.filter(p => p.id !== id));
+  };
+
+  const handleMoveProcess = (index: number, direction: "up" | "down") => {
+    const nextIndex = direction === "up" ? index - 1 : index + 1;
+    if (nextIndex < 0 || nextIndex >= vsmProcesses.length) return;
+    
+    setVsmProcesses(prev => {
+      const list = [...prev];
+      const temp = list[index];
+      list[index] = list[nextIndex];
+      list[nextIndex] = temp;
+      return list;
+    });
+  };
+
+  // --- AI EXECUTIVE SUMMARY INSIGHTS ---
+  const dynamicAiSummary = useMemo(() => {
+    const savings = dashboardData.annualSavings;
+    const ltRed = Math.max(0, Math.round(((dashboardData.currentLeadTime - dashboardData.futureLeadTime) / (dashboardData.currentLeadTime || 1)) * 100));
+    const wipRed = Math.max(0, Math.round(((dashboardData.currentWip - dashboardData.futureWip) / (dashboardData.currentWip || 1)) * 100));
+    
+    // Quality improvement summary
+    const currQual = currentProcessesCalculated.reduce((sum, p) => sum + p.quality, 0) / (currentProcessesCalculated.length || 1);
+    const futQual = futureProcessesCalculated.reduce((sum, p) => sum + p.quality, 0) / (futureProcessesCalculated.length || 1);
+    const qualGain = Math.round((futQual - currQual) * 10) / 10;
+
+    return {
+      biggestImprovement: `Darboğaz (en yüksek çevrim süresi): mevcut durumda "${dashboardData.currentBottleneckName}" (OEE %${dashboardData.currentBottleneckOee}), gelecek simülasyonda "${dashboardData.futureBottleneckName}" (OEE %${dashboardData.futureBottleneckOee}).`,
+      leadTimeReduction: `Simülasyona göre ara stok (WIP) %${wipRed} azalır; toplam bekleme süresi ${dashboardData.currentLeadTime} günden ${dashboardData.futureLeadTime} güne iner (-%${ltRed}).`,
+      qualityImpact: qualGain > 0
+        ? `Simülasyonda ortalama kalite oranı (FPY) ${qualGain.toFixed(1)} puan yükselir.`
+        : `Simülasyonda ortalama kalite oranında (FPY) artış yok.`,
+      annualSavingsDesc: savings > 0
+        ? `Girilen birim maliyetlerle simülasyonun öngördüğü yıllık kayıp azalışı: ${savings.toLocaleString("tr-TR")} ${companyCurrency}.`
+        : `Yıllık kayıp azalışı hesaplanamadı (birim maliyetler girilmedi ya da simülasyonda maliyet etkisi yok).`
+    };
+  }, [dashboardData, currentProcessesCalculated, futureProcessesCalculated, companyCurrency]);
+
+  // --- HTML5 DRAG AND DROP HANDLERS ---
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggingIndex(index);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", index.toString());
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggingIndex === null || draggingIndex === index) return;
+
+    setVsmProcesses(prev => {
+      const list = [...prev];
+      const draggedItem = list[draggingIndex];
+      list.splice(draggingIndex, 1);
+      list.splice(index, 0, draggedItem);
+      return list;
+    });
+    setDraggingIndex(index);
+  };
+
+  const handleDragEnd = () => {
+    setDraggingIndex(null);
+  };
+
+  // --- CUSTOM SVG GAUGES FOR DASHBOARD ---
+  const drawSpeedometer = (value: number, title: string) => {
+    // Convert percentage (0-100) to rotation angle in degrees (-90 to 90)
+    const angle = (value / 100) * 180 - 180; // range from -180 to 0 for a half circle
+    return (
+      <div className="flex flex-col items-center justify-center p-6 bg-white border border-slate-200/80 rounded-2xl shadow-xs relative h-64 overflow-hidden" id="speedometer_gauge">
+        <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider font-mono absolute top-4 left-4">{title}</h4>
+        <div className="relative w-48 h-24 mt-12">
+          {/* Background track */}
+          <svg className="w-full h-full" viewBox="0 0 100 50">
+            <path d="M10,50 A40,40 0 0,1 90,50" fill="none" stroke="#f1f5f9" strokeWidth="12" strokeLinecap="round" />
+            {/* Active track color coded by value */}
+            <path d="M10,50 A40,40 0 0,1 90,50" fill="none" stroke="url(#speedometerGradient)" strokeWidth="12" strokeLinecap="round" strokeDasharray="125.6" strokeDashoffset={125.6 - (value / 100) * 125.6} />
+            <defs>
+              <linearGradient id="speedometerGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#ef4444" />
+                <stop offset="50%" stopColor="#f59e0b" />
+                <stop offset="100%" stopColor="#10b981" />
+              </linearGradient>
+            </defs>
+          </svg>
+          {/* Needle */}
+          <div 
+            className="absolute bottom-0 left-1/2 w-1.5 h-16 bg-slate-800 rounded-full origin-bottom -translate-x-1/2 transition-transform duration-1000 ease-out"
+            style={{ transform: `translateX(-50%) rotate(${angle + 90}deg)` }}
+          />
+          {/* Pin */}
+          <div className="absolute bottom-0 left-1/2 w-4 h-4 bg-slate-900 border-2 border-white rounded-full -translate-x-1/2 translate-y-1/2 shadow-sm" />
+        </div>
+        <div className="text-center mt-2">
+          <span className="text-3xl font-extrabold text-slate-900 font-mono tracking-tight">{value}%</span>
+          <span className="block text-[10px] text-slate-500 font-bold uppercase mt-1">Darboğaz Verimi (Bottleneck OEE)</span>
+        </div>
+      </div>
+    );
+  };
+
+  const drawHalfDonut = (value: number, title: string) => {
+    const angle = (value / 100) * 180 - 180;
+    return (
+      <div className="flex flex-col items-center justify-center p-6 bg-white border border-slate-200/80 rounded-2xl shadow-xs relative h-64 overflow-hidden" id="half_donut_gauge">
+        <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider font-mono absolute top-4 left-4">{title}</h4>
+        <div className="relative w-48 h-24 mt-12">
+          <svg className="w-full h-full" viewBox="0 0 100 50">
+            {/* Gray track */}
+            <path d="M10,50 A40,40 0 0,1 90,50" fill="none" stroke="#f1f5f9" strokeWidth="12" strokeLinecap="round" />
+            {/* Active blue track */}
+            <path d="M10,50 A40,40 0 0,1 90,50" fill="none" stroke="#4f46e5" strokeWidth="12" strokeLinecap="round" strokeDasharray="125.6" strokeDashoffset={125.6 - (value / 100) * 125.6} />
+          </svg>
+          {/* Needle */}
+          <div 
+            className="absolute bottom-0 left-1/2 w-1.5 h-16 bg-slate-800 rounded-full origin-bottom -translate-x-1/2 transition-transform duration-1000 ease-out"
+            style={{ transform: `translateX(-50%) rotate(${angle + 90}deg)` }}
+          />
+          {/* Pin */}
+          <div className="absolute bottom-0 left-1/2 w-4 h-4 bg-slate-900 border-2 border-white rounded-full -translate-x-1/2 translate-y-1/2 shadow-sm" />
+        </div>
+        <div className="text-center mt-2">
+          <span className="text-3xl font-extrabold text-slate-900 font-mono tracking-tight">{value}%</span>
+          <span className="block text-[10px] text-slate-500 font-bold uppercase mt-1">Hat Çalışabilirliği (Availability)</span>
+        </div>
+      </div>
+    );
+  };
+
+
+  return {
+    selectedCustomerId,
+    selectedCustomer,
+    token,
+    dbProcesses,
+    setDbProcesses,
+    isLoading,
+    setIsLoading,
+    projects,
+    setProjects,
+    selectedProject,
+    setSelectedProject,
+    isProjectModalOpen,
+    setIsProjectModalOpen,
+    editingProject,
+    setEditingProject,
+    isSavingProject,
+    setIsSavingProject,
+    justSavedProject,
+    setJustSavedProject,
+    searchQuery,
+    setSearchQuery,
+    statusFilter,
+    setStatusFilter,
+    projForm,
+    setProjForm,
+    vsmProcesses,
+    setVsmProcesses,
+    activeTab,
+    setActiveTab,
+    emptyFactorySetup,
+    factorySetup,
+    setFactorySetup,
+    workforceMethod,
+    setWorkforceMethod,
+    fetchProjects,
+    handleOpenNewProjectModal,
+    handleOpenEditProjectModal,
+    handleSaveProjectForm,
+    handleDeleteProject,
+    handleSelectProject,
+    syncVsmProcessesToCostTable,
+    handlePersistWorkspaceState,
+    simulationMode,
+    setSimulationMode,
+    simulationEdits,
+    setSimulationEdits,
+    zoom,
+    setZoom,
+    pan,
+    setPan,
+    isPanning,
+    setIsPanning,
+    panStart,
+    setPanStart,
+    isFullScreen,
+    setIsFullScreen,
+    vsmBrightMode,
+    setVsmBrightMode,
+    draggingIndex,
+    setDraggingIndex,
+    selectedProcessId,
+    setSelectedProcessId,
+    isDrawerOpen,
+    setIsDrawerOpen,
+    exportModalOpen,
+    setExportModalOpen,
+    exportStatus,
+    setExportStatus,
+    canvasContainerRef,
+    fetchProcesses,
+    currentProcessesCalculated,
+    futureProcessesCalculated,
+    activeProcesses,
+    companyCurrency,
+    demand,
+    workingDays,
+    weeklyDemand,
+    dailyDemand,
+    monthlyDemand,
+    workDaysPerYear,
+    netAvailableSecondsPerDay,
+    taktTime,
+    processesWithTimeline,
+    vsmLeadTime,
+    vsmGraphEdges,
+    vsmGraphLayout,
+    isFlowLinear,
+    vsmCriticalPath,
+    flow,
+    totalWip,
+    totalLeadTimeDays,
+    totalLeadTimeSeconds,
+    totalProcessingTimeSeconds,
+    totalWaitingTimeHours,
+    valueAddedRatio,
+    vsmLaneSummaries,
+    count,
+    averageOee,
+    averageCapacity,
+    averageCapacityUtilization,
+    totalOperators,
+    totalMachines,
+    bottleneckProcess,
+    highestDowntimeProcess,
+    highestInventoryProcess,
+    lowestOeeProcess,
+    estimatedAnnualWasteCost,
+    dashboardData,
+    simulationComparison,
+    workforceAnalysis,
+    handleSyncToCiProjects,
+    handleZoomIn,
+    handleZoomOut,
+    handleZoomReset,
+    handleMouseDown,
+    handleMouseMove,
+    handleMouseUp,
+    handleOpenProcessDrawer,
+    activeProcess,
+    handleUpdateProcessField,
+    handleToggleNextProcess,
+    handleSetConnectionType,
+    captureVsmMapCanvas,
+    handleTriggerExport,
+    handleAddProcess,
+    handleDeleteProcess,
+    handleMoveProcess,
+    dynamicAiSummary,
+    handleDragStart,
+    handleDragOver,
+    handleDragEnd,
+    drawSpeedometer,
+    drawHalfDonut,
+    currentUser
+  };
+}
+
+export type VsmWorkspace = ReturnType<typeof useVsmWorkspace>;

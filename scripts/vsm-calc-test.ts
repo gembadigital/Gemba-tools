@@ -1,0 +1,84 @@
+// Run: npx tsx scripts/vsm-calc-test.ts — checks the VSM calculation engine (src/components/vsm/vsmCalc.ts).
+import assert from "node:assert/strict";
+import {
+  annualWasteCost, applySimulation, bottleneckOf, compareStates, computeProcessMetrics, demandOf, flowSummary,
+  netAvailableSecondsPerDay, simulationDeltas, taktTimeOf, withInventoryDays, workforceAnalysis
+} from "../src/components/vsm/vsmCalc.js";
+import type { VsmFactorySetup, VsmProcess } from "../src/components/vsm/vsmTypes.js";
+
+const proc = (id: string, over: Partial<VsmProcess>): VsmProcess => ({
+  id, name: id.toUpperCase(), type: "Manual", productionModel: "Other", machineCount: 1, operatorCount: 1, shifts: 1,
+  workingHours: 8, cycleTime: 60, oee: 0, availability: 0, performance: 0, quality: 0, capacity: 0, downtimeMinutes: 0,
+  inventoryBefore: 0, isKanbanEnabled: false, isSupermarket: false, notes: "", kaizenOpp: "", ...over
+});
+
+// --- process metrics: 1 shift × 8 h = 480 min; 30 C/O + 20 breakdown + 10 FPA → 420 min available
+const m = computeProcessMetrics(proc("a", {
+  shiftHours: [8], changeoverTime: 30, breakdownTime: 20, firstPieceApproval: 10,
+  actualQuantity: 360, idealCycleTime: 60, goodParts: 342, scrap: 18
+}));
+assert.equal(m.availability, 87.5);                  // 420 / 480
+assert.equal(m.performance, 85.7);                   // 360 × 60 / (420 × 60)
+assert.equal(m.quality, 95);                         // 342 / 360
+assert.equal(m.oee, 71.2);                           // 87.5 × 85.7 × 95 / 10000
+assert.equal(m.capacity, 420);                       // 420 × 60 / 60
+assert.equal(m.downtimeMinutes, 20);
+assert.equal(m.cycleTime, 60, "C/T is never recomputed");
+
+// nothing entered → nothing invented
+const empty = computeProcessMetrics(proc("e", { shifts: 0, cycleTime: 0 }));
+assert.equal(empty.oee, 0);
+assert.equal(empty.capacity, 0);
+assert.equal(empty.quality, 0);
+
+// --- demand / takt: 2000 / 5 days = 400 per day; 1 shift × (480 − 30 − 10) min = 26 400 s → 66 s
+const setup = {
+  workingDays: 5, weeklyDemand: 2000, shiftDuration: 8, breakTimes: 30, plannedMaintenance: 10,
+  holdingCostPerWipYearly: 10, scrapUnitCost: 5, downtimeHourlyCost: 600
+} as VsmFactorySetup;
+const d = demandOf(setup);
+assert.deepEqual([d.daily, d.workDaysPerYear], [400, 260]);
+assert.equal(netAvailableSecondsPerDay(setup, 1), 26400);
+assert.equal(taktTimeOf(26400, 400), 66);
+assert.equal(demandOf({ weeklyDemand: 100, workingDays: 0 }).daily, 0);
+
+// --- lead time: linear chain = plain sum; parallel branch = longest path, not the sum
+const linear = withInventoryDays([proc("p1", { inventoryBefore: 800 }), proc("p2", { inventoryBefore: 400 })], 400);
+assert.equal(flowSummary(linear).leadTimeDays, 3);   // 2 + 1 days
+assert.equal(flowSummary(linear).totalWip, 1200);
+const branched = withInventoryDays([
+  proc("s", { inventoryBefore: 400, nextProcessIds: ["x", "y"] }),
+  proc("x", { inventoryBefore: 800, nextProcessIds: ["j"] }),
+  proc("y", { inventoryBefore: 200, nextProcessIds: ["j"] }),
+  proc("j", { inventoryBefore: 0 })
+], 400);
+const bf = flowSummary(branched);
+assert.equal(bf.leadTimeDays, 3);                    // s (1) + x (2), not + y
+assert.deepEqual([...bf.criticalPathIds].sort(), ["j", "s", "x"]);
+
+// --- waste cost: WIP 1200 × 10 + downtime (20/60 h × 260 × 600) + scrap (360 × 5% × 260 × 5)
+const wc = annualWasteCost([{ ...m, inventoryBefore: 1200 }], setup, 260);
+assert.equal(wc.holding, 12000);
+assert.equal(Math.round(wc.downtime), 52000);
+assert.equal(Math.round(wc.scrap), 23400);
+
+// --- current ↔ future
+const current = [computeProcessMetrics(proc("p1", { inventoryBefore: 800, cycleTime: 70 })), computeProcessMetrics(proc("p2", { inventoryBefore: 400, cycleTime: 50 }))];
+const future = applySimulation(current, { p1: { inventoryBefore: 400, cycleTime: 55 } }).map(computeProcessMetrics);
+const cmp = compareStates(current, future, 400, setup);
+assert.equal(cmp.currentLeadTime, 3);
+assert.equal(cmp.futureLeadTime, 2);
+assert.equal(cmp.currentBottleneckName, "P1");
+assert.equal(cmp.futureBottleneckName, "P1");
+assert.ok(cmp.kaizenThemes.some(t => t.theme === "Stok Azaltma"));
+assert.deepEqual(simulationDeltas(cmp, false), { hasEdits: false, leadTimeReduction: 0, inventoryReduction: 0, costSavings: 0 });
+const deltas = simulationDeltas(cmp, true);
+assert.equal(deltas.leadTimeReduction, 33);
+assert.equal(deltas.inventoryReduction, 33);
+assert.equal(bottleneckOf(current)?.id, "p1");
+
+// --- workforce: takt 66 s; C/T 70 → 2 operators, 50 → 1
+const wf = workforceAnalysis(current, "takt", 66, 400, setup);
+assert.deepEqual(wf.perProcess.map(p => p.gerekli), [2, 1]);
+
+console.log("vsm-calc-test: all checks passed");

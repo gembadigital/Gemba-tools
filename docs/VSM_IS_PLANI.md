@@ -302,6 +302,7 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 |---|---|---|
 | Plan | ✅ yazıldı, kararlar alındı (§5) | bef4074 |
 | V0 | ✅ kod; canlıda denenmedi ([VSM_CANLI_TEST.md](VSM_CANLI_TEST.md) §V0) | 42f5bc6 |
+| V1 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V1) | bkz. git log |
 
 ### V0 — yapılanlar
 - Sunucu: `src/server/vsm/vsmRoutes.ts` (uçlar `app.ts`'den taşındı), kurallar `src/utils/vsmAccess.ts` (istemci+sunucu
@@ -328,3 +329,33 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
   denenmedi; canlı test listesi §V0.
 - Bilinen kalanlar (V1'e): hesap motoru hâlâ 3 kopya; boş sayı alanı 0 olarak kaydediliyor ("girilmedi" ayrımı yok);
   yeni prosesin vardiya saati 8 varsayılır (Kurulum'daki vardiya süresinden).
+
+### V1 — yapılanlar
+- `src/components/VsmPage.tsx` (≈4.800 satır) kaldırıldı; modül `src/components/vsm/` altında:
+  | Dosya | İçerik |
+  |---|---|
+  | `VsmModule.tsx` | Giriş noktası (App bunu kullanır): portal ya da çalışma alanı başlığı + sekmeler |
+  | `useVsmWorkspace.tsx` | Tüm durum, kayıt/silme/senkron işleyicileri, hesap motorundan türetilen değerler |
+  | `VsmContext.tsx` | Tek workspace örneğini sekmelere paylaştırır (`useVsm()`) |
+  | `VsmProjectPortal`, `VsmSetupTab`, `VsmDefinitionTab`, `VsmProductionTab`, `VsmQualityTab`, `VsmMapTab`, `VsmDashboardTab`, `VsmProcessDrawer`, `VsmExportModal` | Ekranlar (görünüm değişmedi) |
+  | `vsmTypes.ts` | `VsmProcess`, `VsmFactorySetup`, `VsmProject`, `VsmDataSourceRef` |
+  | `vsmGraph.ts` | Akış grafiği, şerit yerleşimi, kritik yol |
+  | `vsmCalc.ts` | **Tek hesap motoru**: proses OEE/kapasite, talep/takt, stok günü, lead time (kritik yol), PCE, darboğaz, yıllık kayıp, mevcut↔gelecek karşılaştırma, norm kadro |
+  | `dataSources/` | Veri kaynağı katmanı: `types.ts` (arayüz), `manual.ts`, `opxSuite.ts` (bağlantısız iskelet), `index.ts` |
+- Aynı OEE hesabının 3 kopyası ve 3 farklı lead time hesabı tek fonksiyona indi. Sonuç: harita, üst şerit ve
+  dashboard aynı sayıyı gösterir (dashboard artık lead time'ı kritik yoldan hesaplar; tek zincirde değişiklik yok,
+  dallanan akışta paralel kollar toplanmaz). Üst şeritteki maliyet tasarrufu da dashboard ile aynı hesaptan gelir
+  (önceden mevcut durum hesaplanmamış ham değerlerle hesaplanıyordu).
+- Düzeltilen hatalar: (1) WIP düzenlemesi, eski projelerde taşınan `wipQuantity` kopyası yüzünden haritaya yansımıyordu —
+  artık tek kaynak `inventoryBefore`. (2) Çekmecedeki OEE kutusuna yazılan değer her zaman ezilirdi — OEE artık salt
+  okunur ve hesaplanan değeri gösterir. (3) Çekmecedeki arıza süresi, kullanılabilirliği belirleyen `breakdownTime`'a da
+  yazılıyor.
+- Boşaltılan isteğe bağlı sayı alanları (planlanan/gerçekleşen adet, ideal C/T, C/O, arıza, sağlam, hurda, rework)
+  0 değil "girilmedi" olarak kalır; ekranda boş görünür (rework için gösterilen sahte 5 de kalktı).
+- Yeni projeler `dataSource: { kind: "manual" }` ile kaydedilir. Opx Suite bağdaştırıcısı arayüzüyle yazıldı,
+  Gemba Tools'ta `available: false` (V11'de Opx Suite veritabanına bağlanacak).
+- Testler: `npx tsx scripts/vsm-calc-test.ts` (OEE, takt, kritik yol, kayıp, karşılaştırma, norm kadro),
+  `npx tsx scripts/vsm-access-test.ts`.
+- Yerel önizleme (Vite, tarayıcıda sahte API — veri kaydedilmez): portal, 6 sekme, harita (açık tema), çekmece,
+  kaydetme, Customer User'ın başkasının prosesinde sil düğmesi görmemesi denendi; hesaplanan OEE/kapasite elle
+  hesapla aynı.

@@ -20,7 +20,7 @@ import ExecutiveDashboard from "./components/ExecutiveDashboard";
 import TimeStudyPage from "./components/TimeStudyPage";
 import LossAnalysis from "./components/LossAnalysis";
 import SmedPage from "./components/SmedPage";
-import VsmPage from "./components/VsmPage";
+import VsmModule from "./components/vsm/VsmModule";
 import OpexAssessment from "./components/OpexAssessment";
 
 // New Auth and Admin modules
@@ -1094,7 +1094,7 @@ export default function App() {
 
             {activeTab === "vsm" && (
               <div key={selectedCustomerId}>
-                <VsmPage currentUser={currentUser} />
+                <VsmModule currentUser={currentUser} />
               </div>
             )}
 

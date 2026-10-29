@@ -23,3 +23,16 @@ Customer User'ı.
 | 0.8 | Dashboard'a bakın. | "İç lojistik taşıma mesafesi" ve "Fabrika alanı yerleşim verimi" kartları yok. Özet başlığı "Hesaplanan Özet"; cümleler "simülasyona göre …" kipinde, birim maliyet girilmediyse "hesaplanamadı" yazar. |
 | 0.9 | Gelecek modda "CI Proje Yönetimine Aktar"ı iki kez basın. | İlk basışta kartlar oluşur (tahmini maliyet/kazanç **boş**); ikincide "zaten aktarılmıştı, tekrar eklenmedi". |
 | 0.10 | Prosese hurda/rework girip birim maliyet girmeden kaydedin; Loss Capacity'de bu VSM projesini seçin. | Prosesler maliyet tablosunda görünür; hurda/duruş maliyeti **uydurulmaz** (birim maliyet girilince hesaplanır). |
+
+## V1 — Modül yapısı ve tek hesap motoru
+
+Görünüm değişmedi; aşağıdakiler hesap tutarlılığı ve düzeltilen hatalar içindir.
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| 1.1 | VSM'i açın, bir projeye girin, 6 sekmeyi ve proses çekmecesini tek tek açın. | Hepsi V0'daki gibi açılır, konsol hatası / boş ekran yok. |
+| 1.2 | Kalite & Envanter'de bir prosesin WIP'ini değiştirin, haritaya geçin. | Proses önündeki stok adedi ve gün değeri değişir; toplam lead time güncellenir. |
+| 1.3 | Haritada bir prosese tıklayın. | Çekmecede OEE kutusu salt okunur ("hesaplanan"); arıza süresini değiştirince kullanılabilirlik ve OEE değişir. |
+| 1.4 | Gelecek moda geçip bir prosesin WIP'ini azaltın; üst şerit ve Dashboard'u karşılaştırın. | Lead time azalışı, stok azalışı ve yıllık tasarruf iki yerde **aynı** sayılar. |
+| 1.5 | Üretim sekmesinde "Gerçekleşen" adedi silip kaydedin, sayfayı yenileyin. | Alan boş kalır (0 yazmaz); OEE performans girdisi yok sayılır. |
+| 1.6 | Yeni proje açın. | Kaydedilen projede veri kaynağı "manual" (ekranda henüz gösterilmiyor; V2). |
