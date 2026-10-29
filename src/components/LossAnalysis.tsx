@@ -22,7 +22,9 @@ import {
   calculateProcessesData,
   calculateFinancialImpact,
   calculateCOPQ,
-  calculateHiddenFactory
+  calculateHiddenFactory,
+  mapCostTableRow,
+  dailyDemandOf
 } from "./loss-analysis/helpers";
 
 import AnalysisViews from "./loss-analysis/AnalysisViews";
@@ -465,38 +467,7 @@ export default function LossAnalysis() {
     .then(data => {
       if (data.success && data.data && data.data.length > 0) {
         // Map ProcessRecord[] to ProcessItem[]
-        const mapped = data.data.map((p: any): ProcessItem => {
-          const num = (v: any): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
-          const saved = (p.lossInputs && typeof p.lossInputs === "object") ? p.lossInputs : {};
-          // Fields the VSM sync writes (and this screen's save mirrors back) live on the record itself;
-          // everything else only comes from what was entered here (`lossInputs`). No stand-in values:
-          // a field with neither stays 0 and is listed in `missingFields` so the editor shows "girilmedi".
-          const recordValue: Partial<Record<LossInputField, number | undefined>> = {
-            shiftsPerDay: num(p.shiftCount),
-            workingHoursPerShift: num(p.workingHours),
-            producedQtyPerDay: num(p.capacity),
-            setupTimeMinutes: num(p.changeoverTime),
-            operatorsPerShift: num(p.operatorCount),
-            theoreticalCycleTime: num(p.cycleTime)
-          };
-          const missingFields: LossInputField[] = [];
-          const inputs = {} as Record<LossInputField, number>;
-          for (const f of LOSS_INPUT_FIELDS) {
-            const v = recordValue[f] ?? num(saved[f]);
-            if (v === undefined) missingFields.push(f);
-            inputs[f] = v ?? 0;
-          }
-          return {
-            id: p.id,
-            name: p.name,
-            vsmProjectId: p.vsmProjectId,
-            isCollapsed: true,
-            ...inputs,
-            totalProdTimePerDayMinutes: inputs.shiftsPerDay * inputs.workingHoursPerShift * 60,
-            defectiveParts: inputs.scrapQty + inputs.reworkQty,
-            missingFields
-          };
-        });
+        const mapped: ProcessItem[] = data.data.map(mapCostTableRow);
         setProcesses(mapped);
       } else {
         // No real process records for this factory yet — show a genuinely empty state, not a
@@ -624,21 +595,24 @@ export default function LossAnalysis() {
       for (const p of calculatedProcesses) {
         const missing = new Set(p.missingFields ?? []);
         const has = (f: LossInputField) => !missing.has(f);
-        const lossInputs: Partial<Record<LossInputField, number>> = {};
-        for (const f of LOSS_INPUT_FIELDS) if (has(f)) lossInputs[f] = p[f];
-        // The record is merged server-side, so only fields with a real value are sent — a field
-        // shown as "girilmedi" must not overwrite what VSM measured with a 0. OEE/availability are
-        // only written when every input behind them has been entered.
-        const payload: Record<string, any> = { id: p.id, name: p.name, lossInputs };
-        if (has("operatorsPerShift")) payload.operatorCount = p.operatorsPerShift;
-        if (has("theoreticalCycleTime")) payload.cycleTime = p.theoreticalCycleTime;
-        if (has("shiftsPerDay")) payload.shiftCount = p.shiftsPerDay;
-        if (has("workingHoursPerShift")) payload.workingHours = p.workingHoursPerShift;
-        if (has("producedQtyPerDay")) payload.capacity = p.producedQtyPerDay;
-        if (has("setupTimeMinutes")) payload.changeoverTime = p.setupTimeMinutes;
-        if (missing.size === 0) {
-          payload.oee = Math.round(p.oee);
-          payload.utilizationRate = Math.round(p.availability * 100);
+        // Only values entered/corrected on this screen are stored (`lossOverrides`); values measured in
+        // VSM stay VSM's and are re-read on every sync. The record is merged server-side, so a field
+        // shown as "girilmedi" is simply not sent.
+        const lossOverrides: Partial<Record<LossInputField, number>> = {};
+        for (const f of LOSS_INPUT_FIELDS) if (has(f) && p.fieldSources?.[f] === "loss") lossOverrides[f] = p[f];
+        const payload: Record<string, any> = { id: p.id, name: p.name, lossOverrides };
+        // Rows that are not VSM stations are mirrored to the shared process fields other modules read;
+        // VSM stations keep VSM's own measured values there.
+        if (!p.vsmProjectId) {
+          if (has("operatorsPerShift")) payload.operatorCount = p.operatorsPerShift;
+          if (has("theoreticalCycleTime")) payload.cycleTime = p.theoreticalCycleTime;
+          if (has("shiftsPerDay")) payload.shiftCount = p.shiftsPerDay;
+          if (has("workingHoursPerShift")) payload.workingHours = p.workingHoursPerShift;
+          if (has("producedQtyPerDay")) payload.capacity = p.producedQtyPerDay;
+          if (missing.size === 0) {
+            payload.oee = Math.round(p.oee);
+            payload.utilizationRate = Math.round(p.availability * 100);
+          }
         }
         if (has("scrapQty")) payload.scrapCost = p.scrapQty * 800;
         if (has("reworkQty")) payload.reworkCost = p.reworkQty * 350;
@@ -701,8 +675,8 @@ export default function LossAnalysis() {
       if (p.id !== id) return p;
       const missing = (p.missingFields ?? []).filter(f => f !== field);
       const updated: ProcessItem = raw.trim() === ""
-        ? { ...p, [field]: 0, missingFields: [...missing, field] }
-        : { ...p, [field]: Math.max(min, parseFloat(raw) || 0), missingFields: missing };
+        ? { ...p, [field]: 0, missingFields: [...missing, field], fieldSources: { ...p.fieldSources, [field]: undefined } }
+        : { ...p, [field]: Math.max(min, parseFloat(raw) || 0), missingFields: missing, fieldSources: { ...p.fieldSources, [field]: "loss" } };
       updated.totalProdTimePerDayMinutes = updated.shiftsPerDay * updated.workingHoursPerShift * 60;
       updated.defectiveParts = updated.scrapQty + updated.reworkQty;
       return updated;
@@ -723,10 +697,12 @@ export default function LossAnalysis() {
   const isScopedWithNoData = costModelScope === "product_group" && !!selectedVsmProject && activeProcesses.length === 0;
 
   // Run analytical models & algorithms
-  const defaultDemand = 1100;
+  // Daily customer demand from the VSM projects in scope (weekly demand / working days). No assumed
+  // volume: 0 means takt, WIP days and the revenue-based unit cost estimate are not computed.
+  const defaultDemand = dailyDemandOf(activeProcesses);
   const repProcess = activeProcesses[0] ?? { shiftsPerDay: 0, workingHoursPerShift: 0, breakTimeMinutes: 0, plannedMaintenanceMinutes: 0 };
   const dailyNetAvailableSeconds = (repProcess.workingHoursPerShift * 60 - repProcess.breakTimeMinutes - repProcess.plannedMaintenanceMinutes) * repProcess.shiftsPerDay * 60;
-  const computedTaktTime = defaultDemand > 0 ? parseFloat((dailyNetAvailableSeconds / defaultDemand).toFixed(1)) : 45;
+  const computedTaktTime = defaultDemand > 0 ? parseFloat((dailyNetAvailableSeconds / defaultDemand).toFixed(1)) : 0;
 
   const calculatedProcesses = calculateProcessesData(activeProcesses, defaultDemand, computedTaktTime);
   // Computed directly from the already-scoped process set and revenue — activeProcesses is now
@@ -2205,6 +2181,14 @@ export default function LossAnalysis() {
                   "girilmedi" görünen alanlar için gerçek veri yok; hesaplarda 0 kabul edilir ve kayıp tutarları eksik çıkar. Değeri girip kaydedin.
                 </p>
               )}
+              <p className="text-[10px] text-slate-400">
+                <span className="font-bold text-sky-600">VSM</span> = VSM projesinde ölçülen değer (proje her kaydedildiğinde yenilenir), <span className="font-bold">Loss</span> = bu ekranda girilen/düzeltilen değer (VSM'deki değerin önüne geçer). VSM'den gelen setup ve makine ayarı süresi günlük toplam dakikadır; sıklık bu yüzden haftalık çalışma günü sayısıdır.
+              </p>
+              {activeProcesses.length > 0 && defaultDemand === 0 && (
+                <p className="text-[10px] font-bold text-amber-700">
+                  Günlük talep yok (VSM Kurulum'da haftalık talep ve çalışma günü girilmemiş): takt, WIP günü ve talebe dayalı birim maliyet hesaplanamıyor.
+                </p>
+              )}
             </div>
             <div className="flex items-center space-x-2">
               {saveStatus === "saving" && (
@@ -2262,6 +2246,11 @@ export default function LossAnalysis() {
                             onChange={(e) => handleUpdateProcessInput(p.id, c.field, e.target.value, c.min ?? 0)}
                             className={`w-20 text-center border rounded py-0.5 placeholder:italic placeholder:text-amber-600 placeholder:font-sans placeholder:text-[10px] ${isMissing ? "border-amber-300 bg-amber-50/50" : ""} ${c.field === "scrapQty" ? "text-rose-700 font-extrabold" : ""}`}
                           />
+                          {!isMissing && p.fieldSources?.[c.field] && (
+                            <div className={`text-[8.5px] font-sans font-bold mt-0.5 ${p.fieldSources[c.field] === "vsm" ? "text-sky-600" : "text-slate-400"}`}>
+                              {p.fieldSources[c.field] === "vsm" ? "VSM" : "Loss"}
+                            </div>
+                          )}
                         </td>
                       );
                     })}
@@ -2384,7 +2373,7 @@ export default function LossAnalysis() {
                 <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
                   <span className="text-[10px] uppercase text-slate-400 font-bold tracking-wider block">Norm (Hedef) İş Gücü</span>
                   <div className="text-xl font-black font-mono tracking-tight text-slate-900 mt-1">{totalIdealOperators.toFixed(1)} kişi</div>
-                  <p className="text-[10px] text-slate-400 mt-1">Takt bazlı: {totalTargetWorkforceTakt.toFixed(1)} kişi</p>
+                  <p className="text-[10px] text-slate-400 mt-1">Takt bazlı: {defaultDemand > 0 ? `${totalTargetWorkforceTakt.toFixed(1)} kişi` : "hesaplanamadı (VSM talebi girilmedi)"}</p>
                 </div>
 
                 <div className="p-4 bg-rose-50 rounded-xl border border-rose-100">
@@ -3424,7 +3413,7 @@ export default function LossAnalysis() {
                     {calculatedProcesses.map((p) => {
                       // Same grounded per-unit cost basis as calculateFinancialImpact's itemEstCost:
                       // (annual revenue / annual production volume) * material cost share of price.
-                      const unitItemCost = (annualRevenue / (defaultDemand * 250)) * materialCostFactor;
+                      const unitItemCost = defaultDemand > 0 ? (annualRevenue / (defaultDemand * 250)) * materialCostFactor : 0;
                       const directMaterial = unitItemCost;
                       const directLabor = (p.actualCycleTimeSeconds / 3600) * hourlyLaborRate * p.operatorsPerShift;
                       const directEnergy = (p.actualCycleTimeSeconds / 3600) * 15 * energyRateKwh;
@@ -4953,7 +4942,7 @@ export default function LossAnalysis() {
                                 </span>
                               </div>
                               <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                                Hedef Takt Time: {proj.taktTime || "42s"} | Tesis: {proj.factorySetup?.factoryName || selectedCustomer?.companyName || "Fabrika Tesis 1"}
+                                Hedef Takt Time: {proj.taktTime ? `${proj.taktTime} sn` : "—"} | Tesis: {proj.factorySetup?.factoryName || selectedCustomer?.companyName || "—"}
                               </p>
                             </div>
                           </div>

@@ -25,6 +25,21 @@ function deny(res: express.Response, status = 403, error = "Access Denied.") {
   res.status(status).json({ success: false, error });
 }
 
+// Entered (not derived) daily figures of one VSM process; undefined fields are omitted.
+function vsmLossOf(raw: any, computed: any) {
+  const out: Record<string, number> = {};
+  const put = (k: string, v: any) => { if (typeof v === "number" && Number.isFinite(v)) out[k] = v; };
+  if (!raw) return out;
+  for (const k of ["plannedQuantity", "actualQuantity", "goodParts", "scrap", "rework", "breakdownTime", "minorStops",
+    "waitingTime", "firstPieceApproval", "idealCycleTime"]) put(k, raw[k]);
+  // inventoryBefore / downtimeMinutes are always present on a VSM process (0 when never entered).
+  put("inventoryBefore", raw.inventoryBefore || undefined);
+  if (raw.breakdownTime === undefined) put("breakdownTime", raw.downtimeMinutes || undefined);
+  if (computed?.performance > 0) put("performance", computed.performance);
+  if (computed?.quality > 0) put("quality", computed.quality);
+  return out;
+}
+
 export function registerVsmRoutes(app: express.Express, deps: VsmRouteDeps) {
   const { authenticateToken, resolveFactoryScope, canAccessFactory } = deps;
 
@@ -149,7 +164,16 @@ export function registerVsmRoutes(app: express.Express, deps: VsmRouteDeps) {
     const fid = factoryOf(existing);
     if (!canAccessFactory(req, fid)) return deny(res);
     const org = user.organization_id;
-    const processes = computeAll(normalizeVsmProject(existing).processes);
+    const normalized = normalizeVsmProject(existing);
+    const rawById = new Map(normalized.processes.map(p => [p.id, p]));
+    const processes = computeAll(normalized.processes);
+    const st = normalized.setup;
+    // Project-level data Loss Capacity needs per row (0 / empty = not entered there).
+    const vsmSetup = {
+      workingDays: st.workingDays, breakTimes: st.breakTimes, plannedMaintenance: st.plannedMaintenance,
+      weeklyDemand: st.weeklyDemand, scrapUnitCost: st.scrapUnitCost, downtimeHourlyCost: st.downtimeHourlyCost,
+      holdingCostPerWipYearly: st.holdingCostPerWipYearly
+    };
     const rows = await db.getProcesses(org, fid);
     const byId = new Map(rows.map((r: any) => [r.id, r]));
     let written = 0, skipped = 0;
@@ -170,7 +194,11 @@ export function registerVsmRoutes(app: express.Express, deps: VsmRouteDeps) {
         shiftCount: vp.shifts,
         workingHours: vp.shifts > 0 ? Math.round((vp.workingHours / vp.shifts) * 10) / 10 : vp.workingHours,
         utilizationRate: vp.availability,
-        ...(vp.changeoverTime !== undefined ? { changeoverTime: vp.changeoverTime } : {})
+        ...(vp.changeoverTime !== undefined ? { changeoverTime: vp.changeoverTime } : {}),
+        // Measured daily loss data for Loss Capacity — only what was entered in VSM (raw, not the
+        // quality-derived scrap/good counts computeAll fills in). Replaced as a whole on every sync.
+        vsmLoss: vsmLossOf(rawById.get(vp.id), vp),
+        vsmSetup
       }, user.id);
       written++;
     }

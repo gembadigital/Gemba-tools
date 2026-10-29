@@ -27,9 +27,14 @@ export interface ProcessItem {
   // Input fields with no real value yet (neither entered on this screen nor synced from VSM). They
   // hold 0 for the formulas and render as "girilmedi" — never a made-up stand-in value.
   missingFields?: LossInputField[];
+  // Where each entered value came from: "vsm" = measured in VSM (synced), "loss" = entered/corrected on
+  // this screen. Only "loss" values are saved back (as `lossOverrides`).
+  fieldSources?: Partial<Record<LossInputField, "vsm" | "loss">>;
+  // Daily customer demand of the owning VSM project (weekly demand / working days), 0 when not entered.
+  vsmDailyDemand?: number;
 }
 
-// Per-station inputs this screen owns. Persisted as-is under `lossInputs` on the process record.
+// Per-station inputs of the loss model (daily figures; minutes per shift / per setup as labelled).
 export const LOSS_INPUT_FIELDS = [
   "shiftsPerDay",
   "workingHoursPerShift",

@@ -53,19 +53,18 @@ ve hız (ideal/gerçek C/T) verisi olduğu halde kullanılmıyor.
 | Adım | Kapsam | Durum |
 |---|---|---|
 | **L1** | Uydurma varsayılanların temizlenmesi: veri eşleme, preset'ler, "Vernikleme", Copilot sabit tutarları. Eksik alan "girilmedi" olarak gösterilir. | ✅ `3285d09` |
-| **L2** | **VSM → Loss veri akışı.** Senkron hurda, rework, arıza, küçük duruş, bekleme, ilk parça onayı, planlanan/gerçekleşen/sağlam adet, performans, kalite ve ara stoku da yazsın. VSM Kurulum'dan mola, planlı bakım, çalışma günü, haftalık talep ve birim maliyetler gelsin. Sabit talep 1.100 kalksın; talep yoksa takt / WIP günü "hesaplanamadı". Kaynağı her alanın yanında gösterilsin (VSM / Loss / OpEx Suite). | Sırada |
+| **L2** | **VSM → Loss veri akışı.** Senkron artık girilen günlük kayıp verisini (`vsmLoss`: planlanan/gerçekleşen/sağlam adet, hurda, rework, arıza, küçük duruş, bekleme, ilk parça onayı, ideal C/T, ara stok, performans, kalite) ve proje kurulumunu (`vsmSetup`: çalışma günü, mola, planlı bakım, haftalık talep, birim maliyetler) de yazıyor. Loss alan başına öncelik: Loss'ta düzeltilen (`lossOverrides`) → VSM ölçümü → eski Loss girişi (`lossInputs`). Kaynak editörde "VSM / Loss" olarak görünüyor. VSM'in günlük C/O, ilk parça onayı ve arıza dakikaları doğru birime çevriliyor (önceki eşleme C/O'yu "setup başına" sayıyordu). Üretilen adet artık kapasite değil, gerçekleşen adet. Sabit talep 1.100 kalktı; talep VSM'den, yoksa takt/WIP günü "hesaplanamadı". VSM satırlarında Loss kaydı VSM'in ölçtüğü ortak alanları (operatör, C/T, OEE…) artık ezmiyor. | ✅ |
 | **L3** | **Maliyet yöntemi seçimi (müşteri başına).** **A — Birim tutar:** danışman hurda TL/adet, rework TL/adet, makine saat maliyeti, işçilik TL/saat, setup TL/saat, stok taşıma %/yıl ve enerji girer. VSM'deki hurda/duruş/WIP birim maliyetleri hazır değer olarak önerilir. **B — Şirket kartından türetme (QLA):** ciro, yıllık üretim hacmi ve maliyet yapısı %'lerinden birim maliyet, katkı payı ve kayıp tutarları çıkar; formüller QLA motoruyla aynı. Her kayıp satırında formül ve kaynak (A / B / gerçek muhasebe) yazar. Girilmemiş birim tutar varsa o satır "hesaplanamadı" olur. Uydurma ayar varsayılanları (350 TL/saat, 0,45, 12 kW, 12,5 ve 15 TL/dk) ile COPQ matrisindeki sektör/ciro yedekleri kalkar. | Karar bekliyor |
 | **L4** | **JIPM tipi Loss Cost Analysis (TPM).** Proses başına OEE kayıp ağacı (dk/gün): kullanılabilirlik (arıza, setup/ayar, takım değişimi, başlangıç), performans (küçük duruş/boşta, hız kaybı) ve kalite (hurda, rework, başlangıç verim kaybı). Kayıp × maliyet unsuru matrisi (işçilik, makine saati, enerji, malzeme, bakım); talep kanıtı varsa kayıp katkı payı ayrı sütunda. Pareto, kayıp başına hedef ve Kobetsu Kaizen → CI Proje'ye aktarım. 16 büyük kayıp için insan (yönetim, hareket, hat organizasyonu, lojistik, ölçme-ayar) ve kaynak (verim, enerji, kalıp/takım) kayıpları danışman girişiyle eklenir. | Karar bekliyor |
 | **L5** | Kalan sabit oran/çarpanlar: COPQ dağılımları (%18 ayıklama, %22 iade, %15 garanti…), gizli fabrika %58, kayıp eşleme oranları (%75 / %25 …), taşıma × 22, lead time 4,2 gün, Copilot hazır metinleri. Her biri ya kaynağı belirtilmiş, düzenlenebilir bir varsayıma döner ya da kaldırılır. | Bekliyor |
 | **L6** | OpEx Suite kaynağı: hat · ürün · tarih aralığı seçilip kayıplar iş emri ve duruş kayıtlarından okunur (VSM V11'e bağlı). | VSM V11'e bağlı |
 | **L7** | PDF / Excel raporunun yeni yapıya uyarlanması ve canlı test. | Bekliyor |
 
-## Kararı kullanıcıya ait sorular
+## Kullanıcı kararları (2026-10-29)
 
-1. **L3 varsayılan yöntem:** Yeni müşteride A mı (birim tutar), B mi (şirket kartı)? İkisi birlikte
-   kullanılabilir mi (girilen birim tutar varsa onu, yoksa karttan türetileni kullan)?
-2. **QLA motoru:** `qla.ts` formülleri ortak bir modüle taşınıp iki uygulamada da kullanılsın mı, yoksa
-   Gemba Tools'a uyarlanmış bir kopya mı?
-3. **L4 kapsamı:** Önce ekipman kayıpları (6 büyük kayıp + başlangıç + planlı duruş = JIPM'in 8 ekipman
-   kaybı) mı, yoksa 16 kaybın tamamı tek seferde mi?
-4. **Makine saat maliyeti:** Proses/makine başına mı girilsin, yoksa fabrika ortalaması mı yeterli?
+1. **L3 yöntemi:** İkisi birlikte. Birim tutar (danışman) girildiyse o kullanılır; tablo boşsa değerler
+   müşteri/şirket kartından (ciro, üretim hacmi, maliyet yapısı) türetilir.
+2. **QLA motoru:** Gemba Tools'a uyarlanmış ayrı bir kopya.
+3. **L4 kapsamı:** OEE verisi girildiyse OEE kaybı **16 büyük kayba** dağıtılır.
+4. **Makine maliyeti:** Müşterinin belirttiği tutar, **hat bazında** (enjeksiyon hattı ile talaşlı imalat
+   hattının saat maliyeti farklı). VSM projesi = hat/ürün grubu olduğundan tutar VSM projesi/hat başına tutulur.

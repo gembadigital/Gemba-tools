@@ -1,4 +1,89 @@
-import { ProcessItem, CalculatedProcess, IndustryBenchmark, IndustryType } from "./types";
+import { ProcessItem, CalculatedProcess, IndustryBenchmark, IndustryType, LossInputField, LOSS_INPUT_FIELDS } from "./types";
+
+const finite = (v: any): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+const positive = (v: any): number | undefined => { const n = finite(v); return n !== undefined && n > 0 ? n : undefined; };
+
+// Values a cost-table row carries from the VSM sync (vsmRoutes.ts sync-cost-table): process fields on
+// the record, entered daily loss data in `vsmLoss`, project setup in `vsmSetup`. VSM records changeover,
+// breakdown and first-piece approval as minutes per DAY; the loss model counts setup minutes × setups
+// per week and breakdown per shift, so the daily totals are expressed as "one block per working day"
+// (frequency = working days / week) and breakdown is split over the shifts.
+export function vsmValuesOf(row: any): Partial<Record<LossInputField, number>> {
+  const L = (row?.vsmLoss && typeof row.vsmLoss === "object") ? row.vsmLoss : {};
+  const S = (row?.vsmSetup && typeof row.vsmSetup === "object") ? row.vsmSetup : {};
+  const shifts = positive(row?.shiftCount);
+  const days = positive(S.workingDays);
+  const changeover = finite(row?.changeoverTime);
+  const breakdown = finite(L.breakdownTime);
+  const out: Partial<Record<LossInputField, number | undefined>> = {
+    shiftsPerDay: shifts,
+    workingHoursPerShift: positive(row?.workingHours),
+    workingDaysPerWeek: days,
+    breakTimeMinutes: positive(S.breakTimes),
+    plannedMaintenanceMinutes: positive(S.plannedMaintenance),
+    plannedQtyPerDay: finite(L.plannedQuantity),
+    producedQtyPerDay: finite(L.actualQuantity),
+    scrapQty: finite(L.scrap),
+    reworkQty: finite(L.rework),
+    operatorsPerShift: positive(row?.operatorCount),
+    interProcessInventory: finite(L.inventoryBefore),
+    theoreticalCycleTime: positive(L.idealCycleTime) ?? positive(row?.cycleTime),
+    breakdownMinutesPerShift: breakdown !== undefined && shifts ? Math.round((breakdown / shifts) * 10) / 10 : undefined,
+    setupTimeMinutes: changeover
+  };
+  if (changeover !== undefined && days) {
+    out.setupFrequencyPerWeek = days;
+    out.machineAdjustmentMinutes = finite(L.firstPieceApproval);
+  }
+  const clean: Partial<Record<LossInputField, number>> = {};
+  for (const f of LOSS_INPUT_FIELDS) if (out[f] !== undefined) clean[f] = out[f] as number;
+  return clean;
+}
+
+// Cost-table row → ProcessItem. Per field: value corrected on this screen (`lossOverrides`) → VSM
+// measurement → older Loss entry (`lossInputs`, L1) → missing. Nothing is made up: a missing field is 0
+// in the formulas and listed in `missingFields` ("girilmedi" in the editor).
+export function mapCostTableRow(row: any): ProcessItem {
+  const overrides = (row?.lossOverrides && typeof row.lossOverrides === "object") ? row.lossOverrides : {};
+  const legacy = (row?.lossInputs && typeof row.lossInputs === "object") ? row.lossInputs : {};
+  const vsm = vsmValuesOf(row);
+  const missingFields: LossInputField[] = [];
+  const fieldSources: Partial<Record<LossInputField, "vsm" | "loss">> = {};
+  const inputs = {} as Record<LossInputField, number>;
+  for (const f of LOSS_INPUT_FIELDS) {
+    const own = finite(overrides[f]);
+    const old = finite(legacy[f]);
+    const v = own ?? vsm[f] ?? old;
+    if (v === undefined) missingFields.push(f);
+    else fieldSources[f] = own === undefined && vsm[f] !== undefined ? "vsm" : "loss";
+    inputs[f] = v ?? 0;
+  }
+  const S = (row?.vsmSetup && typeof row.vsmSetup === "object") ? row.vsmSetup : {};
+  const weekly = positive(S.weeklyDemand);
+  const days = positive(S.workingDays);
+  return {
+    id: row.id,
+    name: row.name,
+    vsmProjectId: row.vsmProjectId,
+    isCollapsed: true,
+    ...inputs,
+    totalProdTimePerDayMinutes: inputs.shiftsPerDay * inputs.workingHoursPerShift * 60,
+    defectiveParts: inputs.scrapQty + inputs.reworkQty,
+    missingFields,
+    fieldSources,
+    vsmDailyDemand: weekly && days ? Math.round(weekly / days) : 0
+  };
+}
+
+// Daily demand of the processes in scope: the sum over their VSM projects (each counted once).
+// 0 when no VSM project in scope has a weekly demand — takt and WIP days then read "hesaplanamadı".
+export function dailyDemandOf(processes: ProcessItem[]): number {
+  const byProject = new Map<string, number>();
+  for (const p of processes) if (p.vsmProjectId && (p.vsmDailyDemand ?? 0) > 0) byProject.set(p.vsmProjectId, p.vsmDailyDemand as number);
+  let total = 0;
+  byProject.forEach(v => { total += v; });
+  return total;
+}
 
 export const INDUSTRY_BENCHMARKS: Record<IndustryType, IndustryBenchmark> = {
   "Automotive": {
@@ -136,7 +221,7 @@ export function calculateFinancialImpact(
   laborRateBase: number = 2200, // TL per day per operator
   rawMaterialCostFactor: number = 0.45,
   energyCostRate: number = 3.5, // TL per kWh / standard hourly rate
-  dailyDemand: number = 1100 // representative daily production volume (units/day)
+  dailyDemand: number = 0 // daily customer demand (units/day) from VSM; 0 = not entered
 ) {
   // 1. Scrap Cost
   const totalScrapQty = calculated.reduce((sum, p) => sum + p.scrapQty, 0);
