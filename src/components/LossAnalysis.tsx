@@ -26,6 +26,16 @@ import {
   mapCostTableRow,
   dailyDemandOf
 } from "./loss-analysis/helpers";
+import {
+  LossUnitCosts,
+  CardCostBasis,
+  ProcessRates,
+  RateSource,
+  FACTORY_LINE_KEY,
+  deriveFromCard,
+  resolveProcessRates,
+  calculateLossCosts
+} from "./loss-analysis/lossCosting";
 
 import AnalysisViews from "./loss-analysis/AnalysisViews";
 import CopilotEngine from "./loss-analysis/CopilotEngine";
@@ -84,11 +94,13 @@ export default function LossAnalysis() {
   const [productVolumeShare, setProductVolumeShare] = useState<number>(100);
 
   // Financial Cost Model Parameter States (User Editable in Product Cost Model Tab)
-  const [hourlyLaborRate, setHourlyLaborRate] = useState<number>(350); // TL / Hour
-  const [materialCostFactor, setMaterialCostFactor] = useState<number>(0.45); // 45% of price
-  const [energyRateKwh, setEnergyRateKwh] = useState<number>(3.5); // TL / kWh
-  const [machineOverheadHour, setMachineOverheadHour] = useState<number>(500); // TL / Hour overhead
-  const [logisticsRateKm, setLogisticsRateKm] = useState<number>(25); // TL / km inside factory
+  // Loss unit costs the consultant enters (method A); empty = not entered, the rate then comes from
+  // the VSM project setup or is derived from the customer card (method B) — see lossCosting.ts.
+  const [unitCosts, setUnitCosts] = useState<LossUnitCosts>({});
+  const [holdingRatePct, setHoldingRatePct] = useState<number>(0); // stock carrying rate, %/year (card basis)
+  const [energyRateKwh, setEnergyRateKwh] = useState<number>(0); // per kWh; 0 = not entered
+  // Customer card (company workspace) figures used by method B.
+  const [cardWorkspace, setCardWorkspace] = useState<{ annualVolume: number; blueCollar: number; shiftHours: number; workingDays: number }>({ annualVolume: 0, blueCollar: 0, shiftHours: 0, workingDays: 0 });
 
   // Actual Financial Data Override Layer: when the consultant/customer has real annual cost
   // figures for a loss category (from the customer's own accounting), that real number replaces
@@ -156,19 +168,19 @@ export default function LossAnalysis() {
       setPendingVsmProjectId(s?.selectedVsmProjectId ?? null);
       if (!s?.selectedVsmProjectId) setSelectedVsmProject(null);
       // Unit cost component parameters
-      setHourlyLaborRate(s?.hourlyLaborRate ?? 350);
-      setMaterialCostFactor(s?.materialCostFactor ?? 0.45);
-      setEnergyRateKwh(s?.energyRateKwh ?? 3.5);
-      setMachineOverheadHour(s?.machineOverheadHour ?? 500);
-      setLogisticsRateKm(s?.logisticsRateKm ?? 25);
+      // (Earlier hourlyLaborRate / materialCostFactor / machineOverheadHour were auto-saved with their
+      // built-in defaults, so they are not carried over as if the consultant had entered them.)
+      setUnitCosts(s?.unitCosts ?? {});
+      setHoldingRatePct(s?.holdingRatePct ?? 0);
+      setEnergyRateKwh(s?.energyRateKwh ?? 0);
       // Product cost tree breakdown %
-      setDirectMaterialPercent(s?.directMaterialPercent ?? 40.5);
-      setDirectLaborPercent(s?.directLaborPercent ?? 13.5);
-      setOvertimeBurdenPercent(s?.overtimeBurdenPercent ?? 8.5);
-      setEnergyPercent(s?.energyPercent ?? 18.0);
-      setMaintenancePercent(s?.maintenancePercent ?? 7.2);
-      setOverheadPercent(s?.overheadPercent ?? 10.8);
-      setOperatingProfitPercent(s?.operatingProfitPercent ?? 10.0);
+      setDirectMaterialPercent(s?.directMaterialPercent ?? 0);
+      setDirectLaborPercent(s?.directLaborPercent ?? 0);
+      setOvertimeBurdenPercent(s?.overtimeBurdenPercent ?? 0);
+      setEnergyPercent(s?.energyPercent ?? 0);
+      setMaintenancePercent(s?.maintenancePercent ?? 0);
+      setOverheadPercent(s?.overheadPercent ?? 0);
+      setOperatingProfitPercent(s?.operatingProfitPercent ?? 0);
       // COPQ / Recovery Matrix / ROI rate overrides
       setCopqRates(s?.copqRates ?? DEFAULT_COPQ_RATES);
       setCustomImprovementRates(s?.customImprovementRates ?? {});
@@ -326,13 +338,13 @@ export default function LossAnalysis() {
     }
   };
 
-  const [directMaterialPercent, setDirectMaterialPercent] = useState<number>(40.5);
-  const [directLaborPercent, setDirectLaborPercent] = useState<number>(13.5);
-  const [overtimeBurdenPercent, setOvertimeBurdenPercent] = useState<number>(8.5);
-  const [energyPercent, setEnergyPercent] = useState<number>(18.0);
-  const [maintenancePercent, setMaintenancePercent] = useState<number>(7.2);
-  const [overheadPercent, setOverheadPercent] = useState<number>(10.8);
-  const [operatingProfitPercent, setOperatingProfitPercent] = useState<number>(10.0);
+  const [directMaterialPercent, setDirectMaterialPercent] = useState<number>(0);
+  const [directLaborPercent, setDirectLaborPercent] = useState<number>(0);
+  const [overtimeBurdenPercent, setOvertimeBurdenPercent] = useState<number>(0);
+  const [energyPercent, setEnergyPercent] = useState<number>(0);
+  const [maintenancePercent, setMaintenancePercent] = useState<number>(0);
+  const [overheadPercent, setOverheadPercent] = useState<number>(0);
+  const [operatingProfitPercent, setOperatingProfitPercent] = useState<number>(0);
 
   const DEFAULT_COPQ_RATES: Record<string, { min: number, max: number }> = {
     "Hurda Maliyeti": { min: 15, max: 25 },
@@ -418,19 +430,8 @@ export default function LossAnalysis() {
     setCustomImprovementRates({});
   };
 
-  // Synchronize ratios with the industry
-  useEffect(() => {
-    const b = INDUSTRY_COST_BENCHMARKS[selectedIndustry];
-    if (b) {
-      setDirectMaterialPercent(b.directMaterial);
-      setDirectLaborPercent(b.directLabor);
-      setOvertimeBurdenPercent(b.overtimeBurden);
-      setEnergyPercent(b.energy);
-      setMaintenancePercent(b.maintenance);
-      setOverheadPercent(b.overhead);
-      setOperatingProfitPercent(b.operatingProfit);
-    }
-  }, [selectedIndustry]);
+  // The cost structure is no longer overwritten from the sector table when the industry changes (it
+  // used to be, on every load): sector averages are applied only with the explicit button below.
 
   const handleResetToSectorBenchmarks = () => {
     const b = INDUSTRY_COST_BENCHMARKS[selectedIndustry];
@@ -481,6 +482,27 @@ export default function LossAnalysis() {
       setProcesses([]);
       setIsLoading(false);
     });
+  }, [selectedCustomerId, token]);
+
+  // Customer card figures for method B (lossCosting.ts): annual volume, blue-collar headcount, shift hours.
+  useEffect(() => {
+    if (!selectedCustomerId) return;
+    setCardWorkspace({ annualVolume: 0, blueCollar: 0, shiftHours: 0, workingDays: 0 });
+    fetch("/api/business/company-workspace", {
+      headers: { "Authorization": `Bearer ${token}`, "x-factory-id": selectedCustomerId }
+    })
+    .then(res => res.json())
+    .then(res => {
+      const w = res.success ? res.data : null;
+      const n = (v: any) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+      setCardWorkspace({
+        annualVolume: n(w?.operational?.annualProductionQuantity),
+        blueCollar: n(w?.workforce?.blueCollar),
+        shiftHours: n(w?.workforce?.shiftWorkingHours),
+        workingDays: n(w?.workforce?.workingDays)
+      });
+    })
+    .catch(err => console.error("Failed to load company workspace in LossAnalysis", err));
   }, [selectedCustomerId, token]);
 
   // Fetch VSM Projects for the selected customer
@@ -614,15 +636,16 @@ export default function LossAnalysis() {
             payload.utilizationRate = Math.round(p.availability * 100);
           }
         }
-        if (has("scrapQty")) payload.scrapCost = p.scrapQty * 800;
-        if (has("reworkQty")) payload.reworkCost = p.reworkQty * 350;
-        if (has("breakdownMinutesPerShift")) payload.downtimeCost = p.breakdownMinutesPerShift * 2500;
+        // Annual loss amounts priced with the resolved unit costs (read by CI Proje's opportunity
+        // pool as yearly figures); a line whose unit cost is unresolved or whose input is missing is
+        // not written. (Earlier: fixed ×800 / ×350 / ×2.500 and WIP ×50 / ×10.)
+        const priced = lossCosts.byStation[p.id] ?? {};
+        if (has("scrapQty") && priced.scrap !== undefined) payload.scrapCost = Math.round(priced.scrap);
+        if (has("reworkQty") && priced.rework !== undefined) payload.reworkCost = Math.round(priced.rework);
+        if (has("breakdownMinutesPerShift") && priced.downtime !== undefined) payload.downtimeCost = Math.round(priced.downtime);
         if (has("operatorsPerShift") && has("shiftsPerDay") && has("workingHoursPerShift")) {
-          payload.laborCost = p.operatorsPerShift * p.shiftsPerDay * hourlyLaborRate * p.workingHoursPerShift;
-        }
-        if (has("interProcessInventory")) {
-          payload.waitingLoss = p.interProcessInventory * 50;
-          payload.transportationLoss = p.interProcessInventory * 10;
+          const labor = ratesById[p.id]?.laborHour;
+          if (labor?.source) payload.laborCost = p.operatorsPerShift * p.shiftsPerDay * labor.value * p.workingHoursPerShift;
         }
 
         await fetch("/api/business/processes", {
@@ -711,7 +734,53 @@ export default function LossAnalysis() {
   // anymore. This used to compute at full-factory scale first, then uniformly multiply every
   // downstream $ figure by effectiveRevenue/annualRevenue — a proxy that never reflected the
   // selected product group's real measured losses, only a percentage slice of the whole factory's.
-  const financialImpactBase = calculateFinancialImpact(calculatedProcesses, effectiveRevenue, hourlyLaborRate * 8, materialCostFactor, energyRateKwh, defaultDemand);
+  // Loss pricing (L3): per station, unit cost entered here → VSM project unit cost → customer card.
+  // Card figures follow the model scope (product group = its share of revenue and volume).
+  const scopeShare = costModelScope === "product_group" ? productVolumeShare / 100 : 1;
+  const cardBasis: CardCostBasis = {
+    revenue: effectiveRevenue,
+    annualVolume: cardWorkspace.annualVolume * scopeShare,
+    materialPct: directMaterialPercent,
+    laborPct: directLaborPercent,
+    energyPct: energyPercent,
+    maintenancePct: maintenancePercent,
+    holdingRatePct,
+    directHeadcount: cardWorkspace.blueCollar,
+    hoursPerPersonYear: cardWorkspace.shiftHours * cardWorkspace.workingDays * 52
+  };
+  const cardDerived = deriveFromCard(cardBasis, processes);
+  const ratesById: Record<string, ProcessRates> = {};
+  for (const p of activeProcesses) ratesById[p.id] = resolveProcessRates(p, unitCosts, cardDerived);
+  const lossCosts = calculateLossCosts(calculatedProcesses, ratesById);
+  // Factory-level labor rate for the remaining labor-based lines (overtime): entered → card.
+  const factoryLaborRate = (unitCosts.laborHourlyRate ?? 0) > 0
+    ? { value: unitCosts.laborHourlyRate as number, source: "birim" as RateSource, note: "Girilen işçilik saat maliyeti" }
+    : cardDerived.laborHour;
+  const updateUnitCost = (key: Exclude<keyof LossUnitCosts, "machineHourlyByLine">, raw: string) => {
+    const v = parseFloat(raw);
+    setUnitCosts(prev => ({ ...prev, [key]: raw.trim() === "" || !(v > 0) ? undefined : v }));
+  };
+  const updateLineMachineRate = (lineKey: string, raw: string) => {
+    const v = parseFloat(raw);
+    setUnitCosts(prev => {
+      const next = { ...(prev.machineHourlyByLine ?? {}) };
+      if (raw.trim() === "" || !(v > 0)) delete next[lineKey]; else next[lineKey] = v;
+      return { ...prev, machineHourlyByLine: next };
+    });
+  };
+  // Lines for the machine hour cost: one per VSM project (= line / product group) with stations in
+  // the table, plus one for stations outside any VSM project.
+  const costLines: { key: string; label: string }[] = [
+    ...vsmProjects
+      .filter((vp: any) => processes.some(p => p.vsmProjectId === vp.id))
+      .map((vp: any) => ({ key: vp.id as string, label: [vp.productionLine, vp.productGroup || vp.name].filter(Boolean).join(" · ") || vp.id })),
+    ...(processes.some(p => !p.vsmProjectId) ? [{ key: FACTORY_LINE_KEY, label: "VSM dışı istasyonlar" }] : [])
+  ];
+  const sourceLabel: Record<RateSource, string> = { birim: "Girilen", vsm: "VSM", kart: "Şirket kartı" };
+  const lossCostUnresolved = (Object.entries(lossCosts) as [string, { year: number; unresolved: string[] }][])
+    .filter(([, l]) => l.unresolved.length > 0);
+  const avgShiftHours = activeProcesses.length > 0 ? activeProcesses.reduce((s2, p) => s2 + p.workingHoursPerShift, 0) / activeProcesses.length : 0;
+  const financialImpactBase = calculateFinancialImpact(calculatedProcesses, effectiveRevenue, lossCosts, factoryLaborRate.source ? factoryLaborRate.value * avgShiftHours : 0, energyRateKwh);
   const copqDataBase = calculateCOPQ(calculatedProcesses, effectiveRevenue, financialImpactBase);
   const hiddenFactoryDataBase = calculateHiddenFactory(calculatedProcesses, effectiveRevenue, copqDataBase, financialImpactBase);
 
@@ -810,7 +879,7 @@ export default function LossAnalysis() {
     const settingsToSave = {
       selectedIndustry, customIndustryName,
       costModelScope, productVolumeShare, selectedVsmProjectId: selectedVsmProject?.id ?? null,
-      hourlyLaborRate, materialCostFactor, energyRateKwh, machineOverheadHour, logisticsRateKm,
+      unitCosts, holdingRatePct, energyRateKwh,
       directMaterialPercent, directLaborPercent, overtimeBurdenPercent, energyPercent, maintenancePercent, overheadPercent, operatingProfitPercent,
       copqRates, customImprovementRates, opexMaturity, customInvestmentPercent,
       actualCostOverrides,
@@ -843,7 +912,7 @@ export default function LossAnalysis() {
     selectedCustomerId, settingsReady, token,
     selectedIndustry, customIndustryName,
     costModelScope, productVolumeShare, selectedVsmProject,
-    hourlyLaborRate, materialCostFactor, energyRateKwh, machineOverheadHour, logisticsRateKm,
+    unitCosts, holdingRatePct, energyRateKwh,
     directMaterialPercent, directLaborPercent, overtimeBurdenPercent, energyPercent, maintenancePercent, overheadPercent, operatingProfitPercent,
     copqRates, customImprovementRates, opexMaturity, customInvestmentPercent,
     actualCostOverrides,
@@ -905,7 +974,7 @@ export default function LossAnalysis() {
       strategicGain,
       grandTotalLoss: directCostReduction + capacityCreation + strategicGain
     };
-  }, [financialImpact, calculatedProcesses, hourlyLaborRate, materialCostFactor, energyRateKwh]);
+  }, [financialImpact, calculatedProcesses]);
 
   // COPQ Finansal Matrisi Veri Modeli (VSM Entegrasyonlu & Maliyet Dağılım İlintili)
   const copqMatrixRows = React.useMemo(() => {
@@ -2826,7 +2895,7 @@ export default function LossAnalysis() {
                     className="text-[10.5px] font-black px-3 py-2 rounded-xl border border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center space-x-1.5 cursor-pointer"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Sektör Benchmarkına Sıfırla</span>
+                    <span>Sektör Ortalamasını Uygula</span>
                   </button>
                 </div>
               </div>
@@ -3242,73 +3311,151 @@ export default function LossAnalysis() {
               </div>
             </div>
 
-            {/* UNIT COST COMPONENT PARAMETERS */}
-            <div className={`border rounded-2xl p-6 space-y-4 transition-all ${
-              isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 shadow-sm"
-            }`}>
+            {/* LOSS UNIT COSTS (L3): entered → VSM → customer card */}
+            <div className="border rounded-2xl p-6 space-y-5 transition-all bg-white border-slate-200 shadow-sm">
               <div className="border-b pb-3">
-                <h3 className="text-sm font-black text-rose-800 dark:text-rose-400 uppercase flex items-center">
+                <h3 className="text-sm font-black text-rose-800 uppercase flex items-center">
                   <Sliders className="w-4 h-4 mr-1.5" />
-                  Süreç Bazlı Birim Maliyet Hesaplayıcı (Unit Cost Parameters)
+                  Kayıp Birim Maliyetleri
                 </h3>
-                <p className="text-xs text-slate-500">
-                  Aşağıdaki birim değerler, VSM iş istasyonu çevrim sürelerine ve malzeme kayıp oranlarına göre birim parça üretim maliyetini çıkarmak için kullanılır.
+                <p className="text-xs text-slate-500 max-w-4xl">
+                  Kayıplar her istasyonda şu sırayla fiyatlanır: <strong>buraya girilen birim tutar</strong> → <strong>VSM projesi Kurulum'daki birim maliyet</strong> → <strong>şirket kartından türetilen</strong> (ciro, yıllık üretim adedi, maliyet yapısı %; Gemba QLA formülleri). Hiçbirinden bulunamayan tutarla fiyatlanacak kayıp toplama girmez ve "hesaplanamadı" olarak listelenir. Değişiklikler otomatik kaydedilir.
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">Operatör Saatlik Ücreti ({currencySymbol})</label>
-                  <input 
-                    type="number"
-                    value={hourlyLaborRate}
-                    onChange={(e) => setHourlyLaborRate(Math.max(10, parseInt(e.target.value) || 0))}
-                    className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 focus:ring-rose-500 bg-transparent dark:border-slate-700 text-slate-800 dark:text-slate-100"
-                  />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-3">
+                  <h4 className="text-[11px] font-black uppercase text-slate-600">1 · Girilen birim tutarlar</h4>
+                  {([
+                    { key: "scrapUnitCost", label: `Hurda birim maliyeti (${currencySymbol}/adet)`, derived: cardDerived.scrapUnit },
+                    { key: "reworkUnitCost", label: `Rework birim maliyeti (${currencySymbol}/adet)`, derived: cardDerived.reworkUnit },
+                    { key: "laborHourlyRate", label: `İşçilik saat maliyeti (${currencySymbol}/kişi-saat)`, derived: cardDerived.laborHour },
+                    { key: "holdingCostPerWipYearly", label: `Stok taşıma maliyeti (${currencySymbol}/adet/yıl)`, derived: cardDerived.wipHolding }
+                  ] as const).map(row => (
+                    <div key={row.key} className="grid grid-cols-[1fr_auto] items-center gap-3">
+                      <div>
+                        <div className="text-[11px] font-bold text-slate-700">{row.label}</div>
+                        <div className="text-[10px] text-slate-400">
+                          {row.derived.source ? `Kart: ${formatMoney(row.derived.value)} — ${row.derived.note}` : row.derived.note}
+                        </div>
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        value={unitCosts[row.key] ?? ""}
+                        placeholder="girilmedi"
+                        onChange={(e) => updateUnitCost(row.key, e.target.value)}
+                        className="w-28 text-xs px-2 py-1.5 border rounded-lg text-right placeholder:italic placeholder:text-amber-600"
+                      />
+                    </div>
+                  ))}
+                  <div className="pt-2 border-t">
+                    <div className="text-[11px] font-bold text-slate-700">Makine saat maliyeti — hat bazında ({currencySymbol}/makine-saat)</div>
+                    <div className="text-[10px] text-slate-400 mb-2">
+                      {cardDerived.machineHour.source ? `Kart (fabrika ortalaması): ${formatMoney(cardDerived.machineHour.value)} — ${cardDerived.machineHour.note}` : cardDerived.machineHour.note}
+                    </div>
+                    {costLines.length === 0 ? (
+                      <div className="text-[10px] text-slate-400 italic">Maliyet tablosunda istasyon yok.</div>
+                    ) : costLines.map(line => (
+                      <div key={line.key} className="grid grid-cols-[1fr_auto] items-center gap-3 py-0.5">
+                        <span className="text-[11px] text-slate-600">{line.label}</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={unitCosts.machineHourlyByLine?.[line.key] ?? ""}
+                          placeholder="girilmedi"
+                          onChange={(e) => updateLineMachineRate(line.key, e.target.value)}
+                          className="w-28 text-xs px-2 py-1.5 border rounded-lg text-right placeholder:italic placeholder:text-amber-600"
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">Malzeme Maliyet Faktörü (%)</label>
-                  <input 
-                    type="number"
-                    step="0.01"
-                    value={Math.round(materialCostFactor * 100)}
-                    onChange={(e) => setMaterialCostFactor((parseInt(e.target.value) || 0) / 100)}
-                    className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 focus:ring-rose-500 bg-transparent dark:border-slate-700 text-slate-800 dark:text-slate-100"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">Enerji kWh Birim Maliyeti ({currencySymbol})</label>
-                  <input 
-                    type="number"
-                    step="0.1"
-                    value={energyRateKwh}
-                    onChange={(e) => setEnergyRateKwh(Math.max(0.1, parseFloat(e.target.value) || 0))}
-                    className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 focus:ring-rose-500 bg-transparent dark:border-slate-700 text-slate-800 dark:text-slate-100"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">Makine Saatlik Amortismanı ({currencySymbol})</label>
-                  <input 
-                    type="number"
-                    value={machineOverheadHour}
-                    onChange={(e) => setMachineOverheadHour(Math.max(10, parseInt(e.target.value) || 0))}
-                    className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 focus:ring-rose-500 bg-transparent dark:border-slate-700 text-slate-800 dark:text-slate-100"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">İç Lojistik Sevk Oranı ({currencySymbol}/km)</label>
-                  <input 
-                    type="number"
-                    value={logisticsRateKm}
-                    onChange={(e) => setLogisticsRateKm(Math.max(1, parseInt(e.target.value) || 0))}
-                    className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 focus:ring-rose-500 bg-transparent dark:border-slate-700 text-slate-800 dark:text-slate-100"
-                  />
+                <div className="space-y-3">
+                  <h4 className="text-[11px] font-black uppercase text-slate-600">2 · Şirket kartı tabanı (girilmeyen tutarlar için)</h4>
+                  <table className="w-full text-[11px]">
+                    <tbody className="divide-y">
+                      <tr><td className="py-1.5 text-slate-600">Yıllık ciro{costModelScope === "product_group" ? ` (ürün grubu payı %${productVolumeShare})` : ""}</td><td className="py-1.5 text-right font-mono">{effectiveRevenue > 0 ? formatMoney(effectiveRevenue) : <span className="italic text-amber-600">girilmedi</span>}</td></tr>
+                      <tr><td className="py-1.5 text-slate-600">Yıllık üretim adedi (şirket kartı → Operasyon)</td><td className="py-1.5 text-right font-mono">{cardBasis.annualVolume > 0 ? new Intl.NumberFormat("tr-TR").format(Math.round(cardBasis.annualVolume)) : <span className="italic text-amber-600">girilmedi</span>}</td></tr>
+                      <tr><td className="py-1.5 text-slate-600">Maliyet yapısı (Ürün Maliyet Modeli): malzeme / işçilik / enerji / bakım</td><td className="py-1.5 text-right font-mono">%{directMaterialPercent} / %{directLaborPercent} / %{energyPercent} / %{maintenancePercent}</td></tr>
+                      <tr><td className="py-1.5 text-slate-600">Mavi yaka × vardiya saati × haftalık gün (şirket kartı → İş Gücü)</td><td className="py-1.5 text-right font-mono">{cardWorkspace.blueCollar || "—"} × {cardWorkspace.shiftHours || "—"} × {cardWorkspace.workingDays || "—"}</td></tr>
+                      <tr>
+                        <td className="py-1.5 text-slate-600">Stok taşıma oranı (%/yıl: finansman + depolama + eskime)</td>
+                        <td className="py-1.5 text-right">
+                          <input
+                            type="number"
+                            min={0}
+                            value={holdingRatePct || ""}
+                            placeholder="girilmedi"
+                            onChange={(e) => setHoldingRatePct(Math.max(0, parseFloat(e.target.value) || 0))}
+                            className="w-20 text-xs px-2 py-1 border rounded-lg text-right placeholder:italic placeholder:text-amber-600"
+                          />
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <p className="text-[10px] text-slate-400">
+                    Türetme (QLA): birim malzeme = ciro × malzeme % / adet; hurda = malzeme + %50 × (işçilik + enerji); rework = %50 × (işçilik + enerji); makine saati = ciro × (enerji + bakım) % / istasyonların yıllık makine-saati; işçilik saati = ciro × işçilik % / (mavi yaka × yıllık saat); stok = (malzeme + %50 dönüşüm) × taşıma oranı. Duruş ve setup saati: makine saati × makine sayısı + işçilik saati × operatör.
+                  </p>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase text-slate-500">Enerji kWh birim fiyatı ({currencySymbol}) — enerji kalemi için</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.1"
+                      value={energyRateKwh || ""}
+                      placeholder="girilmedi"
+                      onChange={(e) => setEnergyRateKwh(Math.max(0, parseFloat(e.target.value) || 0))}
+                      className="w-28 text-xs px-2 py-1.5 border rounded-lg text-right placeholder:italic placeholder:text-amber-600"
+                    />
+                  </div>
                 </div>
               </div>
+
+              {/* Per-station: which rate is used and where it came from */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-[11px]">
+                  <thead>
+                    <tr className="bg-slate-50 border-b text-[10px] font-extrabold uppercase text-slate-500">
+                      <th className="py-2 px-2">İstasyon</th>
+                      <th className="py-2 px-2 text-right">Hurda /adet</th>
+                      <th className="py-2 px-2 text-right">Rework /adet</th>
+                      <th className="py-2 px-2 text-right">İşçilik /saat</th>
+                      <th className="py-2 px-2 text-right">Makine /saat</th>
+                      <th className="py-2 px-2 text-right">Stok /adet/yıl</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {activeProcesses.map(p => {
+                      const r = ratesById[p.id];
+                      const cell = (rate: typeof r.scrapUnit) => (
+                        <td className="py-1.5 px-2 text-right" title={rate.note}>
+                          {rate.source ? (
+                            <>
+                              <span className="font-mono">{formatMoney(rate.value)}</span>
+                              <span className={`ml-1 text-[8.5px] font-bold ${rate.source === "birim" ? "text-slate-500" : rate.source === "vsm" ? "text-sky-600" : "text-violet-600"}`}>{sourceLabel[rate.source]}</span>
+                            </>
+                          ) : <span className="italic text-amber-600">hesaplanamadı</span>}
+                        </td>
+                      );
+                      return (
+                        <tr key={p.id}>
+                          <td className="py-1.5 px-2 font-bold text-slate-700">{p.name}{p.machineCount === undefined ? <span className="ml-1 text-[9px] font-normal text-amber-600">(makine sayısı yok → 1)</span> : null}</td>
+                          {cell(r.scrapUnit)}{cell(r.reworkUnit)}{cell(r.laborHour)}{cell(r.machineHour)}{cell(r.wipHolding)}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {lossCostUnresolved.length > 0 && (
+                <div className="text-[10px] font-bold text-amber-700 space-y-0.5">
+                  {lossCostUnresolved.map(([key, l]) => (
+                    <div key={key}>{COST_OVERRIDE_CATEGORIES.find(c => c.key === key)?.label ?? key}: birim maliyet bulunamadığı için toplama girmedi — {l.unresolved.join(", ")}</div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* ACTUAL FINANCIAL DATA OVERRIDE LAYER */}
@@ -3319,10 +3466,10 @@ export default function LossAnalysis() {
                 <div>
                   <h3 className="text-sm font-black text-amber-800 dark:text-amber-400 uppercase flex items-center">
                     <DollarSign className="w-4 h-4 mr-1.5" />
-                    Gerçek Mali Veriler (Opsiyonel — Ciro Oranı Yerine)
+                    Gerçek Mali Veriler (Opsiyonel — Hesaplanan Tutar Yerine)
                   </h3>
                   <p className="text-xs text-slate-500 max-w-3xl mt-0.5">
-                    Bu modülün tüm hesaplamaları varsayılan olarak fabrikanın cirosuna oranlanarak tahmin edilir. Eğer müşterinin muhasebesinden aşağıdaki kalemler için <strong className="text-amber-800 dark:text-amber-400">gerçek yıllık tutarlar</strong> biliniyorsa, ilgili kalemi açıp gerçek değeri girin — o kalem ciro tahmini yerine bu değeri kullanır. Açılmayan kalemler ciro oranlı tahminde kalmaya devam eder.
+                    Kayıp tutarları ölçülen kayıplar × birim maliyetlerle (yukarıdaki panel) hesaplanır. Müşterinin muhasebesinden bir kalemin <strong className="text-amber-800 dark:text-amber-400">gerçek yıllık tutarı</strong> biliniyorsa kalemi açıp girin — o kalem hesaplanan tutar yerine bunu kullanır. Açılmayan kalemler hesaplanan tutarda kalır.
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -3333,7 +3480,7 @@ export default function LossAnalysis() {
                       className="text-xs bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 font-bold px-3 py-1.5 rounded-lg border border-amber-300 dark:border-amber-800 transition-all flex items-center gap-1.5 cursor-pointer"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
-                      Tümünü Tahmine Döndür
+                      Tümünü Hesaplanana Döndür
                     </button>
                   )}
                 </div>
@@ -3377,7 +3524,7 @@ export default function LossAnalysis() {
                         />
                       </div>
                       {!override.enabled && (
-                        <div className="text-[9.5px] text-slate-400 mt-1">Tahmin (ciro oranlı): {formatMoney(estimatedYear)}</div>
+                        <div className="text-[9.5px] text-slate-400 mt-1">Hesaplanan: {formatMoney(estimatedYear)}</div>
                       )}
                     </div>
                   );
@@ -3402,34 +3549,29 @@ export default function LossAnalysis() {
                       <th className="py-2.5 px-3">İstasyon (VSM Prosesi)</th>
                       <th className="py-2.5 px-3 text-right">Direkt Malzeme</th>
                       <th className="py-2.5 px-3 text-right">Direkt İşçilik</th>
-                      <th className="py-2.5 px-3 text-right">Direkt Enerji</th>
-                      <th className="py-2.5 px-3 text-right">Makine Overheads</th>
-                      <th className="py-2.5 px-3 text-right">İç Lojistik</th>
+                      <th className="py-2.5 px-3 text-right">Makine Zamanı</th>
                       <th className="py-2.5 px-3 text-right">Fire Toleransı</th>
                       <th className="py-2.5 px-3 text-right font-bold text-slate-800 dark:text-slate-200">Birim Maliyet</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
                     {calculatedProcesses.map((p) => {
-                      // Same grounded per-unit cost basis as calculateFinancialImpact's itemEstCost:
-                      // (annual revenue / annual production volume) * material cost share of price.
-                      const unitItemCost = defaultDemand > 0 ? (annualRevenue / (defaultDemand * 250)) * materialCostFactor : 0;
-                      const directMaterial = unitItemCost;
-                      const directLabor = (p.actualCycleTimeSeconds / 3600) * hourlyLaborRate * p.operatorsPerShift;
-                      const directEnergy = (p.actualCycleTimeSeconds / 3600) * 15 * energyRateKwh;
-                      const machineOverhead = (p.actualCycleTimeSeconds / 3600) * machineOverheadHour;
-                      const logisticsCost = (p.interProcessInventory * 0.005) * logisticsRateKm;
-                      const scrapCostAllocated = p.scrapQty * unitItemCost / p.producedQtyPerDay;
-                      const totalUnitCost = directMaterial + directLabor + directEnergy + machineOverhead + logisticsCost + scrapCostAllocated;
+                      // Per-piece cost from the resolved rates (lossCosting.ts): material from the card,
+                      // labor and machine time over the actual cycle time, scrap spread over good output.
+                      const r = ratesById[p.id];
+                      const hours = p.actualCycleTimeSeconds / 3600;
+                      const directMaterial = cardDerived.unitMaterial ?? 0;
+                      const directLabor = r?.laborHour.source ? hours * r.laborHour.value * p.operatorsPerShift : 0;
+                      const machineOverhead = r?.machineHour.source ? hours * r.machineHour.value * (p.machineCount ?? 1) : 0;
+                      const scrapCostAllocated = r?.scrapUnit.source && p.producedQtyPerDay > 0 ? p.scrapQty * r.scrapUnit.value / p.producedQtyPerDay : 0;
+                      const totalUnitCost = directMaterial + directLabor + machineOverhead + scrapCostAllocated;
 
                       return (
                         <tr key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-all">
                           <td className="py-2.5 px-3 font-sans font-bold text-slate-800 dark:text-slate-200">{p.name}</td>
                           <td className="py-2.5 px-3 text-right">{formatMoney(directMaterial)}</td>
                           <td className="py-2.5 px-3 text-right">{formatMoney(directLabor)}</td>
-                          <td className="py-2.5 px-3 text-right">{formatMoney(directEnergy)}</td>
                           <td className="py-2.5 px-3 text-right">{formatMoney(machineOverhead)}</td>
-                          <td className="py-2.5 px-3 text-right">{formatMoney(logisticsCost)}</td>
                           <td className="py-2.5 px-3 text-right text-rose-600 dark:text-rose-400 font-semibold">{formatMoney(scrapCostAllocated)}</td>
                           <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-white bg-slate-50/40 dark:bg-slate-950/20">{formatMoney(totalUnitCost)}</td>
                         </tr>

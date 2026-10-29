@@ -32,6 +32,10 @@ export interface ProcessItem {
   fieldSources?: Partial<Record<LossInputField, "vsm" | "loss">>;
   // Daily customer demand of the owning VSM project (weekly demand / working days), 0 when not entered.
   vsmDailyDemand?: number;
+  // Machines at the station (VSM). Undefined when not known; stop time is then priced as one machine.
+  machineCount?: number;
+  // Unit costs entered in the owning VSM project's setup (0 / absent = not entered).
+  vsmUnitCosts?: { scrapUnitCost?: number; downtimeHourlyCost?: number; holdingCostPerWipYearly?: number };
 }
 
 // Per-station inputs of the loss model (daily figures; minutes per shift / per setup as labelled).

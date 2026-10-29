@@ -1,4 +1,5 @@
 import { ProcessItem, CalculatedProcess, IndustryBenchmark, IndustryType, LossInputField, LOSS_INPUT_FIELDS } from "./types";
+import type { ProcessLossCosts } from "./lossCosting";
 
 const finite = (v: any): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 const positive = (v: any): number | undefined => { const n = finite(v); return n !== undefined && n > 0 ? n : undefined; };
@@ -71,7 +72,13 @@ export function mapCostTableRow(row: any): ProcessItem {
     defectiveParts: inputs.scrapQty + inputs.reworkQty,
     missingFields,
     fieldSources,
-    vsmDailyDemand: weekly && days ? Math.round(weekly / days) : 0
+    vsmDailyDemand: weekly && days ? Math.round(weekly / days) : 0,
+    machineCount: finite(row?.machineCount),
+    vsmUnitCosts: {
+      scrapUnitCost: positive(S.scrapUnitCost),
+      downtimeHourlyCost: positive(S.downtimeHourlyCost),
+      holdingCostPerWipYearly: positive(S.holdingCostPerWipYearly)
+    }
   };
 }
 
@@ -218,40 +225,20 @@ export function calculateProcessesData(processes: ProcessItem[], dailyDemand: nu
 export function calculateFinancialImpact(
   calculated: CalculatedProcess[],
   revenue: number,
-  laborRateBase: number = 2200, // TL per day per operator
-  rawMaterialCostFactor: number = 0.45,
-  energyCostRate: number = 3.5, // TL per kWh / standard hourly rate
-  dailyDemand: number = 0 // daily customer demand (units/day) from VSM; 0 = not entered
+  lossCosts: ProcessLossCosts, // measured losses priced with the resolved rates (lossCosting.ts)
+  laborRateBase: number = 0,   // labor cost per person-day; 0 = labor rate not resolved
+  energyCostRate: number = 0   // per kWh; 0 = not entered
 ) {
-  // 1. Scrap Cost
-  const totalScrapQty = calculated.reduce((sum, p) => sum + p.scrapQty, 0);
-  // Average per-unit item cost = (annual revenue / annual production volume) * material cost
-  // share of price. Previously divided revenue by an unexplained flat "280000" constant, which
-  // meant the per-unit cost estimate had no traceable basis and drifted arbitrarily with revenue.
-  const annualProductionVolume = dailyDemand * 250;
-  const itemEstCost = annualProductionVolume > 0 ? (revenue / annualProductionVolume) * rawMaterialCostFactor : 0;
-  const dailyScrapCost = totalScrapQty * itemEstCost * 1.5;
-
-  // 2. Rework Cost
-  const totalReworkQty = calculated.reduce((sum, p) => sum + p.reworkQty, 0);
-  const dailyReworkCost = totalReworkQty * (itemEstCost * 0.4); // 40% of item cost to rework + some extra labor
-
-  // 3. Downtime Cost (Maintenance/Overhead capacity losses)
-  const totalBreakdownMinutes = calculated.reduce((sum, p) => sum + (p.breakdownMinutesPerShift * p.shiftsPerDay), 0);
-  const downtimeCostPerMinute = 12.5; // generic machine lost capacity rate in TL/min
-  const dailyDowntimeCost = totalBreakdownMinutes * downtimeCostPerMinute;
-
-  // 4. Setup Cost
-  const totalSetupMinutes = calculated.reduce((sum, p) => sum + (p.setupTimeMinutes * p.setupFrequencyPerWeek / Math.max(1, p.workingDaysPerWeek)), 0);
-  const dailySetupCost = totalSetupMinutes * 15.0; // setups limit throughput
-
-  // 5. Waiting & Labor losses
-  const totalExcessLabor = calculated.reduce((sum, p) => sum + p.excessLaborHeadcount, 0);
-  const dailyExcessLaborCost = totalExcessLabor * laborRateBase;
-
-  // 6. Excess Inventory Holding Cost
-  const totalWIP = calculated.reduce((sum, p) => sum + p.interProcessInventory, 0);
-  const dailyInventoryCost = totalWIP * (itemEstCost * 0.15) / 365; // standard annual holding rate
+  // 1–6. Scrap, rework, breakdown, setup, excess labor, WIP holding: priced per station from the
+  // unit cost entered on the Loss screen → VSM project unit cost → customer card (QLA formulas).
+  // Daily figures are the annual amount over 260 working days (same split as real-data overrides).
+  const perDay = (year: number) => year / 260;
+  const dailyScrapCost = perDay(lossCosts.scrap.year);
+  const dailyReworkCost = perDay(lossCosts.rework.year);
+  const dailyDowntimeCost = perDay(lossCosts.downtime.year);
+  const dailySetupCost = perDay(lossCosts.setup.year);
+  const dailyExcessLaborCost = perDay(lossCosts.laborLoss.year);
+  const dailyInventoryCost = perDay(lossCosts.inventory.year);
 
   // 7. Late Delivery & Overtime Cost — scaled by how many processes are actually strained
   // (over-capacity / critically low OEE) and by the configured labor rate / revenue, instead of
@@ -290,7 +277,8 @@ export function calculateFinancialImpact(
     lateDelivery: { day: deliveryFines, week: deliveryFines * 5, month: deliveryFines * 22, year: deliveryFines * 260 },
     overtime: { day: totalOvertimeLoss, week: totalOvertimeLoss * 5, month: totalOvertimeLoss * 22, year: totalOvertimeLoss * 260 },
     energy: { day: dailyEnergyCost, week: dailyEnergyCost * 5, month: dailyEnergyCost * 22, year: dailyEnergyCost * 260 },
-    maintenance: { day: downtimeCostPerMinute * 40, week: downtimeCostPerMinute * 40 * 5, month: downtimeCostPerMinute * 40 * 22, year: downtimeCostPerMinute * 40 * 260 },
+    // Not derived from measured data (was a fixed 12,5 TL/dk × 40 dk); filled only from real-data overrides.
+    maintenance: { day: 0, week: 0, month: 0, year: 0 },
     totalOperationalLosses: {
       day: dailyTotal,
       week: dailyTotal * 5,

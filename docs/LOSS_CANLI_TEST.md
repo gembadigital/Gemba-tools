@@ -36,9 +36,20 @@ hurda/rework/arıza maliyetin 800/350/2.500'e bölünmesiyle). Artık gerçek ve
 | L2.6 | VSM'e bağlı olmayan (elle oluşturulmuş) bir maliyet tablosu satırı varsa tüm alanları doldurup kaydedin. | Operatör, C/T, vardiya, saat, kapasite ve OEE bu satırda ortak alanlara yazılır (L1.7 ile aynı). |
 | L2.7 | Ürün grubu kapsamında bir VSM projesi seçin. | Takt/talep yalnızca o projenin talebiyle hesaplanır; fabrika kapsamında projelerin günlük talepleri toplanır. |
 
+## L3 — Maliyet yöntemi (girilen → VSM → şirket kartı)
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| L3.1 | Test müşterisinde Loss → **2. Ürün Maliyet Modeli** → "Kayıp Birim Maliyetleri". | Tüm girişler boş ("girilmedi"); eski 350 TL/saat, %45, 500 TL/saat, 25 TL/km, 3,5 TL/kWh değerleri yok. İstasyon tablosunda tutarlar "hesaplanamadı", altında hangi kayıpların toplama girmediği listeli. Dashboard'da hurda/duruş/setup kayıpları 0. |
+| L3.2 | Şirket kartına yıllık ciro, Operasyon → yıllık üretim adedi, İş Gücü → mavi yaka, vardiya saati, haftalık gün girin. Loss'ta maliyet yapısını girin (veya "Sektör Ortalamasını Uygula") ve stok taşıma oranı yazın. | Sağdaki "Şirket kartı tabanı" değerleri dolar; istasyon tablosunda değerler mor **Şirket kartı** etiketiyle gelir. Hücre üzerine gelince formül görünür. Örnek: ciro 100 Mn, adet 1 Mn, malzeme %50, işçilik %15, enerji %5 → hurda 60 /adet, rework 10 /adet. |
+| L3.3 | VSM Kurulum'a hurda birim maliyeti 70 ve duruş saat maliyeti 900 girip kaydedin. | O projenin istasyonlarında hurda 70 ve makine/saat 900 mavi **VSM** etiketiyle (kart değerinin önünde). |
+| L3.4 | Loss'ta hurda birim maliyetine 65, o hattın makine saat maliyetine 1.200 girin. | Hurda 65 ve makine 1.200 **Girilen** etiketiyle; başka hattın istasyonları kendi değerini (VSM/kart) korur. |
+| L3.5 | Sektörü değiştirin, sayfayı yenileyin. | Maliyet yapısı %'leri değişmez (yalnızca butonla uygulanır). |
+| L3.6 | VSM Canlı Veri Düzenleyicisi → Değişiklikleri Veritabanına Kaydet; CI Proje → yeni proje sihirbazındaki maliyet tablosu fırsatlarına bakın. | Hurda / rework / plansız duruş fırsat tutarları Loss'taki yıllık tutarlarla aynı; birim maliyeti bulunamayan kalem yazılmaz, "Bekleme / Taşıma Kaybı" (WIP × 50 / × 10) artık yazılmaz. |
+| L3.7 | Makine sayısı girilmemiş (VSM dışı) bir istasyona bakın. | İstasyon adının yanında "(makine sayısı yok → 1)". |
+
 ## Bilinen, bu adımda değiştirilmeyenler
 
-- Kaydet, hurda/rework/arıza/bekleme maliyetini hâlâ sabit birim maliyetle yazar (adet × 800 / 350, dk × 2.500,
-  WIP × 50 / 10) — yalnızca alan girilmişse. Gerçek birim maliyet girişi ayrı iş.
-- Finansal modeldeki oranlar (12,5 TL/dk duruş, 15 TL/dk setup, 12 kW makine gücü, COPQ yüzdeleri) ve Copilot'un
-  hazır metinlerindeki sabit iddialar (+68 adet, 12 gün geri ödeme vb.) varsayım olarak duruyor.
+- Fazla mesai (kapasite > %95 istasyon × işçilik × yarım gün), geç teslimat (ciro × %0,05/0,01), enerji (12 kW varsayımı),
+  COPQ dağılım oranları, gizli fabrika %58, COPQ matrisindeki ciro/sektör yedekleri ve Copilot hazır metinleri → L5.
+- Kayıp kapasitenin katkı payı (talep varsa) ve OEE'nin 16 kayba dağıtımı → L4.
