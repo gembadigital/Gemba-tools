@@ -67,7 +67,20 @@ hurda/rework/arıza maliyetin 800/350/2.500'e bölünmesiyle). Artık gerçek ve
 | L4.7 | Bir kayıpta "CI'ye ata" → lider girip onaylayın. | CI Proje Yönetimi'nde "TPM n. kayıp adı İyileştirme Projesi" oluşur; butonda proje sayısı (1). Beklenen tasarruf 0 (varsayım yok). |
 | L4.8 | Pareto bölümü. | Fiyatlanmış kayıplar büyükten küçüğe, kümülatif %. |
 
+## L5 — Kalan sabit oranların temizliği
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| L5.1 | Dashboard, birim maliyetleri girilmiş bir müşteride. | Toplam kayıp = hurda + rework + duruş + setup + norm fazlası + stok. Fazla mesai, geç teslimat, enerji 0 (Gerçek Mali Veriler'de açılınca girilen tutar). "Net Kâr İyileştirme Hedefi" = Geri Kazanım Matrisi ortalama kazancı (%50 senaryosu yok). |
+| L5.2 | 2. Ürün Maliyet Modeli → "Kalite Maliyetleri — Müşteri Verisi"ne garanti 100.000 girin. | COPQ toplamı tam 100.000 artar. Boşken iade, garanti, muayene vb. 0. |
+| L5.3 | 3. COPQ Finansal Matrisi. | "Kaynak (aralık ±%20)" sütununda formül metni, oran girişi ve "Oranları Sıfırla" yok. Min/Max = ölçülen tutar × 0,8 / 1,2. "Fire & Malzeme" ve "Lead Time" 0 (Hurda ve WIP satırlarında). OEE İyileştirmesi = JIPM 5 + 6 + dağıtılamayan. Veri yokken satırlar 0 (ciro yüzdesi yok). |
+| L5.4 | Ürün grubu kapsamı seçili iken COPQ matrisi ve Dashboard. | Hurda/setup/duruş tutarları iki ekranda aynı (önceden matris bir de ürün payıyla çarpıyordu). |
+| L5.5 | Ekonomik Kayıp Ağacı (COPQ sekmesi altı). | "Malzeme Kayıpları %45" ve "Gizli Fabrika %8" satırları yok; iç hata, setup, arıza, norm fazlası, mesai, stok, COPQ toplamı. |
+| L5.6 | Gemba AI'da "P&L Tablosu", "Yüksek Kazançlı Kaizen", "Setup", "OEE %5" sorularını sorun. | P&L kalemleri maliyet yapısı %'lerinden (girilmediyse 0); "Sadece 12 Gün", "45,000 TL", "+68 adet", "+18,500 adet", "%18 ila %25", "2.5 katına" yok; setup saat/adet ve OEE +5 adetleri istasyon verisinden. Öncelikler Geri Kazanım Matrisi'ndeki gerçek konulara göre adlandırılır. |
+| L5.7 | VSM filtre penceresinde ürün grubu payı girilmemiş bir proje. | Model cirosu 0 (eskiden %30 varsayılırdı). |
+| L5.8 | Faaliyet kârı eğrisi (Dashboard). | Aşamalar "Mevcut → + en büyük fırsat → + ilk 3 fırsat → Hedef"; 5S/SMED/TPM fazları yok. |
+
 ## Bilinen, bu adımda değiştirilmeyenler
 
-- Fazla mesai (kapasite > %95 istasyon × işçilik × yarım gün), geç teslimat (ciro × %0,05/0,01), enerji (12 kW varsayımı),
-  COPQ dağılım oranları, gizli fabrika %58, COPQ matrisindeki ciro/sektör yedekleri ve Copilot hazır metinleri → L5.
+- Geri Kazanım Matrisi iyileştirme oranları (projeksiyon varsayımı, düzenlenebilir) — QLA kalibrasyonuyla hizalama kararı bekliyor.
+- OpEx Suite bağlantısı (L6) ve PDF/Excel raporunun yeni yapıya uyarlanması (L7).

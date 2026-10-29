@@ -23,6 +23,8 @@ import {
   calculateFinancialImpact,
   calculateCOPQ,
   calculateHiddenFactory,
+  COPQ_ENTERED_CATEGORIES,
+  CopqEnteredKey,
   mapCostTableRow,
   dailyDemandOf
 } from "./loss-analysis/helpers";
@@ -102,7 +104,8 @@ export default function LossAnalysis() {
   // JIPM loss tree (tab 6): consultant entries per station for the losses VSM does not measure.
   const [jipmInputs, setJipmInputs] = useState<Record<string, JipmStationInputs>>({});
   const [jipmStationFilter, setJipmStationFilter] = useState<string>("all");
-  const [energyRateKwh, setEnergyRateKwh] = useState<number>(0); // per kWh; 0 = not entered
+  // Customer's annual quality-cost figures the screen cannot measure (COPQ external / appraisal).
+  const [copqEntered, setCopqEntered] = useState<Partial<Record<CopqEnteredKey, number>>>({});
   // Customer card (company workspace) figures used by method B.
   const [cardWorkspace, setCardWorkspace] = useState<{ annualVolume: number; blueCollar: number; shiftHours: number; workingDays: number }>({ annualVolume: 0, blueCollar: 0, shiftHours: 0, workingDays: 0 });
 
@@ -177,7 +180,7 @@ export default function LossAnalysis() {
       setUnitCosts(s?.unitCosts ?? {});
       setHoldingRatePct(s?.holdingRatePct ?? 0);
       setJipmInputs(s?.jipmInputs ?? {});
-      setEnergyRateKwh(s?.energyRateKwh ?? 0);
+      setCopqEntered(s?.copqEntered ?? {});
       // Product cost tree breakdown %
       setDirectMaterialPercent(s?.directMaterialPercent ?? 0);
       setDirectLaborPercent(s?.directLaborPercent ?? 0);
@@ -187,7 +190,6 @@ export default function LossAnalysis() {
       setOverheadPercent(s?.overheadPercent ?? 0);
       setOperatingProfitPercent(s?.operatingProfitPercent ?? 0);
       // COPQ / Recovery Matrix / ROI rate overrides
-      setCopqRates(s?.copqRates ?? DEFAULT_COPQ_RATES);
       setCustomImprovementRates(s?.customImprovementRates ?? {});
       setOpexMaturity(s?.opexMaturity ?? 40);
       setCustomInvestmentPercent(s?.customInvestmentPercent ?? {});
@@ -351,22 +353,6 @@ export default function LossAnalysis() {
   const [overheadPercent, setOverheadPercent] = useState<number>(0);
   const [operatingProfitPercent, setOperatingProfitPercent] = useState<number>(0);
 
-  const DEFAULT_COPQ_RATES: Record<string, { min: number, max: number }> = {
-    "Hurda Maliyeti": { min: 15, max: 25 },
-    "Fire & Malzeme Kayıpları": { min: 12, max: 22 },
-    "Fazla Mesai Azaltımı": { min: 15, max: 25 },
-    "Yeniden İşleme (Rework)": { min: 10, max: 20 },
-    "Operasyonel Verimsizlik": { min: 10, max: 20 },
-    "Setup Süreleri (SMED)": { min: 15, max: 25 },
-    "Plansız Duruşların Önlenmesi": { min: 10, max: 20 },
-    "OEE İyileştirmesi": { min: 15, max: 25 },
-    "Operatör Verimliliği": { min: 12, max: 22 },
-    "Lead Time (Sipariş Çevrimi)": { min: 10, max: 20 },
-    "WIP (Yarı Mamul) Azaltımı": { min: 10, max: 20 },
-    "Sevkiyat Performansı": { min: 10, max: 20 },
-  };
-
-  const [copqRates, setCopqRates] = useState<Record<string, { min: number, max: number }>>(DEFAULT_COPQ_RATES);
   const [customImprovementRates, setCustomImprovementRates] = useState<Record<string, { min: number, max: number }>>({});
   const [opexMaturity, setOpexMaturity] = useState<number>(40);
 
@@ -402,20 +388,6 @@ export default function LossAnalysis() {
 
   const handleResetInvestmentPercent = () => {
     setCustomInvestmentPercent({});
-  };
-
-  const handleUpdateCopqRate = (subject: string, field: "min" | "max", val: number) => {
-    setCopqRates(prev => ({
-      ...prev,
-      [subject]: {
-        ...prev[subject],
-        [field]: Math.max(0, Math.min(100, val))
-      }
-    }));
-  };
-
-  const handleResetCopqRates = () => {
-    setCopqRates(DEFAULT_COPQ_RATES);
   };
 
   const handleUpdateImprovementRate = (subject: string, field: "min" | "max", val: number) => {
@@ -822,9 +794,18 @@ export default function LossAnalysis() {
     });
   };
   const avgShiftHours = activeProcesses.length > 0 ? activeProcesses.reduce((s2, p) => s2 + p.workingHoursPerShift, 0) / activeProcesses.length : 0;
-  const financialImpactBase = calculateFinancialImpact(calculatedProcesses, effectiveRevenue, lossCosts, factoryLaborRate.source ? factoryLaborRate.value * avgShiftHours : 0, energyRateKwh);
-  const copqDataBase = calculateCOPQ(calculatedProcesses, effectiveRevenue, financialImpactBase);
-  const hiddenFactoryDataBase = calculateHiddenFactory(calculatedProcesses, effectiveRevenue, copqDataBase, financialImpactBase);
+  const financialImpactBase = calculateFinancialImpact(calculatedProcesses, effectiveRevenue, lossCosts);
+  const copqDataBase = calculateCOPQ(calculatedProcesses, effectiveRevenue, financialImpactBase, copqEntered);
+  // Hidden-factory equivalents: labor cost per person-year (resolved labor hour × yearly hours from the
+  // card, else from the stations) and OEE loss share of the stations that have an OEE (JIPM tab).
+  const avgDaysPerWeek = activeProcesses.length > 0 ? activeProcesses.reduce((s2, p) => s2 + p.workingDaysPerWeek, 0) / activeProcesses.length : 0;
+  const hoursPerPersonYear = cardBasis.hoursPerPersonYear > 0 ? cardBasis.hoursPerPersonYear : avgShiftHours * avgDaysPerWeek * 52;
+  const laborCostPerPersonYear = factoryLaborRate.source ? factoryLaborRate.value * hoursPerPersonYear : 0;
+  const oeeStations = jipmResults.filter(r => r.oee !== null && r.loadingMinutesPerDay > 0);
+  const oeeLossSharePct = oeeStations.length > 0
+    ? oeeStations.reduce((a2, r) => a2 + r.oeeLossMinutesPerDay, 0) / oeeStations.reduce((a2, r) => a2 + r.loadingMinutesPerDay, 0) * 100
+    : null;
+  const hiddenFactoryDataBase = calculateHiddenFactory(calculatedProcesses, effectiveRevenue, copqDataBase, financialImpactBase, laborCostPerPersonYear, oeeLossSharePct);
 
   // --- Actual Financial Data Override Layer ---
   // If the consultant has enabled a real annual figure for a category, it replaces the
@@ -850,7 +831,6 @@ export default function LossAnalysis() {
     });
     const totalYear = TOTAL_LOSS_OVERRIDE_KEYS.reduce((sum, key) => sum + (merged[key]?.year || 0), 0);
     merged.totalOperationalLosses = distributeAnnualValue(totalYear);
-    merged.waiting = distributeAnnualValue(totalYear * 0.12);
     return merged;
   })();
 
@@ -858,8 +838,8 @@ export default function LossAnalysis() {
   // (mathematically equivalent to the factory-scale + scaleMoneyBlock path above when no override
   // is active, since every term in both functions is linear in `revenue` or in a financialImpact
   // category's .year value — confirmed against helpers.ts before wiring this in).
-  const copqData: typeof copqDataBase = !hasActiveCostOverrides ? copqDataBase : calculateCOPQ(calculatedProcesses, effectiveRevenue, financialImpact);
-  const hiddenFactoryData: typeof hiddenFactoryDataBase = !hasActiveCostOverrides ? hiddenFactoryDataBase : calculateHiddenFactory(calculatedProcesses, effectiveRevenue, copqData, financialImpact);
+  const copqData: typeof copqDataBase = !hasActiveCostOverrides ? copqDataBase : calculateCOPQ(calculatedProcesses, effectiveRevenue, financialImpact, copqEntered);
+  const hiddenFactoryData: typeof hiddenFactoryDataBase = !hasActiveCostOverrides ? hiddenFactoryDataBase : calculateHiddenFactory(calculatedProcesses, effectiveRevenue, copqData, financialImpact, laborCostPerPersonYear, oeeLossSharePct);
 
   // Guarded so a zero-revenue empty state (no company data entered yet) reads as 0%, not
   // "%Infinity"/"%NaN" — reused everywhere this ratio is displayed below.
@@ -871,14 +851,14 @@ export default function LossAnalysis() {
 
   // Find system bottleneck Node
   const sortedByCycle = [...calculatedProcesses].sort((a,b) => b.actualCycleTimeSeconds - a.actualCycleTimeSeconds);
-  const bottleneckProcess = sortedByCycle[0] || { id: "", name: "N/A", actualCycleTimeSeconds: 45, producedQtyPerDay: 1000 };
+  const bottleneckProcess = sortedByCycle[0] || { id: "", name: "—", actualCycleTimeSeconds: 0, producedQtyPerDay: 0 };
 
   const averageCycleTime = calculatedProcesses.length > 0 ? (calculatedProcesses.reduce((sum, p) => sum + p.actualCycleTimeSeconds, 0) / calculatedProcesses.length) : 0;
   const lineBalanceEfficiency = bottleneckProcess.actualCycleTimeSeconds > 0 ? (averageCycleTime / bottleneckProcess.actualCycleTimeSeconds) * 100 : 0;
 
   // Overall system Lead time = lead days preset + WIP items / Daily demand
-  const totalLeadTimeDays = 4.2; 
-  const computedLeadTimeDays = totalLeadTimeDays + (defaultDemand > 0 ? (totalWip / defaultDemand) : 0);
+  // Little's law over the stations' WIP; 0 (not computed) without daily demand. (Earlier: + a fixed 4,2 days.)
+  const computedLeadTimeDays = defaultDemand > 0 ? totalWip / defaultDemand : 0;
 
   // Overall Labor Effectiveness (OLE)
   const totalRealOperators = calculatedProcesses.reduce((sum, p) => sum + p.totalOperatorsPerDay, 0);
@@ -894,7 +874,9 @@ export default function LossAnalysis() {
   const totalTargetWorkforceTakt = calculatedProcesses.reduce((sum, p) => sum + p.targetWorkforceTakt, 0);
 
   // Overall Value Stream Efficiency (OVSE)
-  const overallOVSE = computedLeadTimeDays > 0 ? ( (averageCycleTime / (3600 * 8)) / computedLeadTimeDays ) * 100 : 0;
+  // Value-adding share of lead time: average C/T over one working day (shifts × hours of the representative station).
+  const workingDaySeconds = repProcess.shiftsPerDay * repProcess.workingHoursPerShift * 3600;
+  const overallOVSE = computedLeadTimeDays > 0 && workingDaySeconds > 0 ? ((averageCycleTime / workingDaySeconds) / computedLeadTimeDays) * 100 : 0;
 
   // What-If Simulation State (COPQ & Product Cost Model Linked)
   const [simSetup, setSimSetup] = useState<number>(30); // SMED Setup Süresi Azaltımı %
@@ -921,9 +903,9 @@ export default function LossAnalysis() {
     const settingsToSave = {
       selectedIndustry, customIndustryName,
       costModelScope, productVolumeShare, selectedVsmProjectId: selectedVsmProject?.id ?? null,
-      unitCosts, holdingRatePct, energyRateKwh, jipmInputs,
+      unitCosts, holdingRatePct, jipmInputs, copqEntered,
       directMaterialPercent, directLaborPercent, overtimeBurdenPercent, energyPercent, maintenancePercent, overheadPercent, operatingProfitPercent,
-      copqRates, customImprovementRates, opexMaturity, customInvestmentPercent,
+      customImprovementRates, opexMaturity, customInvestmentPercent,
       actualCostOverrides,
       simSetup, simScrap, simOee, simLaborOpt, simOvertimeRed, simLeadTimeAccel
     };
@@ -954,9 +936,9 @@ export default function LossAnalysis() {
     selectedCustomerId, settingsReady, token,
     selectedIndustry, customIndustryName,
     costModelScope, productVolumeShare, selectedVsmProject,
-    unitCosts, holdingRatePct, energyRateKwh, jipmInputs,
+    unitCosts, holdingRatePct, jipmInputs, copqEntered,
     directMaterialPercent, directLaborPercent, overtimeBurdenPercent, energyPercent, maintenancePercent, overheadPercent, operatingProfitPercent,
-    copqRates, customImprovementRates, opexMaturity, customInvestmentPercent,
+    customImprovementRates, opexMaturity, customInvestmentPercent,
     actualCostOverrides,
     simSetup, simScrap, simOee, simLaborOpt, simOvertimeRed, simLeadTimeAccel
   ]);
@@ -972,165 +954,43 @@ export default function LossAnalysis() {
   // LOSS MAPPING ENGINE (AUTOMATED FINANCIALLY MAPPED CATEGORIES)
   // -------------------------------------------------------------
   const lossMapping = React.useMemo(() => {
-    // 1. Scrap/Hurda -> Direct Material Cost (75%) & Direct Labor Cost (25%)
-    const scrapCostCombined = financialImpact.scrap.year;
-    const mappedScrapMaterial = scrapCostCombined * 0.75;
-    const mappedScrapLabor = scrapCostCombined * 0.25;
-
-    // 2. Rework -> Labor (50%), Energy (20%), Machine Time Overhead (30%)
-    const reworkCostCombined = financialImpact.rework.year;
-    const mappedReworkLabor = reworkCostCombined * 0.50;
-    const mappedReworkEnergy = reworkCostCombined * 0.20;
-    const mappedReworkMachine = reworkCostCombined * 0.30;
-
-    // 3. Setup -> Capacity Loss (100%)
-    const mappedSetupCapacity = financialImpact.setup.year;
-
-    // 4. Breakdown/Plansız Duruş -> Capacity Loss (50%), Energy (15%), Labor Loss (35%)
-    const breakdownCostCombined = financialImpact.downtime.year;
-    const mappedBreakdownCapacity = breakdownCostCombined * 0.50;
-    const mappedBreakdownEnergy = breakdownCostCombined * 0.15;
-    const mappedBreakdownLabor = breakdownCostCombined * 0.35;
-
-    // 5. Lead Time -> WIP Financing Cost (Holding rate: 15% of inventory value)
-    const mappedLeadTimeFinancing = financialImpact.inventory.year;
-
-    // 6. Transportation/Taşıma -> Internal Logistics Cost (100%)
-    const mappedTransportationLogistics = calculatedProcesses.reduce((sum, p) => sum + p.interProcessInventory * 22, 0); // simulated internal logistics costs
-
-    // Combine into the 3 Key Executive Opportunity categories
-    const directCostReduction = mappedScrapMaterial + mappedScrapLabor + mappedReworkLabor + mappedReworkEnergy + mappedBreakdownEnergy;
-    const capacityCreation = mappedSetupCapacity + mappedBreakdownCapacity + mappedReworkMachine;
-    const strategicGain = mappedLeadTimeFinancing + mappedTransportationLogistics + mappedBreakdownLabor;
-
-    return {
-      scrap: { material: mappedScrapMaterial, labor: mappedScrapLabor, total: scrapCostCombined },
-      rework: { labor: mappedReworkLabor, energy: mappedReworkEnergy, machine: mappedReworkMachine, total: reworkCostCombined },
-      setup: { capacity: mappedSetupCapacity },
-      breakdown: { capacity: mappedBreakdownCapacity, energy: mappedBreakdownEnergy, labor: mappedBreakdownLabor, total: breakdownCostCombined },
-      leadTime: { financing: mappedLeadTimeFinancing },
-      transportation: { logistics: mappedTransportationLogistics },
-      // Aggregates
-      directCostReduction,
-      capacityCreation,
-      strategicGain,
-      grandTotalLoss: directCostReduction + capacityCreation + strategicGain
-    };
-  }, [financialImpact, calculatedProcesses]);
+    // Three opportunity groups as plain sums of the priced loss lines — no split ratios.
+    // (Earlier: scrap 75/25 material/labor, rework 50/20/30, breakdown 50/15/35, WIP × 22 logistics.)
+    const directCostReduction = financialImpact.scrap.year + financialImpact.rework.year + financialImpact.laborLoss.year;
+    const capacityCreation = financialImpact.setup.year + financialImpact.downtime.year;
+    const strategicGain = financialImpact.inventory.year + financialImpact.lateDelivery.year + financialImpact.overtime.year;
+    return { directCostReduction, capacityCreation, strategicGain, grandTotalLoss: directCostReduction + capacityCreation + strategicGain };
+  }, [financialImpact]);
 
   // COPQ Finansal Matrisi Veri Modeli (VSM Entegrasyonlu & Maliyet Dağılım İlintili)
   const copqMatrixRows = React.useMemo(() => {
-    // Model bazı ciro (Tüm Fabrika veya Seçili VSM Ürün Grubu)
-    const modelRevenue = effectiveRevenue;
-    const revenueRatio = annualRevenue > 0 ? (modelRevenue / annualRevenue) : 1;
-
-    // Ürün Maliyet Bütçeleri (Ürün Maliyet Dağılım Tablosu ile Birebir Bağlantılı)
-    const directMaterialBudget = modelRevenue * (directMaterialPercent / 100);
-    const directLaborBudget = modelRevenue * (directLaborPercent / 100);
-    const overtimeBudget = directLaborBudget * (overtimeBurdenPercent / 100);
-
-    // VSM veya Sektör Benchmark Temelleri
-    // 1. Hurda Maliyeti -> Direkt Malzeme / Hammadde bütçesi ile doğrudan bağlantılı
-    const vsmScrapYear = (financialImpact.scrap?.year || 0) * revenueRatio;
-    const scrapBase = vsmScrapYear > 0 
-      ? vsmScrapYear 
-      : directMaterialBudget * ((benchmark.scrap || 1.5) / 100);
-
-    // 2. Fire & Malzeme Kayıpları -> Direkt Malzeme bütçesi ile doğrudan bağlantılı
-    const materialLossBase = directMaterialBudget * 0.08;
-
-    // 3. Fazla Mesai Azaltımı -> Direkt İşçilik Fazla Mesai yükü ile doğrudan bağlantılı
-    const vsmOvertimeYear = (financialImpact.overtime?.year || 0) * revenueRatio;
-    const overtimeBase = vsmOvertimeYear > 0 ? vsmOvertimeYear : overtimeBudget;
-
-    // 4. Yeniden İşleme (Rework) -> Direkt İşçilik bütçesini doğrudan etkiler
-    const vsmReworkYear = (financialImpact.rework?.year || 0) * revenueRatio;
-    const reworkBase = vsmReworkYear > 0 ? vsmReworkYear : directLaborBudget * 0.08;
-
-    // 5. Operasyonel Verimsizlik -> Direkt İşçilik hattı dengesizlik kaybı
-    const lineBalGap = Math.max(0.08, (100 - lineBalanceEfficiency) / 100);
-    const inefficiencyBase = directLaborBudget * lineBalGap;
-
-    // 6. Setup Süreleri (SMED) -> Kapasite & Makine Zamanı
-    const vsmSetupYear = (financialImpact.setup?.year || 0) * revenueRatio;
-    const setupBase = vsmSetupYear > 0 ? vsmSetupYear : modelRevenue * 0.025;
-
-    // 7. Plansız Duruşların Önlenmesi -> Kapasite & Makine Duruşları
-    const vsmDowntimeYear = (financialImpact.downtime?.year || 0) * revenueRatio;
-    const downtimeBase = vsmDowntimeYear > 0 ? vsmDowntimeYear : modelRevenue * 0.02;
-
-    // 8. OEE İyileştirmesi -> Kapasite Yaratma
-    const oeeGap = Math.max(0.05, (benchmark.oee - avgOee) / 100);
-    const oeeBase = modelRevenue * oeeGap * 0.25;
-
-    // 9. Operatör Verimliliği -> Direkt İşçilik / OLE Kaybı
-    const oleGap = Math.max(0.08, (100 - overallOLE) / 100);
-    const operatorBase = directLaborBudget * oleGap;
-
-    // 10-11. Lead Time & WIP -> Stok Finansmanı
-    const vsmInvYear = (financialImpact.inventory?.year || 0) * revenueRatio;
-    const inventoryBase = vsmInvYear > 0 ? vsmInvYear : modelRevenue * 0.018;
-
-    // 12. Sevkiyat Performansı -> Stratejik Lojistik Kazanç
-    const shippingBase = modelRevenue * 0.015;
-
-    const getItemRates = (subject: string, defaultMin: number, defaultMax: number) => {
-      const r = copqRates[subject];
-      return r ? { min: r.min, max: r.max } : { min: defaultMin, max: defaultMax };
-    };
-
-    const calcMinMax = (base: number, subject: string, defMin: number, defMax: number, minMult = 0.85, maxMult = 1.35) => {
-      const rates = getItemRates(subject, defMin, defMax);
-      const min = base * (rates.min / 100) * minMult;
-      const max = base * (rates.max / 100) * maxMult;
-      return { min, max, rateStr: `${rates.min}% - ${rates.max}%` };
-    };
-
-    const scrapVals = calcMinMax(scrapBase, "Hurda Maliyeti", 15, 25, 1.2, 1.8);
-    const fireVals = calcMinMax(materialLossBase, "Fire & Malzeme Kayıpları", 12, 22, 1.1, 1.7);
-    const overtimeVals = calcMinMax(overtimeBase, "Fazla Mesai Azaltımı", 15, 25, 1.2, 1.8);
-    const reworkVals = calcMinMax(reworkBase, "Yeniden İşleme (Rework)", 10, 20, 1.2, 1.8);
-    const ineffVals = calcMinMax(inefficiencyBase, "Operasyonel Verimsizlik", 10, 20, 1.4, 2.1);
-    
-    const setupVals = calcMinMax(setupBase, "Setup Süreleri (SMED)", 15, 25, 1.2, 1.8);
-    const downtimeVals = calcMinMax(downtimeBase, "Plansız Duruşların Önlenmesi", 10, 20, 1.3, 1.9);
-    const oeeVals = calcMinMax(oeeBase, "OEE İyileştirmesi", 15, 25, 1.3, 1.9);
-    const opVals = calcMinMax(operatorBase, "Operatör Verimliliği", 12, 22, 1.3, 1.9);
-
-    const ltVals = calcMinMax(inventoryBase, "Lead Time (Sipariş Çevrimi)", 10, 20, 1.2, 1.8);
-    const wipVals = calcMinMax(inventoryBase, "WIP (Yarı Mamul) Azaltımı", 10, 20, 1.2, 1.8);
-    const shipVals = calcMinMax(shippingBase, "Sevkiyat Performansı", 10, 20, 1.1, 1.7);
-
+    // Every row is a measured / priced loss (or the customer's real figure where overridden) — no
+    // revenue- or sector-percentage fallbacks, no rate × multiplier on top of a measured amount.
+    // Range = ±20 % uncertainty band (Gemba QLA lossBand). Rows another row already covers stay 0
+    // so the Recovery Matrix does not count the same money twice.
+    // (Earlier: material budget × sector scrap %, revenue × 2,5 / 2 / 1,8 / 1,5 %, labor budget × 8 %
+    // floors, OEE gap × revenue × 0,25, then × 15–25 % × 1,2–1,8 per row; and × product-group share
+    // on top of losses that were already scoped to the product group.)
+    const BAND = 0.2;
+    const jipmSum = (nos: number[]) => jipmResults.reduce((acc, r) => acc + r.lines.filter(l => nos.includes(l.def.no)).reduce((a2, l) => a2 + l.total, 0), 0);
+    const jipmUnexplainedCost = jipmResults.reduce((acc, r) => acc + r.unexplainedCost, 0);
+    const row = (area: string, subject: string, costGroup: string, base: number, basis: string) =>
+      ({ area, subject, costGroup, rate: basis, basis, min: base * (1 - BAND), max: base * (1 + BAND) });
     return [
-      { area: "Doğrudan Maliyet Azaltma", subject: "Hurda Maliyeti", costGroup: "Direkt Malzeme / Hammadde Bütçesi", rate: scrapVals.rateStr, min: scrapVals.min, max: scrapVals.max },
-      { area: "Doğrudan Maliyet Azaltma", subject: "Fire & Malzeme Kayıpları", costGroup: "Direkt Malzeme / Hammadde Bütçesi", rate: fireVals.rateStr, min: fireVals.min, max: fireVals.max },
-      { area: "Doğrudan Maliyet Azaltma", subject: "Fazla Mesai Azaltımı", costGroup: "Direkt İşçilik & Fazla Mesai Yükü", rate: overtimeVals.rateStr, min: overtimeVals.min, max: overtimeVals.max },
-      { area: "Doğrudan Maliyet Azaltma", subject: "Yeniden İşleme (Rework)", costGroup: "Direkt İşçilik Bütçesi", rate: reworkVals.rateStr, min: reworkVals.min, max: reworkVals.max },
-      { area: "Doğrudan Maliyet Azaltma", subject: "Operasyonel Verimsizlik", costGroup: "Direkt İşçilik & Hat Dengeleme", rate: ineffVals.rateStr, min: ineffVals.min, max: ineffVals.max },
-
-      { area: "Kapasite Yaratma", subject: "Setup Süreleri (SMED)", costGroup: "Genel Üretim / Makine Zamanı Bütçesi", rate: setupVals.rateStr, min: setupVals.min, max: setupVals.max },
-      { area: "Kapasite Yaratma", subject: "Plansız Duruşların Önlenmesi", costGroup: "Bakım & Makine Amortisman Bütçesi", rate: downtimeVals.rateStr, min: downtimeVals.min, max: downtimeVals.max },
-      { area: "Kapasite Yaratma", subject: "OEE İyileştirmesi", costGroup: "Genel Üretim Giderleri (Overhead)", rate: oeeVals.rateStr, min: oeeVals.min, max: oeeVals.max },
-      { area: "Kapasite Yaratma", subject: "Operatör Verimliliği", costGroup: "Direkt İşçilik (OLE) Bütçesi", rate: opVals.rateStr, min: opVals.min, max: opVals.max },
-
-      { area: "Stratejik Operasyonel Kazanç", subject: "Lead Time (Sipariş Çevrimi)", costGroup: "Stok Finansman Yükü / Çalışma Sermayesi", rate: ltVals.rateStr, min: ltVals.min, max: ltVals.max },
-      { area: "Stratejik Operasyonel Kazanç", subject: "WIP (Yarı Mamul) Azaltımı", costGroup: "Stok Finansman Yükü / Yarı Mamul Stoku", rate: wipVals.rateStr, min: wipVals.min, max: wipVals.max },
-      { area: "Stratejik Operasyonel Kazanç", subject: "Sevkiyat Performansı", costGroup: "Lojistik & Genel Müşteri İlişkileri Gideri", rate: shipVals.rateStr, min: shipVals.min, max: shipVals.max },
+      row("Doğrudan Maliyet Azaltma", "Hurda Maliyeti", "Direkt Malzeme / Hammadde", financialImpact.scrap.year, "Hurda adedi × hurda birim maliyeti"),
+      row("Doğrudan Maliyet Azaltma", "Fire & Malzeme Kayıpları", "Direkt Malzeme / Hammadde", 0, "Hurda satırında (birim maliyet malzemeyi içerir)"),
+      row("Doğrudan Maliyet Azaltma", "Fazla Mesai Azaltımı", "Direkt İşçilik & Fazla Mesai", financialImpact.overtime.year, "Yalnızca girilen gerçek fazla mesai tutarı"),
+      row("Doğrudan Maliyet Azaltma", "Yeniden İşleme (Rework)", "Direkt İşçilik", financialImpact.rework.year, "Rework adedi × rework birim maliyeti"),
+      row("Doğrudan Maliyet Azaltma", "Operasyonel Verimsizlik", "Direkt İşçilik & Hat Dengeleme", financialImpact.laborLoss.year, "Norm fazlası kişi × saat × işçilik saati"),
+      row("Kapasite Yaratma", "Setup Süreleri (SMED)", "Makine Zamanı", financialImpact.setup.year, "Setup + ayar saati × (makine + işçilik saati)"),
+      row("Kapasite Yaratma", "Plansız Duruşların Önlenmesi", "Bakım & Makine Zamanı", financialImpact.downtime.year, "Arıza saati × (makine + işçilik saati)"),
+      row("Kapasite Yaratma", "OEE İyileştirmesi", "Makine Zamanı (performans)", jipmSum([5, 6]) + jipmUnexplainedCost, "JIPM 5 küçük duruş + 6 hız kaybı + dağıtılamayan OEE kaybı"),
+      row("Kapasite Yaratma", "Operatör Verimliliği", "Direkt İşçilik (OLE)", jipmSum([9, 10, 12, 13]), "JIPM 9 yönetim + 10 hareket + 12 lojistik + 13 ölçme kayıpları"),
+      row("Stratejik Operasyonel Kazanç", "Lead Time (Sipariş Çevrimi)", "Stok Finansmanı / Çalışma Sermayesi", 0, "WIP satırında (aynı stok)"),
+      row("Stratejik Operasyonel Kazanç", "WIP (Yarı Mamul) Azaltımı", "Stok Finansmanı / Yarı Mamul", financialImpact.inventory.year, "Ara stok × yıllık taşıma maliyeti"),
+      row("Stratejik Operasyonel Kazanç", "Sevkiyat Performansı", "Lojistik & Müşteri", financialImpact.lateDelivery.year, "Yalnızca girilen gerçek geç teslimat tutarı")
     ];
-  }, [
-    effectiveRevenue, 
-    annualRevenue, 
-    directMaterialPercent, 
-    directLaborPercent, 
-    overtimeBurdenPercent, 
-    overheadPercent, 
-    financialImpact, 
-    benchmark, 
-    lineBalanceEfficiency, 
-    avgOee, 
-    overallOLE, 
-    copqRates
-  ]);
+  }, [financialImpact, jipmResults]);
 
   // COPQ Geri Kazanım Hesaplama Modeli (Opportunity Engine)
   const recoveryMatrixData = React.useMemo(() => {
@@ -1889,10 +1749,13 @@ export default function LossAnalysis() {
     const totalProductCostOrig = directMaterialOrig + directLaborOrig + totalOverheadOrig;
 
     // COPQ Base losses
-    const matLossBase = costGroupCopqSummary.materialLoss > 0 ? costGroupCopqSummary.materialLoss : directMaterialOrig * 0.12;
-    const laborLossBase = costGroupCopqSummary.laborLoss > 0 ? costGroupCopqSummary.laborLoss : directLaborOrig * 0.20;
-    const overheadLossBase = costGroupCopqSummary.overheadLoss > 0 ? costGroupCopqSummary.overheadLoss : totalOverheadOrig * 0.25;
-    const strategicLossBase = costGroupCopqSummary.strategicLoss > 0 ? costGroupCopqSummary.strategicLoss : effectiveRevenue * 0.02;
+    // Measured loss pools only (Recovery Matrix groups). Earlier, an empty pool fell back to 12 % of
+    // material, 20 % of labor, 25 % of overhead and 2 % of revenue.
+    const matLossBase = costGroupCopqSummary.materialLoss;
+    const laborLossBase = costGroupCopqSummary.laborLoss;
+    const overheadLossBase = costGroupCopqSummary.overheadLoss;
+    const strategicLossBase = costGroupCopqSummary.strategicLoss;
+    const setupLossBase = recoveryMatrixData.find(r => r.subject === "Setup Süreleri (SMED)")?.avgLoss ?? 0;
 
     // Simulated Savings by Lever
     const scrapSavings = matLossBase * (simScrap / 100);
@@ -1900,8 +1763,9 @@ export default function LossAnalysis() {
     const productivitySavings = laborLossBase * (simLaborOpt / 100);
     const totalLaborSavings = overtimeSavings + productivitySavings;
 
-    const smedSavings = (overheadLossBase * 0.40) * (simSetup / 100);
-    const oeeSavings = (overheadLossBase * 0.60) * (simOee / 100);
+    // SMED acts on the setup loss, OEE on the rest of the machine-time pool (breakdown, performance).
+    const smedSavings = setupLossBase * (simSetup / 100);
+    const oeeSavings = Math.max(0, overheadLossBase - setupLossBase) * (simOee / 100);
     const totalOverheadSavings = smedSavings + oeeSavings;
 
     const leadTimeSavings = strategicLossBase * (simLeadTimeAccel / 100);
@@ -2010,6 +1874,7 @@ export default function LossAnalysis() {
     overheadPercent,
     operatingProfitPercent,
     costGroupCopqSummary,
+    recoveryMatrixData,
     simSetup,
     simScrap,
     simOee,
@@ -2153,16 +2018,18 @@ export default function LossAnalysis() {
 
   // 10. İyileştirmelerin Faaliyet karına etki grafiği Hedef
   const operatingProfitCurve = React.useMemo(() => {
-    const currentProfit = annualRevenue * (operatingProfitPercent / 100);
-    const totalAverageRecovery = recoveryMatrixData.reduce((sum, item) => sum + item.avgGain, 0);
-    
-    return [
-      { stage: "Mevcut", "Faaliyet Kâr Marjı %": parseFloat(operatingProfitPercent.toFixed(1)) },
-      { stage: "Faz 1: 5S", "Faaliyet Kâr Marjı %": parseFloat((operatingProfitPercent + (totalAverageRecovery * 0.20 / effectiveRevenue) * 100).toFixed(1)) },
-      { stage: "Faz 2: SMED", "Faaliyet Kâr Marjı %": parseFloat((operatingProfitPercent + (totalAverageRecovery * 0.55 / effectiveRevenue) * 100).toFixed(1)) },
-      { stage: "Faz 3: TPM", "Faaliyet Kâr Marjı %": parseFloat((operatingProfitPercent + (totalAverageRecovery * 0.85 / effectiveRevenue) * 100).toFixed(1)) },
-      { stage: "Hedef", "Faaliyet Kâr Marjı %": parseFloat((operatingProfitPercent + (totalAverageRecovery / effectiveRevenue) * 100).toFixed(1)) }
-    ];
+    // Margin after the largest opportunities in turn (Recovery Matrix average gains) — no fixed
+    // phase shares. (Earlier: 20 % / 55 % / 85 % of the total labelled 5S / SMED / TPM.)
+    const gains = recoveryMatrixData.map(r => ({ subject: r.subject, gain: r.avgGain })).filter(g => g.gain > 0).sort((x, y) => y.gain - x.gain);
+    const marginAfter = (n: number) => {
+      const g = gains.slice(0, n).reduce((acc, x) => acc + x.gain, 0);
+      return parseFloat((operatingProfitPercent + (effectiveRevenue > 0 ? (g / effectiveRevenue) * 100 : 0)).toFixed(1));
+    };
+    const stages = [{ stage: "Mevcut", "Faaliyet Kâr Marjı %": parseFloat(operatingProfitPercent.toFixed(1)) }];
+    if (gains.length >= 1) stages.push({ stage: `+ ${gains[0].subject}`, "Faaliyet Kâr Marjı %": marginAfter(1) });
+    if (gains.length >= 3) stages.push({ stage: "+ ilk 3 fırsat", "Faaliyet Kâr Marjı %": marginAfter(3) });
+    if (gains.length > 0) stages.push({ stage: "Hedef (tümü)", "Faaliyet Kâr Marjı %": marginAfter(gains.length) });
+    return stages;
   }, [effectiveRevenue, operatingProfitPercent, recoveryMatrixData]);
 
   const CustomPieTooltip = ({ active, payload }: any) => {
@@ -2873,6 +2740,8 @@ export default function LossAnalysis() {
               isDarkMode={isDarkMode}
               recoveryData={recoveryMatrixData}
               factoryId={selectedCustomerId}
+              costStructure={{ material: directMaterialPercent, labor: directLaborPercent, energy: energyPercent, maintenance: maintenancePercent, overhead: overheadPercent, operatingProfit: operatingProfitPercent }}
+              contributionPerUnit={contributionPerUnit}
             />
 
           </div>
@@ -2981,10 +2850,10 @@ export default function LossAnalysis() {
                   <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60 space-y-1">
                     <span className="text-[10px] text-emerald-400 font-extrabold uppercase font-sans block">Net Kâr İyileştirme Hedefi</span>
                     <span className="text-sm font-black text-emerald-400 block">
-                      +{formatMoney(financialImpact.totalOperationalLosses.year * 0.50)}
+                      +{formatMoney(recoveryMatrixData.reduce((acc, r) => acc + r.avgGain, 0))}
                     </span>
                     <span className="text-[9.5px] text-slate-400 block font-sans">
-                      %50 Kayıp Azaltım Senaryosu
+                      Geri Kazanım Matrisi ortalama kazancı
                     </span>
                   </div>
 
@@ -3441,18 +3310,6 @@ export default function LossAnalysis() {
                   <p className="text-[10px] text-slate-400">
                     Türetme (QLA): birim malzeme = ciro × malzeme % / adet; hurda = malzeme + %50 × (işçilik + enerji); rework = %50 × (işçilik + enerji); makine saati = ciro × (enerji + bakım) % / istasyonların yıllık makine-saati; işçilik saati = ciro × işçilik % / (mavi yaka × yıllık saat); stok = (malzeme + %50 dönüşüm) × taşıma oranı. Duruş ve setup saati: makine saati × makine sayısı + işçilik saati × operatör.
                   </p>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-slate-500">Enerji kWh birim fiyatı ({currencySymbol}) — enerji kalemi için</label>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.1"
-                      value={energyRateKwh || ""}
-                      placeholder="girilmedi"
-                      onChange={(e) => setEnergyRateKwh(Math.max(0, parseFloat(e.target.value) || 0))}
-                      className="w-28 text-xs px-2 py-1.5 border rounded-lg text-right placeholder:italic placeholder:text-amber-600"
-                    />
-                  </div>
                 </div>
               </div>
 
@@ -3575,6 +3432,41 @@ export default function LossAnalysis() {
               </div>
             </div>
 
+            {/* COPQ — customer's own quality-cost figures */}
+            <div className="border rounded-2xl p-6 space-y-3 bg-white border-slate-200 shadow-sm">
+              <div className="border-b pb-2">
+                <h3 className="text-sm font-black text-rose-800 uppercase flex items-center">
+                  <DollarSign className="w-4 h-4 mr-1.5" />
+                  Kalite Maliyetleri — Müşteri Verisi (yıllık)
+                </h3>
+                <p className="text-xs text-slate-500 max-w-4xl">
+                  İç hata (hurda + rework), kayıp kapasite, stok, geç teslimat ve mesai COPQ'ya ölçülen kayıplardan gelir. Aşağıdaki dış hata ve muayene kalemleri ölçülemez; müşterinin muhasebesinden yıllık tutar girilmezse 0 sayılır (eskiden iç hatanın / cironun sabit yüzdeleriyle tahmin ediliyordu). Değişiklikler otomatik kaydedilir.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {COPQ_ENTERED_CATEGORIES.map(c => (
+                  <label key={c.key} className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="font-bold text-slate-700">{c.label} ({currencySymbol}/yıl)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={copqEntered[c.key] ?? ""}
+                      placeholder="girilmedi"
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        setCopqEntered(prev => {
+                          const next = { ...prev };
+                          if (e.target.value.trim() === "" || !(v > 0)) delete next[c.key]; else next[c.key] = v;
+                          return next;
+                        });
+                      }}
+                      className="w-32 text-xs px-2 py-1.5 border rounded-lg text-right placeholder:italic placeholder:text-amber-600"
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+
             {/* PROCESS COST TABLE */}
             <div className={`border rounded-2xl p-6 space-y-4 transition-all ${
               isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 shadow-sm"
@@ -3641,7 +3533,7 @@ export default function LossAnalysis() {
                     1. Direkt Maliyet Düşüşü (Direct Cost Reduction)
                   </span>
                   <p className="text-[11px] text-slate-450 leading-relaxed">
-                    Hurda malzeme geri kazanımı, boşa harcanan direkt işçilik israfı ve gereksiz rework enerjisinin tamamen engellenmesiyle elde edilen doğrudan kâr.
+                    Hurda + rework + norm fazlası işçilik kayıplarının yıllık tutarı (Kayıp Birim Maliyetleri ile fiyatlanmış).
                   </p>
                 </div>
                 <div className="border-t pt-3 flex justify-between items-baseline">
@@ -3656,11 +3548,11 @@ export default function LossAnalysis() {
                     2. Kapasite Oluşturma (Capacity Creation)
                   </span>
                   <p className="text-[11px] text-slate-450 leading-relaxed">
-                    SMED ile kalıp setup süresinin kısaltılması ve plansız makine arızalarının (TPM) azaltılarak ek yatırım yapmadan yaratılan net üretim hacmi fırsatı.
+                    Setup / model değişimi ve plansız arıza süresinin (makine + işçilik saati ile fiyatlanmış) yıllık tutarı.
                   </p>
                 </div>
                 <div className="border-t pt-3 flex justify-between items-baseline">
-                  <span className="text-xs text-slate-400 font-bold">Ek Satış Değeri:</span>
+                  <span className="text-xs text-slate-400 font-bold">Yıllık Kayıp:</span>
                   <span className="text-lg font-black font-mono text-indigo-700">{formatMoney(lossMapping.capacityCreation)}</span>
                 </div>
               </div>
@@ -3671,7 +3563,7 @@ export default function LossAnalysis() {
                     3. Stratejik Operasyonel Kazanım
                   </span>
                   <p className="text-[11px] text-slate-450 leading-relaxed">
-                    Lead time'ın kısaltılması ile kilitli kalan WIP stok finansman yükünün eritilmesi ve iç lojistik sevk yollarının optimize edilmesiyle elde edilen kazanç.
+                    WIP stok taşıma maliyeti ile (girildiyse) gerçek geç teslimat ve fazla mesai tutarları.
                   </p>
                 </div>
                 <div className="border-t pt-3 flex justify-between items-baseline">
@@ -3742,17 +3634,10 @@ export default function LossAnalysis() {
                     COPQ Finansal Matrisi (VSM Entegrasyonlu)
                   </h3>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-                    Saha VSM verilerine ve seçilen maliyet modeline göre kalitesizlik maliyetlerinin nerede oluştuğunu, hangi stratejik fırsat alanına etki ettiğini ve kâr potansiyelinizi gösterir. <span className="font-semibold text-rose-700 dark:text-rose-400">Kayıp oranlarını doğrudan tablodan değiştirebilirsiniz.</span>
+                    Saha VSM verilerine ve seçilen maliyet modeline göre kalitesizlik maliyetlerinin nerede oluştuğunu, hangi stratejik fırsat alanına etki ettiğini ve kâr potansiyelinizi gösterir. <span className="font-semibold text-rose-700 dark:text-rose-400">Tutarlar ölçülen kayıplardan gelir; aralık Gemba QLA ±%20 belirsizlik bandıdır.</span>
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleResetCopqRates}
-                    className="text-[10.5px] bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-black px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 transition-all flex items-center gap-1 cursor-pointer"
-                  >
-                    <RefreshCw className="w-3 h-3" />
-                    <span>Oranları Sıfırla</span>
-                  </button>
                   <span className="text-[10.5px] bg-rose-50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400 font-black px-2.5 py-1 rounded-md border border-rose-200 dark:border-rose-900/45">
                     Maliyet Dağılım Modeli
                   </span>
@@ -3765,7 +3650,7 @@ export default function LossAnalysis() {
                     <tr className="bg-slate-900 text-white font-black text-[10px] tracking-wide uppercase border-b border-slate-800">
                       <th className="py-3 px-4 border-r border-slate-800">Fırsat Alanı</th>
                       <th className="py-3 px-4 border-r border-slate-800">Maliyet Konusu</th>
-                      <th className="py-3 px-4 border-r border-slate-800 text-center w-48">Kayıp Oranı</th>
+                      <th className="py-3 px-4 border-r border-slate-800 text-center w-48">Kaynak (aralık ±%20)</th>
                       <th className="py-3 px-4 border-r border-slate-800 text-right">Min Maliyet</th>
                       <th className="py-3 px-4 text-right">Max Maliyet</th>
                     </tr>
@@ -3787,24 +3672,8 @@ export default function LossAnalysis() {
                             {row.costGroup}
                           </div>
                         </td>
-                        <td className="py-3 px-4 border-r border-slate-200 dark:border-slate-800 text-center">
-                          <div className="flex items-center justify-center space-x-1 font-sans">
-                            <input 
-                              type="number"
-                              value={copqRates[row.subject]?.min ?? 0}
-                              onChange={(e) => handleUpdateCopqRate(row.subject, "min", parseFloat(e.target.value) || 0)}
-                              className="w-11 text-center border rounded-md py-0.5 text-[11px] font-bold bg-transparent dark:border-slate-700 text-slate-850 dark:text-slate-100"
-                            />
-                            <span className="text-slate-400 text-[10px]">%</span>
-                            <span className="text-slate-400 text-xs px-0.5">-</span>
-                            <input 
-                              type="number"
-                              value={copqRates[row.subject]?.max ?? 0}
-                              onChange={(e) => handleUpdateCopqRate(row.subject, "max", parseFloat(e.target.value) || 0)}
-                              className="w-11 text-center border rounded-md py-0.5 text-[11px] font-bold bg-transparent dark:border-slate-700 text-slate-850 dark:text-slate-100"
-                            />
-                            <span className="text-slate-400 text-[10px]">%</span>
-                          </div>
+                        <td className="py-3 px-4 border-r border-slate-200 dark:border-slate-800 text-center text-[10px] text-slate-500">
+                          {row.basis}
                         </td>
                         <td className="py-3 px-4 border-r border-slate-200 dark:border-slate-800 text-right font-mono font-bold text-slate-800 dark:text-slate-355">
                           {formatMoney(row.min)}
@@ -3830,24 +3699,8 @@ export default function LossAnalysis() {
                             {row.costGroup}
                           </div>
                         </td>
-                        <td className="py-3 px-4 border-r border-slate-200 dark:border-slate-800 text-center">
-                          <div className="flex items-center justify-center space-x-1 font-sans">
-                            <input 
-                              type="number"
-                              value={copqRates[row.subject]?.min ?? 0}
-                              onChange={(e) => handleUpdateCopqRate(row.subject, "min", parseFloat(e.target.value) || 0)}
-                              className="w-11 text-center border rounded-md py-0.5 text-[11px] font-bold bg-transparent dark:border-slate-700 text-slate-850 dark:text-slate-100"
-                            />
-                            <span className="text-slate-400 text-[10px]">%</span>
-                            <span className="text-slate-400 text-xs px-0.5">-</span>
-                            <input 
-                              type="number"
-                              value={copqRates[row.subject]?.max ?? 0}
-                              onChange={(e) => handleUpdateCopqRate(row.subject, "max", parseFloat(e.target.value) || 0)}
-                              className="w-11 text-center border rounded-md py-0.5 text-[11px] font-bold bg-transparent dark:border-slate-700 text-slate-850 dark:text-slate-100"
-                            />
-                            <span className="text-slate-400 text-[10px]">%</span>
-                          </div>
+                        <td className="py-3 px-4 border-r border-slate-200 dark:border-slate-800 text-center text-[10px] text-slate-500">
+                          {row.basis}
                         </td>
                         <td className="py-3 px-4 border-r border-slate-200 dark:border-slate-800 text-right font-mono font-bold text-slate-800 dark:text-slate-355">
                           {formatMoney(row.min)}
@@ -3873,24 +3726,8 @@ export default function LossAnalysis() {
                             {row.costGroup}
                           </div>
                         </td>
-                        <td className="py-3 px-4 border-r border-slate-200 dark:border-slate-800 text-center">
-                          <div className="flex items-center justify-center space-x-1 font-sans">
-                            <input 
-                              type="number"
-                              value={copqRates[row.subject]?.min ?? 0}
-                              onChange={(e) => handleUpdateCopqRate(row.subject, "min", parseFloat(e.target.value) || 0)}
-                              className="w-11 text-center border rounded-md py-0.5 text-[11px] font-bold bg-transparent dark:border-slate-700 text-slate-850 dark:text-slate-100"
-                            />
-                            <span className="text-slate-400 text-[10px]">%</span>
-                            <span className="text-slate-400 text-xs px-0.5">-</span>
-                            <input 
-                              type="number"
-                              value={copqRates[row.subject]?.max ?? 0}
-                              onChange={(e) => handleUpdateCopqRate(row.subject, "max", parseFloat(e.target.value) || 0)}
-                              className="w-11 text-center border rounded-md py-0.5 text-[11px] font-bold bg-transparent dark:border-slate-700 text-slate-850 dark:text-slate-100"
-                            />
-                            <span className="text-slate-400 text-[10px]">%</span>
-                          </div>
+                        <td className="py-3 px-4 border-r border-slate-200 dark:border-slate-800 text-center text-[10px] text-slate-500">
+                          {row.basis}
                         </td>
                         <td className="py-3 px-4 border-r border-slate-200 dark:border-slate-800 text-right font-mono font-bold text-slate-800 dark:text-slate-355">
                           {formatMoney(row.min)}
@@ -5331,7 +5168,8 @@ export default function LossAnalysis() {
                 ) : (
                   <div className="space-y-2.5">
                     {vsmProjects.map((proj) => {
-                      const share = proj.factorySetup?.productVolumeShare || proj.productVolumeShare || 30;
+                      // No assumed share: a project without "ürün grubu payı" models 0 revenue until it is entered in VSM.
+                      const share = proj.factorySetup?.productVolumeShare || proj.productVolumeShare || 0;
                       const isSelected = costModelScope === "product_group" && selectedVsmProject?.id === proj.id;
                       const modelRev = annualRevenue * (share / 100);
 

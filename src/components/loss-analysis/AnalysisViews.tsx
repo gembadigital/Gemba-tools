@@ -26,23 +26,21 @@ export default function AnalysisViews({
     return new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 0 }).format(val) + " " + currency;
   };
 
-  // Render variables for Economic Loss Tree. Material/Hidden-factory rows used to be flat 45%/8%
-  // of revenue unconditionally — meaning a customer with zero VSM processes entered still showed
-  // millions in "losses" derived from nothing but their annual revenue. Gated behind
-  // `calculated.length > 0` so these only appear once real VSM/loss data actually exists to back
-  // them (matches the same guard added to calculateFinancialImpact/calculateCOPQ).
-  const hasRealData = calculated.length > 0;
+  // Economic Loss Tree: revenue, then each priced loss line and the cost of poor quality. Material
+  // cost is not a loss and is not shown; "hidden factory" is the sum of the lines above and would
+  // double count. (Earlier: material = 45 % and hidden factory = 8 % of revenue, quality = 40 % of COPQ.)
+  const pctOf = (v: number) => (revenue > 0 ? (v / revenue) * 100 : 0);
   const stepLosses = [
     { name: "Yıllık Ciro (Revenue)", value: revenue, pct: 100, color: "bg-slate-900 border-slate-950 text-white" },
-    { name: "Malzeme Kayıpları (Material)", value: hasRealData ? revenue * 0.45 : 0, pct: hasRealData ? 45 : 0, color: "bg-amber-600 border-amber-700 text-white" },
-    { name: "Kalitesizlik Maliyeti (Quality)", value: copq.totalCOPQ_TL * 0.4, pct: revenue > 0 ? (copq.totalCOPQ_TL * 0.4 / revenue) * 100 : 0, color: "bg-rose-500 border-rose-600 text-white" },
-    { name: "Setup / Kalıp Ayar Kayıpları", value: financialImpact.setup.year, pct: revenue > 0 ? (financialImpact.setup.year / revenue) * 100 : 0, color: "bg-indigo-500 border-indigo-600 text-white" },
-    { name: "Makine Arıza Duruş Kayıpları", value: financialImpact.downtime.year, pct: revenue > 0 ? (financialImpact.downtime.year / revenue) * 100 : 0, color: "bg-sky-500 border-sky-600 text-white" },
-    { name: "Yüksek Fazla Mesai (Overtime)", value: financialImpact.overtime.year, pct: revenue > 0 ? (financialImpact.overtime.year / revenue) * 100 : 0, color: "bg-violet-500 border-violet-600 text-white" },
-    { name: "Fazla Stok / Envanter Kayıpları", value: financialImpact.inventory.year, pct: revenue > 0 ? (financialImpact.inventory.year / revenue) * 100 : 0, color: "bg-emerald-500 border-emerald-600 text-white" },
-    { name: "Gizli Fabrika Kayıpları (Hidden)", value: hasRealData ? revenue * 0.08 : 0, pct: hasRealData ? 8 : 0, color: "bg-orange-500 border-orange-600 text-white" },
-    { name: "Kâr Sızıntısı (Profit Leakage)", value: copq.totalCOPQ_TL, pct: copq.copqPercentOfRevenue, color: "bg-red-700 border-red-800 text-white animate-pulse" }
+    { name: "İç Hata: Hurda + Rework", value: copq.internalFailure, pct: pctOf(copq.internalFailure), color: "bg-rose-500 border-rose-600 text-white" },
+    { name: "Setup / Kalıp Ayar Kayıpları", value: financialImpact.setup.year, pct: pctOf(financialImpact.setup.year), color: "bg-indigo-500 border-indigo-600 text-white" },
+    { name: "Makine Arıza Duruş Kayıpları", value: financialImpact.downtime.year, pct: pctOf(financialImpact.downtime.year), color: "bg-sky-500 border-sky-600 text-white" },
+    { name: "Norm Fazlası İşçilik", value: financialImpact.laborLoss.year, pct: pctOf(financialImpact.laborLoss.year), color: "bg-amber-600 border-amber-700 text-white" },
+    { name: "Fazla Mesai (girilen gerçek tutar)", value: financialImpact.overtime.year, pct: pctOf(financialImpact.overtime.year), color: "bg-violet-500 border-violet-600 text-white" },
+    { name: "Fazla Stok / Envanter Kayıpları", value: financialImpact.inventory.year, pct: pctOf(financialImpact.inventory.year), color: "bg-emerald-500 border-emerald-600 text-white" },
+    { name: "Kalitesizlik Maliyeti Toplamı (COPQ)", value: copq.totalCOPQ_TL, pct: copq.copqPercentOfRevenue, color: "bg-red-700 border-red-800 text-white" }
   ];
+
 
   return (
     <div className="space-y-6">
@@ -68,9 +66,7 @@ export default function AnalysisViews({
         <div className="space-y-3.5 pt-2">
           {stepLosses.map((step, idx) => {
             const displayPct = step.pct.toFixed(1);
-            const parentValue = idx === 0 ? revenue : stepLosses[idx-1].value;
-            const percentageStepOfPrev = idx === 0 ? 100 : (step.value / parentValue) * 100;
-            
+                        
             return (
               <div key={idx} className="space-y-1">
                 <div className="flex justify-between items-center text-[11px] font-sans">

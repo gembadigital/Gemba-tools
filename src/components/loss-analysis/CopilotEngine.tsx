@@ -12,6 +12,10 @@ interface CopilotEngineProps {
   isDarkMode: boolean;
   recoveryData: any[];
   factoryId?: string;
+  // Cost structure (% of revenue) from the Product Cost Model; 0 = not entered.
+  costStructure?: { material: number; labor: number; energy: number; maintenance: number; overhead: number; operatingProfit: number };
+  // Contribution margin per piece from the customer card (null = not derivable).
+  contributionPerUnit?: number | null;
 }
 
 export default function CopilotEngine({
@@ -23,7 +27,9 @@ export default function CopilotEngine({
   currency,
   isDarkMode,
   recoveryData,
-  factoryId
+  factoryId,
+  costStructure = { material: 0, labor: 0, energy: 0, maintenance: 0, overhead: 0, operatingProfit: 0 },
+  contributionPerUnit = null
 }: CopilotEngineProps) {
   const [userQuery, setUserQuery] = useState("");
   const [chatLog, setChatLog] = useState<{ sender: "user" | "bot"; text: string }[]>([
@@ -61,10 +67,23 @@ export default function CopilotEngine({
     const top2 = sortedOpp[1] || { subject: "Hurda Maliyeti", avgGain: 0, avgLoss: 0, area: "Doğrudan Maliyet Azaltma" };
     const top3 = sortedOpp[2] || { subject: "Plansız Duruşların Önlenmesi", avgGain: 0, avgLoss: 0, area: "Kapasite Yaratma" };
 
-    const currentEbitda = revenue * (financialImpact?.operatingProfit?.percent / 100 || 0.10);
+    // Figures below come from the screen's data; nothing is filled from fixed percentages.
+    const pctOfRevenue = (v: number) => (revenue > 0 ? (v / revenue) * 100 : 0);
+    const cs = costStructure;
+    const currentEbitda = revenue * cs.operatingProfit / 100;
     const newEbitda = currentEbitda + totalRecovery;
-    const currentMargin = (currentEbitda / revenue) * 100;
-    const newMargin = (newEbitda / revenue) * 100;
+    const currentMargin = pctOfRevenue(currentEbitda);
+    const newMargin = pctOfRevenue(newEbitda);
+    const fmtNum = (n: number) => new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 0 }).format(n);
+    const stationDaysYear = (p: CalculatedProcess) => p.workingDaysPerWeek * 52;
+    // Setup hours per year and the pieces half of that time would give at ideal C/T.
+    const setupHoursYear = calculated.reduce((acc, p) => acc + (p.setupTimeMinutes + p.machineAdjustmentMinutes) * p.setupFrequencyPerWeek * 52 / 60, 0);
+    const halfSetupUnits = calculated.reduce((acc, p) => acc + (p.theoreticalCycleTime > 0 ? ((p.setupTimeMinutes + p.machineAdjustmentMinutes) * p.setupFrequencyPerWeek * 52 / 2) * 60 / p.theoreticalCycleTime : 0), 0);
+    // +5 OEE points: 5 % of each station's net available time at ideal C/T.
+    const oeeStations = calculated.filter(p => p.oee > 0);
+    const avgOee = oeeStations.length > 0 ? oeeStations.reduce((acc, p) => acc + p.oee, 0) / oeeStations.length : 0;
+    const plus5UnitsPerDay = oeeStations.reduce((acc, p) => acc + (p.theoreticalCycleTime > 0 ? p.dailyNetWorkingTimeAvailable * 60 / p.theoreticalCycleTime * 0.05 : 0), 0);
+    const plus5UnitsYear = oeeStations.reduce((acc, p) => acc + (p.theoreticalCycleTime > 0 ? p.dailyNetWorkingTimeAvailable * 60 / p.theoreticalCycleTime * 0.05 * stationDaysYear(p) : 0), 0);
 
     let answer = "";
 
@@ -74,33 +93,30 @@ export default function CopilotEngine({
 Bir Opex Uzmanı ve Finansal Kontrolör gözüyle, fabrikanızın **COPQ Matrisi (Kayıp Seviyeleri)** ile **Geri Kazanım Matrisi (İyileştirme Potansiyelleri)** arasındaki çapraz kıyaslama sonuçları ve işletme için önerdiğim **Gerçekçi Yol Haritası** aşağıdadır:
 
 #### 1. Finansal Kıyaslama Özeti
-* **Toplam Kalitesizlik Maliyeti (COPQ Loss Baseline)**: **${formatMoney(totalLoss)} / Yıl** (Yıllık Cironun **%${(totalLoss / revenue * 100).toFixed(1)}** kadarı)
+* **Toplam Kalitesizlik Maliyeti (COPQ Loss Baseline)**: **${formatMoney(totalLoss)} / Yıl** (Yıllık Cironun **%${pctOfRevenue(totalLoss).toFixed(1)}** kadarı)
 * **Gerçekçi Hedeflenen Geri Kazanım (Average Expected Recovery)**: **${formatMoney(totalRecovery)} / Yıl** (Mevcut kayıpların **%${recoveryRate.toFixed(1)}**'i)
 * **Kalan Kronik Kayıp (Unrecoverable Baseline)**: **${formatMoney(totalLoss - totalRecovery)} / Yıl** (Bu kısım uzun vadeli teknolojik ve yapısal yatırımlarla çözülebilir)
 
 #### 2. Matris Kıyaslama Analizi
 COPQ matrisindeki en büyük kayıp kalemi ile Geri Kazanım matrisindeki en hızlı (en yüksek ROI'li) fırsatları eşleştirdiğimizde 3 ana odak alanı ortaya çıkmaktadır:
 
-1. **ÖNCELİK A: Setup Süreleri (SMED Kaizen)**
+1. **ÖNCELİK A: ${top1.subject}** (${(top1 as any).leanTool ?? "—"})
    * *COPQ Kaybı*: ${formatMoney(top1.avgLoss)} | *Geri Kazanım*: **${formatMoney(top1.avgGain)}**
-   * *Yorum*: En hızlı kâra dönüşecek ve ek ekipman yatırımı gerektirmeyen "Kapasite Yaratma" alanıdır.
-2. **ÖNCELİK B: Kalitesizlik & Hurda Giderme (Poka-Yoke & SPC)**
+2. **ÖNCELİK B: ${top2.subject}** (${(top2 as any).leanTool ?? "—"})
    * *COPQ Kaybı*: ${formatMoney(top2.avgLoss)} | *Geri Kazanım*: **${formatMoney(top2.avgGain)}**
-   * *Yorum*: Doğrudan malzeme maliyetini (Direct Material) düşürerek brüt kâr marjını doğrudan yukarı taşır.
-3. **ÖNCELİK C: Plansız Duruşların Önlenmesi (TPM & Otonom Bakım)**
+3. **ÖNCELİK C: ${top3.subject}** (${(top3 as any).leanTool ?? "—"})
    * *COPQ Kaybı*: ${formatMoney(top3.avgLoss)} | *Geri Kazanım*: **${formatMoney(top3.avgGain)}**
-   * *Yorum*: OEE seviyesini dünya klası hedefi olan %85'e yaklaştırarak işçilik ve enerji çarpanlarını optimize eder.
 
 #### 🗺️ 12 Aylık Uygulanabilir OpEx Yol Haritası (Roadmap)
 
 | Aşama | Süre | Odak Alanı | Başlatılacak Metot | Beklenen P&L Etkisi (TL) |
 | :--- | :--- | :--- | :--- | :---: |
-| **Aşama 1** | 0-3 Ay | Setup & Ayar Kayıpları | **SMED Kaizen** projesi | +${formatMoney(top1.avgGain)} |
-| **Aşama 2** | 3-6 Ay | Hurda & Kalite İyileştirme | **Poka-Yoke & SPC** | +${formatMoney(top2.avgGain)} |
-| **Aşama 3** | 6-9 Ay | TPM & Plansız Duruş Azaltma | **Otonom Bakım & PM** | +${formatMoney(top3.avgGain)} |
-| **Aşama 4** | 9-12 Ay | Hat Dengeleme & Stok Yönetimi | **Yamazumi & Kanban** | +${formatMoney(totalRecovery - (top1.avgGain + top2.avgGain + top3.avgGain))} |
+| **Aşama 1** | 0-3 Ay | ${top1.subject} | **${(top1 as any).leanTool ?? "—"}** | +${formatMoney(top1.avgGain)} |
+| **Aşama 2** | 3-6 Ay | ${top2.subject} | **${(top2 as any).leanTool ?? "—"}** | +${formatMoney(top2.avgGain)} |
+| **Aşama 3** | 6-9 Ay | ${top3.subject} | **${(top3 as any).leanTool ?? "—"}** | +${formatMoney(top3.avgGain)} |
+| **Aşama 4** | 9-12 Ay | Kalan fırsatlar | — | +${formatMoney(Math.max(0, totalRecovery - (top1.avgGain + top2.avgGain + top3.avgGain)))} |
 
-**Gemba Ai Tavsiyesi**: İlk aşamada ekipmanı durduran setup sürelerini azaltmak için **SMED projesini** bu hafta başlatmalıyız. Bu proje 3 ay içinde faaliyet kârımızı yıllık **${formatMoney(top1.avgGain)}** oranında artıracaktır.`;
+**Gemba Ai Tavsiyesi**: En büyük beklenen kazanç **${top1.subject}** alanında (yıllık ortalama **${formatMoney(top1.avgGain)}**, Geri Kazanım Matrisi). Kazanç tutarları matrisin ortalamasıdır; gerçekleşme proje sonuçlarıyla izlenir.`;
 
     } else if (q.includes("p&l") || q.includes("faaliyet kârı") || q.includes("ebitda") || q.includes("gelir tablosu") || q.includes("kar etkisi")) {
       answer = `### 📊 GELİR TABLOSU (P&L) VE EBITDA FAALİYET KÂRI ETKİ RAPORU
@@ -110,18 +126,18 @@ Yalın dönüşüm ve sürekli iyileştirme faaliyetlerinin fabrikanın kâr-zar
 | Gelir Tablosu Kalemi (P&L) | Mevcut Durum | İyileştirme Sonrası | Değişim / Tasarruf | Marj Etkisi |
 | :--- | :---: | :---: | :---: | :---: |
 | **Yıllık Toplam Ciro** | **${formatMoney(revenue)}** | **${formatMoney(revenue)}** | 0 TL | Sabit Ciro Modeli |
-| **Direkt Malzeme Maliyeti** | ${formatMoney(revenue * 0.45)} | ${formatMoney(revenue * 0.45 - (top2.avgGain * 0.8))} | -${formatMoney(top2.avgGain * 0.8)} | Hurda & Fire Azalımı |
-| **Direkt İşçilik & Fazla Mesai**| ${formatMoney(revenue * 0.15)} | ${formatMoney(revenue * 0.15 - (totalRecovery * 0.15))} | -${formatMoney(totalRecovery * 0.15)} | Mesai & Verimlilik |
-| **Enerji & Yardımcı Tesisler** | ${formatMoney(revenue * 0.12)} | ${formatMoney(revenue * 0.12 - (totalRecovery * 0.05))} | -${formatMoney(totalRecovery * 0.05)} | Duruş Optimizasyonu |
-| **Bakım & Sarf Giderleri** | ${formatMoney(revenue * 0.08)} | ${formatMoney(revenue * 0.08 - (top3.avgGain * 0.3))} | -${formatMoney(top3.avgGain * 0.3)} | Kestirimci Bakım |
-| **Sabit Genel Giderler (Overhead)**| ${formatMoney(revenue * 0.10)} | ${formatMoney(revenue * 0.10)} | 0 TL | Sabit Dağılım |
-| **Toplam Operasyonel Giderler**| ${formatMoney(revenue * 0.90)} | ${formatMoney(revenue * 0.90 - totalRecovery)} | **-${formatMoney(totalRecovery)}** | **Geri Kazanılan Değer** |
-| **EBITDA (Faaliyet Kârı)** | **${formatMoney(currentEbitda)}** | **${formatMoney(newEbitda)}** | **+${formatMoney(totalRecovery)}** | **+${(totalRecovery / currentEbitda * 100).toFixed(1)}% Artış** |
-| **EBITDA Marjı (%)** | **%${currentMargin.toFixed(1)}** | **%${newMargin.toFixed(1)}** | **+${(newMargin - currentMargin).toFixed(1)} puan** | **Mükemmel İyileşme** |
+| **Direkt Malzeme Maliyeti** | ${formatMoney(revenue * cs.material / 100)} | — | — | — |
+| **Direkt İşçilik** | ${formatMoney(revenue * cs.labor / 100)} | — | — | — |
+| **Enerji** | ${formatMoney(revenue * cs.energy / 100)} | — | — | — |
+| **Bakım** | ${formatMoney(revenue * cs.maintenance / 100)} | — | — | — |
+| **Genel Giderler (Overhead)**| ${formatMoney(revenue * cs.overhead / 100)} | — | — | — |
+| **Toplam Geri Kazanım (Geri Kazanım Matrisi ort.)** | — | — | **-${formatMoney(totalRecovery)}** | — |
+| **EBITDA (Faaliyet Kârı)** | **${formatMoney(currentEbitda)}** | **${formatMoney(newEbitda)}** | **+${formatMoney(totalRecovery)}** | ${currentEbitda > 0 ? `+%${(totalRecovery / currentEbitda * 100).toFixed(1)}` : "faaliyet kârı % girilmedi"} |
+| **EBITDA Marjı (%)** | **%${currentMargin.toFixed(1)}** | **%${newMargin.toFixed(1)}** | **+${(newMargin - currentMargin).toFixed(1)} puan** | — |
 
-#### 💸 Finansal Yorum ve P&L Okuma:
-1. **Brüt Kâr Marjı Kaldıracı**: Hurda kalitesizlik maliyetlerinin azaltılması doğrudan malzeme giderlerini düşürerek fabrikanın brüt kâr marjını **${((top2.avgGain * 0.8) / revenue * 100).toFixed(2)} puan** artırmaktadır.
-2. **Kapasite Kaldıracı**: Setup süresi ve plansız duruş azalımları sayesinde ek bir makine/ekipman yatırımı yapmadan **ek %18 ila %25 arasında serbest üretim kapasitesi** elde edilmiştir. Bu kapasite pazarda satıldığı takdirde yıllık ciro **${formatMoney(revenue * 0.15)}** seviyesinde büyüyebilir, bu durumda faaliyet kârı artışı **2.5 katına** çıkacaktır.`;
+#### 💸 Okuma notu:
+1. Gider kalemleri Ürün Maliyet Modeli'ndeki maliyet yapısı %'lerinden gelir (girilmediyse 0). Kazancın kalemlere dağılımı ölçülmediği için gösterilmez; toplam geri kazanım EBITDA'ya eklenir.
+2. Kapasite etkisi (talep varsa kayıp katkı payı) için **6. TPM Kayıp Maliyeti** sekmesindeki katkı payı sütununa bakın.`;
 
     } else if (q.includes("kaizen") || q.includes("ci") || q.includes("proje") || q.includes("amortisman")) {
       answer = `### 💎 YÜKSEK KAZANÇLI KAIZEN & CI PROJE REÇETELERİ
@@ -131,22 +147,19 @@ OpEx Direktörü olarak, en hızlı ve en yüksek finansal geri dönüşü (ROI)
 #### 🚀 PROJE 1: SMED ile Setup Sürelerinin %50 Azaltılması
 * **İlgili İstasyon**: Kalıp değişim süresi en uzun olan darboğaz istasyonu.
 * **Finansal Kazanım**: Yıllık **${formatMoney(top1.avgGain)}** doğrudan kâr artışı.
-* **Proje Maliyeti**: Yaklaşık 45,000 TL (Görsel hazırlık panoları, hızlı kilitleme aparatları, el aletleri standardizasyonu).
-* **Payback Süresi (Geri Ödeme)**: **Sadece 12 Gün!**
+* **Yatırım / Geri Ödeme**: Geri Kazanım Matrisi'ndeki yatırım ve geri ödeme sütunlarına bakın.
 * **CI Metodolojisi**: İçsel setup adımları dışsal setup adımlarına dönüştürülecek, 5S kuralları uygulanacak.
 
 #### 🚀 PROJE 2: SPC & Poka-Yoke ile Günlük Hurda Adetlerinin Azaltılması
 * **İlgili İstasyon**: En yüksek ıskarta oranına sahip istasyonlar.
 * **Finansal Kazanım**: Yıllık **${formatMoney(top2.avgGain)}** malzeme ve kalite geri kazanımı.
-* **Proje Maliyeti**: Yaklaşık 25,000 TL (Basit limit switch sensörleri, mekanik kılavuzlar, hata önleyici fikstürler).
-* **Payback Süresi (Geri Ödeme)**: **Sadece 8 Gün!**
+* **Yatırım / Geri Ödeme**: Geri Kazanım Matrisi'ndeki yatırım ve geri ödeme sütunlarına bakın.
 * **CI Metodolojisi**: Hata oluşmadan önce prosesi durduran Poka-Yoke mekanizmaları kurulacak. İstatistisel Proses Kontrol (SPC) ile varyasyonlar izlenecek.
 
 #### 🚀 PROJE 3: TPM Otonom Bakım ile Plansız Makine Arızalarının Önlenmesi
 * **İlgili İstasyon**: Sık arızalanan ve OEE'yi düşüren ana makineler.
 * **Finansal Kazanım**: Yıllık **${formatMoney(top3.avgGain)}** duruş maliyeti tasarrufu.
-* **Proje Maliyeti**: 15,000 TL (Bakım yağlama standartları, temizlik ekipmanları, görsel seviye göstergeleri).
-* **Payback Süresi (Geri Ödeme)**: **Sadece 15 Gün!**
+* **Yatırım / Geri Ödeme**: Geri Kazanım Matrisi'ndeki yatırım ve geri ödeme sütunlarına bakın.
 * **CI Metodolojisi**: Operatörlerin temizlik, yağlama ve sıkma işlemlerini üstlendiği Otonom Bakım (Autonomous Maintenance) adımları devreye alınacak.`;
 
     } else if (q.includes("gizli") || q.includes("hidden") || q.includes("israf")) {
@@ -174,20 +187,19 @@ Fabrikanızın içinde, sadece hurdaları temizlemek, hatalı ürünleri yeniden
 Kalıp ve model değişimlerinden kaynaklanan setup süreleri fabrikanıza her yıl çok ciddi boyutta kâr kaybı yaşatmaktadır. Bu kayıp sadece zaman kaybı değil, aynı zamanda fırsat maliyetidir:
 
 * **Yıllık Setup Kayıp Maliyeti**: **${formatMoney(financialImpact?.setup?.year ?? 0)} / Yıl**
-* **Setup Geri Kazanım Hedefi (%50 Tasarruf)**: **${formatMoney(top1.avgGain)} / Yıl**
-* **Kapasiteye Etkisi**: Setup süreleri yarıya indirildiğinde, makinelerin fiili çalışma süresi yılda **+240 saat** artacak ve bu süre ek ekipman almadan **+18,500 adet ek kaliteli ürün** üretilmesini sağlayacaktır.
+* **Setup Geri Kazanım Hedefi (Geri Kazanım Matrisi ort.)**: **${formatMoney(recoveryData?.find((r: any) => r.subject === "Setup Süreleri (SMED)")?.avgGain ?? 0)} / Yıl**
+* **Kapasiteye Etkisi**: Mevcut setup + ayar süresi yılda **${fmtNum(setupHoursYear)} saat**. Yarıya indirilirse açılan süre ideal çevrim süresiyle yaklaşık **${fmtNum(halfSetupUnits)} adet** ek üretime denk gelir (talep varsa).
 
 **Yol Haritası**: SMED (Single Minute Exchange of Die) metodolojisini uygulayarak setup süreçlerini video analiziyle saniye saniye kırpacağız. Ayar aparatları pnömatik sistemlerle değiştirilecek ve tüm ön hazırlıklar makine durmadan tamamlanacaktır.`;
 
     } else if (q.includes("oee %5") || q.includes("%5") || q.includes("oee")) {
       answer = `### 📈 GENEL OEE ORTALAMASINI %5 PUAN ARTIRMANIN FİNANSAL ÇIKTILARI
 
-Fabrikanın genel OEE ortalamasını Otonom Bakım, Kobetsu Kaizen ve SMED projeleri ile **%${(calculated.reduce((s,p)=>s+p.oee, 0)/calculated.length).toFixed(1)}** seviyesinden **+%5 puan** yukarı taşıdığımızda Gelir Tablosuna (P&L) ve kapasiteye yansıması muazzam olacaktır:
+${oeeStations.length === 0 ? "OEE'si hesaplanan istasyon yok (VSM'de OEE ya da Loss'ta eksiksiz girdi gerekir)." : `OEE'si olan ${oeeStations.length} istasyonun ortalaması **%${avgOee.toFixed(1)}**. Her birinde OEE **+5 puan** artarsa:
 
-1. **Üretim Adet Kazanımı**: Günde ortalama **+68 adet ek bitmiş ürün** üretilir.
-2. **Kapasite Artışı**: Toplam üretim kapasitesinde **%7.8 net artış** sağlanır.
-3. **Malzeme Maliyeti Kaldıracı**: Makine dur-kalkları azalacağı için dökülen hurda adedi düşecek ve yıllık **${formatMoney(totalRecovery * 0.18)}** malzeme tasarrufu sağlanacaktır.
-4. **P&L Faaliyet Kârı (EBITDA) Etkisi**: Ekipmanın daha verimli çalışması ile işçilik ve enerji giderlerinden yıllık **${formatMoney(totalRecovery * 0.35)}** net tasarruf doğrudan kâr hanenize eklenecektir.`;
+1. **Üretim Adet Kazanımı**: Günde yaklaşık **+${fmtNum(plus5UnitsPerDay)} adet** (net kullanılabilir sürenin %5'i, ideal çevrim süresiyle).
+2. **Kapasite Artışı**: Ortalama OEE'ye göre **%${avgOee > 0 ? (5 / avgOee * 100).toFixed(1) : "0"}** göreli artış.
+3. **Kâr Etkisi**: ${contributionPerUnit ? `Talep varsa yılda yaklaşık **${formatMoney(plus5UnitsYear * contributionPerUnit)}** katkı payı (${fmtNum(plus5UnitsYear)} adet × birim katkı payı).` : "Birim katkı payı şirket kartından türetilemedi (ciro, yıllık adet, malzeme ve enerji % gerekir)."}`}`;
 
     } else {
       answer = `### 🧠 GEMBA AI OPERASYONEL ANALİZ RAPORU
@@ -195,7 +207,7 @@ Fabrikanın genel OEE ortalamasını Otonom Bakım, Kobetsu Kaizen ve SMED proje
 Yazdığınız "${input}" sorusunu fabrikanın finansal ve sahaya ait operasyonel verileri (OEE, VSM, COPQ, Geri Kazanım) ışığında değerlendirdim:
 
 * **Yıllık Toplam Ciro**: ${formatMoney(revenue)}
-* **Mevcut Kalitesizlik Maliyeti (COPQ)**: ${formatMoney(totalLoss)} (Cironun %${(totalLoss / revenue * 100).toFixed(1)}'i)
+* **Mevcut Kalitesizlik Maliyeti (COPQ)**: ${formatMoney(totalLoss)} (Cironun %${pctOfRevenue(totalLoss).toFixed(1)}'i)
 * **Gerçekçi Geri Kazanım Tasarrufu**: ${formatMoney(totalRecovery)} / Yıl
 * **EBITDA Kârlılık Kaldıracı**: Bu tasarruflar tamamlandığında EBITDA faaliyet kâr marjınız **%${currentMargin.toFixed(1)}** seviyesinden **%${newMargin.toFixed(1)}** seviyesine yükselecektir.
 

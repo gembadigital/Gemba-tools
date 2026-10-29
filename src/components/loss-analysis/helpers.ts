@@ -232,103 +232,75 @@ export function calculateProcessesData(processes: ProcessItem[], dailyDemand: nu
 export function calculateFinancialImpact(
   calculated: CalculatedProcess[],
   revenue: number,
-  lossCosts: ProcessLossCosts, // measured losses priced with the resolved rates (lossCosting.ts)
-  laborRateBase: number = 0,   // labor cost per person-day; 0 = labor rate not resolved
-  energyCostRate: number = 0   // per kWh; 0 = not entered
+  lossCosts: ProcessLossCosts // measured losses priced with the resolved rates (lossCosting.ts)
 ) {
-  // 1–6. Scrap, rework, breakdown, setup, excess labor, WIP holding: priced per station from the
+  // Scrap, rework, breakdown, setup, excess labor and WIP holding are priced per station from the
   // unit cost entered on the Loss screen → VSM project unit cost → customer card (QLA formulas).
-  // Daily figures are the annual amount over 260 working days (same split as real-data overrides).
-  const perDay = (year: number) => year / 260;
-  const dailyScrapCost = perDay(lossCosts.scrap.year);
-  const dailyReworkCost = perDay(lossCosts.rework.year);
-  const dailyDowntimeCost = perDay(lossCosts.downtime.year);
-  const dailySetupCost = perDay(lossCosts.setup.year);
-  const dailyExcessLaborCost = perDay(lossCosts.laborLoss.year);
-  const dailyInventoryCost = perDay(lossCosts.inventory.year);
-
-  // 7. Late Delivery & Overtime Cost — scaled by how many processes are actually strained
-  // (over-capacity / critically low OEE) and by the configured labor rate / revenue, instead of
-  // a flat TL amount that was identical whether one line or the whole plant was at risk.
-  const overCapacityProcessCount = calculated.filter(p => p.capacityUtilization > 0.95).length;
-  const totalOvertimeLoss = overCapacityProcessCount * laborRateBase * 0.5;
-  const criticalOeeProcessCount = calculated.filter(p => p.oee < 60).length;
-  // The "no critically-low-OEE process" baseline (0.0001 * revenue) is a deliberate small-risk
-  // assumption for a plant that HAS been analyzed and found healthy — it must not fire when zero
-  // VSM processes have been entered at all, since that would fabricate a revenue-scaled cost
-  // figure with no underlying analysis behind it (e.g. a brand-new customer with no VSM data
-  // would otherwise show a nonzero "late delivery" cost out of thin air).
-  const deliveryFines = calculated.length > 0
-    ? revenue * (criticalOeeProcessCount > 0 ? 0.0005 * criticalOeeProcessCount : 0.0001)
-    : 0;
-
-  // 8. Energy Cost — driven by actual net production time and the user-configured energy
-  // rate (energyCostRate), instead of a flat constant that ignored the "Enerji Birim Fiyatı"
-  // input entirely. AVG_MACHINE_POWER_KW is a reasonable industrial-average machine power
-  // draw assumption (this module has no per-process kW field to derive it from directly).
-  const AVG_MACHINE_POWER_KW = 12;
-  const totalDailyWorkingHours = calculated.reduce((sum, p) => sum + (p.dailyActualNetWorkingTime / 60), 0);
-  const dailyEnergyCost = totalDailyWorkingHours * AVG_MACHINE_POWER_KW * energyCostRate;
-
-  // Sum total operational losses
-  const dailyTotal = dailyScrapCost + dailyReworkCost + dailyDowntimeCost + dailySetupCost + dailyExcessLaborCost + dailyInventoryCost + totalOvertimeLoss + deliveryFines + dailyEnergyCost;
-
+  // Overtime, late delivery, energy, maintenance and waiting have no measured basis here: they are 0
+  // unless the customer's real annual figure is entered ("Gerçek Mali Veriler"). Earlier versions
+  // filled them from fixed assumptions (½ labor-day per strained station, 0,01–0,05 % of revenue,
+  // 12 kW per station for all running time, 12,5 TL/min × 40, 12 % of the total).
+  const line = (year: number) => ({ day: year / 260, week: year / 52, month: year * 22 / 260, year });
+  const zero = line(0);
+  const scrap = line(lossCosts.scrap.year);
+  const rework = line(lossCosts.rework.year);
+  const downtime = line(lossCosts.downtime.year);
+  const setup = line(lossCosts.setup.year);
+  const laborLoss = line(lossCosts.laborLoss.year);
+  const inventory = line(lossCosts.inventory.year);
+  const totalYear = scrap.year + rework.year + downtime.year + setup.year + laborLoss.year + inventory.year;
   return {
-    scrap: { day: dailyScrapCost, week: dailyScrapCost * 5, month: dailyScrapCost * 22, year: dailyScrapCost * 260 },
-    rework: { day: dailyReworkCost, week: dailyReworkCost * 5, month: dailyReworkCost * 22, year: dailyReworkCost * 260 },
-    downtime: { day: dailyDowntimeCost, week: dailyDowntimeCost * 5, month: dailyDowntimeCost * 22, year: dailyDowntimeCost * 260 },
-    setup: { day: dailySetupCost, week: dailySetupCost * 5, month: dailySetupCost * 22, year: dailySetupCost * 260 },
-    laborLoss: { day: dailyExcessLaborCost, week: dailyExcessLaborCost * 5, month: dailyExcessLaborCost * 22, year: dailyExcessLaborCost * 260 },
-    inventory: { day: dailyInventoryCost, week: dailyInventoryCost * 5, month: dailyInventoryCost * 22, year: dailyInventoryCost * 260 },
-    waiting: { day: dailyTotal * 0.12, week: dailyTotal * 0.12 * 5, month: dailyTotal * 0.12 * 22, year: dailyTotal * 0.12 * 260 },
-    lateDelivery: { day: deliveryFines, week: deliveryFines * 5, month: deliveryFines * 22, year: deliveryFines * 260 },
-    overtime: { day: totalOvertimeLoss, week: totalOvertimeLoss * 5, month: totalOvertimeLoss * 22, year: totalOvertimeLoss * 260 },
-    energy: { day: dailyEnergyCost, week: dailyEnergyCost * 5, month: dailyEnergyCost * 22, year: dailyEnergyCost * 260 },
-    // Not derived from measured data (was a fixed 12,5 TL/dk × 40 dk); filled only from real-data overrides.
-    maintenance: { day: 0, week: 0, month: 0, year: 0 },
-    totalOperationalLosses: {
-      day: dailyTotal,
-      week: dailyTotal * 5,
-      month: dailyTotal * 22,
-      year: dailyTotal * 260
-    }
+    scrap, rework, downtime, setup, laborLoss, inventory,
+    waiting: zero,
+    lateDelivery: zero,
+    overtime: zero,
+    energy: zero,
+    maintenance: zero,
+    totalOperationalLosses: line(totalYear)
   };
 }
 
-// Target COPQ analysis module
-export function calculateCOPQ(calculated: CalculatedProcess[], revenue: number, financialImpact: any) {
+// Quality costs the screen cannot measure — the customer's own annual figures (0 = not entered).
+export const COPQ_ENTERED_CATEGORIES = [
+  { key: "sorting", label: "Ayıklama / sınıflama" },
+  { key: "customerReturns", label: "Müşteri iadeleri" },
+  { key: "warranty", label: "Garanti giderleri" },
+  { key: "extraFreight", label: "Ek / acil nakliye" },
+  { key: "expediting", label: "Acil sevkiyat / hızlandırma" },
+  { key: "customerComplaints", label: "Müşteri şikâyeti işleme" },
+  { key: "lostSales", label: "Kayıp satış (katkı payı)" },
+  { key: "inspection", label: "Muayene / kontrol" },
+  { key: "qualityPersonnel", label: "Kalite personeli" }
+] as const;
+export type CopqEnteredKey = typeof COPQ_ENTERED_CATEGORIES[number]["key"];
+
+// Cost of poor quality: internal failure from the measured scrap + rework, capacity / inventory /
+// delivery / overtime from the loss lines, external failure and appraisal only from entered figures.
+// (Earlier: sorting 18 %, returns 22 %, warranty 15 %, freight 8 % of internal failure; complaints
+// 0,3 %, inspection 0,4 %, quality staff 0,6 %, lost sales 0,5–3 % of revenue; setup × 0,6.)
+export function calculateCOPQ(calculated: CalculatedProcess[], revenue: number, financialImpact: any, entered: Partial<Record<CopqEnteredKey, number>> = {}) {
+  const e = (k: CopqEnteredKey) => (typeof entered[k] === "number" && (entered[k] as number) > 0 ? (entered[k] as number) : 0);
   const scrapCostYear = financialImpact.scrap.year;
   const reworkCostYear = financialImpact.rework.year;
-  
-  // Custom formulas for COPQ categories
-  const sortedByScrap = [...calculated].sort((a,b) => b.scrapQty - a.scrapQty);
-  
   const internalFailure = scrapCostYear + reworkCostYear;
-  const sortingCost = internalFailure * 0.18;
-  const customerReturns = internalFailure * 0.22;
-  const warrantyCost = internalFailure * 0.15;
-  const expeditingCost = financialImpact.lateDelivery.year + financialImpact.overtime.year * 0.5;
-  const extraFreight = internalFailure * 0.08;
-  // External-failure and appraisal/prevention cost categories scale with company size (revenue),
-  // not with how much scrap happens to occur — a flat TL amount here meant a small workshop and a
-  // large plant showed the identical "customer complaint handling cost", which isn't realistic.
-  // All four gated by calculated.length > 0: these are revenue-scaled ASSUMPTIONS meant to size an
-  // already-analyzed plant's quality overhead — without any real VSM/loss process data entered at
-  // all, they must not fabricate a nonzero dollar figure purely from revenue (e.g. a customer with
-  // zero VSM data previously still showed hundreds of thousands in "kalitesizlik maliyeti").
-  const customerComplaints = calculated.length > 0 ? revenue * 0.003 : 0;
-  const lostCapacityCost = financialImpact.downtime.year + financialImpact.setup.year * 0.6;
-  const lostSalesCost = calculated.length === 0 ? 0 : (calculated.some(p => p.oee < 60) ? (revenue * 0.03) : (revenue * 0.005));
+  const sortingCost = e("sorting");
+  const customerReturns = e("customerReturns");
+  const warrantyCost = e("warranty");
+  const expeditingCost = e("expediting");
+  const extraFreight = e("extraFreight");
+  const customerComplaints = e("customerComplaints");
+  const lostCapacityCost = financialImpact.downtime.year + financialImpact.setup.year;
+  const lostSalesCost = e("lostSales");
   const excessInventoryCost = financialImpact.inventory.year;
   const lateDeliveryCost = financialImpact.lateDelivery.year;
   const emergencyOvertimeCost = financialImpact.overtime.year;
-  const inspectionCost = calculated.length > 0 ? revenue * 0.004 : 0;
-  const qualityPersonnelCost = calculated.length > 0 ? revenue * 0.006 : 0;
+  const inspectionCost = e("inspection");
+  const qualityPersonnelCost = e("qualityPersonnel");
 
-  const totalCOPQ_TL = 
-    internalFailure + sortingCost + customerReturns + warrantyCost + expeditingCost + 
-    extraFreight + customerComplaints + lostCapacityCost + lostSalesCost + 
-    excessInventoryCost + lateDeliveryCost + emergencyOvertimeCost + 
+  const totalCOPQ_TL =
+    internalFailure + sortingCost + customerReturns + warrantyCost + expeditingCost +
+    extraFreight + customerComplaints + lostCapacityCost + lostSalesCost +
+    excessInventoryCost + lateDeliveryCost + emergencyOvertimeCost +
     inspectionCost + qualityPersonnelCost;
 
   const copqPercentOfRevenue = revenue > 0 ? (totalCOPQ_TL / revenue) * 100 : 0;
@@ -363,27 +335,28 @@ export function calculateCOPQ(calculated: CalculatedProcess[], revenue: number, 
   };
 }
 
-// Hidden Factory Analytics
-export function calculateHiddenFactory(calculated: CalculatedProcess[], revenue: number, copq: any, financialImpact: any) {
-  // Hidden factory encapsulates: scrap, rework, extra inspection, waiting time, extra labor, setup, logistics speed loss.
-  const totalLossVal = financialImpact.totalOperationalLosses.year;
-  const hiddenCostYear = totalLossVal * 0.58 + copq.inspectionCost + copq.sortingCost;
+// Hidden Factory: the measured operational losses plus the appraisal effort spent catching them
+// (inspection, sorting — entered). Equivalents only where their basis is known:
+//   operators = hidden cost / labor cost per person-year (0 when the labor rate is not resolved)
+//   machine capacity % = OEE loss time / loading time of the stations that have an OEE (JIPM tab)
+// (Earlier: 58 % of all losses, 2.200 TL × 260 per operator, 45 % of the OEE gap, revenue = cost × 1,5.)
+export function calculateHiddenFactory(
+  calculated: CalculatedProcess[],
+  revenue: number,
+  copq: any,
+  financialImpact: any,
+  laborCostPerPersonYear: number = 0,
+  oeeLossSharePct: number | null = null
+) {
+  const hiddenCostYear = financialImpact.totalOperationalLosses.year + copq.inspectionCost + copq.sortingCost;
   const hiddenPercentOfRevenue = revenue > 0 ? (hiddenCostYear / revenue) * 100 : 0;
-
-  // Translate to equivalent resource metrics
-  const avgOperatorCostYear = 2200 * 260; // operator yearly base
-  const equivalentOperators = parseFloat((hiddenCostYear / avgOperatorCostYear).toFixed(1));
-  const equivalentMachineCapacityPercent = calculated.length > 0
-    ? parseFloat(((calculated.reduce((s,p) => s + (100 - p.oee), 0) / calculated.length) * 0.45).toFixed(1))
-    : 0;
-  const equivalentRevenue = hiddenCostYear * 1.5; // multiplier for revenue potential if spent producing
-
+  const equivalentOperators = laborCostPerPersonYear > 0 ? parseFloat((hiddenCostYear / laborCostPerPersonYear).toFixed(1)) : 0;
+  const equivalentMachineCapacityPercent = oeeLossSharePct !== null ? parseFloat(oeeLossSharePct.toFixed(1)) : 0;
   return {
     hiddenCostYear,
     hiddenPercentOfRevenue,
     equivalentOperators,
-    equivalentMachineCapacityPercent,
-    equivalentRevenue
+    equivalentMachineCapacityPercent
   };
 }
 
