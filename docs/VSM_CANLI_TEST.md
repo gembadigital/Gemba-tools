@@ -63,3 +63,17 @@ Görünüm değişmedi; aşağıdakiler hesap tutarlılığı ve düzeltilen hat
 | 8.5 | Formdan bir satırı silip yükleyin. | O proses projede kalır (içe aktarma silmez). |
 | 8.6 | Bir sayı hücresine metin yazıp yükleyin. | Onay penceresinde "Satır n: … sayı değil" uyarısı; o hücre uygulanmaz. |
 | 8.7 | Telefonda Dışa Aktar penceresini açın. | Pencere ekrana sığar, seçenekler alt alta. |
+
+## V3 — Harita sembolleri, esnek yerleşim, mobil
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| 3.1 | 8+ prosesli bir projenin haritasını açın. | Tüm prosesler sığar (kesilmez); müşteri kutusu en sağda; harita otomatik ekrana sığdırılır. |
+| 3.2 | Kalite & Envanter'de stok tiplerini yığın / FIFO (maks) / süpermarket + kanban yapın. | Proses önlerinde: üçgen + çizgili push oku / "FIFO ≤maks" şeridi / süpermarket rafı + çekme oku; kanban etiketi. Stok adedi ve gün ilgili prosesin önünde. |
+| 3.3 | Bilgi akışında kanalları Elektronik ve Manuel yapın. | Elektronik ok zikzaklı düz çizgi, manuel kesikli. |
+| 3.4 | Hammadde / mamul stoku girin, tedarikçi ve müşteri sevk sıklığı yazın. | Başta ve sonda üçgenler (adet + gün), kamyonlarda sevk sıklığı. |
+| 3.5 | Zaman çizgisine bakın. | Bekleme günleri stok bölgelerinin üstünde, katma değer süreleri kartların altında; sağda lead time / katma değer / PCE. |
+| 3.6 | Tablette iki parmakla yakınlaştırın, tek parmakla kaydırın; masaüstünde Ctrl + tekerlek. | Akıcı yakınlaştırma; FİT tekrar sığdırır. |
+| 3.7 | Telefonda Proses Tanımlama'yı açın, bir prosese dokunun, değer değiştirip Tamam → Kaydet. | Kart listesi; alt sayfada tüm alanlar; değer haritaya ve kayda yansır. |
+| 3.8 | Telefonda haritayı açın. | Harita yüksekliğe sığar, yatay kaydırılır, okunur. |
+| 3.9 | PDF / PNG alın. | Haritanın tamamı, önceki sürümden daha büyük ve kesilmeden. |

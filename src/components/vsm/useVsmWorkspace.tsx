@@ -35,6 +35,7 @@ import { buildFieldForm, buildVsmWorkbook, downloadBlob, readFieldForm, safeFile
 import { mergeImportedRows, setupPatchFromRows } from "./vsmExcel";
 import { suggestFamilies } from "./vsmProductMatrix";
 import { getEffectiveSuccessorIds, isLinearFlow } from "./vsmGraph";
+import { computeMapLayout } from "./vsmMapLayout";
 import {
   annualWasteCost, applySimulation, bottleneckOf, compareStates, computeAll, demandOf, flowSummary, highestDowntimeOf,
   highestInventoryOf, leadTimeOf, lowestOeeOf, netAvailableSecondsPerDay as netSecondsPerDay, simulationDeltas,
@@ -493,6 +494,14 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
       });
   }, [processesWithTimeline, vsmGraphLayout, vsmLeadTime]);
 
+  // Drawn map geometry (vsmMapLayout.ts): grows with the process count / graph columns.
+  const mapLayout = useMemo(
+    () => isFlowLinear
+      ? computeMapLayout(processesWithTimeline.length, 1)
+      : computeMapLayout(vsmGraphLayout.maxRank + 1, vsmGraphLayout.laneCount, vsmLaneSummaries.length),
+    [isFlowLinear, processesWithTimeline.length, vsmGraphLayout, vsmLaneSummaries.length]
+  );
+
   const count = processesWithTimeline.length;
   const averageOee = count > 0 ? Math.round(processesWithTimeline.reduce((sum, p) => sum + p.oee, 0) / count) : 0;
   const averageCapacity = count > 0 ? processesWithTimeline.reduce((sum, p) => sum + p.capacity, 0) / count : 0;
@@ -679,6 +688,79 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
     setIsPanning(false);
   };
 
+  // Touch and pen: one pointer pans, two pointers pinch-zoom (around their midpoint).
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{ dist: number; zoom: number; mid: { x: number; y: number }; pan: { x: number; y: number } } | null>(null);
+  const clampZoom = (z: number) => Math.min(2.5, Math.max(0.15, z));
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    // Clicks on process cards / boxes still open them; panning starts on the stage itself.
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointersRef.current.size === 2) {
+      const [a, b] = Array.from(pointersRef.current.values());
+      pinchRef.current = { dist: Math.hypot(a.x - b.x, a.y - b.y), zoom, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, pan };
+      setIsPanning(false);
+    } else {
+      setIsPanning(true);
+      setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+    }
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!pointersRef.current.has(e.pointerId)) return;
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const pinch = pinchRef.current;
+    if (pinch && pointersRef.current.size >= 2) {
+      const [a, b] = Array.from(pointersRef.current.values());
+      const next = clampZoom(pinch.zoom * (Math.hypot(a.x - b.x, a.y - b.y) / Math.max(1, pinch.dist)));
+      const rect = canvasContainerRef.current?.getBoundingClientRect();
+      const mx = pinch.mid.x - (rect?.left ?? 0), my = pinch.mid.y - (rect?.top ?? 0);
+      // keep the map point under the fingers' midpoint in place
+      setPan({ x: mx - ((mx - pinch.pan.x) / pinch.zoom) * next, y: my - ((my - pinch.pan.y) / pinch.zoom) * next });
+      setZoom(next);
+      return;
+    }
+    if (isPanning) setPan({ x: e.clientX - panStart.x, y: e.clientY - panStart.y });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    pointersRef.current.delete(e.pointerId);
+    if (pointersRef.current.size < 2) pinchRef.current = null;
+    if (pointersRef.current.size === 0) setIsPanning(false);
+  };
+
+  // Ctrl / ⌘ + wheel zooms around the cursor; a plain wheel scrolls the page as usual.
+  const handleWheelZoom = (e: React.WheelEvent) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    const rect = canvasContainerRef.current?.getBoundingClientRect();
+    const mx = e.clientX - (rect?.left ?? 0), my = e.clientY - (rect?.top ?? 0);
+    const next = clampZoom(zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+    setPan({ x: mx - ((mx - pan.x) / zoom) * next, y: my - ((my - pan.y) / zoom) * next });
+    setZoom(next);
+  };
+
+  // Fit the whole map into the visible stage (also the default when a project's map opens).
+  const handleZoomFit = () => {
+    const el = canvasContainerRef.current;
+    if (!el) return;
+    // Phones: fill the stage height and pan sideways (fitting the whole width would make it unreadable).
+    const phone = el.clientWidth < 640;
+    const z = clampZoom(phone
+      ? Math.min(el.clientHeight / mapLayout.height, 1)
+      : Math.min(el.clientWidth / mapLayout.width, el.clientHeight / mapLayout.height, 1));
+    setZoom(Math.round(z * 100) / 100);
+    setPan({ x: phone ? 0 : Math.max(0, (el.clientWidth - mapLayout.width * z) / 2), y: 8 });
+  };
+
+  useEffect(() => {
+    if (activeTab !== "vsm" || !selectedProject) return;
+    const t = setTimeout(handleZoomFit, 60);
+    return () => clearTimeout(t);
+    // refit when another project / tab opens or the map changes size
+  }, [activeTab, selectedProject?.id, mapLayout.width, mapLayout.height]);
+
   // --- DRAWER OPEN HANDLER ---
   const handleOpenProcessDrawer = (id: string) => {
     setSelectedProcessId(id);
@@ -788,15 +870,11 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
     const target = document.getElementById("vsm_map_capture_target");
     if (!target) throw new Error("VSM canvas not found");
 
-    const captureHeight = isFlowLinear
-      ? 640
-      : 265 + (vsmGraphLayout.laneCount * (270 + 44)) + 110;
-
     return domToCanvas(target, {
       scale: 2,
       backgroundColor: vsmBrightMode ? "#f8fafc" : "#0f172a",
-      width: 2240,
-      height: captureHeight
+      width: mapLayout.width,
+      height: mapLayout.height
     });
   };
 
@@ -1087,6 +1165,12 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
 
 
   return {
+    mapLayout,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
+    handleWheelZoom,
+    handleZoomFit,
     reportImages,
     handleImportFieldForm,
     team,

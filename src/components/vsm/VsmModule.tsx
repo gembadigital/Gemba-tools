@@ -47,6 +47,7 @@ import VsmProjectPortal from "./VsmProjectPortal";
 import VsmSetupTab from "./VsmSetupTab";
 import VsmProductMatrixTab from "./VsmProductMatrixTab";
 import VsmReportPages from "./VsmReportPages";
+import VsmMobileProcessList from "./VsmMobileProcessList";
 import { Layers } from "lucide-react";
 import VsmDefinitionTab from "./VsmDefinitionTab";
 import VsmProductionTab from "./VsmProductionTab";
@@ -74,7 +75,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
     <div className={`w-full bg-[#f8fafc] text-slate-900 font-sans ${isFullScreen ? 'fixed inset-0 z-50 overflow-hidden' : 'relative'}`} id="vsm_root_workspace">
       
       {/* VSM UPPER BANNER BAR */}
-      <div className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shrink-0 shadow-sm">
+      <div className="bg-white border-b border-slate-200 px-4 md:px-6 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shrink-0 shadow-sm">
         <div className="flex flex-col gap-3">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-slate-950 rounded-xl flex items-center justify-center text-white shadow-md shadow-slate-100">
@@ -200,7 +201,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
 
           <button
             onClick={() => setActiveTab("setup")}
-            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer ${
+            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer shrink-0 whitespace-nowrap ${
               activeTab === "setup" 
                 ? "bg-slate-950 text-white border-slate-950 shadow-sm" 
                 : "bg-white text-slate-600 hover:text-slate-900 border-slate-200"
@@ -212,7 +213,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
 
           <button
             onClick={() => setActiveTab("family")}
-            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer ${
+            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer shrink-0 whitespace-nowrap ${
               activeTab === "family"
                 ? "bg-slate-950 text-white border-slate-950 shadow-sm"
                 : "bg-white text-slate-600 hover:text-slate-900 border-slate-200"
@@ -224,7 +225,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
           
           <button 
             onClick={() => setActiveTab("definition")}
-            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer ${
+            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer shrink-0 whitespace-nowrap ${
               activeTab === "definition" 
                 ? "bg-slate-950 text-white border-slate-950 shadow-sm" 
                 : "bg-white text-slate-600 hover:text-slate-900 border-slate-200"
@@ -236,7 +237,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
           
           <button 
             onClick={() => setActiveTab("production")}
-            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer ${
+            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer shrink-0 whitespace-nowrap ${
               activeTab === "production" 
                 ? "bg-slate-950 text-white border-slate-950 shadow-sm" 
                 : "bg-white text-slate-600 hover:text-slate-900 border-slate-200"
@@ -248,7 +249,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
           
           <button 
             onClick={() => setActiveTab("quality")}
-            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer ${
+            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer shrink-0 whitespace-nowrap ${
               activeTab === "quality" 
                 ? "bg-slate-950 text-white border-slate-950 shadow-sm" 
                 : "bg-white text-slate-600 hover:text-slate-900 border-slate-200"
@@ -260,7 +261,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
           
           <button 
             onClick={() => setActiveTab("vsm")}
-            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer ${
+            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer shrink-0 whitespace-nowrap ${
               activeTab === "vsm" 
                 ? "bg-amber-600 text-white border-amber-600 shadow-md shadow-amber-50" 
                 : "bg-white text-slate-600 hover:text-slate-900 border-slate-200"
@@ -272,7 +273,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
 
           <button 
             onClick={() => setActiveTab("dashboard")}
-            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer ${
+            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer shrink-0 whitespace-nowrap ${
               activeTab === "dashboard" 
                 ? "bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-50" 
                 : "bg-white text-slate-600 hover:text-slate-900 border-slate-200"
@@ -296,11 +297,11 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
       {activeTab === "setup" && <VsmSetupTab />}
       {activeTab === "family" && <VsmProductMatrixTab />}
       {/* TAB 2 — PROSES TANIMLAMA */}
-      {activeTab === "definition" && <VsmDefinitionTab />}
+      {activeTab === "definition" && <><div className="hidden md:block"><VsmDefinitionTab /></div><div className="md:hidden"><VsmMobileProcessList /></div></>}
       {/* TAB 3 — ÜRETİM & KAPASİTE */}
-      {activeTab === "production" && <VsmProductionTab />}
+      {activeTab === "production" && <><div className="hidden md:block"><VsmProductionTab /></div><div className="md:hidden"><VsmMobileProcessList /></div></>}
       {/* TAB 4 — KALİTE & ENVANTER */}
-      {activeTab === "quality" && <VsmQualityTab />}
+      {activeTab === "quality" && <><div className="hidden md:block"><VsmQualityTab /></div><div className="md:hidden"><VsmMobileProcessList /></div></>}
       {/* TAB 5 — DEĞER AKIŞ ŞEMASI (MAP VISUALIZATION) */}
       {activeTab === "vsm" && <VsmMapTab />}
     {/* ========================================== */}

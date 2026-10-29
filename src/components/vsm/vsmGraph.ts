@@ -1,6 +1,7 @@
 // VSM flow graph: turns the flat process list into a directed graph (branching / parallel flows),
 // lays it out in lanes and finds the critical (longest lead-time) path. Pure functions.
 import type { VsmConnectionType, VsmProcess } from "./vsmTypes";
+import { GRAPH_LANE_HEIGHT, MAP, PITCH } from "./vsmMapLayout";
 
 // --- GRAPH-BASED PROCESS FLOW HELPERS ---
 // Pure functions turning the flat `vsmProcesses` array into a directed graph, so the drawing
@@ -121,10 +122,11 @@ export function computeGraphLayout(processes: VsmProcess[], edges: VsmGraphEdge[
 
   // 3. Pixel coordinates — column/row spacing kept close to the legacy single-row scale so card
   // sizing and the fixed supplier/customer/production-control boxes don't need to change.
-  const COLUMN_WIDTH = 280;
-  const LANE_HEIGHT = 270; // process cards are ~230px tall; leaves a clear gap between lanes
-  const START_X = 310;
-  const START_Y = 265; // matches the legacy single-row card top offset (top-[265px])
+  // Same geometry as the drawn map (vsmMapLayout.ts): one column per rank, one row per lane.
+  const COLUMN_WIDTH = PITCH;
+  const LANE_HEIGHT = GRAPH_LANE_HEIGHT;
+  const START_X = MAP.startX;
+  const START_Y = MAP.cardTop;
   const positions = new Map<string, { x: number; y: number; rank: number; lane: number }>();
   ids.forEach(id => {
     const r = rank.get(id) || 0;

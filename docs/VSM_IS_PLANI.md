@@ -305,6 +305,7 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 | V1 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V1) | 01ae3d8 |
 | V2 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V2) | 1b5d35a |
 | V8 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V8) | 39edc79 |
+| V3 | ✅ kod; yerel önizlemede (sahte API) masaüstü/telefon denendi, canlıda denenmedi (§V3) | bkz. git log |
 
 ### V0 — yapılanlar
 - Sunucu: `src/server/vsm/vsmRoutes.ts` (uçlar `app.ts`'den taşındı), kurallar `src/utils/vsmAccess.ts` (istemci+sunucu
@@ -413,3 +414,24 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
   edildi; form yükleme (1 güncelleme, 1 ekleme, 1 kurulum değeri) denendi.
 - Kalanlar: harita görseli sabit 2200 px tuvalden geldiği için PDF'te küçük (V3'te esnek yerleşimle düzelir); kaizen
   patlamaları ve uygulama planı sayfaları V5/V6 ile eklenecek.
+
+### V3 — yapılanlar
+- **Esnek yerleşim** (`vsmMapLayout.ts`): tuval genişliği proses (ya da grafik sütunu) sayısıyla büyür; tedarikçi solda,
+  müşteri en sağda, üretim planlama ikisinin ortasında. Grafik (dallanan akış) yerleşimi aynı ölçüleri kullanır.
+  PNG/PDF görüntüsü haritanın gerçek boyutunda alınır.
+- **Semboller** (`VsmMapCanvas.tsx`, genel görünüm ve akış korunarak): proses önündeki stok bölgesi — serbest yığın =
+  stok üçgeni + çizgili push oku, FIFO = şerit + "FIFO ≤maks", süpermarket = raf + çekme oku; kanban etiketi; elektronik
+  bilgi akışı zikzak düz çizgi, manuel kesikli; tedarikçi ve müşteri kamyonları (sevk sıklığıyla); hammadde ve mamul
+  üçgenleri (adet + gün); pacemaker rozeti; çizelge oku pacemaker seçildiyse tek prosese. Lejant güncellendi.
+- **Düzeltme:** stok, ait olduğu prosesin **önünde** gösteriliyor (eskiden önceki prosesin stoğu sonraki boşlukta
+  görünüyordu).
+- **Proses kartı:** C/O · Parti ve Uptime satırı eklendi (Mak/Op, C/T, OEE, Kapasite, C/O·Parti, Uptime, Vardiya, Duruş,
+  FPY).
+- **Zaman çizgisi:** merdiven artık stok bölgeleri (bekleme, üst) ve proses kartları (katma değer, alt) ile hizalı; sonda
+  Lead time / Katma değer / PCE kutusu. Dallanan akışta hat özeti (kritik yol) korunur.
+- **Dokunmatik:** tek parmakla kaydırma, iki parmakla yakınlaştırma (parmak ortası sabit), Ctrl/⌘ + tekerlek,
+  "FİT" ekrana sığdırır; harita açılınca otomatik sığdırılır (telefonda yüksekliğe, yatay kaydırma).
+- **Telefon:** Proses Tanımlama / Üretim / Kalite sekmelerinde tablolar yerine proses kartları; dokununca tüm alanlarla
+  (Excel saha formuyla aynı alan listesi) alt sayfa formu; proses ekleme ve izinli silme. Sekme çubuğu yatay kayar.
+  Tablet (≥768 px) masaüstü tablolarını ve harita düzenlemeyi kullanır.
+- Yerel önizlemede 1440 px ve 375 px görünümler kontrol edildi.
