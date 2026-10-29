@@ -4,6 +4,7 @@
 import React, { useMemo, useState } from "react";
 import { GitMerge, Plus, Trash2, Map as MapIcon, RotateCcw, Zap, Pencil } from "lucide-react";
 import { useVsm } from "./VsmContext";
+import VsmImplementationPlan from "./VsmImplementationPlan";
 import { VSM_DESIGN_QUESTIONS } from "./vsmFuture";
 import { VSM_BURST_METRICS, VSM_BURST_STATUSES, VSM_INVENTORY_TYPES, VSM_LOOPS, VsmKaizenBurst } from "./vsmTypes";
 import { canDeleteVsmBurst } from "../../utils/vsmAccess";
@@ -249,6 +250,8 @@ export default function VsmFutureTab() {
         )}
         <p className="text-[11px] text-slate-500">Değişikliklerin kalıcı olması için Kaydet'e basın.</p>
       </div>
+
+      <VsmImplementationPlan />
     </div>
   );
 }

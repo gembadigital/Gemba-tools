@@ -237,7 +237,9 @@ export interface VsmKaizenBurst {
   metric?: string;
   target?: string;          // e.g. "C/O 45 → 15 dk"
   owner?: string;
+  startDate?: string;       // ISO date (implementation plan, V6)
   dueDate?: string;         // ISO date
+  progress?: number;        // 0–100
   loop?: string;
   status?: VsmBurstStatus;
   createdBy?: string;       // stamped by the server; a Customer User deletes only their own

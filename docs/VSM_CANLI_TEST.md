@@ -99,3 +99,21 @@ Görünüm değişmedi; aşağıdakiler hesap tutarlılığı ve düzeltilen hat
 | 5.5 | U2 (Customer User) U1'in patlamasını silmeyi denesin. | Sil düğmesi yok; kendi eklediğini silebilir. |
 | 5.6 | Dashboard ve PDF / Excel. | Gelecek değerler birleşik adıma göre; PDF'te tasarım soruları + patlamalar sayfası, Excel'de "Kaizen Patlamaları" sayfası. |
 | 5.7 | V5 öncesi "simülasyon" yapılmış bir proje açın. | Gelecek durum, o düzeltmelerle kopya olarak gelir; kaydedince kalıcı. |
+
+## Örnek proje
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| E.1 | ACME demo → VSM → "ÖRNEK — Panel Hattı VSM" projesini açın. | Mevcut harita 8 adım (montaj kırmızı darboğaz, her yerde push). |
+| E.2 | Gelecek moda geçin. | 6 adım; iki "AKIŞ" hücresi, FIFO şeritleri, süpermarket + kanban, montaj + test hücresinde PACEMAKER, K1–K7. |
+| E.3 | Dashboard. | Lead time ≈ 31,5 → 7,5 gün, WIP 7.900 → 720. |
+
+## V6 — Uygulama planı, CI ve Master Plan köprüsü
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| 6.1 | Gelecek Durum → Uygulama Planı. | Patlamalar döngülere göre gruplu; sorumlu / tarih / ilerleme / durum düzenlenir, zaman çubuğu renkli. |
+| 6.2 | CI Proje Yönetimi → Yeni proje → fırsat listesi. | "VSM kaizen" kaynağında tamamlanmamış patlamalar (adım + hedef; tutar yok). |
+| 6.3 | Bir VSM fırsatından CI projesi açın, VSM planına dönün. | O satırda "CI projesi" sütununda proje numarası; fırsat havuzunda "projeye çevrildi". |
+| 6.4 | "Master Plan'a aktar" → onay. | Master Plan'da "[VSM K1] …" satırları doğru haftalarda; tekrar aktarınca çoğalmaz, Master Plan'da değiştirdiğiniz adam-gün/not korunur. |
+| 6.5 | Bir patlamayı "Tamamlandı" yapıp Kaydet. | CI fırsat havuzundan düşer; Master Plan'a yeniden aktarınca %100 / Completed. |

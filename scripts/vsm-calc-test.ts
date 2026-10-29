@@ -159,3 +159,20 @@ assert.ok(mergeProcesses(fut, ["a"]).error);
 const m2 = mergeProcesses(mg.list, [mg.mergedId!, "c"]);
 assert.deepEqual(m2.list[0].mergedFrom, ["a", "b", "c"]);
 console.log("vsm-calc-test: V5 checks passed");
+
+// --- V6: implementation plan rows and CI pool
+import { burstPlanStatus, groupByLoop, vsmMasterPlanRow } from "../src/components/vsm/vsmPlan.js";
+import { vsmOpportunities } from "../src/utils/ciOpportunityPool.js";
+const kb = { id: "k1", title: "SMED", map: "future" as const, startDate: "2026-11-02", dueDate: "2026-12-14", status: "Devam ediyor" as const, progress: 40, loop: "Ek döngü", owner: "Bakım" };
+const row = vsmMasterPlanRow("vp1", "Hat 1", kb, 0, { plannedManDays: 3, notes: "elle" }, new Date("2026-11-10T00:00:00Z"));
+assert.equal(row.id, "vsm_plan_vp1_k1");
+assert.equal(row.name, "[VSM K1] SMED");
+assert.deepEqual([row.plannedStartWeek, row.plannedFinishWeek, row.progressPercent, row.status, row.plannedManDays, row.notes], [45, 51, 40, "In Progress", 3, "elle"]);
+assert.equal(burstPlanStatus({ ...kb, status: "Açık", progress: 0 }, "2027-01-01"), "Delayed");
+assert.equal(burstPlanStatus({ ...kb, status: "Tamamlandı" }), "Completed");
+assert.deepEqual(groupByLoop([kb, { ...kb, id: "k2", loop: undefined }], ["Pacemaker döngüsü", "Ek döngü"]).map(g => [g.loop, g.items.map(i => i.no)]), [["Ek döngü", [1]], ["Döngü seçilmedi", [2]]]);
+const opp = vsmOpportunities([{ id: "vp1", name: "Hat 1", vsmProcesses: [{ id: "a", name: "PRES" }], kaizenBursts: [{ ...kb, processId: "a", metric: "Model değişim (C/O)" }, { id: "k9", title: "Bitti", status: "Tamamlandı" }] }]);
+assert.equal(opp.length, 1);
+assert.deepEqual([opp[0].id, opp[0].source, opp[0].leanTool, opp[0].expectedGain], ["opp_vsm_vp1_k1", "vsm", "SMED", undefined]);
+assert.ok(opp[0].detail.includes("PRES"));
+console.log("vsm-calc-test: V6 checks passed");

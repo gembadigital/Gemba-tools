@@ -8,14 +8,15 @@
 // (approved, not yet implemented) and PTR field actions (open, flagged as critical).
 // No amounts are invented: an item shows a loss / gain only when its source recorded one.
 
-export type CiOpportunitySource = "loss" | "cost" | "opex" | "kaizen" | "ptr";
+export type CiOpportunitySource = "loss" | "cost" | "opex" | "kaizen" | "ptr" | "vsm";
 
 export const CI_OPPORTUNITY_SOURCES: Record<CiOpportunitySource, { label: string; hint: string }> = {
   loss: { label: "Loss Capacity", hint: "Loss Capacity analizinde iyileştirme matrisi oluşunca gelir." },
   cost: { label: "Maliyet tablosu", hint: "Süreç kayıtlarına hurda / rework / duruş / israf maliyeti girilince gelir." },
   opex: { label: "OpEx denetimi", hint: "Son OpEx denetiminde 0–2 puan alan sorular." },
   kaizen: { label: "Kaizen önerisi", hint: "Kurul onaylı, henüz uygulanmamış öneriler." },
-  ptr: { label: "PTR aksiyonu", hint: "Kritik işaretli, açık saha aksiyonları." }
+  ptr: { label: "PTR aksiyonu", hint: "Kritik işaretli, açık saha aksiyonları." },
+  vsm: { label: "VSM kaizen", hint: "VSM gelecek durum haritasındaki tamamlanmamış kaizen patlamaları." }
 };
 
 export interface CiOpportunity {
@@ -167,6 +168,34 @@ export function ptrOpportunities(records: any[], max = 15): CiOpportunity[] {
       priority: "High" as const,
       ref: [r.year && r.visitedWeek ? `${r.year}/H${r.visitedWeek}` : "", r.responsible].filter(Boolean).join(" · ")
     }));
+}
+
+// Kaizen bursts of the customer's VSM projects that are not done yet (plan step V6). Amounts are never
+// invented — a burst has a target text, not a money figure.
+const VSM_TOOL_BY_METRIC: Record<string, string> = {
+  "Model değişim (C/O)": "SMED", "Çevrim süresi (C/T)": "Hat dengeleme / hücre", "Stok / WIP": "Çekme sistemi / kanban",
+  "OEE / Uptime": "TPM", "Hurda / Kalite": "Poka-yoke", "Lead time": "Akış / heijunka", "Operatör": "Standart iş"
+};
+export function vsmOpportunities(projects: any[], max = 40): CiOpportunity[] {
+  const out: CiOpportunity[] = [];
+  (projects || []).forEach(proj => {
+    const all = Array.isArray(proj?.kaizenBursts) ? proj.kaizenBursts : [];
+    const steps = [...(proj?.vsmProcesses || []), ...(proj?.futureState?.processes || [])];
+    all.forEach((b: any, i: number) => {
+      if (!b?.id || !b.title || b.status === "Tamamlandı") return;
+      const stepName = steps.find((p: any) => p?.id === b.processId)?.name;
+      out.push({
+        id: `opp_vsm_${proj.id}_${b.id}`,
+        source: "vsm",
+        title: b.title,
+        detail: [stepName && `Adım: ${stepName}`, b.target && `Hedef: ${b.target}`, b.description].filter(Boolean).join(" — ") || "VSM kaizen patlaması.",
+        leanTool: VSM_TOOL_BY_METRIC[b.metric] || undefined,
+        priority: b.loop === "Pacemaker döngüsü" ? "High" : "Medium",
+        ref: [proj.name, `K${i + 1}`, b.dueDate].filter(Boolean).join(" · ")
+      });
+    });
+  });
+  return out.slice(0, max);
 }
 
 // Marks items already turned into a project (any project of the customer that isn't cancelled).

@@ -308,6 +308,8 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 | V3 | ✅ kod; yerel önizlemede (sahte API) masaüstü/telefon denendi, canlıda denenmedi (§V3) | 289bebb |
 | V4 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V4) | 1a3335a |
 | V5 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V5) | f7abf84 |
+| Örnek | ✅ canlıya yazıldı (ACME demo, kullanıcı onayıyla) | bkz. git log |
+| V6 | ✅ kod; canlıda denenmedi (§V6) | bkz. git log |
 
 ### V0 — yapılanlar
 - Sunucu: `src/server/vsm/vsmRoutes.ts` (uçlar `app.ts`'den taşındı), kurallar `src/utils/vsmAccess.ts` (istemci+sunucu
@@ -472,3 +474,29 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
   değildir: kopya bir tasarım senaryosudur, girilmiş veri silinmez.
 - Testler: birleştirme (komşuluk, mergedFrom, bağlantıların yeni adıma yönlenmesi), kopya, sunucu temizliği ve patlama
   sahipliği. Yerel önizlemede 5 → 4 adım birleştirme, patlama ekleme, kayıt gövdesi ve gelecek harita kontrol edildi.
+
+### Örnek proje (kullanıcı isteği, 2026-10-29) — canlıya yazıldı
+- `scripts/vsm-example-project.ts` (`--write` olmadan yalnızca doğrular). ACME demo müşterisinde (`cust_acmedemo1`)
+  **"ÖRNEK — Panel Hattı VSM (8 → 6 adım, çekme sistemi)"** (`vsm_proj_ornek_panel`), açıklamasında örnek olduğu ve
+  değerlerin ölçülmediği yazılı.
+- Mevcut durum 8 adım (lazer kesme, zımbalama, abkant büküm, kaynak, çapak alma, toz boya, montaj, test & paketleme), her
+  yerde push ve büyük partiler; montaj C/T 120 sn > takt 110 sn.
+- Gelecek durum 6 adım: **kaynak + çapak** ve **montaj + test** hücreleri (sürekli akış), kesme–zımba–büküm ve boya önünde
+  FIFO şeritleri, kaynak ve montaj hücresi önünde süpermarket + kanban, mamul süpermarketi, **montaj + test hücresi
+  pacemaker**, heijunka, 20 adet pitch, tedarikçiye günlük milk-run / kanban.
+- Hesap (motorla): lead time 31,5 → 7,5 gün, WIP 7.900 → 720 adet, PCE %0,012 → %0,05, darboğaz takt'ın altına iner.
+  7 kaizen patlaması (SMED ×3, iki hücre, süpermarket/kanban, milk-run), 8 tasarım sorusunun cevabı, ürün matrisi
+  (P1–P3 aile, P9 ayrı), ekip rolleri. Sorumlular rol adıdır (gerçek kişi adı yok).
+
+### V6 — yapılanlar
+- **Uygulama planı** (`VsmImplementationPlan.tsx`, `vsmPlan.ts`), Gelecek Durum sekmesinin sonunda: kaizen patlamaları
+  döngülere göre (pacemaker, ek, tedarikçi, müşteri, seçilmemiş) gruplanır; satırda sorumlu, başlangıç, termin, ilerleme %,
+  durum düzenlenir; zaman çubuğu (planlandı / sürüyor / gecikti / tamamlandı renkleri).
+- **CI fırsat havuzu:** yeni kaynak **"VSM kaizen"** (`vsmOpportunities`): müşterinin VSM projelerindeki tamamlanmamış
+  patlamalar (adım, hedef, açıklama; tutar uydurulmaz; etki alanından yalın araç önerisi: C/O → SMED vb.). CI'de projeye
+  çevrilen fırsat, VSM planında "CI projesi" sütununda proje numarasıyla görünür.
+- **Eski "CI Proje Yönetimine Aktar"** (doğrudan toplu kayıt) kaldırıldı; yerine havuz açıklaması.
+- **Master Plan'a aktar:** tarihli her madde için bir faaliyet (`vsm_plan_<proje>_<patlama>`, ilgili modül "VSM Projects",
+  hafta, ilerleme, durum, öncelik); tekrar aktarmada Master Plan'da elle değiştirilen alanlar (adam-gün, notlar, kategori,
+  öncelik, danışman) korunur. Aktarmadan önce onay sorulur.
+- Testler: plan satırı (hafta, durum, korunan alanlar), döngü gruplama, havuz kaydı.

@@ -559,130 +559,7 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
     [currentProcessesCalculated, workforceMethod, taktTime, dailyDemand, factorySetup]
   );
 
-  // Sync VSM simulation bottleneck & improvement topics directly to CI Project Management (Kaizens)
-  const handleSyncToCiProjects = async () => {
-    try {
-      const generatedKaizens: any[] = [];
-      const factoryId = selectedCustomerId || "";
-
-      activeProcesses.forEach((p) => {
-        // 1. Bottleneck OEE Check
-        if (p.oee < 75 || p.id === bottleneckProcess?.id) {
-          generatedKaizens.push({
-            title: `[VSM Simülasyon] ${p.name} OEE %${p.oee} Darboğaz İyileştirme`,
-            description: `${p.name} prosesi %${p.oee} OEE verimi ile hattın ana dar boğazıdır. Çevrim süresini optimize etme ve arıza/setup duruşlarının elenmesi gereklidir.`,
-            type: "Kaizen",
-            status: "New Idea",
-            originator: "VSM Simülasyon Motoru",
-            department: "Üretim & Metot",
-            priority: "High",
-            factory_id: factoryId
-          });
-        }
-
-        // 2. High C/O (Setup/SMED)
-        if (p.changeoverMinutes && p.changeoverMinutes > 15) {
-          generatedKaizens.push({
-            title: `[VSM Simülasyon] ${p.name} SMED Hızlı Kalıp/Ayar Değişimi`,
-            description: `${p.name} operasyonunda ${p.changeoverMinutes} dk setup/kalıp değişim süresi mevcuttur. SMED metodolojisi ile %50 süre düşürme hedeflenmelidir.`,
-            type: "SMED",
-            status: "New Idea",
-            originator: "VSM Simülasyon Motoru",
-            department: "Pres Atölyesi / Kalıphane",
-            priority: "High",
-            factory_id: factoryId
-          });
-        }
-
-        // 3. High Cycle Time vs Takt Time
-        if (p.cycleTime > taktTime) {
-          generatedKaizens.push({
-            title: `[VSM Simülasyon] ${p.name} Çevrim Zamanı (${p.cycleTime}s > Takt ${taktTime}s) Düşürme`,
-            description: `${p.name} çevrim zamanı (${p.cycleTime} sn) takt zamanını (${taktTime} sn) aştığı için müşteri talebi karşılanamıyor. Yamazumi hat dengeleme uygulanmalı.`,
-            type: "Hat Dengeleme",
-            status: "New Idea",
-            originator: "VSM Simülasyon Motoru",
-            department: "Endüstri Mühendisliği",
-            priority: "High",
-            factory_id: factoryId
-          });
-        }
-
-        // 4. Scrap & Quality / Rework
-        if (p.quality < 98) {
-          generatedKaizens.push({
-            title: `[VSM Simülasyon] ${p.name} Poka-Yoke & Hurda/Iskarta Azaltma`,
-            description: `${p.name} prosesindeki kalite oranı %${p.quality}. Hatalı üretimi ve rework oranını engellemek için süreç içi Poka-Yoke sensör sistemi kurulmalı.`,
-            type: "Kalite / Poka-Yoke",
-            status: "New Idea",
-            originator: "VSM Simülasyon Motoru",
-            department: "Kalite Güvence",
-            priority: "Medium",
-            factory_id: factoryId
-          });
-        }
-
-        // 5. High WIP Inventory
-        if (p.inventoryBefore > 400) {
-          generatedKaizens.push({
-            title: `[VSM Simülasyon] ${p.name} Süpermarket & Ara Stok (WIP: ${p.inventoryBefore} ad) Düşürme`,
-            description: `${p.name} öncesinde ${p.inventoryBefore} adet yığılmış ara stok bulunmaktadır. Kanban/Pull akış çekme sistemi kurulmalıdır.`,
-            type: "Süpermarket / Pull",
-            status: "New Idea",
-            originator: "VSM Simülasyon Motoru",
-            department: "Lojistik / Malzeme",
-            priority: "High",
-            factory_id: factoryId
-          });
-        }
-
-        // 6. High Downtime
-        if (p.downtimeMinutes > 15) {
-          generatedKaizens.push({
-            title: `[VSM Simülasyon] ${p.name} TPM Otonom Bakım & Arıza Duruş Önleme`,
-            description: `${p.name} makinesinde günlük ${p.downtimeMinutes} dk arıza/plansız duruş yaşanmaktadır. TPM Otonom ve Kestirimci Bakım devreye alınmalı.`,
-            type: "TPM Bakım",
-            status: "New Idea",
-            originator: "VSM Simülasyon Motoru",
-            department: "Bakım Onarım",
-            priority: "High",
-            factory_id: factoryId
-          });
-        }
-      });
-
-      // Re-running the transfer must not duplicate cards: skip titles that already exist for this customer.
-      const existingRes = await fetch("/api/business/kaizens", {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || ""}`,
-          "x-factory-id": factoryId
-        }
-      }).then(r => r.json()).catch(() => null);
-      const existingTitles = new Set(((existingRes && existingRes.data) || []).map((k: any) => k.title));
-
-      let count = 0;
-      for (const k of generatedKaizens.filter(k => !existingTitles.has(k.title))) {
-        await fetch("/api/business/kaizens", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || ""}`,
-            "x-factory-id": factoryId
-          },
-          body: JSON.stringify(k)
-        });
-        count++;
-      }
-
-      // Tell App.tsx to re-fetch kaizens so the new cards show up in CI Proje Yönetimi immediately.
-      window.dispatchEvent(new CustomEvent("gemba:refresh-factory-data"));
-
-      const skipped = generatedKaizens.length - count;
-      alert(`${count} iyileştirme konusu CI Proje Yönetimi'ne aktarıldı.${skipped > 0 ? ` ${skipped} konu zaten aktarılmıştı, tekrar eklenmedi.` : ""}`);
-    } catch (err: any) {
-      alert("CI Proje Yönetimine aktarım esnasında bir hata oluştu: " + err.message);
-    }
-  };
+  // (VSM → CI: kaizen bursts reach CI through the opportunity pool — utils/ciOpportunityPool.ts vsmOpportunities.)
 
   // --- CANVAS INTERACTIVE NAV HANDLERS ---
   const handleZoomIn = () => setZoom(z => Math.min(2.5, z + 0.1));
@@ -1351,7 +1228,6 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
     dashboardData,
     simulationComparison,
     workforceAnalysis,
-    handleSyncToCiProjects,
     handleZoomIn,
     handleZoomOut,
     handleZoomReset,

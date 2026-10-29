@@ -14,7 +14,7 @@ import {
 import { buildCiDigests, ciDigestText } from "../../utils/ciReminders.js";
 
 import {
-  lossOpportunities, costOpportunities, opexOpportunities, kaizenOpportunities, ptrOpportunities, markConverted
+  lossOpportunities, costOpportunities, opexOpportunities, kaizenOpportunities, ptrOpportunities, vsmOpportunities, markConverted
 } from "../../utils/ciOpportunityPool.js";
 import { displayProjectNo } from "../../utils/ciProject.js";
 
@@ -343,14 +343,14 @@ export function registerCiRoutes(app: express.Express, deps: CiRouteDeps) {
     const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
     if (!scope.allowed || !scope.factoryId || isKaizenSession(user)) return deny(res);
     const org = user.organization_id, fid = scope.factoryId;
-    const [projects, loss, processes, assessments, questions, categories, suggestions, ptr] = await Promise.all([
+    const [projects, loss, processes, assessments, questions, categories, suggestions, ptr, vsmProjects] = await Promise.all([
       db.getKaizens(org, fid), db.getCiLossSnapshot(org, fid), db.getProcesses(org, fid),
       db.getOpexAssessments(org, fid), db.getOpexQuestions(org), db.getOpexCategories(org),
-      db.getKaizenRecords("kaizen_suggestions", org, fid), db.getPtrRecords(org, fid)
+      db.getKaizenRecords("kaizen_suggestions", org, fid), db.getPtrRecords(org, fid), db.getVsmProjects(org, fid)
     ]);
     const items = [
       ...lossOpportunities(loss), ...costOpportunities(processes), ...opexOpportunities(assessments, questions, categories),
-      ...kaizenOpportunities(suggestions), ...ptrOpportunities(ptr)
+      ...kaizenOpportunities(suggestions), ...ptrOpportunities(ptr), ...vsmOpportunities(vsmProjects)
     ];
     res.json({
       success: true,

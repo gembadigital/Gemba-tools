@@ -140,10 +140,12 @@ export function normalizeVsmProjectInput(body: any): VsmInputResult {
           map: b.map === "current" ? "current" : "future",
           status: ["Açık", "Devam ediyor", "Tamamlandı"].includes(b.status) ? b.status : "Açık"
         };
-        for (const [k, n] of [["description", MAX_TEXT], ["processId", 80], ["metric", 60], ["target", 160], ["owner", 100], ["dueDate", 20], ["loop", 60], ["ciProjectId", 80], ["createdBy", 80]] as [string, number][]) {
+        for (const [k, n] of [["description", MAX_TEXT], ["processId", 80], ["metric", 60], ["target", 160], ["owner", 100], ["dueDate", 20], ["startDate", 20], ["loop", 60], ["ciProjectId", 80], ["createdBy", 80]] as [string, number][]) {
           const v = text(b[k], n);
           if (v !== undefined) out[k] = v;
         }
+        const progress = cleanNumber(b.progress);
+        if (progress !== undefined) out.progress = Math.min(100, progress);
         return out;
       });
   }

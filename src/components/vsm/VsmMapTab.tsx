@@ -47,7 +47,7 @@ const optionalNumber = (raw: string): number | undefined => (raw.trim() === "" ?
 const infoLabel = (frequency?: string, channel?: string) => [frequency, channel].filter(Boolean).join(" · ");
 
 export default function VsmMapTab() {
-  const { mapLayout, handlePointerDown, handlePointerMove, handlePointerUp, handleWheelZoom, handleZoomFit, endStocks, pitchTime, valueAddedSeconds, selectedCustomer, factorySetup, simulationMode, zoom, pan, isPanning, isFullScreen, vsmBrightMode, setVsmBrightMode, canvasContainerRef, companyCurrency, weeklyDemand, dailyDemand, monthlyDemand, taktTime, processesWithTimeline, vsmGraphEdges, vsmGraphLayout, isFlowLinear, vsmCriticalPath, flow, totalLeadTimeDays, totalProcessingTimeSeconds, valueAddedRatio, vsmLaneSummaries, count, averageOee, averageCapacityUtilization, totalOperators, totalMachines, bottleneckProcess, highestDowntimeProcess, highestInventoryProcess, lowestOeeProcess, estimatedAnnualWasteCost, simulationComparison, handleSyncToCiProjects, handleZoomIn, handleZoomOut, handleZoomReset, handleMouseDown, handleMouseMove, handleMouseUp, handleOpenProcessDrawer } = useVsm();
+  const { mapLayout, handlePointerDown, handlePointerMove, handlePointerUp, handleWheelZoom, handleZoomFit, endStocks, pitchTime, valueAddedSeconds, selectedCustomer, factorySetup, simulationMode, zoom, pan, isPanning, isFullScreen, vsmBrightMode, setVsmBrightMode, canvasContainerRef, companyCurrency, weeklyDemand, dailyDemand, monthlyDemand, taktTime, processesWithTimeline, vsmGraphEdges, vsmGraphLayout, isFlowLinear, vsmCriticalPath, flow, totalLeadTimeDays, totalProcessingTimeSeconds, valueAddedRatio, vsmLaneSummaries, count, averageOee, averageCapacityUtilization, totalOperators, totalMachines, bottleneckProcess, highestDowntimeProcess, highestInventoryProcess, lowestOeeProcess, estimatedAnnualWasteCost, simulationComparison, handleZoomIn, handleZoomOut, handleZoomReset, handleMouseDown, handleMouseMove, handleMouseUp, handleOpenProcessDrawer } = useVsm();
   // Production control sends the schedule to every process (push) or only to the pacemaker.
   const receivesSchedule = (processId: string) =>
     factorySetup.scheduleMode !== "pacemaker" || !factorySetup.pacemakerProcessId || factorySetup.pacemakerProcessId === processId;
@@ -81,14 +81,9 @@ export default function VsmMapTab() {
                   <span className="text-slate-500 text-[10px] uppercase font-mono">Tahmini Yıllık Tasarruf</span>
                   <span className="text-amber-700 font-extrabold text-sm font-mono">{companyCurrency}{simulationComparison.costSavings.toLocaleString()}</span>
                 </div>
-                <button
-                  onClick={handleSyncToCiProjects}
-                  className="ml-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl transition shadow-xs flex items-center space-x-1.5 cursor-pointer"
-                  title="VSM simülasyonundaki dar boğazları CI Proje Yönetimine aktar"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>CI Proje Yönetimine Aktar</span>
-                </button>
+                <span className="ml-2 text-[11px] text-amber-800 max-w-[220px]">
+                  Kaizen patlamaları CI Proje Yönetimi'nde "VSM kaizen" fırsatı olarak görünür (Gelecek Durum sekmesi).
+                </span>
               </div>
             </div>
           )}

@@ -226,7 +226,7 @@ export default function CiNewProject(props: Props) {
                         <button key={o.id} type="button" disabled={locked} onClick={() => pick(o)} aria-pressed={selected}
                           className={`text-left rounded-2xl p-4 ring-1 transition-all flex flex-col gap-2 ${locked ? "bg-slate-50 ring-slate-200 opacity-70 cursor-not-allowed" : selected ? "bg-emerald-50 ring-2 ring-emerald-500 cursor-pointer" : "bg-white ring-slate-200 hover:ring-slate-300 hover:shadow-sm cursor-pointer"}`}>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <Pill tone={o.source === "loss" ? "blue" : o.source === "opex" ? "violet" : o.source === "kaizen" ? "amber" : o.source === "ptr" ? "red" : "slate"}>{CI_OPPORTUNITY_SOURCES[o.source].label}</Pill>
+                            <Pill tone={o.source === "loss" ? "blue" : o.source === "opex" ? "violet" : o.source === "kaizen" ? "amber" : o.source === "ptr" ? "red" : o.source === "vsm" ? "emerald" : "slate"}>{CI_OPPORTUNITY_SOURCES[o.source].label}</Pill>
                             {o.priority === "High" && <Pill tone="red">Öncelikli</Pill>}
                             {selected && <Check className="w-4 h-4 text-emerald-600 ml-auto" />}
                           </div>
