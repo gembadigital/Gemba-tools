@@ -143,6 +143,27 @@ export interface VsmFactorySetup {
   finishedGoodsQty?: number;      // finished goods stock before shipping (pieces)
   finishedGoodsType?: VsmInventoryType;
   weeksPerYear?: number;          // annualization (customer VSM setting at project creation); 52 when absent
+  suppliers?: VsmSupplier[];      // up to 3 key raw-material suppliers; the single supplier* fields mirror the first
+}
+
+export const VSM_MAX_SUPPLIERS = 3;
+
+export interface VsmSupplier {
+  name: string;
+  material?: string;
+  delivery?: string;    // e.g. "Haftada 2"
+  batch?: string;
+  leadTime?: string;    // e.g. "5 gün"
+  logistics?: string;   // e.g. "Kamyon"
+}
+
+// The project's suppliers: the list when entered, else the older single supplier fields (if any).
+export function suppliersOf(s: Partial<VsmFactorySetup>): VsmSupplier[] {
+  if (Array.isArray(s.suppliers) && s.suppliers.length) return s.suppliers.slice(0, VSM_MAX_SUPPLIERS);
+  if (s.supplierName || s.supplierMaterial || s.supplierDelivery || s.supplierLeadTime) {
+    return [{ name: s.supplierName || "", material: s.supplierMaterial, delivery: s.supplierDelivery, batch: s.supplierBatch, leadTime: s.supplierLeadTime, logistics: s.supplierLogistics }];
+  }
+  return [];
 }
 
 export const VSM_ORDER_TYPES = ["MTS (stoğa üretim)", "MTO (siparişe üretim)", "ATO (siparişe montaj)"];

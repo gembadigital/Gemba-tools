@@ -1,7 +1,7 @@
 // VSM — export / import dialog (plan step V8): multi-page PDF report, Excel workbook, map PNG, and the
 // Excel field data form (download, fill on the floor, upload).
 import React, { useRef } from "react";
-import { Share2, Loader2, FileText, FileSpreadsheet, Image as ImageIcon, Download, Upload } from "lucide-react";
+import { Share2, Loader2, FileText, FileSpreadsheet, Image as ImageIcon, Download, Upload, Printer } from "lucide-react";
 import { useVsm } from "./VsmContext";
 
 const Option = ({ icon, color, title, note, onClick }: { icon: React.ReactNode; color: string; title: string; note: string; onClick: () => void }) => (
@@ -39,10 +39,13 @@ export default function VsmExportModal() {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <Option icon={<FileText className="w-5 h-5" />} color="bg-red-100 text-red-600" title="PDF Raporu"
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Option icon={<FileText className="w-5 h-5" />} color="bg-red-100 text-red-600" title="PDF Raporu (hızlı indirme)"
                   note="Özet, mevcut (ve varsa gelecek) harita, proses verileri, göstergeler, norm kadro, ürün ailesi."
                   onClick={() => handleTriggerExport("PDF Report")} />
+                <Option icon={<Printer className="w-5 h-5" />} color="bg-amber-100 text-amber-700" title="Yazdır / PDF (seçilebilir metin)"
+                  note="Aynı rapor tarayıcının yazdırma penceresinde açılır; 'PDF olarak kaydet' ile metni seçilebilir PDF."
+                  onClick={() => handleTriggerExport("Print PDF")} />
                 <Option icon={<FileSpreadsheet className="w-5 h-5" />} color="bg-emerald-100 text-emerald-600" title="Excel Çalışma Kitabı"
                   note="Proje, mevcut/gelecek durum, zaman çizelgesi, göstergeler, norm kadro, ürün matrisi."
                   onClick={() => handleTriggerExport("Excel")} />
@@ -72,7 +75,7 @@ export default function VsmExportModal() {
               </div>
 
               <p className="text-[10px] text-slate-400">
-                PDF sayfaları görüntü olarak üretilir (Türkçe karakterler korunur, metin seçilemez).
+                "PDF Raporu" sayfaları görüntü olarak iner (metin seçilemez). Metni seçilebilir PDF için "Yazdır / PDF"i kullanın.
               </p>
             </>
           )}

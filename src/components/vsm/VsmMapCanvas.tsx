@@ -7,6 +7,7 @@ import React from "react";
 import { Settings } from "lucide-react";
 import { useVsm } from "./VsmContext";
 import { MAP, infoPath } from "./vsmMapLayout";
+import { suppliersOf } from "./vsmTypes";
 import type { VsmInventoryType, VsmProcess } from "./vsmTypes";
 
 type Tl = VsmProcess & { inventoryDays: number };
@@ -215,6 +216,7 @@ export default function VsmMapCanvas() {
   const blue = bright ? "#0284c7" : "#38bdf8";
   const lineY = L.lineY;
   const s = factorySetup;
+  const suppliers = suppliersOf(s);
 
   const supplierCx = MAP.supplierX + MAP.boxW / 2;
   const planningCx = L.planning.x + L.planning.w / 2;
@@ -296,12 +298,24 @@ export default function VsmMapCanvas() {
 
         {/* SUPPLIER → (truck) → raw material → first process */}
         <path d={`M ${rawCx},250 L ${rawCx},${sourceY - 74}`} fill="none" stroke={green} strokeWidth="2.5" strokeDasharray="6,4" markerEnd="url(#supplier-arrow)" />
-        <Truck x={rawCx + 6} y={268} label={s.supplierDelivery || undefined} bright={bright} />
+        <Truck x={rawCx + 6} y={268} label={suppliers.map(x => x.delivery).filter(Boolean).join(" / ") || undefined} bright={bright} />
         {s.rawMaterialQty
           ? <Triangle cx={rawCx} y={sourceY - 72} label="I" qty={s.rawMaterialQty} days={endStocks.rawDays} bright={bright} />
           : <text x={rawCx} y={sourceY - 40} textAnchor="middle" fontSize="10" fill={bright ? "#94a3b8" : "#64748b"} fontFamily="ui-monospace, monospace">hammadde —</text>}
         {first && isFlowLinear && <MaterialLink x1={rawCx + 26} x2={L.stockZoneX(0)} y={sourceY} type="pile" bright={bright} />}
-        {first && !isFlowLinear && <MaterialLink x1={rawCx + 26} x2={firstPos.x} y={sourceY} type="pile" bright={bright} />}
+        {!isFlowLinear && procs.map((p, i) => {
+          // Every process without a predecessor (start of a parallel line) is fed from raw material.
+          if ((vsmGraphLayout.predecessors.get(p.id) || []).length > 0) return null;
+          const pos = posOf(p, i);
+          const y = pos.y + 110;
+          if (y === sourceY) return <MaterialLink key={`raw-${p.id}`} x1={rawCx + 26} x2={pos.x} y={y} type="pile" bright={bright} />;
+          return (
+            <g key={`raw-${p.id}`}>
+              <path d={`M ${rawCx},${sourceY + 40} L ${rawCx},${y} L ${pos.x - 14},${y}`} fill="none" stroke={blue} strokeWidth="3" />
+              <polygon points={`${pos.x - 14},${y - 9} ${pos.x},${y} ${pos.x - 14},${y + 9}`} fill={blue} />
+            </g>
+          );
+        })}
 
         {/* LINEAR FLOW: stock zone in front of each process + material link drawn by its stock type */}
         {isFlowLinear && procs.map((p, i) => (
@@ -476,33 +490,18 @@ export default function VsmMapCanvas() {
                       <path d="M3 21h18M3 10l4-4h10l4 4M5 10v11M19 10v11M12 10v11" />
                     </svg>
                   </div>
-                  <div>
-                    <h3 className="text-xs font-black tracking-wide uppercase">TEDARİKÇİ</h3>
-                    <p className={`text-[10px] ${vsmBrightMode ? 'text-slate-500' : 'text-slate-400'} truncate max-w-[160px]`}>{factorySetup.supplierName || "—"}</p>
-                  </div>
+                  <h3 className="text-xs font-black tracking-wide uppercase">{suppliers.length > 1 ? "TEDARİKÇİLER" : "TEDARİKÇİ"}</h3>
                 </div>
-
-                <div className="space-y-1.5 text-[11px] font-mono">
-                  <div className="flex justify-between">
-                    <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Malzeme Rejimi:</span>
-                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{factorySetup.supplierMaterial || "—"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Sevk Sıklığı:</span>
-                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{factorySetup.supplierDelivery || "—"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Parti Büyüklüğü:</span>
-                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{factorySetup.supplierBatch || "—"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Tedarik Temin:</span>
-                    <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{factorySetup.supplierLeadTime || "—"}</span>
-                  </div>
-                  <div className={`flex justify-between border-t ${vsmBrightMode ? 'border-slate-100' : 'border-slate-800'} pt-1.5 mt-1.5`}>
-                    <span className={vsmBrightMode ? 'text-slate-500 font-bold' : 'text-slate-400 font-bold'}>Lojistik Yöntemi:</span>
-                    <span className="font-bold text-emerald-600 dark:text-emerald-400 text-xs">{factorySetup.supplierLogistics || "—"}</span>
-                  </div>
+                <div className="space-y-2 text-[11px] font-mono">
+                  {suppliers.length === 0 && <div className={vsmBrightMode ? "text-slate-400" : "text-slate-500"}>—</div>}
+                  {suppliers.map((sup, i) => (
+                    <div key={i} className={i > 0 ? `border-t ${vsmBrightMode ? "border-slate-100" : "border-slate-800"} pt-1.5` : ""}>
+                      <div className={`font-bold truncate ${vsmBrightMode ? "text-slate-800" : "text-slate-200"}`}>{sup.name || "—"}{sup.material ? ` · ${sup.material}` : ""}</div>
+                      <div className={`truncate ${vsmBrightMode ? "text-slate-500" : "text-slate-400"}`}>
+                        {[sup.delivery, sup.leadTime && `temin ${sup.leadTime}`, sup.logistics].filter(Boolean).join(" · ") || "—"}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 

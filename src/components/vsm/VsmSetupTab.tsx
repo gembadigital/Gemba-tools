@@ -40,6 +40,7 @@ import { jsPDF } from "jspdf";
 
 import { useVsm } from "./VsmContext";
 import VsmSetupDetails from "./VsmSetupDetails";
+import VsmSuppliersEditor from "./VsmSuppliersEditor";
 
 const optionalNumber = (raw: string): number | undefined => (raw.trim() === "" ? undefined : Number(raw));
 
@@ -290,62 +291,9 @@ export default function VsmSetupTab() {
 
             {/* MAP BOXES — TEDARİKÇİ & ÜRETİM PLANLAMA (shown on the VSM map exactly as entered) */}
             <div className="pt-4 border-t border-slate-100 space-y-3">
-              <h3 className="text-xs font-extrabold uppercase text-slate-800 font-mono tracking-wider">Harita Kutuları: Tedarikçi &amp; Üretim Planlama</h3>
+              <h3 className="text-xs font-extrabold uppercase text-slate-800 font-mono tracking-wider">Harita Kutuları: Tedarikçiler &amp; Üretim Planlama</h3>
+              <VsmSuppliersEditor />
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 block">Tedarikçi Adı</label>
-                  <input
-                    type="text"
-                    value={factorySetup.supplierName}
-                    onChange={e => setFactorySetup(p => ({ ...p, supplierName: e.target.value }))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-950 outline-hidden"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 block">Malzeme</label>
-                  <input
-                    type="text"
-                    value={factorySetup.supplierMaterial}
-                    onChange={e => setFactorySetup(p => ({ ...p, supplierMaterial: e.target.value }))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-950 outline-hidden"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 block">Tedarikçi Sevk Sıklığı</label>
-                  <input
-                    type="text"
-                    value={factorySetup.supplierDelivery}
-                    onChange={e => setFactorySetup(p => ({ ...p, supplierDelivery: e.target.value }))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-950 outline-hidden"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 block">Parti Büyüklüğü</label>
-                  <input
-                    type="text"
-                    value={factorySetup.supplierBatch}
-                    onChange={e => setFactorySetup(p => ({ ...p, supplierBatch: e.target.value }))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-950 outline-hidden"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 block">Tedarik Temin Süresi</label>
-                  <input
-                    type="text"
-                    value={factorySetup.supplierLeadTime}
-                    onChange={e => setFactorySetup(p => ({ ...p, supplierLeadTime: e.target.value }))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-950 outline-hidden"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-500 block">Lojistik Yöntemi</label>
-                  <input
-                    type="text"
-                    value={factorySetup.supplierLogistics}
-                    onChange={e => setFactorySetup(p => ({ ...p, supplierLogistics: e.target.value }))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-950 outline-hidden"
-                  />
-                </div>
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-500 block">Planlama Sistemi (MRP/ERP/Excel…)</label>
                   <input

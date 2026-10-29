@@ -6,6 +6,7 @@ import React from "react";
 import { useVsm } from "./VsmContext";
 import { suggestFamilies } from "./vsmProductMatrix";
 import { VSM_DESIGN_QUESTIONS } from "./vsmFuture";
+import { suppliersOf } from "./vsmTypes";
 
 const PAGE_W = 1123;
 const PAGE_H = 794;
@@ -100,7 +101,8 @@ export default function VsmReportPages() {
           </div>
           <div className="border border-slate-200 rounded-xl p-3 space-y-1">
             <div className="font-black text-xs mb-1">Malzeme Akışı</div>
-            <div>Tedarikçi: {dash(s.supplierName)} · {dash(s.supplierDelivery)}</div>
+            {suppliersOf(s).length === 0 && <div>Tedarikçi: —</div>}
+            {suppliersOf(s).map((x, i) => <div key={i}>Tedarikçi {i + 1}: {dash(x.name)}{x.material ? ` (${x.material})` : ""} · {dash(x.delivery)}</div>)}
             <div>Hammadde: {fmt(s.rawMaterialQty)} adet ({endStocks.rawDays > 0 ? `${endStocks.rawDays} gün` : "—"}) · {stockLabel(s.rawMaterialType)}</div>
             <div>Mamul: {fmt(s.finishedGoodsQty)} adet ({endStocks.fgDays > 0 ? `${endStocks.fgDays} gün` : "—"}) · {stockLabel(s.finishedGoodsType)}</div>
             <div>Müşteriye sevk: {dash(s.shippingFrequency)} · {dash(s.customerShipmentBatch)}</div>

@@ -1,6 +1,7 @@
 // VSM Excel output (plan step V8): the full workbook (project, processes, future state, timeline,
 // indicators, workforce, product matrix) and the field data form with its reader. ExcelJS is loaded on
 // demand so it does not weigh on the VSM screens.
+import { suppliersOf } from "./vsmTypes";
 import type { VsmFactorySetup, VsmKaizenBurst, VsmProcess, VsmProductMatrix, VsmTeamMember } from "./vsmTypes";
 import { VSM_DESIGN_QUESTIONS } from "./vsmFuture";
 import type { VsmStateComparison, VsmTimelineProcess } from "./vsmCalc";
@@ -117,7 +118,7 @@ export async function buildVsmWorkbook(d: VsmWorkbookInput): Promise<Blob> {
     ["Planlama → Tedarikçi", [s.supplierOrderFrequency, s.supplierOrderChannel].filter(Boolean).join(" · ") || undefined],
     ["Çizelge", s.scheduleMode === "pacemaker" ? `Pacemaker: ${d.pacemakerName || "—"}` : "Her prosese"],
     ["Planlama sistemi", s.planningSystem], ["Planlama sıklığı", s.planningFrequency], ["Sıralama", s.planningSequencing], ["Üretim takvimi", s.planningCalendar],
-    ["Tedarikçi", s.supplierName], ["Malzeme", s.supplierMaterial], ["Tedarikçi sevk", s.supplierDelivery], ["Parti", s.supplierBatch], ["Temin süresi", s.supplierLeadTime], ["Lojistik", s.supplierLogistics],
+    ...suppliersOf(s).map((x, i) => [`Tedarikçi ${i + 1}`, [x.name, x.material, x.delivery, x.batch && `parti ${x.batch}`, x.leadTime && `temin ${x.leadTime}`, x.logistics].filter(Boolean).join(" · ")] as [string, CellValue]),
     ["Hammadde stoku (adet)", s.rawMaterialQty], ["Hammadde stok tipi", stockLabel(s.rawMaterialType)], ["Mamul stoku (adet)", s.finishedGoodsQty], ["Mamul stok tipi", stockLabel(s.finishedGoodsType)]
   ]);
 

@@ -75,7 +75,7 @@ export default function App() {
       dashboard: "Executive Dashboard",
       opexAssessment: "OpEx Assessment",
       plan: "Proje Master Plan",
-      vsm: "Değer Akış Haritalama (VSM)",
+      vsm: "VSM",
       lossAnalysis: "Loss Capacity Analizi",
       timestudy: "Çevrim Süresi Etüdü",
       balancing: "Hat Dengeleme & Yamazumi",
@@ -96,7 +96,7 @@ export default function App() {
       dashboard: "Executive Dashboard",
       opexAssessment: "OpEx Assessment",
       plan: "Project Master Plan",
-      vsm: "Value Stream Mapping (VSM)",
+      vsm: "VSM",
       lossAnalysis: "Loss Capacity Analysis",
       timestudy: "Cycle Time Study",
       balancing: "Line Balancing & Yamazumi",
@@ -117,7 +117,7 @@ export default function App() {
       dashboard: "Vorstands-Dashboard",
       opexAssessment: "OpEx-Bewertung",
       plan: "Projekt-Masterplan",
-      vsm: "Wertstromanalyse (VSM)",
+      vsm: "VSM",
       lossAnalysis: "Verlustkapazitätsanalyse",
       timestudy: "Zykluszeitstudie",
       balancing: "Linienabstimmung & Yamazumi",
@@ -830,7 +830,7 @@ export default function App() {
                 title="Değer Akış Haritalama (VSM)"
               >
                 <GitCommit className={`w-4 h-4 shrink-0 ${activeTab === "vsm" ? "text-white" : "text-slate-400"}`} />
-                {!effectivelyCollapsed && <span>Değer Akış Haritalama (VSM)</span>}
+                {!effectivelyCollapsed && <span>VSM</span>}
               </button>
               )}
 

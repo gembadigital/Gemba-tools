@@ -10,6 +10,7 @@ import {
   taktCheck, taktTimeOf, withInventoryDays
 } from "../../components/vsm/vsmCalc.js";
 import { effectiveFutureSetup } from "../../components/vsm/vsmFuture.js";
+import { suppliersOf } from "../../components/vsm/vsmTypes.js";
 
 export interface VsmAiAnalysis {
   generatedAt: string;
@@ -62,6 +63,7 @@ export function buildVsmFacts(project: any, customerName: string, other: VsmOthe
       planningSystem: s.planningSystem || null,
       schedule: s.scheduleMode === "pacemaker" ? `pacemaker: ${stepName(s.pacemakerProcessId) ?? "?"}` : "her prosese"
     },
+    suppliers: suppliersOf(s).map(x => ({ name: x.name, material: x.material ?? null, delivery: x.delivery ?? null, leadTime: x.leadTime ?? null })),
     endStocks: { rawMaterial: s.rawMaterialQty ?? null, rawDays: ends.rawDays, finishedGoods: s.finishedGoodsQty ?? null, fgDays: ends.fgDays },
     currentState: {
       leadTimeDays: curFlow.leadTimeDays, valueAddedSec: curFlow.processingSeconds, pcePct: Math.round(curFlow.pcePct * 1000) / 1000,

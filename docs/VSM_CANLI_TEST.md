@@ -156,3 +156,12 @@ Görünüm değişmedi; aşağıdakiler hesap tutarlılığı ve düzeltilen hat
 | 10.2 | Danışman ile proje listesi → Ayarlar: OEE hedefi 85, stok günü uyarısı 2, yılda 48 hafta → Kaydet. | Kaydedilir; Customer User'da Ayarlar düğmesi yok. |
 | 10.3 | Bir projenin haritasını açın. | OEE'si 85 altındaki prosesler turuncu; 2 günü aşan stok günleri kırmızı. |
 | 10.4 | Yeni proje açın. | Kurulum'da ayarlardaki varsayılanlar; yıllık kayıp 48 haftayla hesaplanır. |
+
+## Geri bildirim düzeltmeleri (2026-10-29)
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| F.1 | Sol menü. | "VSM" (tek satır, sığar); üzerine gelince tam ad. |
+| F.2 | Kurulum → Harita Kutuları → 2–3 tedarikçi ekleyin, Kaydet, haritaya bakın. | Tedarikçi kutusunda hepsi (ad · malzeme, sevk · temin · lojistik); kamyonda sevk sıklıkları. Excel "Proje" sayfasında ve PDF özetinde de görünür. |
+| F.3 | Proses çekmecesinde "sonraki proses" ile A → Montaj, B → C → Montaj kurun. | Paralel şeritler; hammadde hem A hem B'nin başına bağlı; hat özeti ve kritik yol. |
+| F.4 | Dışa Aktar → "Yazdır / PDF (seçilebilir metin)" → hedef "PDF olarak kaydet". | A4 yatay sayfalar; PDF'te metin seçilebilir ve aranabilir, Türkçe karakterler doğru. |

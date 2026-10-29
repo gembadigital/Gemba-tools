@@ -236,6 +236,16 @@ export function normalizeVsmProjectInput(body: any): VsmInputResult {
         fs[k] = v.slice(0, 200);
       }
     }
+    // Up to three supplier rows of short text (the only list inside factorySetup).
+    if (fs.suppliers !== undefined) {
+      fs.suppliers = Array.isArray(fs.suppliers)
+        ? fs.suppliers.slice(0, 3).filter((x: any) => x && typeof x === "object").map((x: any) => {
+            const o: Record<string, string> = {};
+            for (const k of ["name", "material", "delivery", "batch", "leadTime", "logistics"]) if (x[k]) o[k] = String(x[k]).slice(0, 120);
+            return o;
+          })
+        : [];
+    }
     project.factorySetup = fs;
   }
   return { ok: true, project };

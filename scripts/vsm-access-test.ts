@@ -106,3 +106,12 @@ assert.deepEqual(normalizeVsmSettings(null), DEFAULT_VSM_SETTINGS);
 const st = normalizeVsmSettings({ defaultWorkingDays: 6, weeksPerYear: 48, oeeTarget: 150, wipDaysWarning: "3", extra: 1 });
 assert.deepEqual([st.defaultWorkingDays, st.weeksPerYear, st.oeeTarget, st.wipDaysWarning, (st as any).extra], [6, 48, 0, 3, undefined]);
 console.log("vsm-access-test: V10 checks passed");
+
+// suppliers (up to 3)
+import { suppliersOf } from "../src/components/vsm/vsmTypes.js";
+const sp = normalizeVsmProjectInput({ name: "x", factorySetup: { suppliers: [{ name: "A", material: "Sac", junk: 1 }, { name: "B" }, { name: "C" }, { name: "D" }, "bad"] } });
+assert.equal(sp.ok, true);
+if (sp.ok) assert.deepEqual(sp.project.factorySetup.suppliers, [{ name: "A", material: "Sac" }, { name: "B" }, { name: "C" }]);
+assert.deepEqual(suppliersOf({ supplierName: "Eski", supplierDelivery: "Haftalık" } as any).map(x => [x.name, x.delivery]), [["Eski", "Haftalık"]]);
+assert.deepEqual(suppliersOf({} as any), []);
+console.log("vsm-access-test: supplier checks passed");

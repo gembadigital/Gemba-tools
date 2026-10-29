@@ -728,8 +728,10 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
 
   useEffect(() => {
     if (activeTab !== "vsm" || !selectedProject) return;
-    const t = setTimeout(handleZoomFit, 60);
-    return () => clearTimeout(t);
+    // once right away and once after the stage has its final size (tab switch / data load)
+    const t1 = setTimeout(handleZoomFit, 60);
+    const t2 = setTimeout(handleZoomFit, 450);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
     // refit when another project / tab opens or the map changes size
   }, [activeTab, selectedProject?.id, mapLayout.width, mapLayout.height]);
 
@@ -912,6 +914,32 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
     };
   };
 
+  // Selectable-text PDF: the report pages are copied, with the page's stylesheets, into a hidden iframe
+  // and the browser's print dialog opens ("PDF olarak kaydet"). Text stays text; maps stay images.
+  const printReportPages = async () => {
+    const pages = document.getElementById("vsm_report_pages");
+    if (!pages) throw new Error("Rapor sayfaları oluşturulamadı");
+    const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).map(n => n.outerHTML).join("\n");
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    Object.assign(frame.style, { position: "fixed", right: "0", bottom: "0", width: "0", height: "0", border: "0" });
+    document.body.appendChild(frame);
+    const doc = frame.contentDocument!;
+    doc.open();
+    doc.write(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>${(selectedProject?.name || "VSM").replace(/</g, "")}</title>${styles}
+      <style>@page { size: A4 landscape; margin: 0; } html, body { margin: 0; background: #fff; }
+      .vsm-report-page { width: 297mm !important; height: 210mm !important; overflow: hidden; break-after: page; page-break-after: always; box-sizing: border-box; }
+      .vsm-report-page:last-child { break-after: auto; page-break-after: auto; }
+      * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }</style></head>
+      <body>${pages.innerHTML}</body></html>`);
+    doc.close();
+    // let stylesheets, fonts and map images load before printing
+    await new Promise(resolve => setTimeout(resolve, 800));
+    frame.contentWindow!.focus();
+    frame.contentWindow!.print();
+    setTimeout(() => frame.remove(), 60000);
+  };
+
   const handleTriggerExport = async (format: string) => {
     const modeBefore = simulationMode;
     setExportStatus(format === "Excel" ? "Excel dosyası hazırlanıyor…" : format === "Saha Formu" ? "Saha formu hazırlanıyor…" : "Harita görüntüsü hazırlanıyor…");
@@ -926,6 +954,14 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
         link.setAttribute("download", `${exportBaseName()}_${simulationMode === "future" ? "Gelecek" : "Mevcut"}.png`);
         link.setAttribute("href", canvas.toDataURL("image/png", 1.0));
         link.click();
+      } else if (format === "Print PDF") {
+        const current = (await captureMapIn("current")).toDataURL("image/png", 1.0);
+        const future = futureProcesses !== null ? (await captureMapIn("future")).toDataURL("image/png", 1.0) : undefined;
+        setSimulationMode(modeBefore);
+        setExportStatus("Yazdırma görünümü hazırlanıyor…");
+        setReportImages({ current, future });
+        await wait(600);
+        await printReportPages();
       } else if (format === "PDF Report") {
         // Current map always; the future map only when the simulation has changes.
         const current = (await captureMapIn("current")).toDataURL("image/png", 1.0);
@@ -949,7 +985,7 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
       console.error("VSM export error:", err);
     } finally {
       setReportImages(null);
-      if (format === "PDF Report") setSimulationMode(modeBefore);
+      if (format === "PDF Report" || format === "Print PDF") setSimulationMode(modeBefore);
       setExportStatus(null);
       setExportModalOpen(false);
     }

@@ -566,3 +566,19 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 V0–V10 ve V12 kodda tamamlandı; V11 (ayırma) bilinçli olarak bekliyor. Hiçbiri canlıda uçtan uca denenmedi — canlı test
 listesi `VSM_CANLI_TEST.md`. Açık kalanlar: birden fazla tedarikçi kutusu; PDF metni görüntü (seçilemez); tam EN/DE çevirisi;
 Loss Capacity ekranının kendi sabit varsayılanları (ayrı iş).
+
+### Kullanıcı geri bildirimi sonrası (2026-10-29)
+- **Menü adı** kısa "VSM" (sığmıyordu); tam ad "Değer Akış Haritalama (VSM)" ipucu ve yönetim listesinde.
+- **Birden fazla tedarikçi:** Kurulum → Harita Kutuları'nda en fazla 3 hammadde tedarikçisi (ad, malzeme, sevk sıklığı,
+  parti, temin süresi, lojistik); haritadaki kutu hepsini listeler, kamyon etiketi sevk sıklıklarını birleştirir. İlk
+  tedarikçi eski tekli alanlara da yazılır (eski kayıtlar ve dışa aktarımlar çalışır). Excel, PDF ve yapay zekâ özeti
+  tüm tedarikçileri içerir; sunucu listeyi 3 satıra ve kısa metne kırpar.
+- **Paralel akış** (sonraki proses seçimi, şeritler, kritik yol) çalışıyor; düzeltme: dallanan akışta hammadde artık
+  yalnızca ilk prosese değil, öncülü olmayan **her** hattın başına bağlanıyor.
+- **Seçilebilir metinli PDF:** Dışa Aktar → "Yazdır / PDF (seçilebilir metin)": aynı rapor sayfaları stilleriyle gizli bir
+  çerçevede tarayıcının yazdırma penceresinde açılır, "PDF olarak kaydet" metni seçilebilir/aranabilir PDF verir (haritalar
+  görüntü). Eski "PDF Raporu" hızlı indirme (görüntü) olarak kaldı. Sunucu tarafı (Chromium) PDF gerekirse OpEx raporunun
+  altyapısıyla ayrıca yapılabilir.
+- Harita açılışında otomatik sığdırma, yerleşim tamamlandıktan sonra bir kez daha çalışır.
+- Loss Capacity sabit varsayılanları ayrı oturumda temizlendi (`3285d09`, `docs/LOSS_CANLI_TEST.md`).
+- Çeviri (EN/DE) sonraya bırakıldı.
