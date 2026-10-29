@@ -1,7 +1,8 @@
 // VSM Excel output (plan step V8): the full workbook (project, processes, future state, timeline,
 // indicators, workforce, product matrix) and the field data form with its reader. ExcelJS is loaded on
 // demand so it does not weigh on the VSM screens.
-import type { VsmFactorySetup, VsmProcess, VsmProductMatrix, VsmTeamMember } from "./vsmTypes";
+import type { VsmFactorySetup, VsmKaizenBurst, VsmProcess, VsmProductMatrix, VsmTeamMember } from "./vsmTypes";
+import { VSM_DESIGN_QUESTIONS } from "./vsmFuture";
 import type { VsmStateComparison, VsmTimelineProcess } from "./vsmCalc";
 import type { VsmFamily } from "./vsmProductMatrix";
 import { CellValue, VSM_PROCESS_COLUMNS, VSM_SETUP_FIELDS, processToRow } from "./vsmExcel";
@@ -79,6 +80,9 @@ export interface VsmWorkbookInput {
   matrix: VsmProductMatrix;
   families: VsmFamily[];
   pacemakerName?: string;
+  bursts?: VsmKaizenBurst[];
+  designAnswers?: Record<string, string>;
+  processName?: (map: "current" | "future", id?: string) => string;
 }
 
 const yesNo = (b?: boolean) => (b ? "Evet" : "Hayır");
@@ -166,7 +170,18 @@ export async function buildVsmWorkbook(d: VsmWorkbookInput): Promise<Blob> {
   addTable(ws5, 1, ["Proses", "Mevcut", "Gerekli", "Fark"], d.workforce.perProcess.map(p => [p.name, p.mevcut, p.gerekli, p.fark]), [28, 12, 12, 12]);
   addKeyValues(ws5, "Toplam", [["Yöntem", d.workforce.method], ["Mevcut", d.workforce.totalMevcut], ["Gerekli", d.workforce.totalGerekli], ["Fark", d.workforce.surplus]]);
 
-  // 6. Ürün matrisi
+  // 6. Gelecek durum tasarımı ve kaizen patlamaları
+  const answers = VSM_DESIGN_QUESTIONS.filter(q => (d.designAnswers?.[q.key] || "").trim());
+  if ((d.bursts && d.bursts.length) || answers.length) {
+    const ws7 = wb.addWorksheet("Kaizen Patlamaları");
+    addTable(ws7, 1, ["#", "Kaizen", "Harita", "Adım", "Etki alanı", "Hedef", "Döngü", "Sorumlu", "Termin", "Durum", "Açıklama"],
+      (d.bursts || []).map((b, i) => [`K${i + 1}`, b.title, b.map === "future" ? "Gelecek" : "Mevcut", d.processName?.(b.map, b.processId) ?? b.processId,
+        b.metric, b.target, b.loop, b.owner, b.dueDate, b.status || "Açık", b.description]),
+      [6, 28, 10, 20, 18, 22, 18, 16, 12, 12, 40]);
+    if (answers.length) addKeyValues(ws7, "Gelecek durum tasarım soruları", answers.map(q => [q.question, d.designAnswers![q.key]] as [string, CellValue]));
+  }
+
+  // 7. Ürün matrisi
   if (d.matrix.products.length > 0) {
     const ws6 = wb.addWorksheet("Ürün Matrisi");
     const chosen = new Set(d.matrix.familyProductIds || []);

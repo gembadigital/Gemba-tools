@@ -5,6 +5,7 @@
 // Pure functions, no React — tested by scripts/vsm-calc-test.ts.
 import type { VsmFactorySetup, VsmProcess } from "./vsmTypes";
 import { buildProcessGraph, computeCriticalPath, computeGraphLayout } from "./vsmGraph";
+import { futureCounterpart } from "./vsmFuture";
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -204,30 +205,31 @@ export function compareStates(
   current: VsmProcess[],
   future: VsmProcess[],
   dailyDemand: number,
-  setup: VsmFactorySetup
+  setup: VsmFactorySetup,
+  futureSetup: VsmFactorySetup = setup   // future map's own stocks (V5); defaults to the current setup
 ) {
   const demand = demandOf(setup);
   const currT = withInventoryDays(current, dailyDemand);
   const futT = withInventoryDays(future, dailyDemand);
-  const ends = endStockDays(setup, dailyDemand);
-  const currFlow = flowSummary(currT, ends);
-  const futFlow = flowSummary(futT, ends);
+  const currFlow = flowSummary(currT, endStockDays(setup, dailyDemand));
+  const futFlow = flowSummary(futT, endStockDays(futureSetup, dailyDemand));
   const avg = (list: VsmProcess[], f: (p: VsmProcess) => number) => (list.length > 0 ? round1(sum(list, f) / list.length) : 0);
 
   const currBottleneck = bottleneckOf(current);
   const futBottleneck = bottleneckOf(future);
   const currCost = annualWasteCost(current, setup, demand.workDaysPerYear);
-  const futCost = annualWasteCost(future, setup, demand.workDaysPerYear);
+  const futCost = annualWasteCost(future, futureSetup, demand.workDaysPerYear);
 
   const currOperators = sum(current, p => p.operatorCount);
   const futOperators = sum(future, p => p.operatorCount);
   const currCap = sum(current, p => p.capacity);
   const futCap = sum(future, p => p.capacity);
 
-  const perProcess = (f: (p: VsmProcess) => number) => current.map((p, idx) => ({
+  // Per-process comparison follows ids (a merged future step stands for every process it absorbed).
+  const perProcess = (f: (p: VsmProcess) => number) => current.map(p => ({
     name: p.name,
     Mevcut: f(p),
-    Gelecek: f(future[idx] || p)
+    Gelecek: f(futureCounterpart(p, future) || p)
   }));
 
   // CT balance (Yamazumi-style): lightest ÷ busiest station; 100% = perfectly balanced.
@@ -238,8 +240,8 @@ export function compareStates(
 
   // CI themes: each meaningful Current → Future delta per process counts as one theme.
   const kaizenThemes: { process: string; theme: string; detail: string }[] = [];
-  current.forEach((p, idx) => {
-    const f = future[idx];
+  current.forEach(p => {
+    const f = futureCounterpart(p, future);
     if (!f) return;
     const currDays = dailyDemand > 0 ? p.inventoryBefore / dailyDemand : 0;
     const futDays = dailyDemand > 0 ? f.inventoryBefore / dailyDemand : 0;

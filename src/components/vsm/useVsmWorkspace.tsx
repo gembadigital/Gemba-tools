@@ -28,9 +28,10 @@ import {
   Cell as RechartsCell
 } from "recharts";
 import { ProcessRecord, Customer } from "../../types";
-import { VsmUserLike, canDeleteVsmProcess, canDeleteVsmProject } from "../../utils/vsmAccess";
-import type { VsmConnectionType, VsmFactorySetup, VsmProcess, VsmProductMatrix, VsmTeamMember } from "./vsmTypes";
-import { emptyFactorySetup, normalizeVsmProject } from "./vsmNormalize";
+import { VsmUserLike, canDeleteVsmBurst, canDeleteVsmProcess, canDeleteVsmProject } from "../../utils/vsmAccess";
+import type { VsmConnectionType, VsmFactorySetup, VsmKaizenBurst, VsmProcess, VsmProductMatrix, VsmTeamMember } from "./vsmTypes";
+import { emptyFactorySetup, normalizeVsmProcess, normalizeVsmProject } from "./vsmNormalize";
+import { copyForFuture, effectiveFutureSetup, mergeProcesses } from "./vsmFuture";
 import { buildFieldForm, buildVsmWorkbook, downloadBlob, readFieldForm, safeFileName, VsmWorkbookInput } from "./vsmExport";
 import { mergeImportedRows, setupPatchFromRows } from "./vsmExcel";
 import { suggestFamilies } from "./vsmProductMatrix";
@@ -81,7 +82,7 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
   
   // --- PRIMARY TABS STATE ---
   const [vsmProcesses, setVsmProcesses] = useState<VsmProcess[]>([]);
-  const [activeTab, setActiveTab] = useState<"setup" | "family" | "definition" | "production" | "quality" | "vsm" | "dashboard">("vsm");
+  const [activeTab, setActiveTab] = useState<"setup" | "family" | "definition" | "production" | "quality" | "vsm" | "futureDesign" | "dashboard">("vsm");
   
   // A new project starts empty: no demand, cost or partner names are invented (see vsmNormalize.ts).
   const [factorySetup, setFactorySetup] = useState<VsmFactorySetup>(emptyFactorySetup);
@@ -248,11 +249,17 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
       setTeam(n.team);
       setProductMatrix(n.productMatrix);
 
-      if (project.simulationEdits) {
-        setSimulationEdits(project.simulationEdits);
-      } else {
-        setSimulationEdits({});
-      }
+      // Older projects kept the future as an overlay of edits; it becomes the future copy on read.
+      const legacyEdits = project.simulationEdits && Object.keys(project.simulationEdits).length ? project.simulationEdits : null;
+      setSimulationEdits({});
+      setFutureProcesses(
+        project.futureState?.processes?.length
+          ? project.futureState.processes.map(normalizeVsmProcess)
+          : legacyEdits ? copyForFuture(n.processes, legacyEdits) : null
+      );
+      setFutureSetup(project.futureState?.setup || {});
+      setDesignAnswers(project.futureState?.designAnswers || {});
+      setKaizenBursts(Array.isArray(project.kaizenBursts) ? project.kaizenBursts : []);
 
       if (project.simulationMode) {
         setSimulationMode(project.simulationMode);
@@ -338,10 +345,14 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
       ...selectedProject,
       factorySetup,
       vsmProcesses,
-      simulationEdits,
+      simulationEdits: {},
       simulationMode,
       team,
-      productMatrix
+      productMatrix,
+      futureState: futureProcesses
+        ? { processes: futureProcesses, setup: futureSetup, designAnswers, createdAt: selectedProject.futureState?.createdAt || new Date().toISOString() }
+        : null,
+      kaizenBursts
     };
 
     fetch("/api/business/vsm-projects", {
@@ -359,6 +370,7 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
         setProjects(prev => prev.map(p => p.id === data.data.id ? data.data : p));
         setSelectedProject(data.data);
         if (Array.isArray(data.data.vsmProcesses)) setVsmProcesses(data.data.vsmProcesses);
+        if (Array.isArray(data.data.kaizenBursts)) setKaizenBursts(data.data.kaizenBursts);
         // Use the fresh server response's id, not `selectedProject` — React state setters are
         // async, so `selectedProject` in this closure is still the pre-save value here (a real
         // stale-closure bug: a brand-new project's very first save would otherwise sync with an
@@ -380,6 +392,12 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
   // Simulation Mode (Current vs Future)
   const [simulationMode, setSimulationMode] = useState<"current" | "future">("current");
   const [simulationEdits, setSimulationEdits] = useState<Record<string, Partial<VsmProcess>>>({});
+  // Future state map (V5): its own copy of the processes (null until created), the setup values that
+  // differ in the future, the design-question answers, and the kaizen bursts of both maps.
+  const [futureProcesses, setFutureProcesses] = useState<VsmProcess[] | null>(null);
+  const [futureSetup, setFutureSetup] = useState<Partial<VsmFactorySetup>>({});
+  const [designAnswers, setDesignAnswers] = useState<Record<string, string>>({});
+  const [kaizenBursts, setKaizenBursts] = useState<VsmKaizenBurst[]>([]);
 
   // Canvas View Controls
   const [zoom, setZoom] = useState<number>(1);
@@ -435,8 +453,8 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
   // overlay. `activeProcesses` is whichever of the two the map is showing.
   const currentProcessesCalculated = useMemo(() => computeAll(vsmProcesses), [vsmProcesses]);
   const futureProcessesCalculated = useMemo(
-    () => computeAll(applySimulation(vsmProcesses, simulationEdits)),
-    [vsmProcesses, simulationEdits]
+    () => computeAll(futureProcesses ?? vsmProcesses),
+    [vsmProcesses, futureProcesses]
   );
   const activeProcesses = simulationMode === "future" ? futureProcessesCalculated : currentProcessesCalculated;
 
@@ -465,8 +483,12 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
   const vsmCriticalPath = { totalDays: vsmLeadTime.totalDays, criticalPathIds: vsmLeadTime.criticalPathIds };
   // Raw material / finished goods stocks (Kurulum) count in lead time as days of demand.
   const endStocks = useMemo(() => endStockDays(factorySetup, dailyDemand), [factorySetup, dailyDemand]);
+  // The setup the map is drawn with: the future map's own stocks / schedule point in future mode.
+  const futureFullSetup = useMemo(() => effectiveFutureSetup(factorySetup, futureSetup), [factorySetup, futureSetup]);
+  const mapSetup = simulationMode === "future" ? futureFullSetup : factorySetup;
+  const mapEndStocks = useMemo(() => endStockDays(mapSetup, dailyDemand), [mapSetup, dailyDemand]);
   const pitchTime = pitchOf(taktTime, factorySetup.packSize);
-  const flow = useMemo(() => flowSummary(processesWithTimeline, endStocks), [processesWithTimeline, endStocks]);
+  const flow = useMemo(() => flowSummary(processesWithTimeline, mapEndStocks), [processesWithTimeline, mapEndStocks]);
 
   const totalWip = flow.totalWip;
   const totalLeadTimeDays = flow.leadTimeDays;
@@ -523,12 +545,12 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
 
   // --- CURRENT VS FUTURE ---
   const dashboardData = useMemo(
-    () => compareStates(currentProcessesCalculated, futureProcessesCalculated, dailyDemand, factorySetup),
-    [currentProcessesCalculated, futureProcessesCalculated, dailyDemand, factorySetup]
+    () => compareStates(currentProcessesCalculated, futureProcessesCalculated, dailyDemand, factorySetup, futureFullSetup),
+    [currentProcessesCalculated, futureProcessesCalculated, dailyDemand, factorySetup, futureFullSetup]
   );
   const simulationComparison = useMemo(
-    () => simulationDeltas(dashboardData, Object.keys(simulationEdits).length > 0),
-    [dashboardData, simulationEdits]
+    () => simulationDeltas(dashboardData, futureProcesses !== null),
+    [dashboardData, futureProcesses]
   );
 
   // --- İŞ GÜCÜ ANALİZİ (NORM KADRO) — current state only ---
@@ -777,63 +799,76 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
   // improvement) so the dashboard can show a real before/after. This must route edits to exactly
   // ONE of the two stores depending on which mode is active — never both, or Future edits would
   // silently overwrite the Current baseline and destroy the comparison.
+  const updateInList = (list: VsmProcess[], id: string, field: keyof VsmProcess, value: any): VsmProcess[] =>
+    list.map(p => {
+      if (p.id !== id) return p;
+      if (field === "shifts") {
+        const numShifts = Number(value) || 1;
+        const hours = p.shiftHours || [];
+        const shiftHours = Array.from({ length: numShifts }, (_, i) => (hours[i] !== undefined ? hours[i] : 8));
+        return { ...p, shifts: numShifts, shiftHours, workingHours: shiftHours.reduce((a, h) => a + h, 0) };
+      }
+      if (field === "shiftHours") {
+        const shiftHours = value as number[];
+        return { ...p, shiftHours, workingHours: shiftHours.reduce((a, h) => a + h, 0) };
+      }
+      return { ...p, [field]: value };
+    });
+
+  // Current mode edits the as-is data; future mode edits the future map's own copy (created on the first
+  // future edit), so the current baseline is never touched by a simulation.
   const handleUpdateProcessField = (id: string, field: keyof VsmProcess, value: any) => {
     if (simulationMode === "current") {
-      // Editing the actual as-is factory data — this IS the baseline, write it directly.
-      setVsmProcesses(prev =>
-        prev.map(p => {
-          if (p.id !== id) return p;
-          if (field === "shifts") {
-            const numShifts = Number(value) || 1;
-            const currentShiftHours = p.shiftHours || [];
-            const newShiftHours = Array.from({ length: numShifts }, (_, idx) =>
-              currentShiftHours[idx] !== undefined ? currentShiftHours[idx] : 8
-            );
-            const totalHours = newShiftHours.reduce((sum, h) => sum + h, 0);
-            return { ...p, shifts: numShifts, shiftHours: newShiftHours, workingHours: totalHours };
-          } else if (field === "shiftHours") {
-            const hoursArray = value as number[];
-            const totalHours = hoursArray.reduce((sum, h) => sum + h, 0);
-            return { ...p, shiftHours: hoursArray, workingHours: totalHours };
-          } else {
-            return { ...p, [field]: value };
-          }
-        })
-      );
+      setVsmProcesses(prev => updateInList(prev, id, field, value));
     } else {
-      // Future simulation — record as an overlay edit only. vsmProcesses (Current) is never
-      // touched here, so switching back to Current always shows the untouched original data.
-      setSimulationEdits(prev => {
-        const currentEdit = prev[id] || {};
-        let updatedEdit = { ...currentEdit, [field]: value };
-        if (field === "shifts") {
-          const numShifts = Number(value) || 1;
-          const currentShiftHours = (currentEdit.shiftHours || []) as number[];
-          const newShiftHours = Array.from({ length: numShifts }, (_, idx) =>
-            currentShiftHours[idx] !== undefined ? currentShiftHours[idx] : 8
-          );
-          const totalHours = newShiftHours.reduce((sum, h) => sum + h, 0);
-          updatedEdit = {
-            ...updatedEdit,
-            shifts: numShifts,
-            shiftHours: newShiftHours,
-            workingHours: totalHours
-          };
-        } else if (field === "shiftHours") {
-          const hoursArray = value as number[];
-          const totalHours = hoursArray.reduce((sum, h) => sum + h, 0);
-          updatedEdit = {
-            ...updatedEdit,
-            shiftHours: hoursArray,
-            workingHours: totalHours
-          };
-        }
-        return {
-          ...prev,
-          [id]: updatedEdit
-        };
-      });
+      setFutureProcesses(prev => updateInList(prev ?? copyForFuture(vsmProcesses), id, field, value));
     }
+  };
+
+  // Gelecek Durum tab: always edits the future copy, whatever the map's current mode.
+  const handleUpdateFutureProcessField = (id: string, field: keyof VsmProcess, value: any) =>
+    setFutureProcesses(prev => updateInList(prev ?? copyForFuture(vsmProcesses), id, field, value));
+  const handleAddFutureProcess = () => {
+    const shifts = factorySetup.shiftsPerDay || 1;
+    const hours = factorySetup.shiftDuration || 8;
+    setFutureProcesses(prev => [...(prev ?? copyForFuture(vsmProcesses)), {
+      id: `proc-${Date.now().toString(36)}`, name: "YENİ ADIM", type: "Manual", productionModel: "Other", machineCount: 0, operatorCount: 0,
+      shifts, shiftHours: Array.from({ length: shifts }, () => hours), workingHours: shifts * hours, cycleTime: 0, oee: 0, availability: 0,
+      performance: 0, quality: 0, capacity: 0, downtimeMinutes: 0, inventoryBefore: 0, isKanbanEnabled: false, isSupermarket: false,
+      notes: "", kaizenOpp: "", createdBy: currentUser?.id
+    }]);
+  };
+  const handleDeleteFutureProcess = (id: string) =>
+    setFutureProcesses(prev => (prev ?? copyForFuture(vsmProcesses)).filter(p => p.id !== id));
+
+  const handleCreateFuture = () => {
+    setFutureProcesses(prev => prev ?? copyForFuture(vsmProcesses));
+  };
+
+  const handleResetFuture = () => {
+    if (!window.confirm("Gelecek durum haritası silinip mevcut durumun yeni bir kopyasıyla yeniden başlatılsın mı? (Kaydedince kalıcı olur.)")) return;
+    setFutureProcesses(copyForFuture(vsmProcesses));
+    setFutureSetup({});
+  };
+
+  // Continuous flow: combine adjacent future processes into one step.
+  const handleMergeFutureProcesses = (ids: string[]) => {
+    const r = mergeProcesses(futureProcesses ?? copyForFuture(vsmProcesses), ids, currentUser?.id);
+    if (r.error) { alert(r.error); return; }
+    setFutureProcesses(r.list);
+    setKaizenBursts(prev => prev.map(b => (b.map === "future" && b.processId && ids.includes(b.processId) ? { ...b, processId: r.mergedId } : b)));
+  };
+
+  const handleSetFutureSetup = (patch: Partial<VsmFactorySetup>) => setFutureSetup(prev => ({ ...prev, ...patch }));
+
+  // Kaizen bursts
+  const handleSaveBurst = (burst: VsmKaizenBurst) => {
+    setKaizenBursts(prev => (prev.some(b => b.id === burst.id) ? prev.map(b => (b.id === burst.id ? burst : b)) : [...prev, { ...burst, createdBy: burst.createdBy ?? currentUser?.id }]));
+  };
+  const handleDeleteBurst = (id: string) => {
+    const b = kaizenBursts.find(x => x.id === id);
+    if (!canDeleteVsmBurst(currentUser, b)) { alert("Yalnızca kendi eklediğiniz kaizen patlamalarını silebilirsiniz."); return; }
+    setKaizenBursts(prev => prev.filter(x => x.id !== id));
   };
 
   // --- GRAPH RELATIONSHIP EDITING (Sonraki Proses / Next Process) ---
@@ -902,7 +937,7 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
       team,
       current: currentT,
       future: withInventoryDays(futureProcessesCalculated, dailyDemand),
-      hasFuture: Object.keys(simulationEdits).length > 0,
+      hasFuture: futureProcesses !== null,
       comparison: dashboardData,
       figures: {
         dailyDemand,
@@ -920,7 +955,10 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
       workforce: { ...workforceAnalysis, method: workforceMethod === "takt" ? "Takt bazlı" : "Kapasite bazlı" },
       matrix: productMatrix,
       families: suggestFamilies(productMatrix),
-      pacemakerName: vsmProcesses.find(p => p.id === factorySetup.pacemakerProcessId)?.name
+      pacemakerName: vsmProcesses.find(p => p.id === factorySetup.pacemakerProcessId)?.name,
+      bursts: kaizenBursts,
+      designAnswers,
+      processName: (map, id) => (map === "future" ? futureProcessesCalculated : vsmProcesses).find(p => p.id === id)?.name ?? "—"
     };
   };
 
@@ -941,7 +979,7 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
       } else if (format === "PDF Report") {
         // Current map always; the future map only when the simulation has changes.
         const current = (await captureMapIn("current")).toDataURL("image/png", 1.0);
-        const future = Object.keys(simulationEdits).length > 0 ? (await captureMapIn("future")).toDataURL("image/png", 1.0) : undefined;
+        const future = futureProcesses !== null ? (await captureMapIn("future")).toDataURL("image/png", 1.0) : undefined;
         setSimulationMode(modeBefore);
         setExportStatus("PDF sayfaları oluşturuluyor…");
         setReportImages({ current, future });
@@ -1025,10 +1063,16 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
       kaizenOpp: "",
       createdBy: currentUser?.id
     };
-    setVsmProcesses(prev => [...prev, newProcess]);
+    if (simulationMode === "future") setFutureProcesses(prev => [...(prev ?? copyForFuture(vsmProcesses)), newProcess]);
+    else setVsmProcesses(prev => [...prev, newProcess]);
   };
 
   const handleDeleteProcess = (id: string) => {
+    // The future map is a design copy: removing a step there deletes no entered data.
+    if (simulationMode === "future") {
+      setFutureProcesses(prev => (prev ?? copyForFuture(vsmProcesses)).filter(p => p.id !== id));
+      return;
+    }
     const target = vsmProcesses.find(p => p.id === id);
     if (!canDeleteVsmProcess(currentUser, target)) {
       alert("Yalnızca kendi eklediğiniz prosesleri silebilirsiniz.");
@@ -1165,6 +1209,23 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
 
 
   return {
+    handleUpdateFutureProcessField,
+    handleAddFutureProcess,
+    handleDeleteFutureProcess,
+    futureProcesses,
+    futureSetup,
+    futureFullSetup,
+    mapSetup,
+    mapEndStocks,
+    designAnswers,
+    setDesignAnswers,
+    kaizenBursts,
+    handleCreateFuture,
+    handleResetFuture,
+    handleMergeFutureProcesses,
+    handleSetFutureSetup,
+    handleSaveBurst,
+    handleDeleteBurst,
     mapLayout,
     handlePointerDown,
     handlePointerMove,

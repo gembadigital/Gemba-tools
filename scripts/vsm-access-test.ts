@@ -62,3 +62,26 @@ if (v2.ok) {
   assert.equal(v2.project.productMatrix.similarityPct, 100);
 }
 console.log("vsm-access-test: V2 checks passed");
+
+// V5: future state + kaizen bursts
+import { canDeleteVsmBurst, forbiddenBurstRemovals, stampBurstOwners } from "../src/utils/vsmAccess.js";
+const v5 = normalizeVsmProjectInput({
+  name: "Hat 3",
+  futureState: { processes: [{ id: "f1", name: "A + B", cycleTime: 55, mergedFrom: ["a", "b"] }], setup: { rawMaterialQty: 200, pacemakerProcessId: "f1", bad: { x: 1 } }, designAnswers: { takt: "66 sn" } },
+  kaizenBursts: [{ id: "k1", title: "SMED", map: "future", processId: "f1", status: "x", createdBy: "hacker" }, { id: "k2", title: "  " }]
+});
+assert.equal(v5.ok, true);
+if (v5.ok) {
+  assert.deepEqual(v5.project.futureState.processes[0].mergedFrom, ["a", "b"]);
+  assert.equal(v5.project.futureState.setup.rawMaterialQty, 200);
+  assert.equal(v5.project.futureState.setup.bad, undefined);
+  assert.equal(v5.project.kaizenBursts.length, 1, "untitled burst dropped");
+  assert.equal(v5.project.kaizenBursts[0].status, "Açık");
+}
+const bursts = [{ id: "k1", title: "SMED", createdBy: "u2" }, { id: "k2", title: "TPM", createdBy: "u1" }];
+assert.equal(canDeleteVsmBurst(cu, bursts[0]), false);
+assert.deepEqual(forbiddenBurstRemovals(cu, bursts, [bursts[1]]), ["SMED"]);
+assert.deepEqual(forbiddenBurstRemovals(cu, bursts, [bursts[0]]), []);
+const sb = stampBurstOwners(bursts, [{ id: "k1", title: "SMED", createdBy: "u1" }, { id: "k3", title: "Yeni" }], "u1");
+assert.deepEqual(sb.map(b => b.createdBy), ["u2", "u1"]);
+console.log("vsm-access-test: V5 checks passed");

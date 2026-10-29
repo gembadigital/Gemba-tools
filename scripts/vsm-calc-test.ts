@@ -139,3 +139,23 @@ assert.equal(costsEntered({}), false);
 assert.equal(costsEntered({ scrapUnitCost: 5 }), true);
 assert.equal(formatMoney(391350.4, "₺"), "391.350 ₺");
 console.log("vsm-calc-test: V4 checks passed");
+
+// --- V5: future state copy and merge
+import { copyForFuture, futureCounterpart, mergeProcesses } from "../src/components/vsm/vsmFuture.js";
+const cur = [proc("a", { cycleTime: 30, operatorCount: 1, inventoryBefore: 100, nextProcessIds: ["b"] }), proc("b", { cycleTime: 25, operatorCount: 1, inventoryBefore: 50, nextProcessIds: ["c"], actualQuantity: 400 }), proc("c", { cycleTime: 40, inventoryBefore: 20 })];
+const fut = copyForFuture(cur, { c: { cycleTime: 35 } });
+assert.equal(fut[2].cycleTime, 35);
+assert.equal(cur[2].cycleTime, 40, "copy does not touch the current state");
+const mg = mergeProcesses(fut, ["a", "b"], "u1");
+assert.equal(mg.error, undefined);
+assert.equal(mg.list.length, 2);
+assert.deepEqual([mg.list[0].name, mg.list[0].cycleTime, mg.list[0].operatorCount, mg.list[0].inventoryBefore, mg.list[0].actualQuantity], ["A + B", 55, 2, 100, 400]);
+assert.deepEqual(mg.list[0].mergedFrom, ["a", "b"]);
+assert.deepEqual(mg.list[0].nextProcessIds, ["c"]);
+assert.equal(futureCounterpart(cur[1], mg.list)?.id, mg.mergedId);
+assert.ok(mergeProcesses(fut, ["a", "c"]).error, "non-adjacent merge refused");
+assert.ok(mergeProcesses(fut, ["a"]).error);
+// merging a merged step keeps the original ids
+const m2 = mergeProcesses(mg.list, [mg.mergedId!, "c"]);
+assert.deepEqual(m2.list[0].mergedFrom, ["a", "b", "c"]);
+console.log("vsm-calc-test: V5 checks passed");

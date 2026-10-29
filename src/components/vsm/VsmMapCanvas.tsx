@@ -108,7 +108,7 @@ function StockZone({ x, lineY, p, bright }: { x: number; lineY: number; p: Tl; b
 // ---------- process card (same look as before + C/O and batch row, pacemaker badge) ----------
 
 function ProcessCard({ p, style, graphBadge }: { p: Tl; style: React.CSSProperties; graphBadge?: boolean }) {
-  const { vsmBrightMode, bottleneckProcess, highestDowntimeProcess, lowestOeeProcess, vsmCriticalPath, handleOpenProcessDrawer, factorySetup } = useVsm();
+  const { vsmBrightMode, bottleneckProcess, highestDowntimeProcess, lowestOeeProcess, vsmCriticalPath, handleOpenProcessDrawer, mapSetup: factorySetup } = useVsm();
   const isBottleneck = p.id === bottleneckProcess?.id;
   const isHighDowntime = p.id === highestDowntimeProcess?.id;
   const isLowOee = p.id === lowestOeeProcess?.id;
@@ -138,6 +138,7 @@ function ProcessCard({ p, style, graphBadge }: { p: Tl; style: React.CSSProperti
         <span className="text-[10px] font-black tracking-wider truncate uppercase">{p.name}</span>
         <span className="flex items-center gap-1 shrink-0">
           {isPacemaker && <span className="text-[9px] font-black bg-indigo-600 text-white px-1 rounded">PACEMAKER</span>}
+          {!!p.mergedFrom?.length && p.mergedFrom.length > 1 && <span className="text-[9px] font-black bg-emerald-600 text-white px-1 rounded" title="Birleştirilmiş adım (sürekli akış)">AKIŞ</span>}
           <span className={`text-[11px] font-mono ${vsmBrightMode ? "bg-slate-200 text-slate-700" : "bg-slate-800 text-slate-300"} px-1.5 rounded font-extrabold uppercase`}>
             {p.type === "Manual" ? "MNL" : "OTO"}
           </span>
@@ -200,7 +201,8 @@ function ProcessCard({ p, style, graphBadge }: { p: Tl; style: React.CSSProperti
 
 export default function VsmMapCanvas() {
   const {
-    vsmBrightMode, mapLayout: L, processesWithTimeline, isFlowLinear, vsmGraphEdges, vsmGraphLayout, factorySetup, endStocks,
+    vsmBrightMode, mapLayout: L, processesWithTimeline, isFlowLinear, vsmGraphEdges, vsmGraphLayout, mapSetup: factorySetup, mapEndStocks: endStocks,
+    kaizenBursts, simulationMode,
     valueAddedSeconds, totalLeadTimeDays, totalProcessingTimeSeconds, valueAddedRatio, vsmLaneSummaries,
     selectedCustomer, dailyDemand, weeklyDemand, monthlyDemand, taktTime, pitchTime
   } = useVsm();
@@ -508,6 +510,30 @@ export default function VsmMapCanvas() {
         const pos = posOf(p, i);
         return <ProcessCard key={p.id} p={p} style={{ left: pos.x, top: pos.y }} graphBadge={!isFlowLinear} />;
       })}
+
+      {/* KAIZEN BURSTS of this map, pinned above the process they belong to */}
+      {(() => {
+        const mine = kaizenBursts.filter(b => b.map === simulationMode && b.processId);
+        const perProcess = new Map<string, number>();
+        return mine.map(b => {
+          const idx = procs.findIndex(p => p.id === b.processId);
+          if (idx < 0) return null;
+          const pos = posOf(procs[idx], idx);
+          const k = perProcess.get(b.processId!) ?? 0;
+          perProcess.set(b.processId!, k + 1);
+          const no = kaizenBursts.indexOf(b) + 1;
+          return (
+            <div key={b.id} className="absolute z-20 flex items-center gap-1 pointer-events-none" style={{ left: pos.x + 120 - k * 30, top: pos.y - 46 }} title={b.title}>
+              <svg width="40" height="40" viewBox="0 0 40 40">
+                <polygon points="20,1 24,12 35,6 29,16 39,20 29,24 35,34 24,28 20,39 16,28 5,34 11,24 1,20 11,16 5,6 16,12"
+                  fill={b.status === "Tamamlandı" ? "#bbf7d0" : "#fde047"} stroke="#dc2626" strokeWidth="2" />
+                <text x="20" y="24" textAnchor="middle" fontSize="11" fontWeight="900" fill="#991b1b" fontFamily="ui-monospace, monospace">K{no}</text>
+              </svg>
+              {k === 0 && <span className="text-[10px] font-black text-red-700 bg-white/90 border border-red-200 rounded px-1 max-w-[150px] truncate">{b.title}</span>}
+            </div>
+          );
+        });
+      })()}
 
       {/* GRAPH MODE: per-lane lead time summary (critical path highlighted) */}
       {!isFlowLinear && (

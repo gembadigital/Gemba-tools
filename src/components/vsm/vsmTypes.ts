@@ -83,6 +83,7 @@ export interface VsmProcess {
   transportTime?: number;       // minutes of transport / handling to the next process (shown, not in lead time)
   inventoryType?: VsmInventoryType;  // stock point before this process
   fifoMax?: number;             // FIFO lane maximum (pieces), when inventoryType = "fifo"
+  mergedFrom?: string[];        // future state: ids of the current-state processes combined into this one
 }
 
 export type VsmInventoryType = "pile" | "fifo" | "supermarket";
@@ -206,5 +207,39 @@ export interface VsmProject {
   dataSource?: VsmDataSourceRef;
   team?: VsmTeamMember[];
   productMatrix?: VsmProductMatrix;
+  futureState?: VsmFutureState;
+  kaizenBursts?: VsmKaizenBurst[];
   [key: string]: any;
+}
+
+// Future state map (plan step V5): its own copy of the processes, so steps can be merged, added or removed,
+// plus the setup values that differ in the future (stocks, schedule point, pack size) and the answers to
+// the future-state design questions.
+export interface VsmFutureState {
+  processes: VsmProcess[];
+  setup?: Partial<VsmFactorySetup>;
+  designAnswers?: Record<string, string>;
+  createdAt?: string;
+}
+
+export const VSM_BURST_STATUSES = ["Açık", "Devam ediyor", "Tamamlandı"] as const;
+export type VsmBurstStatus = typeof VSM_BURST_STATUSES[number];
+export const VSM_LOOPS = ["Pacemaker döngüsü", "Ek döngü", "Tedarikçi döngüsü", "Müşteri döngüsü"];
+export const VSM_BURST_METRICS = ["Çevrim süresi (C/T)", "Model değişim (C/O)", "Stok / WIP", "OEE / Uptime", "Hurda / Kalite", "Lead time", "Operatör", "Diğer"];
+
+// Kaizen burst: an improvement needed to reach the future state, pinned to a process on one of the maps.
+export interface VsmKaizenBurst {
+  id: string;
+  title: string;
+  description?: string;
+  map: "current" | "future";
+  processId?: string;
+  metric?: string;
+  target?: string;          // e.g. "C/O 45 → 15 dk"
+  owner?: string;
+  dueDate?: string;         // ISO date
+  loop?: string;
+  status?: VsmBurstStatus;
+  createdBy?: string;       // stamped by the server; a Customer User deletes only their own
+  ciProjectId?: string;     // set when a CI project was opened from it (V6)
 }

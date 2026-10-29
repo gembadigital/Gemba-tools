@@ -307,6 +307,7 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 | V8 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V8) | 39edc79 |
 | V3 | ✅ kod; yerel önizlemede (sahte API) masaüstü/telefon denendi, canlıda denenmedi (§V3) | 289bebb |
 | V4 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V4) | 1a3335a |
+| V5 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V5) | bkz. git log |
 
 ### V0 — yapılanlar
 - Sunucu: `src/server/vsm/vsmRoutes.ts` (uçlar `app.ts`'den taşındı), kurallar `src/utils/vsmAccess.ts` (istemci+sunucu
@@ -450,3 +451,24 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
   (`formatMoney`). Yıllık gün = çalışma günü × 52 (V0).
 - Motor: `taktCheck` (takt'ı aşan / talebi karşılamayan proses sayısı, darboğaz), `costsEntered`, `formatMoney` — testli.
 - Dashboard'da norm kadro bölümü ve hesaplanan özet aynen duruyor (özet V12'de yapay zekâ analizine dönüşecek).
+
+### V5 — yapılanlar
+- **Gelecek durum = ayrı kopya** (`vsmFuture.ts`, proje `futureState`): "Gelecek durum haritası oluştur" mevcut
+  prosesleri (aynı kimliklerle) kopyalar; gelecek moddaki her düzenleme kopyaya yazılır, mevcut durum değişmez. Eski
+  projelerdeki "simülasyon düzeltmeleri" okunurken kopyaya çevrilir (kayıtta `simulationEdits` boşaltılır).
+- **Yeni sekme "Gelecek Durum"** (`VsmFutureTab.tsx`): adım tablosu (ad, C/T, operatör, makine, önündeki stok, stok tipi,
+  kanban), **art arda adımları birleştirme** (sürekli akış: C/T / ideal C/T / VA / kadro toplanır, aradaki stok kalkar,
+  çıkış adetleri son adımdan; birleşik adım haritada "AKIŞ" rozetiyle), adım ekle / çıkar, "mevcuttan yeniden başlat".
+  Gelecek değerleri: hammadde / mamul stoku ve tipi, paket miktarı (pitch), çizelge noktası / pacemaker (boş = mevcut).
+- **Tasarım soruları:** 8 standart gelecek durum sorusu (takt, mamul süpermarketi, sürekli akış, çekme noktaları,
+  pacemaker, harmanlama, pitch, iyileştirmeler) — veriden ipucuyla, cevaplar projeye kaydedilir.
+- **Kaizen patlamaları:** başlık, harita (mevcut/gelecek), adım, etki alanı, hedef, döngü, sorumlu, termin, durum,
+  açıklama; haritada ilgili adımın üstünde yıldız sembolü "K1…" ve başlık. Birleştirilen adımlardaki patlamalar yeni adıma
+  taşınır. Sahiplik: Customer User yalnızca kendi eklediği patlamayı silebilir (sunucuda zorlanır).
+- **Karşılaştırma kimlik tabanlı:** gelecek adım sayısı farklı olabildiği için proses karşılaştırmaları kimliğe (ve
+  birleşik adımın `mergedFrom` listesine) göre yapılır; gelecek lead time / kayıp gelecek stoklarıyla hesaplanır.
+- **Çıktılar:** PDF'e "Gelecek Durum Tasarımı ve Kaizen Patlamaları" sayfası, Excel'e "Kaizen Patlamaları" sayfası.
+- **"Yalın şablon" kaldırılmış olarak kaldı** (V0). Gelecek kopyadaki adım silme/birleştirme sahiplik kuralına tabi
+  değildir: kopya bir tasarım senaryosudur, girilmiş veri silinmez.
+- Testler: birleştirme (komşuluk, mergedFrom, bağlantıların yeni adıma yönlenmesi), kopya, sunucu temizliği ve patlama
+  sahipliği. Yerel önizlemede 5 → 4 adım birleştirme, patlama ekleme, kayıt gövdesi ve gelecek harita kontrol edildi.

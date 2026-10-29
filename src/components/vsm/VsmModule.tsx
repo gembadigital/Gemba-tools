@@ -46,6 +46,7 @@ import { VsmContext } from "./VsmContext";
 import VsmProjectPortal from "./VsmProjectPortal";
 import VsmSetupTab from "./VsmSetupTab";
 import VsmProductMatrixTab from "./VsmProductMatrixTab";
+import VsmFutureTab from "./VsmFutureTab";
 import VsmReportPages from "./VsmReportPages";
 import VsmMobileProcessList from "./VsmMobileProcessList";
 import { Layers } from "lucide-react";
@@ -270,6 +271,18 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
             <GitCommit className="w-4 h-4" />
             <span>Değer Akış Şeması (Map)</span>
           </button>
+          <button
+            onClick={() => setActiveTab("futureDesign")}
+            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer shrink-0 whitespace-nowrap ${
+              activeTab === "futureDesign"
+                ? "bg-slate-950 text-white border-slate-950 shadow-sm"
+                : "bg-white text-slate-600 hover:text-slate-900 border-slate-200"
+            }`}
+          >
+            <Zap className="w-4 h-4" />
+            <span>Gelecek Durum</span>
+          </button>
+
 
           <button 
             onClick={() => setActiveTab("dashboard")}
@@ -296,6 +309,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
       {/* TAB 1 — FABRİKA KURULUMU */}
       {activeTab === "setup" && <VsmSetupTab />}
       {activeTab === "family" && <VsmProductMatrixTab />}
+      {activeTab === "futureDesign" && <VsmFutureTab />}
       {/* TAB 2 — PROSES TANIMLAMA */}
       {activeTab === "definition" && <><div className="hidden md:block"><VsmDefinitionTab /></div><div className="md:hidden"><VsmMobileProcessList /></div></>}
       {/* TAB 3 — ÜRETİM & KAPASİTE */}

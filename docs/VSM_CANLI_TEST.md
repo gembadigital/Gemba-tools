@@ -87,3 +87,15 @@ Görünüm değişmedi; aşağıdakiler hesap tutarlılığı ve düzeltilen hat
 | 4.3 | Haftalık talebi, bir prosesin C/T'si takt'ı aşacak kadar artırın. | Operatör dengesi grafiğinde o proses kırmızı, takt çizgisi görünür, "1 proses takt'ın üstünde". Kapasite tablosunda %100 altı kırmızı. |
 | 4.4 | Kurulum'da tüm birim maliyetleri 0 yapın. | Yıllık kayıp "—", not: "birim maliyet girilmedi". |
 | 4.5 | Proses karşılaştırma grafiğinde metrikleri değiştirin. | Grafik seçilen metriği gösterir (birimiyle). |
+
+## V5 — Gelecek durum haritası ve kaizen patlamaları
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| 5.1 | Gelecek Durum → "Gelecek durum haritası oluştur". | Mevcut adımların kopyası; mevcut durum değişmez. |
+| 5.2 | Art arda iki adımı seçip "birleştir". | Tek adım "A + B": C/T ve operatör toplamı, aradaki stok yok; haritada "AKIŞ" rozeti. Art arda olmayanları seçince uyarı. |
+| 5.3 | Stok tiplerini süpermarket / FIFO yapın, pacemaker seçin, mamul stoğunu düşürün; "Haritada göster". | Gelecek haritada çekme sembolleri, tek çizelge oku, yeni mamul günü; mevcut haritada eski hâli. |
+| 5.4 | 2 kaizen patlaması ekleyin (biri mevcut haritaya), Kaydet, yenileyin. | Patlamalar ilgili haritalarda adımın üstünde "K1/K2"; listede kalır. |
+| 5.5 | U2 (Customer User) U1'in patlamasını silmeyi denesin. | Sil düğmesi yok; kendi eklediğini silebilir. |
+| 5.6 | Dashboard ve PDF / Excel. | Gelecek değerler birleşik adıma göre; PDF'te tasarım soruları + patlamalar sayfası, Excel'de "Kaizen Patlamaları" sayfası. |
+| 5.7 | V5 öncesi "simülasyon" yapılmış bir proje açın. | Gelecek durum, o düzeltmelerle kopya olarak gelir; kaydedince kalıcı. |

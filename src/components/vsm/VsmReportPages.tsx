@@ -5,6 +5,7 @@
 import React from "react";
 import { useVsm } from "./VsmContext";
 import { suggestFamilies } from "./vsmProductMatrix";
+import { VSM_DESIGN_QUESTIONS } from "./vsmFuture";
 
 const PAGE_W = 1123;
 const PAGE_H = 794;
@@ -52,7 +53,7 @@ export default function VsmReportPages() {
   const {
     reportImages, selectedProject, selectedCustomer, factorySetup, team, taktTime, pitchTime, dailyDemand,
     currentProcessesCalculated, dashboardData, simulationComparison, workforceAnalysis, workforceMethod,
-    productMatrix, companyCurrency, endStocks, vsmProcesses
+    productMatrix, companyCurrency, endStocks, vsmProcesses, kaizenBursts, designAnswers, futureProcessesCalculated
   } = useVsm();
   if (!reportImages || !selectedProject) return null;
 
@@ -191,6 +192,37 @@ export default function VsmReportPages() {
       </div>
     )
   });
+
+  const answered = VSM_DESIGN_QUESTIONS.filter(q => (designAnswers[q.key] || "").trim());
+  if (kaizenBursts.length > 0 || answered.length > 0) {
+    const nameOf = (map: string, id?: string) => (map === "future" ? futureProcessesCalculated : vsmProcesses).find(p => p.id === id)?.name ?? "—";
+    pages.push({
+      title: "Gelecek Durum Tasarımı ve Kaizen Patlamaları",
+      body: (
+        <div className="grid grid-cols-2 gap-6">
+          <div className="space-y-2 text-[11px]">
+            <div className="text-xs font-black">Tasarım soruları</div>
+            {answered.length === 0 && <div className="text-slate-500">Cevaplanmadı.</div>}
+            {answered.map(q => (
+              <div key={q.key}><div className="font-bold">{q.question}</div><div className="text-slate-700 whitespace-pre-wrap">{designAnswers[q.key]}</div></div>
+            ))}
+          </div>
+          <table className="w-full border-collapse self-start">
+            <thead><tr>{["#", "Kaizen", "Adım", "Hedef", "Sorumlu", "Termin", "Durum"].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {kaizenBursts.slice(0, 22).map((b, i) => (
+                <tr key={b.id}>
+                  <td className={td}>K{i + 1}</td><td className={`${td} font-bold`}>{b.title}</td><td className={td}>{nameOf(b.map, b.processId)}</td>
+                  <td className={td}>{dash(b.target)}</td><td className={td}>{dash(b.owner)}</td><td className={td}>{dash(b.dueDate)}</td><td className={td}>{b.status || "Açık"}</td>
+                </tr>
+              ))}
+              {kaizenBursts.length === 0 && <tr><td className={td} colSpan={7}>Kaizen patlaması yok.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )
+    });
+  }
 
   if (productMatrix.products.length > 0) {
     const chosen = new Set(productMatrix.familyProductIds || []);

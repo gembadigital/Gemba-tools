@@ -28,6 +28,18 @@ export function canDeleteVsmProcess(u: VsmUserLike | null | undefined, process: 
   return !!process && !!u.id && process.createdBy === u.id;
 }
 
+export function canDeleteVsmBurst(u: VsmUserLike | null | undefined, burst: any): boolean {
+  if (!u) return false;
+  if (isVsmStaff(u)) return true;
+  return !!burst && !!u.id && burst.createdBy === u.id;
+}
+
+// Kaizen bursts present before but missing now that this user may not delete.
+export function forbiddenBurstRemovals(u: VsmUserLike | null | undefined, before: any[], after: any[]): string[] {
+  const kept = new Set((after || []).map(b => b?.id));
+  return (before || []).filter(b => b?.id && !kept.has(b.id) && !canDeleteVsmBurst(u, b)).map(b => String(b.title || b.id));
+}
+
 // Processes present in `before` but missing from `after` that this user may not delete.
 export function forbiddenProcessRemovals(u: VsmUserLike | null | undefined, before: any[], after: any[]): string[] {
   const kept = new Set((after || []).map(p => p?.id));
@@ -58,6 +70,7 @@ const PROCESS_NUMBER_FIELDS = [
 const INVENTORY_TYPES = ["pile", "fifo", "supermarket"];
 export const VSM_MAX_PRODUCTS = 300;
 export const VSM_MAX_TEAM = 40;
+export const VSM_MAX_BURSTS = 100;
 
 function cleanProcess(p: any): any {
   const out: any = { ...p };
@@ -91,6 +104,48 @@ export function normalizeVsmProjectInput(body: any): VsmInputResult {
     if (project.vsmProcesses.length > VSM_MAX_PROCESSES) return { ok: false, error: `En fazla ${VSM_MAX_PROCESSES} proses tanımlanabilir.` };
     project.vsmProcesses = project.vsmProcesses.map(cleanProcess);
     if (project.vsmProcesses.some((p: any) => !p.id)) return { ok: false, error: "Proses kimliği eksik." };
+  }
+  if (project.futureState !== undefined && project.futureState !== null) {
+    const fs = project.futureState;
+    if (typeof fs !== "object" || Array.isArray(fs) || !Array.isArray(fs.processes)) return { ok: false, error: "Gelecek durum geçersiz." };
+    if (fs.processes.length > VSM_MAX_PROCESSES) return { ok: false, error: `Gelecek durumda en fazla ${VSM_MAX_PROCESSES} proses olabilir.` };
+    const answers: Record<string, string> = {};
+    Object.entries(fs.designAnswers || {}).slice(0, 20).forEach(([k, v]) => { answers[String(k).slice(0, 40)] = String(v ?? "").slice(0, MAX_TEXT); });
+    const setup: Record<string, any> = {};
+    Object.entries(fs.setup || {}).slice(0, 40).forEach(([k, v]) => {
+      if (typeof v === "number") { const n = cleanNumber(v); if (n !== undefined) setup[k] = n; }
+      else if (typeof v === "string") setup[k] = v.slice(0, 200);
+    });
+    project.futureState = {
+      processes: fs.processes.map((p: any) => ({
+        ...cleanProcess(p),
+        ...(Array.isArray(p?.mergedFrom) ? { mergedFrom: p.mergedFrom.map(String).slice(0, VSM_MAX_PROCESSES) } : {})
+      })),
+      setup,
+      designAnswers: answers,
+      ...(fs.createdAt ? { createdAt: String(fs.createdAt).slice(0, 40) } : {})
+    };
+    if (project.futureState.processes.some((p: any) => !p.id)) return { ok: false, error: "Gelecek durum proses kimliği eksik." };
+  }
+  if (project.kaizenBursts !== undefined) {
+    if (!Array.isArray(project.kaizenBursts)) return { ok: false, error: "Kaizen patlamaları geçersiz." };
+    if (project.kaizenBursts.length > VSM_MAX_BURSTS) return { ok: false, error: `En fazla ${VSM_MAX_BURSTS} kaizen patlaması olabilir.` };
+    const text = (v: any, n: number) => (v === undefined || v === null || v === "" ? undefined : String(v).slice(0, n));
+    project.kaizenBursts = project.kaizenBursts
+      .filter((b: any) => b && typeof b === "object" && b.id && String(b.title ?? "").trim())
+      .map((b: any) => {
+        const out: any = {
+          id: String(b.id).slice(0, 80),
+          title: String(b.title).trim().slice(0, 160),
+          map: b.map === "current" ? "current" : "future",
+          status: ["Açık", "Devam ediyor", "Tamamlandı"].includes(b.status) ? b.status : "Açık"
+        };
+        for (const [k, n] of [["description", MAX_TEXT], ["processId", 80], ["metric", 60], ["target", 160], ["owner", 100], ["dueDate", 20], ["loop", 60], ["ciProjectId", 80], ["createdBy", 80]] as [string, number][]) {
+          const v = text(b[k], n);
+          if (v !== undefined) out[k] = v;
+        }
+        return out;
+      });
   }
   if (project.team !== undefined) {
     if (!Array.isArray(project.team)) return { ok: false, error: "Ekip listesi geçersiz." };
@@ -148,5 +203,16 @@ export function stampProcessOwners(before: any[], after: any[], userId: string):
       return old.createdBy ? { ...rest, createdBy: old.createdBy } : rest;
     }
     return { ...p, createdBy: userId };
+  });
+}
+
+// Same rule as processes: new bursts belong to the saver, existing ones keep their stored owner.
+export function stampBurstOwners(before: any[], after: any[], userId: string): any[] {
+  const prev = new Map((before || []).map(b => [b?.id, b]));
+  return (after || []).map(b => {
+    const old = prev.get(b.id);
+    const { createdBy: _ignored, ...rest } = b;
+    if (old) return old.createdBy ? { ...rest, createdBy: old.createdBy } : rest;
+    return { ...rest, createdBy: userId };
   });
 }
