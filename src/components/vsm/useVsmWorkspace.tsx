@@ -31,6 +31,9 @@ import { ProcessRecord, Customer } from "../../types";
 import { VsmUserLike, canDeleteVsmProcess, canDeleteVsmProject } from "../../utils/vsmAccess";
 import type { VsmConnectionType, VsmFactorySetup, VsmProcess, VsmProductMatrix, VsmTeamMember } from "./vsmTypes";
 import { emptyFactorySetup, normalizeVsmProject } from "./vsmNormalize";
+import { buildFieldForm, buildVsmWorkbook, downloadBlob, readFieldForm, safeFileName, VsmWorkbookInput } from "./vsmExport";
+import { mergeImportedRows, setupPatchFromRows } from "./vsmExcel";
+import { suggestFamilies } from "./vsmProductMatrix";
 import { getEffectiveSuccessorIds, isLinearFlow } from "./vsmGraph";
 import {
   annualWasteCost, applySimulation, bottleneckOf, compareStates, computeAll, demandOf, flowSummary, highestDowntimeOf,
@@ -797,42 +800,120 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
     });
   };
 
+  // Map images for the PDF report (VsmReportPages renders off-screen while this is set).
+  const [reportImages, setReportImages] = useState<{ current: string; future?: string } | null>(null);
+  const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  const captureMapIn = async (mode: "current" | "future") => {
+    setSimulationMode(mode);
+    await wait(400);
+    return captureVsmMapCanvas();
+  };
+
+  const exportBaseName = () => safeFileName(`VSM_${selectedCustomer?.companyName || ""}_${selectedProject?.name || "Proje"}`);
+
+  const workbookInput = (): VsmWorkbookInput => {
+    const ends = endStockDays(factorySetup, dailyDemand);
+    const currentT = withInventoryDays(currentProcessesCalculated, dailyDemand);
+    const currentFlow = flowSummary(currentT, ends);
+    return {
+      project: selectedProject || { name: "" },
+      customerName: selectedCustomer?.companyName || "",
+      currency: companyCurrency,
+      setup: factorySetup,
+      team,
+      current: currentT,
+      future: withInventoryDays(futureProcessesCalculated, dailyDemand),
+      hasFuture: Object.keys(simulationEdits).length > 0,
+      comparison: dashboardData,
+      figures: {
+        dailyDemand,
+        taktTime,
+        pitchTime: pitchOf(taktTime, factorySetup.packSize),
+        netSecondsPerDay: netSecondsPerDay(factorySetup, shiftsForTakt(factorySetup, currentProcessesCalculated)),
+        leadTimeDays: currentFlow.leadTimeDays,
+        rawDays: ends.rawDays,
+        fgDays: ends.fgDays,
+        pcePct: currentFlow.pcePct,
+        processingSeconds: currentFlow.processingSeconds,
+        totalWip: currentFlow.totalWip,
+        annualLoss: dashboardData.currentWasteCost
+      },
+      workforce: { ...workforceAnalysis, method: workforceMethod === "takt" ? "Takt bazlı" : "Kapasite bazlı" },
+      matrix: productMatrix,
+      families: suggestFamilies(productMatrix),
+      pacemakerName: vsmProcesses.find(p => p.id === factorySetup.pacemakerProcessId)?.name
+    };
+  };
+
   const handleTriggerExport = async (format: string) => {
-    setExportStatus(`Preparing high resolution ${format} report...`);
+    const modeBefore = simulationMode;
+    setExportStatus(format === "Excel" ? "Excel dosyası hazırlanıyor…" : format === "Saha Formu" ? "Saha formu hazırlanıyor…" : "Harita görüntüsü hazırlanıyor…");
     try {
       if (format === "Excel") {
-        // Create direct CSV download of VSM data
-        const header = "Process Name,Cycle Time (CT),OEE (%),Availability,Performance,Quality,Capacity,WIP Inventory,WIP Days,Is Kanban\n";
-        const rows = processesWithTimeline.map(p =>
-          `"${p.name}",${p.cycleTime},${p.oee},${p.availability},${p.performance},${p.quality},${p.capacity},${p.inventoryBefore},${p.inventoryDays},${p.isKanbanEnabled ? 'YES' : 'NO'}`
-        ).join("\n");
-        const blob = new Blob([header + rows], { type: "text/csv;charset=utf-8;" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.setAttribute("href", url);
-        link.setAttribute("download", `VSM_Report_${selectedCustomer?.companyName || "Factory"}.csv`);
-        link.click();
-        URL.revokeObjectURL(url);
+        downloadBlob(await buildVsmWorkbook(workbookInput()), `${exportBaseName()}.xlsx`);
+      } else if (format === "Saha Formu") {
+        downloadBlob(await buildFieldForm(vsmProcesses, factorySetup, selectedProject?.name || ""), `${exportBaseName()}_Saha_Formu.xlsx`);
       } else if (format === "High Res PNG") {
         const canvas = await captureVsmMapCanvas();
         const link = document.createElement("a");
-        link.setAttribute("download", `VSM_Sema_${selectedProject?.name || "Proje"}.png`);
+        link.setAttribute("download", `${exportBaseName()}_${simulationMode === "future" ? "Gelecek" : "Mevcut"}.png`);
         link.setAttribute("href", canvas.toDataURL("image/png", 1.0));
         link.click();
       } else if (format === "PDF Report") {
-        const canvas = await captureVsmMapCanvas();
-        const imgData = canvas.toDataURL("image/png", 1.0);
-        const pdf = new jsPDF({
-          orientation: "landscape",
-          unit: "px",
-          format: [canvas.width, canvas.height]
-        });
-        pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
-        pdf.save(`VSM_Rapor_${selectedProject?.name || "Proje"}.pdf`);
+        // Current map always; the future map only when the simulation has changes.
+        const current = (await captureMapIn("current")).toDataURL("image/png", 1.0);
+        const future = Object.keys(simulationEdits).length > 0 ? (await captureMapIn("future")).toDataURL("image/png", 1.0) : undefined;
+        setSimulationMode(modeBefore);
+        setExportStatus("PDF sayfaları oluşturuluyor…");
+        setReportImages({ current, future });
+        await wait(600);
+        const pages = Array.from(document.querySelectorAll<HTMLElement>("#vsm_report_pages .vsm-report-page"));
+        if (pages.length === 0) throw new Error("Rapor sayfaları oluşturulamadı");
+        const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+        for (let i = 0; i < pages.length; i++) {
+          const canvas = await domToCanvas(pages[i], { scale: 2, backgroundColor: "#ffffff" });
+          if (i > 0) pdf.addPage("a4", "landscape");
+          pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, 297, 210);
+        }
+        pdf.save(`${exportBaseName()}.pdf`);
       }
     } catch (err) {
-      alert("Export sırasında bir hata oluştu. Lütfen tekrar deneyin.");
+      alert("Dışa aktarma sırasında bir hata oluştu. Lütfen tekrar deneyin.");
       console.error("VSM export error:", err);
+    } finally {
+      setReportImages(null);
+      if (format === "PDF Report") setSimulationMode(modeBefore);
+      setExportStatus(null);
+      setExportModalOpen(false);
+    }
+  };
+
+  // Field data form upload: updates / adds processes of the CURRENT state and the setup values on the
+  // form's Kurulum sheet. Nothing is deleted; the user still saves the project afterwards.
+  const handleImportFieldForm = async (file: File) => {
+    setExportStatus("Saha formu okunuyor…");
+    try {
+      const content = await readFieldForm(file);
+      if (content.error) { alert(content.error); return; }
+      const result = mergeImportedRows(vsmProcesses, content.rows, currentUser?.id);
+      const setupPatch = setupPatchFromRows(content.setupRows, result.issues);
+      const issueText = result.issues.length
+        ? `\n\nUyarılar (${result.issues.length}):\n` + result.issues.slice(0, 12).map(x => `• Satır ${x.row}: ${x.message}`).join("\n")
+        : "";
+      const ok = window.confirm(
+        `Saha formu: ${result.updated} proses güncellenecek, ${result.added} proses eklenecek` +
+        `${Object.keys(setupPatch).length ? `, ${Object.keys(setupPatch).length} kurulum değeri yazılacak` : ""}.` +
+        " Mevcut durum verisine uygulanır, hiçbir proses silinmez." + issueText + "\n\nUygulansın mı?"
+      );
+      if (!ok) return;
+      setVsmProcesses(result.processes);
+      if (Object.keys(setupPatch).length) setFactorySetup(prev => ({ ...prev, ...setupPatch }));
+      setSimulationMode("current");
+      alert("Saha formu uygulandı. Kalıcı olması için Kaydet'e basın.");
+    } catch (err) {
+      alert("Saha formu okunamadı. Dosyanın VSM saha formu (.xlsx) olduğundan emin olun.");
+      console.error("VSM field form import error:", err);
     } finally {
       setExportStatus(null);
       setExportModalOpen(false);
@@ -1006,6 +1087,8 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
 
 
   return {
+    reportImages,
+    handleImportFieldForm,
     team,
     setTeam,
     productMatrix,

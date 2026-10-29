@@ -51,3 +51,15 @@ Görünüm değişmedi; aşağıdakiler hesap tutarlılığı ve düzeltilen hat
 | 2.8 | Üretim & Kapasite → Veri Kutusu: bir prosese katma değer süresi (C/T'den küçük) girin. | Zaman çizgisinde o proses "sn (VA)" gösterir; katma değer oranı (PCE) değişir. |
 | 2.9 | Kalite & Envanter → bir prosesin stok tipini FIFO yapıp maksimum girin; başka birini süpermarket yapın. | Seçim kalır; süpermarket seçilen proseste haritadaki süpermarket simgesi görünür. |
 | 2.10 | Customer User ile 2.2–2.4'ü yapın. | Kaydedilir (veri girişi serbest). |
+
+## V8 — Çıktılar ve saha formu
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| 8.1 | Dolu bir projede "VSM Rapor Export" → PDF Raporu. | A4 yatay PDF iner: özet, mevcut harita, (gelecek simülasyonda değişiklik varsa) gelecek harita, proses tablosu, göstergeler + norm kadro, (matris doluysa) ürün ailesi. Türkçe karakterler doğru. |
+| 8.2 | Excel Çalışma Kitabı. | .xlsx: Proje, Mevcut Durum, (varsa) Gelecek Durum, Zaman Çizelgesi, Göstergeler, Norm Kadro, (varsa) Ürün Matrisi sayfaları; başlıklar koyu, sütunlar okunur. Sayılar ekrandakiyle aynı. |
+| 8.3 | Harita PNG (mevcut ve gelecek modda ayrı ayrı). | Dosya adında "Mevcut" / "Gelecek"; görüntü ekrandaki harita. |
+| 8.4 | "Formu indir", Excel'de bir prosesin C/T'sini değiştirip yeni bir satır ekleyin (ID boş), Kurulum sayfasında haftalık talebi değiştirin, kaydedip "Doldurulmuş formu yükle". | Özet onayı: "1 güncellenecek, 1 eklenecek, 1 kurulum değeri". Onaydan sonra değerler ekranda; Kaydet → sayfa yenile → kalıcı. |
+| 8.5 | Formdan bir satırı silip yükleyin. | O proses projede kalır (içe aktarma silmez). |
+| 8.6 | Bir sayı hücresine metin yazıp yükleyin. | Onay penceresinde "Satır n: … sayı değil" uyarısı; o hücre uygulanmaz. |
+| 8.7 | Telefonda Dışa Aktar penceresini açın. | Pencere ekrana sığar, seçenekler alt alta. |

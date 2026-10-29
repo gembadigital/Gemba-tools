@@ -268,8 +268,9 @@ export function compareStates(
     futureOperatorProductivity: futOperators > 0 ? Math.round(futCap / futOperators) : 0,
     currentBlueCollar: currOperators,
     futureBlueCollar: futOperators,
-    currentVaRatio: Math.min(100, round1(currFlow.pcePct)),
-    futureVaRatio: Math.min(100, round1(futFlow.pcePct)),
+    // PCE is typically far below 1 %, so it keeps 3 decimals.
+    currentVaRatio: Math.min(100, Math.round(currFlow.pcePct * 1000) / 1000),
+    futureVaRatio: Math.min(100, Math.round(futFlow.pcePct * 1000) / 1000),
     currentOpCount: current.length,
     futureOpCount: future.length,
     currentCtBalance: balance(current),

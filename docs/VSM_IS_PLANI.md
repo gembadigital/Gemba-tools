@@ -304,6 +304,7 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 | V0 | ✅ kod; canlıda denenmedi ([VSM_CANLI_TEST.md](VSM_CANLI_TEST.md) §V0) | 42f5bc6 |
 | V1 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V1) | 01ae3d8 |
 | V2 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V2) | 1b5d35a |
+| V8 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V8) | bkz. git log |
 
 ### V0 — yapılanlar
 - Sunucu: `src/server/vsm/vsmRoutes.ts` (uçlar `app.ts`'den taşındı), kurallar `src/utils/vsmAccess.ts` (istemci+sunucu
@@ -388,3 +389,27 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
   (matris, ekip, `changeoverTime`, stok tipi) denendi.
 - Kalanlar: birden fazla tedarikçi (tek tedarikçi kutusu korunuyor); elektronik bilgi akışı için şimşek ok sembolü,
   FIFO şeridi / push oku çizimi ve kartta C/O–parti gösterimi V3'te; gelecek durumda hammadde/mamul değişimi V5'te.
+
+### V8 — yapılanlar
+- **Excel çalışma kitabı** (`vsmExport.ts`, ExcelJS, ihtiyaç anında yüklenir): Proje (künye, kapsam, ekip, talep/takt/
+  pitch, müşteri–tedarikçi–bilgi akışı, uç stoklar), Mevcut Durum (girilen + hesaplanan 31 sütun), Gelecek Durum
+  (simülasyon varsa), Zaman Çizelgesi (hammadde → prosesler → mamul, lead time, PCE), Göstergeler (mevcut ↔ gelecek),
+  Norm Kadro, Ürün Matrisi (ürünler, rota, seçili aile, öneriler). Eski 10 sütunlu CSV kaldırıldı.
+- **Saha veri formu** (`vsmExcel.ts`): "Formu indir" mevcut prosesleri ve Kurulum değerlerini içeren .xlsx verir
+  (Prosesler / Kurulum / Açıklama sayfaları); "Doldurulmuş formu yükle" sütunları başlık metniyle eşler, ID (yoksa ad)
+  ile günceller, yeni satırları proses olarak ekler (sahibi yükleyen kullanıcı), **hiçbir prosesi silmez**, boş hücre
+  değeri değiştirmez, okunamayan sayı/tip satır numarasıyla uyarı olarak listelenir; uygulamadan önce özet + onay sorar,
+  sonra Kaydet gerekir. İçe aktarma mevcut durum verisine yazar.
+- **PDF raporu** (`VsmReportPages.tsx`): A4 yatay çok sayfa — özet (talep, takt, pitch, lead time, PCE, WIP, darboğaz,
+  operatör/norm kadro, yıllık kayıp, kapsam & ekip, bilgi ve malzeme akışı), mevcut durum haritası, gelecek durum
+  haritası (simülasyon değişikliği varsa), proses veri tablosu (16 satırda bir yeni sayfa), göstergeler + norm kadro,
+  ürün ailesi matrisi. Sayfalar görüntü olarak üretilir (Türkçe karakterler korunur, metin seçilemez).
+  **Plandan sapma:** sunucu tarafı Chromium PDF yerine tarayıcıda üretim seçildi — harita tarayıcıda çizildiği için
+  sunucunun haritayı görmesi ek bir görüntü yüklemesi gerektiriyordu; CI A3 kartıyla aynı yöntem.
+- PNG dosya adı müşteri/proje ve mevcut/gelecek bilgisini taşıyor.
+- PCE artık 3 ondalıkla (çok küçük değer "%0" görünüyordu).
+- Test: `npx tsx scripts/vsm-excel-test.ts` (form gidiş-dönüş, güncelle/ekle/uyar, silmeme, çalışma kitabı sayfaları).
+  Yerel önizlemede üç çıktı üretildi (xlsx 15 KB, form 10 KB, PDF 6 sayfa) ve PDF sayfaları görsel olarak kontrol
+  edildi; form yükleme (1 güncelleme, 1 ekleme, 1 kurulum değeri) denendi.
+- Kalanlar: harita görseli sabit 2200 px tuvalden geldiği için PDF'te küçük (V3'te esnek yerleşimle düzelir); kaizen
+  patlamaları ve uygulama planı sayfaları V5/V6 ile eklenecek.

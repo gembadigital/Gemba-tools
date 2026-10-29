@@ -46,6 +46,7 @@ import { VsmContext } from "./VsmContext";
 import VsmProjectPortal from "./VsmProjectPortal";
 import VsmSetupTab from "./VsmSetupTab";
 import VsmProductMatrixTab from "./VsmProductMatrixTab";
+import VsmReportPages from "./VsmReportPages";
 import { Layers } from "lucide-react";
 import VsmDefinitionTab from "./VsmDefinitionTab";
 import VsmProductionTab from "./VsmProductionTab";
@@ -314,6 +315,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
       {/* EXPORT OPTIONS MODAL                       */}
       {/* ========================================== */}
       {exportModalOpen && <VsmExportModal />}
+      <VsmReportPages />
 
     </div>
     </VsmContext.Provider>
