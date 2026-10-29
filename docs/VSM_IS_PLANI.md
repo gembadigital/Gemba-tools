@@ -300,4 +300,31 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 
 | Adım | Durum | Commit |
 |---|---|---|
-| Plan | ✅ yazıldı, onay bekliyor | — |
+| Plan | ✅ yazıldı, kararlar alındı (§5) | bef4074 |
+| V0 | ✅ kod; canlıda denenmedi ([VSM_CANLI_TEST.md](VSM_CANLI_TEST.md) §V0) | 42f5bc6 |
+
+### V0 — yapılanlar
+- Sunucu: `src/server/vsm/vsmRoutes.ts` (uçlar `app.ts`'den taşındı), kurallar `src/utils/vsmAccess.ts` (istemci+sunucu
+  ortak). POST gövdedeki `factory_id`/`created_by` gibi sunucu alanlarını yok sayar; var olan proje müşteri
+  değiştiremez ve yalnızca o müşterinin kullanıcıları yazabilir; bilinmeyen id → 404 (istemci id uyduramaz). Sayılar
+  ≥ 0 değilse düşer, gerçek 0 korunur; en fazla 60 proses; proje adı zorunlu. Kaizen sicil oturumları VSM'e erişemez.
+- Sahiplik: proses `createdBy` sunucuda yazılır (istemci başkasının prosesini sahiplenemez). Customer User başkasının
+  prosesini çıkaran kaydı 403 alır, yalnızca kendi açtığı projeyi silebilir. Arayüz izinsiz sil düğmelerini gizler.
+  Test: `npx tsx scripts/vsm-access-test.ts`.
+- Sahte veri kaldırıldı: örnek 6 proses listesi ve maliyet tablosundan uydurma eşleme (WIP 1200/1500/250, kanban
+  her 2. proses…), yeni projeye yazılan örnek hat, "çalışan × 12" talep, Beko/Isıtıcı/Ereğli/Rulo Sac/Milk-Run/FIFO
+  sabit metinleri, portaldaki sabit kazanç ve yüzdeler, taşıma mesafesi / alan kullanımı / CO₂ / "işçilik verimi",
+  maliyet senkronundaki `hurda ?? 10`, `rework ?? 5` ve birim maliyet yoksa 800/350/2500/50 çarpanları, CI aktarımındaki
+  sabit maliyet/kazançlar, hesap motorundaki 900/98/85/90/1000/75 geri dönüşleri. Yıllık gün sayısı sabit 250 yerine
+  çalışma günü × 52; aylık talep haftalık × 52/12.
+- Yalın şablon düğmesi kaldırıldı; "AI Yönetici Özeti" → "Hesaplanan Özet" (gerçekleşmiş sonuç dili yok).
+- Tedarikçi / Üretim Planlama kutuları Kurulum'daki yeni alanlardan geliyor (V2'de yapılandırılmış alanlara dönüşecek).
+- Harita varsayılanı açık tema. CI aktarımı tekrar basıldığında mükerrer kayıt oluşturmuyor (V6'da fırsat havuzuna
+  taşınacak).
+- K5 yarışı kalktı: maliyet tablosu yüklemesi artık açık projenin proseslerine dokunmuyor.
+- Canlı veri (kullanıcı onayıyla, 2026-10-29): ACME demo'daki tek VSM projesi `vsm_proj_71re5yz5r` ve ona bağlı 4
+  maliyet tablosu satırı (`vsm_p1…p4`) tek işlemde silindi. Yedek: `~/Claude/5SAudit/yedekler/`.
+- **Doğrulama sınırı:** `tsc`, `npm run build`, kural testi geçti. Arayüz giriş gerektirdiği için yerelde ekranda
+  denenmedi; canlı test listesi §V0.
+- Bilinen kalanlar (V1'e): hesap motoru hâlâ 3 kopya; boş sayı alanı 0 olarak kaydediliyor ("girilmedi" ayrımı yok);
+  yeni prosesin vardiya saati 8 varsayılır (Kurulum'daki vardiya süresinden).
