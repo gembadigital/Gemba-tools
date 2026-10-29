@@ -56,6 +56,25 @@ export const INDUSTRY_OPTIONS: { id: IndustryType; labelTr: string; labelEn: str
   { id: "Other", labelTr: "Diğer (Elle Giriniz)", labelEn: "Other (Manual Input)" }
 ];
 
+// Folding section used on the dashboard tab: a one-line header that opens the detailed blocks.
+function DashSection({ open, onToggle, title, hint, children }: { open: boolean; onToggle: () => void; title: string; hint: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-2xl shadow-xs">
+      <button onClick={onToggle} className="w-full flex items-center justify-between gap-3 px-5 py-4 cursor-pointer text-left">
+        <div>
+          <div className="text-sm font-black text-slate-800">{title}</div>
+          <div className="text-[11px] text-slate-400">{hint}</div>
+        </div>
+        <span className="flex items-center gap-1 text-[11px] font-bold text-slate-500 shrink-0">
+          {open ? "Gizle" : "Göster"}
+          {open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </span>
+      </button>
+      {open && <div className="px-5 pb-5 space-y-6 border-t border-slate-100 pt-5">{children}</div>}
+    </div>
+  );
+}
+
 export default function LossAnalysis() {
   const { selectedCustomerId, selectedCustomer, globalState } = useFactory();
   const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
@@ -103,6 +122,8 @@ export default function LossAnalysis() {
   // JIPM loss tree (tab 6): consultant entries per station for the losses VSM does not measure.
   const [jipmInputs, setJipmInputs] = useState<Record<string, JipmStationInputs>>({});
   const [jipmStationFilter, setJipmStationFilter] = useState<string>("all");
+  // Dashboard: secondary blocks are folded so the tab opens on the key figures only.
+  const [dashOpen, setDashOpen] = useState<{ details: boolean; charts: boolean; ai: boolean }>({ details: false, charts: false, ai: false });
   // Customer's annual quality-cost figures the screen cannot measure (COPQ external / appraisal).
   const [copqEntered, setCopqEntered] = useState<Partial<Record<CopqEnteredKey, number>>>({});
   // Customer card (company workspace) figures used by method B.
@@ -220,7 +241,7 @@ export default function LossAnalysis() {
     }
   }, [vsmProjects, pendingVsmProjectId]);
 
-  const [annualRevenue, setAnnualRevenue] = useState<number>(12000000);
+  const [annualRevenue, setAnnualRevenue] = useState<number>(0);
   const [selectedIndustry, setSelectedIndustry] = useState<IndustryType>("Automotive");
   const [currencySymbol, setCurrencySymbol] = useState<string>("TL");
 
@@ -1251,16 +1272,18 @@ export default function LossAnalysis() {
     charts: Record<string, { dataUrl: string; aspectRatio: number } | null>;
   }> => {
     const previousTab = activeTab;
+    const previousOpen = dashOpen;
     const needsSwitch = activeTab !== "executive_dashboard";
-    if (needsSwitch) {
-      setActiveTab("executive_dashboard");
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
+    const needsOpen = !dashOpen.details || !dashOpen.charts;
+    if (needsSwitch) setActiveTab("executive_dashboard");
+    if (needsOpen) setDashOpen(o => ({ ...o, details: true, charts: true }));
+    if (needsSwitch || needsOpen) await new Promise(resolve => setTimeout(resolve, 600));
     const trend = await captureChartImage("lc-chart-copq-trend");
     const charts = Object.fromEntries(
       await Promise.all(CHART_CAPTURE_LIST.map(async c => [c.id, await captureChartImage(c.id)] as const))
     ) as Record<string, { dataUrl: string; aspectRatio: number } | null>;
     if (needsSwitch) setActiveTab(previousTab);
+    if (needsOpen) setDashOpen(previousOpen);
     return { trend, charts };
   };
 
@@ -2115,14 +2138,14 @@ export default function LossAnalysis() {
         <div className="space-y-1">
           <div className="flex items-center space-x-2">
             <span className="p-1.5 bg-rose-700 rounded-lg text-white">
-              <Activity className="w-5 h-5 animate-pulse" />
+              <Activity className="w-5 h-5" />
             </span>
-            <h2 className="text-xl font-black tracking-tight font-sans uppercase">
-              Economic Loss Intelligence Center (Financial Twin)
+            <h2 className="text-xl font-black tracking-tight font-sans">
+              Kayıp Kapasite ve Maliyet Analizi
             </h2>
           </div>
-          <p className="text-xs text-slate-500 max-w-4xl leading-relaxed">
-            Saha VSM ve OEE verilerini anlık finansal kayıplara eşleyen, WCM maliyet yayılım algoritmalarıyla donatılmış gelişmiş Finansal Dijital İkiz kokpiti.
+          <p className="text-xs text-slate-500 max-w-3xl leading-relaxed">
+            VSM'de ölçülen kayıpları birim maliyetlerle paraya çevirir; kalitesizlik maliyeti, Loss Cost analizi ve geri kazanım potansiyelini gösterir.
           </p>
         </div>
 
@@ -2338,55 +2361,113 @@ export default function LossAnalysis() {
               </div>
             )}
 
-            {/* CEO EXECUTIVE HIGHLIGHTS CARDS */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              
-              <div className="bg-gradient-to-br from-slate-900 to-slate-950 text-white rounded-2xl p-5 shadow-xs flex flex-col justify-between h-32">
-                <div className="flex justify-between items-center text-[10px] opacity-70 font-black uppercase tracking-wider">
-                  <span>Yıllık Ciro</span>
-                  <DollarSign className="w-4 h-4 text-rose-500" />
+            {/* KEY FIGURES — four numbers, nothing else */}
+            {(() => {
+              const recoveryAvg = recoveryMatrixDataWithRealized.reduce((acc: number, r: any) => acc + r.avgGain, 0);
+              const recoveryMin = recoveryMatrixDataWithRealized.reduce((acc: number, r: any) => acc + r.potentialGainMin, 0);
+              const recoveryMax = recoveryMatrixDataWithRealized.reduce((acc: number, r: any) => acc + r.potentialGainMax, 0);
+              const oeeList = jipmResults.filter(r => r.oee !== null);
+              const oeeAvg = oeeList.length > 0 ? oeeList.reduce((acc, r) => acc + (r.oee ?? 0), 0) / oeeList.length : null;
+              const card = (accent: string, label: string, value: string, sub: React.ReactNode) => (
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs relative overflow-hidden">
+                  <span className="absolute left-0 top-0 bottom-0 w-1" style={{ background: accent }} />
+                  <div className="text-[11px] font-bold text-slate-500">{label}</div>
+                  <div className="text-2xl font-black tracking-tight text-slate-900 mt-1.5">{value}</div>
+                  <div className="text-[11px] text-slate-500 mt-1">{sub}</div>
                 </div>
-                <div className="text-xl font-black font-mono tracking-tight">{formatMoney(annualRevenue)}</div>
-                <div className="text-[10px] opacity-80 font-bold">12 Aylık Tesis Ciro Modeli</div>
-              </div>
+              );
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {card("#be123c", "Yıllık kayıp", formatMoney(financialImpact.totalOperationalLosses.year),
+                    effectiveRevenue > 0 ? <>Cironun <b className="text-rose-700">%{lossToRevenuePercent.toFixed(1)}</b>'i · ciro {formatMoney(effectiveRevenue)}</> : "Şirket kartında ciro girilmedi")}
+                  {card("#e11d48", "Kalitesizlik maliyeti (COPQ)", formatMoney(copqData.totalCOPQ_TL),
+                    effectiveRevenue > 0 ? <>Cironun %{copqData.copqPercentOfRevenue.toFixed(1)}'i · {copqData.benchmarkStatus}{hasActiveCostOverrides ? " · gerçek veri dahil" : ""}</> : "Ciroya oran için şirket kartında ciro gerekli")}
+                  {card("#059669", "Geri kazanım potansiyeli (yıllık)", formatMoney(recoveryAvg),
+                    <>Aralık {formatMoney(recoveryMin)} – {formatMoney(recoveryMax)}</>)}
+                  {card("#2563eb", "Ortalama OEE", oeeAvg !== null ? `%${oeeAvg.toFixed(1)}` : "—",
+                    oeeAvg !== null ? <>{oeeList.length} / {jipmResults.length} istasyon · hedef %85</> : "OEE ölçülen istasyon yok")}
+                </div>
+              );
+            })()}
 
-              <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-xs flex flex-col justify-between h-32">
-                <div className="flex justify-between items-center text-[10px] opacity-70 font-black uppercase tracking-wider">
-                  <span>Toplam Kârlılık Sızıntısı (FAVÖK kaybı)</span>
-                  <AlertTriangle className="w-4 h-4 text-rose-500" />
+            {/* WHERE THE LOSS COMES FROM + TOP OPPORTUNITIES */}
+            {(() => {
+              const lines = (["setup", "downtime", "scrap", "rework", "laborLoss", "inventory", "overtime", "lateDelivery", "energy"] as const)
+                .map(key => ({ key, label: COST_OVERRIDE_CATEGORIES.find(c => c.key === key)?.label ?? key, year: (financialImpact as any)[key]?.year ?? 0 }))
+                .filter(l => l.year > 0)
+                .sort((x, y) => y.year - x.year);
+              const max = Math.max(1, ...lines.map(l => l.year));
+              const total = financialImpact.totalOperationalLosses.year;
+              const top = [...recoveryMatrixDataWithRealized].filter((r: any) => r.avgGain > 0).sort((x: any, y: any) => y.avgGain - x.avgGain).slice(0, 3);
+              return (
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                  <div className="lg:col-span-3 bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+                    <div className="flex items-baseline justify-between mb-4">
+                      <h3 className="text-sm font-black text-slate-800">Kayıp nereden geliyor?</h3>
+                      <span className="text-[11px] text-slate-400">yıllık, ölçülen kayıp × birim maliyet</span>
+                    </div>
+                    {lines.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic py-6 text-center">Fiyatlanmış kayıp yok — VSM verisini ve Ürün Maliyet Modeli'ndeki birim maliyetleri tamamlayın.</p>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {lines.map(l => (
+                          <div key={l.key} className="grid grid-cols-[11rem_1fr_7.5rem_3rem] items-center gap-3 text-xs">
+                            <span className="font-semibold text-slate-700 truncate">{l.label}</span>
+                            <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-rose-600 rounded-full" style={{ width: `${Math.max(2, (l.year / max) * 100)}%` }} />
+                            </div>
+                            <span className="text-right tabular-nums font-bold text-slate-800">{formatMoney(l.year)}</span>
+                            <span className="text-right text-slate-400">%{total > 0 ? ((l.year / total) * 100).toFixed(0) : 0}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {lossCostUnresolved.length > 0 && (
+                      <p className="text-[11px] text-amber-700 mt-4">Birim maliyeti bulunamadığı için toplama girmeyen kalemler var — <button onClick={() => setActiveTab("cost_model")} className="underline font-bold cursor-pointer">Ürün Maliyet Modeli</button>.</p>
+                    )}
+                  </div>
+                  <div className="lg:col-span-2 bg-slate-900 text-white rounded-2xl p-5 shadow-xs flex flex-col">
+                    <h3 className="text-sm font-black mb-1">En büyük 3 fırsat</h3>
+                    <p className="text-[11px] text-slate-400 mb-4">Geri Kazanım Matrisi ortalama yıllık kazancına göre</p>
+                    {top.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic">Henüz geri kazanım hedefi yok.</p>
+                    ) : (
+                      <ol className="space-y-3 flex-1">
+                        {top.map((r: any, i: number) => (
+                          <li key={r.subject} className="flex items-start gap-3">
+                            <span className="w-6 h-6 rounded-md bg-rose-600 text-white text-xs font-black flex items-center justify-center shrink-0">{i + 1}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-bold truncate">{r.subject}</div>
+                              <div className="text-[11px] text-slate-400 truncate">{r.leanTool}</div>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <div className="text-xs font-black tabular-nums text-emerald-400">{formatMoney(r.avgGain)}</div>
+                              <button
+                                onClick={() => handleOpenAssignModal(r)}
+                                className="text-[10px] font-bold text-rose-300 hover:text-white cursor-pointer"
+                              >
+                                {kaizenCountBySubject[r.subject] ? `CI'de ${kaizenCountBySubject[r.subject]} proje` : "CI'ye ata →"}
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                    <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-slate-700 text-[11px]">
+                      <div><div className="text-slate-400">Gizli fabrika</div><div className="font-bold">{hiddenFactoryData.equivalentOperators > 0 ? `${hiddenFactoryData.equivalentOperators} kişi eşdeğeri` : "—"}</div></div>
+                      <div><div className="text-slate-400">Loss Cost toplamı</div><div className="font-bold">{formatMoney(jipmResults.reduce((acc, r) => acc + r.lines.reduce((a2, l) => a2 + l.total, 0) + r.unexplainedCost, 0))}</div></div>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-xl font-black font-mono tracking-tight text-rose-400">{formatMoney(financialImpact.totalOperationalLosses.year)}</div>
-                <div className="text-[10px] opacity-80 text-rose-350 font-black">Cironun %{lossToRevenuePercent.toFixed(1)} kadarını israflarla kaybediyorsunuz</div>
-              </div>
+              );
+            })()}
 
-              <div className="bg-white border rounded-2xl p-5 shadow-xs flex flex-col justify-between h-32 border-slate-200 text-slate-900">
-                <div className="flex justify-between items-center text-[10px] text-slate-400 font-black uppercase tracking-wider">
-                  <span>COPQ (Kalitesizlik Maliyeti)</span>
-                  <Percent className="w-4 h-4 text-rose-700" />
-                </div>
-                <div>
-                  <div className="text-xl font-black font-mono tracking-tight text-slate-850">{formatMoney(copqData.totalCOPQ_TL)}</div>
-                  <div className="text-[10.5px] font-black text-rose-700 font-mono mt-0.5">COPQ Oranı: %{copqData.copqPercentOfRevenue.toFixed(1)}</div>
-                </div>
-                <div className="flex items-center gap-1.5 self-start">
-                  <span className="text-[9.5px] font-bold text-rose-800 bg-rose-50 px-2 py-0.5 border rounded-md">Kategori: {copqData.benchmarkStatus}</span>
-                  {hasActiveCostOverrides && (
-                    <span className="text-[9.5px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 border border-amber-300 rounded-md">Gerçek Veri Dahil</span>
-                  )}
-                </div>
-              </div>
-
-              <div className="bg-white border rounded-2xl p-5 shadow-xs flex flex-col justify-between h-32 border-slate-200 text-slate-900">
-                <div className="flex justify-between items-center text-[10px] text-slate-400 font-black uppercase tracking-wider">
-                  <span>Genel OEE Ortalaması</span>
-                  <TrendingUp className="w-4 h-4 text-emerald-500" />
-                </div>
-                <div className="text-xl font-black font-mono tracking-tight text-emerald-600">%{avgOee.toFixed(1)}</div>
-                <div className="text-[10px] text-slate-450 font-bold uppercase">Dünya Klası OEE Hedefi: %85</div>
-              </div>
-
-            </div>
-
+            <DashSection
+              open={dashOpen.details}
+              onToggle={() => setDashOpen(o => ({ ...o, details: !o.details }))}
+              title="Ek göstergeler"
+              hint="İş gücü etkisi, etkinlik çarpanları, COPQ trendi, sektör karşılaştırması"
+            >
             {/* İŞ GÜCÜ FİNANSAL ETKİSİ (FAZLA İŞÇİLİK / NORM KADRO) */}
             <div className="bg-white border rounded-2xl p-5 shadow-xs border-slate-200" id="dashboard_workforce_financial_impact">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-b border-slate-100 pb-3 mb-4">
@@ -2561,6 +2642,14 @@ export default function LossAnalysis() {
               </div>
             </div>
 
+            </DashSection>
+
+            <DashSection
+              open={dashOpen.charts}
+              onToggle={() => setDashOpen(o => ({ ...o, charts: !o.charts }))}
+              title="Finansal grafikler"
+              hint="Geri kazanım şelalesi, fırsat dağılımları, Pareto, kâr marjı eğrisi"
+            >
             {/* 📊 MODERN POWER BI DASHBOARD CHARTS */}
             <div className="bg-white border rounded-2xl p-6 shadow-xs border-slate-200">
               <div className="border-b border-slate-100 pb-4 mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
@@ -2767,6 +2856,14 @@ export default function LossAnalysis() {
               </div>
             </div>
 
+            </DashSection>
+
+            <DashSection
+              open={dashOpen.ai}
+              onToggle={() => setDashOpen(o => ({ ...o, ai: !o.ai }))}
+              title="Gemba AI danışmanı"
+              hint="Kayıp ve geri kazanım verisi üzerinden hazır analiz soruları"
+            >
             {/* 🤖 GEMBA AI COPILOT SECTION */}
             <CopilotEngine
               calculated={calculatedProcesses}
@@ -2781,6 +2878,7 @@ export default function LossAnalysis() {
               costStructure={{ material: directMaterialPercent, labor: directLaborPercent, energy: energyPercent, maintenance: maintenancePercent, overhead: overheadPercent, operatingProfit: operatingProfitPercent }}
               contributionPerUnit={contributionPerUnit}
             />
+            </DashSection>
 
           </div>
         )}
