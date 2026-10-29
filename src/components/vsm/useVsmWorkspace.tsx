@@ -36,6 +36,7 @@ import { buildFieldForm, buildVsmWorkbook, downloadBlob, readFieldForm, safeFile
 import { mergeImportedRows, setupPatchFromRows } from "./vsmExcel";
 import { suggestFamilies } from "./vsmProductMatrix";
 import { makeVersion, savableKey, VSM_MAX_VERSIONS, VsmVersion } from "./vsmVersions";
+import { DEFAULT_VSM_SETTINGS, normalizeVsmSettings, VsmSettings } from "../../utils/vsmSettings";
 import { getEffectiveSuccessorIds, isLinearFlow } from "./vsmGraph";
 import { computeMapLayout } from "./vsmMapLayout";
 import {
@@ -94,6 +95,26 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
   // İş Gücü Analizi (Norm Kadro) — which method the dashboard's workforce section uses to
   // derive "Gerekli İş Gücü" per process from the existing VSM data (no new inputs required).
   const [workforceMethod, setWorkforceMethod] = useState<"takt" | "capacity">("takt");
+
+  // Customer VSM settings (plan step V10): new-project defaults and highlight thresholds.
+  const [vsmSettings, setVsmSettings] = useState<VsmSettings>(DEFAULT_VSM_SETTINGS);
+  useEffect(() => {
+    if (!selectedCustomerId) return;
+    fetch("/api/business/vsm/settings", { headers: { "Authorization": `Bearer ${token}`, "x-factory-id": selectedCustomerId } })
+      .then(r => r.json())
+      .then(d => setVsmSettings(normalizeVsmSettings(d?.success ? d.data : null)))
+      .catch(() => setVsmSettings(DEFAULT_VSM_SETTINGS));
+  }, [selectedCustomerId]);
+  const handleSaveSettings = async (next: VsmSettings): Promise<string | null> => {
+    const res = await fetch("/api/business/vsm/settings", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "x-factory-id": selectedCustomerId || "" },
+      body: JSON.stringify(next)
+    }).then(r => r.json()).catch(() => null);
+    if (!res?.success) return res?.error || "Ayarlar kaydedilemedi.";
+    setVsmSettings(normalizeVsmSettings(res.data));
+    return null;
+  };
 
   // Fetch VSM Projects
   const fetchProjects = () => {
@@ -175,6 +196,12 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
           dataSource: { kind: "manual" },
           factorySetup: {
             ...emptyFactorySetup(),
+            workingDays: vsmSettings.defaultWorkingDays,
+            ...(vsmSettings.defaultShiftsPerDay > 0 ? { shiftsPerDay: vsmSettings.defaultShiftsPerDay } : {}),
+            shiftDuration: vsmSettings.defaultShiftHours,
+            breakTimes: vsmSettings.defaultBreakMinutes,
+            plannedMaintenance: vsmSettings.defaultMaintenanceMinutes,
+            weeksPerYear: vsmSettings.weeksPerYear,
             productFamily: projForm.productGroup || "",
             customerName: selectedCustomer?.companyName || ""
           }
@@ -1132,6 +1159,8 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
 
 
   return {
+    vsmSettings,
+    handleSaveSettings,
     versions,
     isDirty,
     handleCloseProject,

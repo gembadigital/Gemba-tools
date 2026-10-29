@@ -5,9 +5,10 @@ import type express from "express";
 import { db } from "../db.js";
 import { generateVsmAnalysis, VsmOtherModules } from "./vsmAnalysis.js";
 import { computeAll } from "../../components/vsm/vsmCalc.js";
+import { normalizeVsmSettings } from "../../utils/vsmSettings.js";
 import { normalizeVsmProject } from "../../components/vsm/vsmNormalize.js";
 import {
-  canDeleteVsmProject, forbiddenBurstRemovals, forbiddenOwnedRemovals, forbiddenProcessRemovals, isVsmBlockedSession,
+  canDeleteVsmProject, isVsmStaff, forbiddenBurstRemovals, forbiddenOwnedRemovals, forbiddenProcessRemovals, isVsmBlockedSession,
   normalizeVsmProjectInput, stampBurstOwners, stampOwnedItems, stampProcessOwners
 } from "../../utils/vsmAccess.js";
 
@@ -176,5 +177,25 @@ export function registerVsmRoutes(app: express.Express, deps: VsmRouteDeps) {
     const ids = new Set(processes.map(p => p.id));
     const orphans = rows.filter((r: any) => r.vsmProjectId === existing.id && !ids.has(r.id)).map((r: any) => ({ id: r.id, name: r.name }));
     res.json({ success: true, data: { written, skipped, orphans } });
+  });
+
+  // Per-customer VSM settings: everyone with access reads them; Admin / Consultant change them.
+  app.get("/api/business/vsm/settings", authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    if (isVsmBlockedSession(user)) return deny(res);
+    const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+    if (!scope.allowed || !scope.factoryId) return deny(res);
+    res.json({ success: true, data: normalizeVsmSettings(await db.getVsmSettingsRecord(user.organization_id, scope.factoryId)) });
+  });
+
+  app.post("/api/business/vsm/settings", authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    if (isVsmBlockedSession(user)) return deny(res);
+    const scope = resolveFactoryScope(req, req.headers["x-factory-id"] as string);
+    if (!scope.allowed || !scope.factoryId) return deny(res);
+    if (!isVsmStaff(user)) return deny(res, 403, "VSM ayarlarını yalnızca Admin veya Danışman değiştirebilir.");
+    const settings = normalizeVsmSettings({ ...req.body, updatedAt: new Date().toISOString(), updatedBy: user.email });
+    await db.saveVsmSettingsRecord(user.organization_id, scope.factoryId, settings, user.id);
+    res.json({ success: true, data: settings });
   });
 }

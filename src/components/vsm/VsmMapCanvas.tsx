@@ -70,11 +70,12 @@ function MaterialLink({ x1, x2, y, type, bright }: { x1: number; x2: number; y: 
 }
 
 // Stock zone in front of a process: triangle (push), FIFO label, or supermarket with its pull arrow.
-function StockZone({ x, lineY, p, bright }: { x: number; lineY: number; p: Tl; bright: boolean }) {
+function StockZone({ x, lineY, p, bright, wipDaysWarning = 0 }: { x: number; lineY: number; p: Tl; bright: boolean; wipDaysWarning?: number }) {
   const cx = x + MAP.stockW / 2;
   const type = stockTypeOf(p);
   const qtyColor = bright ? "#334155" : "#cbd5e1";
-  const dayColor = bright ? "#b45309" : "#fbbf24";
+  const over = wipDaysWarning > 0 && p.inventoryDays > wipDaysWarning;
+  const dayColor = over ? "#dc2626" : bright ? "#b45309" : "#fbbf24";
   return (
     <g>
       {type === "pile" && <Triangle cx={cx} y={lineY - 72} label="I" bright={bright} />}
@@ -108,10 +109,11 @@ function StockZone({ x, lineY, p, bright }: { x: number; lineY: number; p: Tl; b
 // ---------- process card (same look as before + C/O and batch row, pacemaker badge) ----------
 
 function ProcessCard({ p, style, graphBadge }: { p: Tl; style: React.CSSProperties; graphBadge?: boolean }) {
-  const { vsmBrightMode, bottleneckProcess, highestDowntimeProcess, lowestOeeProcess, vsmCriticalPath, handleOpenProcessDrawer, mapSetup: factorySetup } = useVsm();
+  const { vsmBrightMode, bottleneckProcess, highestDowntimeProcess, lowestOeeProcess, vsmCriticalPath, handleOpenProcessDrawer, mapSetup: factorySetup, vsmSettings } = useVsm();
   const isBottleneck = p.id === bottleneckProcess?.id;
   const isHighDowntime = p.id === highestDowntimeProcess?.id;
-  const isLowOee = p.id === lowestOeeProcess?.id;
+  // Customer OEE target (VSM settings) when set; otherwise the lowest-OEE process is highlighted.
+  const isLowOee = vsmSettings.oeeTarget > 0 ? p.oee < vsmSettings.oeeTarget : p.id === lowestOeeProcess?.id;
   const isOnCriticalPath = vsmCriticalPath.criticalPathIds.has(p.id);
   const isPacemaker = factorySetup.scheduleMode === "pacemaker" && factorySetup.pacemakerProcessId === p.id;
 
@@ -202,7 +204,7 @@ function ProcessCard({ p, style, graphBadge }: { p: Tl; style: React.CSSProperti
 export default function VsmMapCanvas() {
   const {
     vsmBrightMode, mapLayout: L, processesWithTimeline, isFlowLinear, vsmGraphEdges, vsmGraphLayout, mapSetup: factorySetup, mapEndStocks: endStocks,
-    kaizenBursts, simulationMode,
+    kaizenBursts, simulationMode, vsmSettings,
     valueAddedSeconds, totalLeadTimeDays, totalProcessingTimeSeconds, valueAddedRatio, vsmLaneSummaries,
     selectedCustomer, dailyDemand, weeklyDemand, monthlyDemand, taktTime, pitchTime
   } = useVsm();
@@ -304,7 +306,7 @@ export default function VsmMapCanvas() {
         {/* LINEAR FLOW: stock zone in front of each process + material link drawn by its stock type */}
         {isFlowLinear && procs.map((p, i) => (
           <g key={`flow-${p.id}`}>
-            <StockZone x={L.stockZoneX(i)} lineY={lineY} p={p} bright={bright} />
+            <StockZone x={L.stockZoneX(i)} lineY={lineY} p={p} bright={bright} wipDaysWarning={vsmSettings.wipDaysWarning} />
             <MaterialLink x1={i === 0 ? L.stockZoneX(0) : L.cardX(i - 1) + MAP.cardW} x2={L.cardX(i)} y={lineY} type={stockTypeOf(p)} bright={bright} />
           </g>
         ))}
@@ -376,7 +378,7 @@ export default function VsmMapCanvas() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-xs font-black tracking-wide uppercase">MÜŞTERİ (CUSTOMER)</h3>
+                    <h3 className="text-xs font-black tracking-wide uppercase">MÜŞTERİ</h3>
                     <p className={`text-[10px] ${vsmBrightMode ? 'text-slate-500' : 'text-slate-400'} truncate max-w-[160px]`}>{factorySetup.customerName || selectedCustomer?.companyName || "—"}</p>
                   </div>
                 </div>
@@ -475,7 +477,7 @@ export default function VsmMapCanvas() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-xs font-black tracking-wide uppercase">TEDARİKÇİ (SUPPLIER)</h3>
+                    <h3 className="text-xs font-black tracking-wide uppercase">TEDARİKÇİ</h3>
                     <p className={`text-[10px] ${vsmBrightMode ? 'text-slate-500' : 'text-slate-400'} truncate max-w-[160px]`}>{factorySetup.supplierName || "—"}</p>
                   </div>
                 </div>

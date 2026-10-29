@@ -60,7 +60,7 @@ export default function VsmMapTab() {
               <div className="flex items-center space-x-2">
                 <span className="w-2.5 h-2.5 bg-amber-500 rounded-full animate-ping" />
                 <span className="text-xs font-extrabold text-amber-800 tracking-wide uppercase font-mono">
-                  YALIN SİMÜLASYON SİMÜLATÖRÜ AKTİF (FUTURE STATE SIMULATION)
+                  GELECEK DURUM HARİTASI
                 </span>
                 {!simulationComparison.hasEdits && (
                   <span className="text-[10px] font-bold text-amber-700 bg-amber-200/80 px-2 py-0.5 rounded font-mono">
@@ -188,7 +188,7 @@ export default function VsmMapTab() {
           <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-6">
             <div className="flex items-center space-x-2">
               <BarChart3 className="w-5 h-5 text-sky-400" />
-              <h3 className="text-sm font-black text-white uppercase tracking-wider">Değer Akışı Küresel KPIs</h3>
+              <h3 className="text-sm font-black text-white uppercase tracking-wider">Değer Akışı Göstergeleri</h3>
             </div>
             <span className="text-[10px] bg-sky-500/10 text-sky-400 border border-sky-500/20 font-mono font-extrabold px-3 py-1 rounded">
               HATTIN TOPLAM ÖZETİ

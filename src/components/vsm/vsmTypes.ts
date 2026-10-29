@@ -142,6 +142,7 @@ export interface VsmFactorySetup {
   rawMaterialType?: VsmInventoryType;
   finishedGoodsQty?: number;      // finished goods stock before shipping (pieces)
   finishedGoodsType?: VsmInventoryType;
+  weeksPerYear?: number;          // annualization (customer VSM setting at project creation); 52 when absent
 }
 
 export const VSM_ORDER_TYPES = ["MTS (stoğa üretim)", "MTO (siparişe üretim)", "ATO (siparişe montaj)"];

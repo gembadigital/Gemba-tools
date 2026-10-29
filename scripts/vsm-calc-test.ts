@@ -205,3 +205,8 @@ assert.deepEqual(sm.map(c => [c.changeoverTime, c.suggestedProcessId]), [[45, "m
 const ts = timeStudyCandidates([{ id: "t1", lineName: "Hat", linkedVsmProcessId: "k", processes: [{ id: 1, name: "OP", cy: [40, 44, null] }] }], tgt);
 assert.deepEqual(ts.map(c => [c.cycleTime, c.suggestedProcessId]), [[42, "k"]]);
 console.log("vsm-calc-test: V9 checks passed");
+
+// --- V10: weeks per year from the customer setting
+assert.equal(demandOf({ weeklyDemand: 100, workingDays: 5, weeksPerYear: 48 }).workDaysPerYear, 240);
+assert.equal(demandOf({ weeklyDemand: 100, workingDays: 5 }).workDaysPerYear, 260);
+console.log("vsm-calc-test: V10 checks passed");

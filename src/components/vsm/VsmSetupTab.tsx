@@ -54,7 +54,7 @@ export default function VsmSetupTab() {
               <div>
                 <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                   <BarChart3 className="w-5 h-5 text-indigo-600" />
-                  <span>Kapasite &amp; Takt Zamanı Temel Gösterge Tablosu (KPI Table)</span>
+                  <span>Kapasite ve Takt Göstergeleri</span>
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Fabrika kurulum parametreleri ve ürün hacim payına göre anlık hesaplanan temel kapasite, takt ve maliyet kayıp verileri.
@@ -190,7 +190,7 @@ export default function VsmSetupTab() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 block">Ürün Ailesi (Product Family)</label>
+                <label className="text-xs font-bold text-slate-500 block">Ürün Ailesi</label>
                 <input 
                   type="text" 
                   value={factorySetup.productFamily}
@@ -222,7 +222,7 @@ export default function VsmSetupTab() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 block">Haftalık Talep (Weekly Demand)</label>
+                <label className="text-xs font-bold text-slate-500 block">Haftalık Talep</label>
                 <input 
                   type="number" 
                   value={factorySetup.weeklyDemand}
@@ -240,7 +240,7 @@ export default function VsmSetupTab() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 block">Vardiya Yapısı (Shift Structure)</label>
+                <label className="text-xs font-bold text-slate-500 block">Vardiya Yapısı</label>
                 <input 
                   type="text" 
                   value={factorySetup.shiftStructure}
@@ -276,7 +276,7 @@ export default function VsmSetupTab() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 block">Sevk Sıklığı (Shipping Frequency)</label>
+                <label className="text-xs font-bold text-slate-500 block">Müşteriye Sevk Sıklığı</label>
                 <input 
                   type="text" 
                   value={factorySetup.shippingFrequency}

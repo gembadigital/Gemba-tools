@@ -2240,7 +2240,7 @@ export default function TimeStudyPage({ selectedCustomer, vsmProcesses = [] }: T
         {studySourceMode === "vsm" && (
           vsmProcesses.length === 0 ? (
             <p className="text-xs text-slate-400 italic">
-              Bu müşteri için VSM'de kayıtlı proses/istasyon bulunamadı. Önce VSM Kapasite Analizi modülünde bir akış oluşturun.
+              Bu müşteri için VSM'de kayıtlı proses/istasyon bulunamadı. Önce Değer Akış Haritalama (VSM) modülünde bir akış oluşturun.
             </p>
           ) : (
             <select

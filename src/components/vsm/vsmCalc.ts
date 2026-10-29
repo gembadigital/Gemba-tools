@@ -75,14 +75,14 @@ export interface VsmDemand {
   workDaysPerYear: number;   // annualization of daily losses: working days per week × 52
 }
 
-export function demandOf(setup: Pick<VsmFactorySetup, "weeklyDemand" | "workingDays">): VsmDemand {
+export function demandOf(setup: Pick<VsmFactorySetup, "weeklyDemand" | "workingDays" | "weeksPerYear">): VsmDemand {
   const weekly = setup.weeklyDemand ?? 0;
   const days = setup.workingDays ?? 0;
   return {
     weekly,
     daily: days > 0 ? Math.round(weekly / days) : 0,
     monthly: Math.round((weekly * 52) / 12),
-    workDaysPerYear: days * 52
+    workDaysPerYear: days * (setup.weeksPerYear || 52)
   };
 }
 

@@ -54,16 +54,16 @@ export default function VsmDashboardTab() {
           <div>
             <div className="flex items-center space-x-2 text-indigo-400">
               <Sparkles className="w-4 h-4 animate-pulse" />
-              <span className="text-[10px] uppercase font-bold tracking-wider font-mono">VSM EXECUTIVE REPORT</span>
+              <span className="text-[10px] uppercase font-bold tracking-wider font-mono">VSM YÖNETİCİ PANELİ</span>
             </div>
-            <h2 className="text-xl font-extrabold tracking-tight mt-1">Yalın Değer Akışı Simülasyon Analiz Paneli</h2>
+            <h2 className="text-xl font-extrabold tracking-tight mt-1">Değer Akışı Göstergeleri ve Analiz</h2>
             <p className="text-xs text-slate-400 mt-0.5">Fabrika mevcut durum (baseline) verileri ile gelecek yalın durum simülasyonunun karşılaştırmalı analizi</p>
           </div>
           
           <div className="bg-indigo-950/80 border border-indigo-800/80 px-4 py-2 rounded-xl flex items-center space-x-2.5">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
             <span className="text-xs font-mono font-bold text-indigo-200">
-              Mevcut (Baseline) vs Gelecek Durum (Simülasyon) Yan Yana Karşılaştırma
+              Mevcut ↔ Gelecek Durum Karşılaştırması
             </span>
           </div>
         </div>

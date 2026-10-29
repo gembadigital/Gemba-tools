@@ -99,3 +99,10 @@ assert.equal(normalizeVsmProjectInput({ name: "x", versions: Array.from({ length
 assert.equal(canDeleteVsmOwned(cu, { createdBy: "u2" }), false);
 assert.deepEqual(forbiddenOwnedRemovals(cu, [{ id: "v1", label: "V1", createdBy: "u2" }], []), ["V1"]);
 console.log("vsm-access-test: V7 checks passed");
+
+// V10: customer settings
+import { DEFAULT_VSM_SETTINGS, normalizeVsmSettings } from "../src/utils/vsmSettings.js";
+assert.deepEqual(normalizeVsmSettings(null), DEFAULT_VSM_SETTINGS);
+const st = normalizeVsmSettings({ defaultWorkingDays: 6, weeksPerYear: 48, oeeTarget: 150, wipDaysWarning: "3", extra: 1 });
+assert.deepEqual([st.defaultWorkingDays, st.weeksPerYear, st.oeeTarget, st.wipDaysWarning, (st as any).extra], [6, 48, 0, 3, undefined]);
+console.log("vsm-access-test: V10 checks passed");

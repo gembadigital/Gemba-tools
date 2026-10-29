@@ -75,7 +75,7 @@ export default function App() {
       dashboard: "Executive Dashboard",
       opexAssessment: "OpEx Assessment",
       plan: "Proje Master Plan",
-      vsm: "VSM Kapasite Analizi",
+      vsm: "Değer Akış Haritalama (VSM)",
       lossAnalysis: "Loss Capacity Analizi",
       timestudy: "Çevrim Süresi Etüdü",
       balancing: "Hat Dengeleme & Yamazumi",
@@ -96,7 +96,7 @@ export default function App() {
       dashboard: "Executive Dashboard",
       opexAssessment: "OpEx Assessment",
       plan: "Project Master Plan",
-      vsm: "VSM Capacity Analysis",
+      vsm: "Value Stream Mapping (VSM)",
       lossAnalysis: "Loss Capacity Analysis",
       timestudy: "Cycle Time Study",
       balancing: "Line Balancing & Yamazumi",
@@ -117,7 +117,7 @@ export default function App() {
       dashboard: "Vorstands-Dashboard",
       opexAssessment: "OpEx-Bewertung",
       plan: "Projekt-Masterplan",
-      vsm: "VSM-Kapazitätsanalyse",
+      vsm: "Wertstromanalyse (VSM)",
       lossAnalysis: "Verlustkapazitätsanalyse",
       timestudy: "Zykluszeitstudie",
       balancing: "Linienabstimmung & Yamazumi",
@@ -819,7 +819,7 @@ export default function App() {
               </button>
               )}
 
-              {/* 4. VSM Kapasite Analizi */}
+              {/* 4. Değer Akış Haritalama (VSM) */}
               {isModuleVisible("vsm") && (
               <button
                 onClick={() => setActiveTab("vsm")}
@@ -827,10 +827,10 @@ export default function App() {
                   activeTab === "vsm"
                     ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-50 hover:text-gray-900"
                 } ${effectivelyCollapsed ? "justify-center p-2.5" : "space-x-2.5 px-3 py-2"}`}
-                title="VSM Kapasite Analizi"
+                title="Değer Akış Haritalama (VSM)"
               >
                 <GitCommit className={`w-4 h-4 shrink-0 ${activeTab === "vsm" ? "text-white" : "text-slate-400"}`} />
-                {!effectivelyCollapsed && <span>VSM Kapasite Analizi</span>}
+                {!effectivelyCollapsed && <span>Değer Akış Haritalama (VSM)</span>}
               </button>
               )}
 

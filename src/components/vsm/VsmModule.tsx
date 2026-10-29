@@ -88,7 +88,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-[10px] uppercase font-bold tracking-wider text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 font-mono">
-                  VSM WORKSPACE
+                  VSM ÇALIŞMA ALANI
                 </span>
               </div>
 
@@ -130,7 +130,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
               }`}
             >
               <LayoutDashboard className="w-3.5 h-3.5" />
-              <span>Mevcut Durum (Current)</span>
+              <span>Mevcut Durum</span>
             </button>
             <button
               onClick={() => {
@@ -144,7 +144,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
               }`}
             >
               <Zap className="w-3.5 h-3.5 text-amber-100" />
-              <span>Gelecek Simülasyon (Future)</span>
+              <span>Gelecek Durum</span>
             </button>
           </div>
         </div>
@@ -186,7 +186,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
             className="flex items-center space-x-1.5 bg-slate-900 text-white hover:bg-slate-800 text-xs font-bold px-3.5 py-2 rounded-xl transition cursor-pointer shadow-sm h-9"
           >
             <Download className="w-4 h-4 text-slate-200" />
-            <span>VSM Rapor Export</span>
+            <span>Dışa Aktar</span>
           </button>
 
           {/* FULL SCREEN MODE */}
@@ -200,7 +200,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
         </div>
       </div>
 
-      {/* VSM WORKSPACE TABS SWITCHER */}
+      {/* VSM ÇALIŞMA ALANI TABS SWITCHER */}
       <div className="bg-slate-50 border-b border-slate-200 px-6 py-2.5 flex flex-wrap items-center justify-between gap-4 shrink-0 shadow-xs">
         <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0">
           {/* RETURN TO PROJECT LIST — compact home-icon button */}
@@ -282,7 +282,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
             }`}
           >
             <GitCommit className="w-4 h-4" />
-            <span>Değer Akış Şeması (Map)</span>
+            <span>Değer Akış Haritası</span>
           </button>
           <button
             onClick={() => setActiveTab("futureDesign")}

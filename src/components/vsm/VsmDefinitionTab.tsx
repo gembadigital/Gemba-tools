@@ -48,7 +48,7 @@ export default function VsmDefinitionTab() {
         <div className="p-6 max-w-7xl mx-auto space-y-6 font-sans">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-base font-extrabold text-slate-900">Proses Akış Yapılandırıcısı (Process Configurator)</h2>
+              <h2 className="text-base font-extrabold text-slate-900">Proses Akışı</h2>
               <p className="text-xs text-slate-500 mt-0.5">Üretim hattındaki ana proses operasyonlarını, sıralarını ve kaynaklarını tanımlayın.</p>
             </div>
             <button 

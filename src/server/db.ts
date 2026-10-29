@@ -624,6 +624,21 @@ export class GeminiDb {
   }
 
   // CI settings: one record per customer (utils/ciSettings.ts). Returned raw; callers normalize.
+  // VSM customer settings (one record per customer, plan step V10).
+  public async getVsmSettingsRecord(orgId: string, factoryId: string): Promise<any | null> {
+    return this.getRecordById("vsm_settings", `vsm_settings_${factoryId}`, orgId);
+  }
+
+  public async saveVsmSettingsRecord(orgId: string, factoryId: string, settings: any, userId: string): Promise<void> {
+    await this.upsertMerged("vsm_settings", orgId, {
+      ...settings,
+      id: `vsm_settings_${factoryId}`,
+      factory_id: factoryId,
+      organization_id: orgId,
+      updated_by_id: userId
+    });
+  }
+
   public async getCiSettingsRecord(orgId: string, factoryId: string): Promise<any | null> {
     return this.getRecordById("ci_settings", ciSettingsId(factoryId), orgId);
   }

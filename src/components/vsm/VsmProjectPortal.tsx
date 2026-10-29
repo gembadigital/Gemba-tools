@@ -39,11 +39,14 @@ import { domToCanvas } from "modern-screenshot";
 import { jsPDF } from "jspdf";
 
 import { useVsm } from "./VsmContext";
+import VsmSettingsModal from "./VsmSettingsModal";
+import { isVsmStaff } from "../../utils/vsmAccess";
 
 const optionalNumber = (raw: string): number | undefined => (raw.trim() === "" ? undefined : Number(raw));
 
 export default function VsmProjectPortal() {
   const { selectedCustomer, isLoading, projects, isProjectModalOpen, setIsProjectModalOpen, editingProject, isSavingProject, searchQuery, setSearchQuery, statusFilter, setStatusFilter, projForm, setProjForm, handleOpenNewProjectModal, handleOpenEditProjectModal, handleSaveProjectForm, handleDeleteProject, handleSelectProject, zoom, companyCurrency, currentUser } = useVsm();
+    const [settingsOpen, setSettingsOpen] = React.useState(false);
     const activeCount = projects.filter(p => p.status === "Aktif").length;
     const completedCount = projects.filter(p => p.status === "Tamamlandı").length;
     const suspendedCount = projects.filter(p => p.status === "Askıda").length;
@@ -64,17 +67,25 @@ export default function VsmProjectPortal() {
           <div>
             <div className="flex items-center space-x-2">
               <span className="text-[10px] uppercase font-bold tracking-wider text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded font-mono">
-                VSM PORTAL
+                DEĞER AKIŞ HARİTALAMA
               </span>
             </div>
             <h1 className="text-2xl font-black text-slate-900 tracking-tight mt-1 flex items-center gap-2">
               <GitCommit className="w-6 h-6 text-slate-800 animate-pulse" />
-              VSM Proje Portalı &amp; Yolculuk Paneli
+              Değer Akış Haritalama (VSM) — Projeler
             </h1>
             <p className="text-xs text-slate-500 mt-1">
               {selectedCustomer?.companyName || "Müşteri"} fabrikası için tanımlanmış değer akış çalışmaları ve kümülatif kazanımlar.
             </p>
           </div>
+          <div className="flex items-center gap-2">
+          {isVsmStaff(currentUser) && (
+            <button onClick={() => setSettingsOpen(true)} title="VSM ayarları (bu müşteri)"
+              className="flex items-center gap-1.5 bg-white border border-slate-300 text-slate-700 text-xs font-bold px-3 py-2.5 rounded-xl cursor-pointer">
+              <Settings className="w-4 h-4" /> Ayarlar
+            </button>
+          )}
+          {settingsOpen && <VsmSettingsModal onClose={() => setSettingsOpen(false)} />}
           <button 
             onClick={handleOpenNewProjectModal}
             className="flex items-center space-x-2 bg-slate-950 text-white hover:bg-slate-800 text-xs font-bold px-4 py-2.5 rounded-xl transition cursor-pointer shadow-md shadow-slate-100"
@@ -83,6 +94,7 @@ export default function VsmProjectPortal() {
             <Plus className="w-4 h-4" />
             <span>Yeni VSM Projesi</span>
           </button>
+          </div>
         </div>
 
         {/* TRANSFORMATION JOURNEY DASHBOARD (Bento Grid) */}

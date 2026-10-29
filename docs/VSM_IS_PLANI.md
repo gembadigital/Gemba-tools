@@ -313,6 +313,8 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 | V12 | ✅ kod; yerelde gerçek Gemini ile denendi (örnek proje, kayıt yok), canlıda denenmedi (§V12) | 170dd73 |
 | V7 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V7) | 7407261 |
 | V9 | ✅ kod; canlıda denenmedi (§V9) | d4dd1af |
+| V10 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V10) | bkz. git log |
+| V11 | ⏸ modül ayırma — kullanıcı kararıyla en sonda, diğer modüllerle birlikte | — |
 
 ### V0 — yapılanlar
 - Sunucu: `src/server/vsm/vsmRoutes.ts` (uçlar `app.ts`'den taşındı), kurallar `src/utils/vsmAccess.ts` (istemci+sunucu
@@ -546,3 +548,21 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 - Loss ekranı, VSM'den gelen C/O'yu setup süresi olarak kullanır (yoksa eski varsayılan). **Loss ekranının kendi sabit
   varsayılanları** (mola 30, bakım 15, adet ×1,1, 0 maliyetten adet tahmini vb.) VSM kapsamı dışında — ayrı iş olarak önerildi.
 - Testler: aday çıkarma (istasyon toplamı, VA, SMED bağlantısı, etüt ortalaması, ad eşleşmesi).
+
+### V10 — yapılanlar
+- **Müşteri VSM ayarları** (`src/utils/vsmSettings.ts`, `GET|POST /api/business/vsm/settings`, kayıt `vsm_settings_<müşteri>`,
+  proje listesinde "Ayarlar" — yalnızca Admin/Consultant): yeni proje varsayılanları (çalışma günü, vardiya sayısı/süresi,
+  mola, bakım), yılda çalışılan hafta (yıllık kayıp için; yeni projeye `weeksPerYear` olarak yazılır, yoksa 52), OEE hedefi
+  (altındaki prosesler haritada turuncu; 0 = eski davranış) ve stok günü uyarısı (üstündeki stok bölgeleri kırmızı).
+  Varsayılanlar bugünkü davranıştır.
+- **Ad:** modül her yerde "Değer Akış Haritalama (VSM)" (EN "Value Stream Mapping (VSM)", DE "Wertstromanalyse (VSM)");
+  SMED / Zaman Etüdü'ndeki yönlendirme metinleri güncellendi. Destek talebi kategori listesindeki "VSM Kapasite Analizi"
+  eski kayıtlar bozulmasın diye bırakıldı.
+- **Dil:** VSM ekranlarındaki karışık İngilizce başlıklar Türkçeleştirildi (sekmeler, kutular, paneller). Tam i18n
+  (EN/DE) altyapısı yok; metinler bileşenlerde Türkçe.
+- Testler: ayar normalizasyonu, yıllık hafta. Yerel önizlemede ayar okuma/kaydetme, eşik vurgusu ve yeni ad denendi.
+
+### Sonuç (2026-10-29)
+V0–V10 ve V12 kodda tamamlandı; V11 (ayırma) bilinçli olarak bekliyor. Hiçbiri canlıda uçtan uca denenmedi — canlı test
+listesi `VSM_CANLI_TEST.md`. Açık kalanlar: birden fazla tedarikçi kutusu; PDF metni görüntü (seçilemez); tam EN/DE çevirisi;
+Loss Capacity ekranının kendi sabit varsayılanları (ayrı iş).

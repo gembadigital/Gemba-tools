@@ -147,3 +147,12 @@ Görünüm değişmedi; aşağıdakiler hesap tutarlılığı ve düzeltilen hat
 | 9.2 | VSM'den bir prosesi silip Kaydet. | "… prosesin maliyet tablosundaki satırı duruyor. Silinsin mi?" sorusu; Evet → Loss'ta kaybolur. |
 | 9.3 | Projeyi silin. | Bağlı satırlar varsa "onlar da silinsin mi?" sorusu; İptal → Loss'ta kalır. |
 | 9.4 | Üretim & Kapasite → "Kaynaktan al": Yamazumi / SMED / Zaman etüdü sekmeleri. | Müşterinin kayıtları; önerilen hedef proses; işaretlenen değerler uygulanınca tabloda değer ve adın altında kaynak notu. Kaydet ile kalıcı. |
+
+## V10 — Ayarlar, ad, dil
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| 10.1 | Sol menü. | "Değer Akış Haritalama (VSM)". |
+| 10.2 | Danışman ile proje listesi → Ayarlar: OEE hedefi 85, stok günü uyarısı 2, yılda 48 hafta → Kaydet. | Kaydedilir; Customer User'da Ayarlar düğmesi yok. |
+| 10.3 | Bir projenin haritasını açın. | OEE'si 85 altındaki prosesler turuncu; 2 günü aşan stok günleri kırmızı. |
+| 10.4 | Yeni proje açın. | Kurulum'da ayarlardaki varsayılanlar; yıllık kayıp 48 haftayla hesaplanır. |

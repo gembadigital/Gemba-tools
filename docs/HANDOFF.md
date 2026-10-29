@@ -122,6 +122,21 @@ Ayrıntı ve sıradaki işler: [KAIZEN_PROGRESS_2026-10-27.md](KAIZEN_PROGRESS_2
 - Kaizen'de sabit `"TL"` / sabit seçenek listesi yazmayın — ayarlardan okuyun (`settings.baseCurrency`,
   `currencyChoices`, `optionChoices`).
 
+### VSM — Değer Akış Haritalama (2026-10-29; canlıda doğrulanmadı)
+Plan ve ilerleme: [VSM_IS_PLANI.md](VSM_IS_PLANI.md) (V0–V12, V11 = modül ayırma, diğer modüllerle birlikte en sonda),
+canlı test listesi: [VSM_CANLI_TEST.md](VSM_CANLI_TEST.md).
+- **Kod:** `src/components/vsm/` (giriş `VsmModule.tsx`, durum `useVsmWorkspace.tsx`, tek hesap motoru `vsmCalc.ts`, harita
+  `VsmMapCanvas.tsx` + `vsmMapLayout.ts`, gelecek durum `vsmFuture.ts`, versiyon `vsmVersions.ts`, veri kaynakları
+  `dataSources/`), sunucu `src/server/vsm/` (uçlar `vsmRoutes.ts`, AI `vsmAnalysis.ts`), ortak kurallar
+  `src/utils/vsmAccess.ts`, ayarlar `src/utils/vsmSettings.ts`. Paylaşılan VSM modüllerinde göreli importlar `.js` uzantılı.
+- **Yetki:** Customer User veri girer, yalnızca kendi eklediği proje / proses / kaizen patlaması / versiyonu silebilir
+  (sunucuda `createdBy` ile zorlanır). Ayarları yalnızca Admin/Consultant değiştirir.
+- **Veri:** proje kaydı `vsm_projects`; gelecek durum `futureState` (ayrı kopya), `kaizenBursts`, `versions`, `aiAnalysis`
+  (sunucu alanı); müşteri ayarı `vsm_settings_<müşteri>`. Loss Capacity senkronu sunucuda (`sync-cost-table`), yalnızca
+  ölçülen alanlar.
+- **Örnek proje:** ACME demo'da `vsm_proj_ornek_panel` (8 → 6 adım, çekme sistemi), `scripts/vsm-example-project.ts`.
+- **Testler:** `npx tsx scripts/vsm-{calc,access,excel,ai}-test.ts`.
+
 ### OpEx Yönetici Raporu (PDF)
 - **Tetik:** OpEx → Rapor sekmesi → "Yönetici Raporu (PDF)" (indir) / "Yazdır" (yeni sekme + yazdır → PDF).
   API: `GET /api/opex-report/:id?format=pdf|html` (ayrı fonksiyon, `vercel.json` rewrite + `maxDuration 60`).

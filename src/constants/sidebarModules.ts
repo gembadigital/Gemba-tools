@@ -11,7 +11,7 @@ export const SIDEBAR_MODULES: SidebarModuleDef[] = [
   { key: "dashboard", label: "Executive Dashboard" },
   { key: "opex-assessment", label: "OpEx Assessment" },
   { key: "plan", label: "Proje Master Plan" },
-  { key: "vsm", label: "VSM Kapasite Analizi" },
+  { key: "vsm", label: "Değer Akış Haritalama (VSM)" },
   { key: "loss-analysis", label: "Loss Capacity Analizi" },
   { key: "kaizen", label: "CI Proje Yönetimi" },
   { key: "flow", label: "Spaghetti Akış Analizi" },

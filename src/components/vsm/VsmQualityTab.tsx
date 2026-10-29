@@ -58,9 +58,9 @@ export default function VsmQualityTab() {
                 <tr>
                   <th className="p-4 w-16 text-center">Sıra</th>
                   <th className="p-4">Proses Adı</th>
-                  <th className="p-4 text-center w-28">Sağlam Adet (Good)</th>
-                  <th className="p-4 text-center w-28">Hurda / Fire (Scrap)</th>
-                  <th className="p-4 text-center w-28">Yeniden İşlem (Rework)</th>
+                  <th className="p-4 text-center w-28">Sağlam Adet</th>
+                  <th className="p-4 text-center w-28">Hurda / Fire</th>
+                  <th className="p-4 text-center w-28">Yeniden İşlem</th>
                   <th className="p-4 text-center w-28">Kalite Oranı FPY</th>
                   <th className="p-4 text-center w-28">Ara Stok WIP (Adet)</th>
                   <th className="p-4 text-center w-28">Stok Bekleme Günü</th>

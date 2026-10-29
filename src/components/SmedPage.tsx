@@ -921,7 +921,7 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
               {projSourceMode === "vsm" && (
                 vsmProcesses.length === 0 ? (
                   <p className="text-[11px] text-slate-400 italic">
-                    Bu müşteri için VSM'de kayıtlı proses bulunamadı. Önce VSM Kapasite Analizi modülünde bir akış oluşturun.
+                    Bu müşteri için VSM'de kayıtlı proses bulunamadı. Önce Değer Akış Haritalama (VSM) modülünde bir akış oluşturun.
                   </p>
                 ) : (
                   <select
@@ -1793,7 +1793,7 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
               <Link2 className="w-8 h-8 text-slate-300 mx-auto" />
               <h4 className="text-sm font-black text-slate-700 uppercase">Bu Proje Bir VSM Prosesine Bağlı Değil</h4>
               <p className="text-xs text-slate-450 font-bold max-w-md mx-auto">
-                Gerçek OEE verisiyle karşılaştırma yapabilmek için bu SMED projesini VSM Kapasite Analizi'nde kayıtlı bir prosese bağlayın.
+                Gerçek OEE verisiyle karşılaştırma yapabilmek için bu SMED projesini Değer Akış Haritalama (VSM) modülünde kayıtlı bir prosese bağlayın.
               </p>
               <button
                 onClick={handleOpenEditModal}
@@ -1816,7 +1816,7 @@ export default function SmedPage({ selectedCustomer, vsmProcesses = [] }: SmedPa
                 <div className="bg-white border border-red-200 rounded-xl p-5 shadow-xs text-center">
                   <span className="text-[10px] text-red-800 font-black uppercase block tracking-wider">Mevcut OEE Oranı ({activeProject.linkedProcessName})</span>
                   <div className="text-4xl font-black text-red-600 mt-2 font-mono">{oeeProjection.currentOee}%</div>
-                  <span className="text-[10px] text-slate-400 font-bold block mt-1">VSM Kapasite Analizi'nden canlı veri</span>
+                  <span className="text-[10px] text-slate-400 font-bold block mt-1">VSM'den canlı veri</span>
                 </div>
 
                 <div className="bg-white border border-emerald-200 rounded-xl p-5 shadow-xs text-center">
