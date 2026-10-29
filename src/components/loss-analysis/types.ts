@@ -36,6 +36,10 @@ export interface ProcessItem {
   machineCount?: number;
   // Unit costs entered in the owning VSM project's setup (0 / absent = not entered).
   vsmUnitCosts?: { scrapUnitCost?: number; downtimeHourlyCost?: number; holdingCostPerWipYearly?: number };
+  // VSM-measured daily minor stops and waiting (for the JIPM loss tree) and OEE with its components (%).
+  minorStopsMinutesPerDay?: number;
+  waitingMinutesPerDay?: number;
+  vsmOee?: { oee?: number; availability?: number; performance?: number; quality?: number };
 }
 
 // Per-station inputs of the loss model (daily figures; minutes per shift / per setup as labelled).

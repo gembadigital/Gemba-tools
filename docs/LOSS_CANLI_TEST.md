@@ -48,8 +48,26 @@ hurda/rework/arıza maliyetin 800/350/2.500'e bölünmesiyle). Artık gerçek ve
 | L3.6 | VSM Canlı Veri Düzenleyicisi → Değişiklikleri Veritabanına Kaydet; CI Proje → yeni proje sihirbazındaki maliyet tablosu fırsatlarına bakın. | Hurda / rework / plansız duruş fırsat tutarları Loss'taki yıllık tutarlarla aynı; birim maliyeti bulunamayan kalem yazılmaz, "Bekleme / Taşıma Kaybı" (WIP × 50 / × 10) artık yazılmaz. |
 | L3.7 | Makine sayısı girilmemiş (VSM dışı) bir istasyona bakın. | İstasyon adının yanında "(makine sayısı yok → 1)". |
 
+## L3 düzeltmesi (db7952c)
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| L3.0 | `01fa4a7` canlıdayken Loss Capacity ekranı açılmıyorsa (beyaz ekran / hata) | `db7952c` deploy olduktan sonra ekran açılır. Hata, birim maliyet bulunamayan kayıp listesinin `byStation` alanını da dolaşmasıydı. |
+
+## L4 — TPM Kayıp Maliyeti (JIPM 16 kayıp)
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| L4.1 | L2.1'deki VSM projesine Üretim sekmesinde ilk parça onayı 20, küçük duruş 50, bekleme 30 dk girip kaydedin. Loss → **6. TPM Kayıp Maliyeti (JIPM)**. | İstasyon kartında OEE (mavi **VSM**), yükleme ve OEE kaybı dk/gün. Matriste 16 kayıp: 1 Arıza = VSM arıza dk, 2 Setup ve ayar = model değişim + ilk parça onayı, 5 Küçük duruş = 50, 6 Hız kaybı = performans kaybı − 50 (kaynak "OEE dağılımı"), 7 Hata = kalite kaybı süresi, 9 Yönetim = 30 dk × operatör. 1–7 + dağıtılamayan = yükleme × (1 − OEE). |
+| L4.2 | Kayıp Birim Maliyetleri boşken sekmeye bakın. | Süreler görünür; tutarlar "hesaplanamadı" (üzerine gelince istasyon adı). Hat makine saati ve işçilik saati girildiğinde İşçilik / Makine sütunları ve Toplam dolar. |
+| L4.3 | Takım değişimine, OEE'nin kullanılabilirlik kaybından büyük bir süre girin (ör. 500 dk). | Ekipman 1–4 kullanılabilirlik kaybına oranlanarak sığar; altta "aşıyor … oranlanarak sığdırıldı" uyarısı. |
+| L4.4 | OEE'si olmayan (VSM dışı, eksik girdili) istasyonu filtreden seçin. | "OEE girilmedi — dağıtım yok"; yalnız ölçülen/girilen süreler, 6 Hız ve 7 Hata boş. |
+| L4.5 | Gerçekleşen < planlanan olan istasyonda, şirket kartı (ciro, adet, malzeme %, enerji %) doluyken "Kayıp katkı payı" sütunu. | Ekipman kayıplarında tutar çıkar, toplam plan açığı × katkı payı × gün'ü aşmaz; "Toplam" sütununa eklenmez. |
+| L4.6 | Enerji kaybı ve kalıp/takım alanlarına yıllık tutar girin; sayfayı yenileyin. | 15 / 16. satırlarda tutar (kaynak "giriş"); girişler kalıcı. |
+| L4.7 | Bir kayıpta "CI'ye ata" → lider girip onaylayın. | CI Proje Yönetimi'nde "TPM n. kayıp adı İyileştirme Projesi" oluşur; butonda proje sayısı (1). Beklenen tasarruf 0 (varsayım yok). |
+| L4.8 | Pareto bölümü. | Fiyatlanmış kayıplar büyükten küçüğe, kümülatif %. |
+
 ## Bilinen, bu adımda değiştirilmeyenler
 
 - Fazla mesai (kapasite > %95 istasyon × işçilik × yarım gün), geç teslimat (ciro × %0,05/0,01), enerji (12 kW varsayımı),
   COPQ dağılım oranları, gizli fabrika %58, COPQ matrisindeki ciro/sektör yedekleri ve Copilot hazır metinleri → L5.
-- Kayıp kapasitenin katkı payı (talep varsa) ve OEE'nin 16 kayba dağıtımı → L4.

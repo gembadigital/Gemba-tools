@@ -60,6 +60,7 @@ export function mapCostTableRow(row: any): ProcessItem {
     inputs[f] = v ?? 0;
   }
   const S = (row?.vsmSetup && typeof row.vsmSetup === "object") ? row.vsmSetup : {};
+  const L = (row?.vsmLoss && typeof row.vsmLoss === "object") ? row.vsmLoss : {};
   const weekly = positive(S.weeklyDemand);
   const days = positive(S.workingDays);
   return {
@@ -74,6 +75,12 @@ export function mapCostTableRow(row: any): ProcessItem {
     fieldSources,
     vsmDailyDemand: weekly && days ? Math.round(weekly / days) : 0,
     machineCount: finite(row?.machineCount),
+    minorStopsMinutesPerDay: finite(L.minorStops),
+    waitingMinutesPerDay: finite(L.waitingTime),
+    vsmOee: row?.vsmProjectId ? {
+      oee: positive(row.oee), availability: positive(row.utilizationRate),
+      performance: positive(L.performance), quality: positive(L.quality)
+    } : undefined,
     vsmUnitCosts: {
       scrapUnitCost: positive(S.scrapUnitCost),
       downtimeHourlyCost: positive(S.downtimeHourlyCost),

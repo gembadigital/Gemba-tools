@@ -7,7 +7,7 @@ import {
   Activity, Layout, Sun, Moon, ArrowRight, Zap, Award, BarChart2,
   Save, Loader2, Info, ArrowDownUp, Check, ShieldCheck, Eye, EyeOff,
   Cpu, Sliders, Filter, Target, X, Building2, Crosshair, PieChart as PieChartIcon,
-  FileSpreadsheet, FileText
+  FileSpreadsheet, FileText, Wrench
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Legend, LineChart, AreaChart, Area, BarChart, Treemap } from "recharts";
 import ExcelJS from "exceljs";
@@ -36,6 +36,7 @@ import {
   resolveProcessRates,
   calculateLossCosts
 } from "./loss-analysis/lossCosting";
+import { JIPM_LOSSES, JipmStationInputs, JipmLine, computeJipmStation, stationOeeOf } from "./loss-analysis/jipmLossCost";
 
 import AnalysisViews from "./loss-analysis/AnalysisViews";
 import CopilotEngine from "./loss-analysis/CopilotEngine";
@@ -59,7 +60,7 @@ export default function LossAnalysis() {
   const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
 
   const isDarkMode = false; // Dark mode completely disabled per request
-  const [activeTab, setActiveTab] = useState<"cost_model" | "opportunity_matrix" | "recovery_matrix" | "simulation" | "ai_copilot" | "executive_dashboard">("executive_dashboard");
+  const [activeTab, setActiveTab] = useState<"cost_model" | "opportunity_matrix" | "recovery_matrix" | "simulation" | "tpm_loss" | "ai_copilot" | "executive_dashboard">("executive_dashboard");
   
   // Real database connection & synchronization states
   const [processes, setProcesses] = useState<ProcessItem[]>([]);
@@ -98,6 +99,9 @@ export default function LossAnalysis() {
   // the VSM project setup or is derived from the customer card (method B) — see lossCosting.ts.
   const [unitCosts, setUnitCosts] = useState<LossUnitCosts>({});
   const [holdingRatePct, setHoldingRatePct] = useState<number>(0); // stock carrying rate, %/year (card basis)
+  // JIPM loss tree (tab 6): consultant entries per station for the losses VSM does not measure.
+  const [jipmInputs, setJipmInputs] = useState<Record<string, JipmStationInputs>>({});
+  const [jipmStationFilter, setJipmStationFilter] = useState<string>("all");
   const [energyRateKwh, setEnergyRateKwh] = useState<number>(0); // per kWh; 0 = not entered
   // Customer card (company workspace) figures used by method B.
   const [cardWorkspace, setCardWorkspace] = useState<{ annualVolume: number; blueCollar: number; shiftHours: number; workingDays: number }>({ annualVolume: 0, blueCollar: 0, shiftHours: 0, workingDays: 0 });
@@ -172,6 +176,7 @@ export default function LossAnalysis() {
       // built-in defaults, so they are not carried over as if the consultant had entered them.)
       setUnitCosts(s?.unitCosts ?? {});
       setHoldingRatePct(s?.holdingRatePct ?? 0);
+      setJipmInputs(s?.jipmInputs ?? {});
       setEnergyRateKwh(s?.energyRateKwh ?? 0);
       // Product cost tree breakdown %
       setDirectMaterialPercent(s?.directMaterialPercent ?? 0);
@@ -780,6 +785,42 @@ export default function LossAnalysis() {
   const lossCostUnresolved = (["scrap", "rework", "downtime", "setup", "laborLoss", "inventory"] as const)
     .map(key => [key, lossCosts[key]] as const)
     .filter(([, l]) => l.unresolved.length > 0);
+  // JIPM 16-loss tree per station (jipmLossCost.ts). Lost contribution per piece from the card:
+  // (revenue − material − energy) / annual volume; only shown where output is short of plan.
+  const contributionPerUnit = cardBasis.revenue > 0 && cardBasis.annualVolume > 0 && cardBasis.materialPct > 0
+    ? cardBasis.revenue * (1 - (cardBasis.materialPct + cardBasis.energyPct) / 100) / cardBasis.annualVolume
+    : null;
+  const jipmResults = calculatedProcesses.map(p =>
+    computeJipmStation(p, stationOeeOf(p), jipmInputs[p.id] ?? {}, ratesById[p.id], { unitMaterial: cardDerived.unitMaterial, contributionPerUnit })
+  );
+  const jipmScope = jipmStationFilter === "all" ? jipmResults : jipmResults.filter(r => r.id === jipmStationFilter);
+  const jipmTotals = JIPM_LOSSES.map(def => {
+    const ls = jipmScope.map(r => r.lines.find(l => l.def.no === def.no)).filter(Boolean) as JipmLine[];
+    const sum = (f: (l: JipmLine) => number) => ls.reduce((acc, l) => acc + f(l), 0);
+    return {
+      def,
+      minutesPerDay: sum(l => l.minutesPerDay),
+      personHoursPerDay: sum(l => l.personHoursPerDay),
+      sources: Array.from(new Set(ls.map(l => l.source).filter(Boolean))) as string[],
+      labor: sum(l => l.labor), machine: sum(l => l.machine), material: sum(l => l.material), direct: sum(l => l.direct),
+      total: sum(l => l.total), contribution: sum(l => l.contribution),
+      unpricedAt: ls.map((l, i) => (!l.priced ? jipmScope[i]?.name : null)).filter(Boolean) as string[]
+    };
+  });
+  const jipmUnexplained = {
+    minutes: jipmScope.reduce((acc, r) => acc + r.unexplainedMinutesPerDay, 0),
+    cost: jipmScope.reduce((acc, r) => acc + r.unexplainedCost, 0)
+  };
+  const jipmGrandTotal = jipmTotals.reduce((acc, t) => acc + t.total, 0) + jipmUnexplained.cost;
+  const jipmPareto = [...jipmTotals].filter(t => t.total > 0).sort((a, b) => b.total - a.total);
+  const updateJipmInput = (stationId: string, key: keyof JipmStationInputs, raw: string) => {
+    const v = parseFloat(raw);
+    setJipmInputs(prev => {
+      const station = { ...(prev[stationId] ?? {}) };
+      if (raw.trim() === "" || !(v >= 0)) delete station[key]; else station[key] = v;
+      return { ...prev, [stationId]: station };
+    });
+  };
   const avgShiftHours = activeProcesses.length > 0 ? activeProcesses.reduce((s2, p) => s2 + p.workingHoursPerShift, 0) / activeProcesses.length : 0;
   const financialImpactBase = calculateFinancialImpact(calculatedProcesses, effectiveRevenue, lossCosts, factoryLaborRate.source ? factoryLaborRate.value * avgShiftHours : 0, energyRateKwh);
   const copqDataBase = calculateCOPQ(calculatedProcesses, effectiveRevenue, financialImpactBase);
@@ -880,7 +921,7 @@ export default function LossAnalysis() {
     const settingsToSave = {
       selectedIndustry, customIndustryName,
       costModelScope, productVolumeShare, selectedVsmProjectId: selectedVsmProject?.id ?? null,
-      unitCosts, holdingRatePct, energyRateKwh,
+      unitCosts, holdingRatePct, energyRateKwh, jipmInputs,
       directMaterialPercent, directLaborPercent, overtimeBurdenPercent, energyPercent, maintenancePercent, overheadPercent, operatingProfitPercent,
       copqRates, customImprovementRates, opexMaturity, customInvestmentPercent,
       actualCostOverrides,
@@ -913,7 +954,7 @@ export default function LossAnalysis() {
     selectedCustomerId, settingsReady, token,
     selectedIndustry, customIndustryName,
     costModelScope, productVolumeShare, selectedVsmProject,
-    unitCosts, holdingRatePct, energyRateKwh,
+    unitCosts, holdingRatePct, energyRateKwh, jipmInputs,
     directMaterialPercent, directLaborPercent, overtimeBurdenPercent, energyPercent, maintenancePercent, overheadPercent, operatingProfitPercent,
     copqRates, customImprovementRates, opexMaturity, customInvestmentPercent,
     actualCostOverrides,
@@ -2339,7 +2380,8 @@ export default function LossAnalysis() {
           { id: "cost_model", label: "2. Ürün Maliyet Modeli", icon: DollarSign },
           { id: "opportunity_matrix", label: "3. COPQ Finansal Matrisi", icon: BarChart2 },
           { id: "recovery_matrix", label: "4. Geri Kazanım Matrisi", icon: Award },
-          { id: "simulation", label: "5. What-if Simülasyonu", icon: Zap }
+          { id: "simulation", label: "5. What-if Simülasyonu", icon: Zap },
+          { id: "tpm_loss", label: "6. TPM Kayıp Maliyeti (JIPM)", icon: Wrench }
         ].map((t) => {
           const Icon = t.icon;
           return (
@@ -4431,6 +4473,241 @@ export default function LossAnalysis() {
         })()}
 
         {/* TAB 5: WHAT-IF SIMULATION */}
+        {activeTab === "tpm_loss" && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            <div className="border rounded-2xl p-6 space-y-4 bg-white border-slate-200 shadow-sm">
+              <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 border-b pb-4">
+                <div className="space-y-1 max-w-4xl">
+                  <h3 className="text-base font-black uppercase tracking-tight text-rose-900 flex items-center">
+                    <Wrench className="w-5 h-5 mr-2" />
+                    TPM Kayıp Maliyet Analizi (JIPM 16 Büyük Kayıp)
+                  </h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    İstasyonun OEE'si varsa (VSM ölçümü ya da tüm girdileri tamam olan Loss hesabı) OEE kaybı yükleme süresi × (1 − OEE) olarak alınır ve dağıtılır: kullanılabilirlik kaybı → arıza, setup ve ayar, takım değişimi, başlangıç; performans kaybı → küçük duruş, kalanı hız kaybı; kalite kaybı → hata ve yeniden işleme. Ölçülen süreler kaybı aşarsa oranlanır, açıklanamayan kalan "dağıtılamayan OEE kaybı" olarak ayrı görünür. İnsan ve kaynak kayıpları ölçüm ya da aşağıdaki girişlerden gelir. Ekipman süresi makine saati × makine sayısı + işçilik saati × operatörle, insan kaybı işçilik saatiyle, verim kaybı birim malzemeyle fiyatlanır (Kayıp Birim Maliyetleri). Fiyatlanamayan kayıp toplama girmez.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] font-black uppercase text-slate-500">İstasyon</span>
+                  <select
+                    value={jipmStationFilter}
+                    onChange={(e) => setJipmStationFilter(e.target.value)}
+                    className="text-xs border rounded-lg px-2 py-1.5 bg-white"
+                  >
+                    <option value="all">Tümü ({jipmResults.length})</option>
+                    {jipmResults.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {jipmResults.length === 0 ? (
+                <p className="text-xs text-slate-400 italic">Maliyet tablosunda istasyon yok. VSM projesine proses girip kaydedin.</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {jipmScope.map(r => (
+                    <div key={r.id} className="p-3 rounded-xl border bg-slate-50 border-slate-200 text-[11px]">
+                      <div className="font-black text-slate-800 truncate">{r.name}</div>
+                      {r.oee !== null ? (
+                        <div className="text-slate-600 mt-1">
+                          OEE <span className="font-mono font-bold">%{r.oee.toFixed(1)}</span> <span className={`text-[9px] font-bold ${r.oeeSource === "VSM" ? "text-sky-600" : "text-slate-400"}`}>{r.oeeSource}</span>
+                          <div>Yükleme {Math.round(r.loadingMinutesPerDay)} dk/gün · OEE kaybı {Math.round(r.oeeLossMinutesPerDay)} dk/gün</div>
+                          {r.unexplainedMinutesPerDay > 0.05 && <div className="text-amber-700">Dağıtılamayan: {r.unexplainedMinutesPerDay.toFixed(1)} dk/gün</div>}
+                        </div>
+                      ) : (
+                        <div className="italic text-amber-600 mt-1">OEE girilmedi — dağıtım yok</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* LOSS × COST ELEMENT MATRIX */}
+            <div className="border rounded-2xl p-6 space-y-3 bg-white border-slate-200 shadow-sm">
+              <span className="font-extrabold text-[10px] uppercase text-rose-800 tracking-wider block border-b pb-2">
+                Kayıp × Maliyet Unsuru Matrisi (yıllık, {currencySymbol})
+              </span>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-[11px]">
+                  <thead>
+                    <tr className="bg-slate-50 border-b text-[10px] font-extrabold uppercase text-slate-500">
+                      <th className="py-2 px-2">No</th>
+                      <th className="py-2 px-2">Kayıp</th>
+                      <th className="py-2 px-2">Grup</th>
+                      <th className="py-2 px-2 text-right">Süre / gün</th>
+                      <th className="py-2 px-2">Kaynak</th>
+                      <th className="py-2 px-2 text-right">İşçilik</th>
+                      <th className="py-2 px-2 text-right">Makine</th>
+                      <th className="py-2 px-2 text-right">Malzeme</th>
+                      <th className="py-2 px-2 text-right">Enerji / Takım</th>
+                      <th className="py-2 px-2 text-right font-black text-slate-800">Toplam</th>
+                      <th className="py-2 px-2 text-right" title="Plana göre eksik üretim varsa, kayıp sürede üretilebilecek adet × katkı payı (şirket kartı). Toplama dahil değildir.">Kayıp katkı payı*</th>
+                      <th className="py-2 px-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {jipmTotals.map(t => {
+                      const timeText = t.def.no <= 8
+                        ? (t.minutesPerDay > 0 ? `${t.minutesPerDay.toFixed(1)} dk` : "—")
+                        : t.def.no <= 13 ? (t.personHoursPerDay > 0 ? `${t.personHoursPerDay.toFixed(1)} kişi-saat` : "—") : "—";
+                      return (
+                        <tr key={t.def.no} className={t.def.no === 9 || t.def.no === 14 ? "border-t-2 border-slate-200" : ""}>
+                          <td className="py-1.5 px-2 font-mono text-slate-400">{t.def.no}</td>
+                          <td className="py-1.5 px-2 font-bold text-slate-700">{t.def.name}</td>
+                          <td className="py-1.5 px-2 text-slate-500">{t.def.group}</td>
+                          <td className="py-1.5 px-2 text-right font-mono">{timeText}</td>
+                          <td className="py-1.5 px-2 text-[10px] text-slate-500">
+                            {t.sources.length > 0 ? t.sources.join(", ") : <span className="italic text-slate-300">veri yok</span>}
+                          </td>
+                          <td className="py-1.5 px-2 text-right font-mono">{t.labor > 0 ? formatMoney(t.labor) : "—"}</td>
+                          <td className="py-1.5 px-2 text-right font-mono">{t.machine > 0 ? formatMoney(t.machine) : "—"}</td>
+                          <td className="py-1.5 px-2 text-right font-mono">{t.material > 0 ? formatMoney(t.material) : "—"}</td>
+                          <td className="py-1.5 px-2 text-right font-mono">{t.direct > 0 ? formatMoney(t.direct) : "—"}</td>
+                          <td className="py-1.5 px-2 text-right font-mono font-black text-slate-900">
+                            {t.total > 0 ? formatMoney(t.total) : t.unpricedAt.length > 0 ? <span className="italic font-normal text-amber-600" title={`Birim maliyet yok: ${t.unpricedAt.join(", ")}`}>hesaplanamadı</span> : "—"}
+                          </td>
+                          <td className="py-1.5 px-2 text-right font-mono text-slate-500">{t.contribution > 0 ? formatMoney(t.contribution) : "—"}</td>
+                          <td className="py-1.5 px-2 text-right">
+                            {t.total > 0 && (
+                              <button
+                                onClick={() => handleOpenAssignModal({
+                                  subject: `TPM ${t.def.no}. ${t.def.name}`,
+                                  costGroup: `TPM — ${t.def.group} kayıpları`,
+                                  severity: jipmGrandTotal > 0 && t.total / jipmGrandTotal >= 0.2 ? "High" : "Medium",
+                                  investmentCost: 0,
+                                  avgLoss: t.total,
+                                  avgGain: 0,
+                                  potentialGainMin: 0,
+                                  potentialGainMax: 0,
+                                  leanTool: t.def.tool
+                                })}
+                                className="text-[10px] font-bold px-2 py-1 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 whitespace-nowrap cursor-pointer"
+                                title="Kobetsu Kaizen projesi olarak CI Proje Yönetimi'ne ata"
+                              >
+                                CI'ye ata{kaizenCountBySubject[`TPM ${t.def.no}. ${t.def.name}`] ? ` (${kaizenCountBySubject[`TPM ${t.def.no}. ${t.def.name}`]})` : ""}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {jipmUnexplained.minutes > 0.05 && (
+                      <tr className="bg-amber-50/40">
+                        <td className="py-1.5 px-2"></td>
+                        <td className="py-1.5 px-2 font-bold text-amber-800">Dağıtılamayan OEE kaybı</td>
+                        <td className="py-1.5 px-2 text-slate-500">Ekipman</td>
+                        <td className="py-1.5 px-2 text-right font-mono">{jipmUnexplained.minutes.toFixed(1)} dk</td>
+                        <td className="py-1.5 px-2 text-[10px] text-slate-500">OEE − ölçülen kayıplar</td>
+                        <td className="py-1.5 px-2" colSpan={4}></td>
+                        <td className="py-1.5 px-2 text-right font-mono font-black">{jipmUnexplained.cost > 0 ? formatMoney(jipmUnexplained.cost) : "—"}</td>
+                        <td className="py-1.5 px-2" colSpan={2}></td>
+                      </tr>
+                    )}
+                    <tr className="bg-slate-900 text-white font-black">
+                      <td className="py-2 px-2" colSpan={9}>TOPLAM YILLIK KAYIP MALİYETİ</td>
+                      <td className="py-2 px-2 text-right font-mono">{formatMoney(jipmGrandTotal)}</td>
+                      <td className="py-2 px-2 text-right font-mono">{formatMoney(jipmTotals.reduce((acc, t) => acc + t.contribution, 0))}</td>
+                      <td></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[10px] text-slate-400">
+                * Kayıp katkı payı: istasyonun gerçekleşen üretimi planın altındaysa (talep var), ekipman kayıplarında (1–7) kaybedilen sürede ideal C/T ile üretilebilecek adet × birim katkı payı (ciro − malzeme − enerji) / yıllık adet; plan açığıyla sınırlanır. Doğrudan maliyete eklenmez, fırsat olarak gösterilir.
+              </p>
+            </div>
+
+            {/* PARETO */}
+            <div className="border rounded-2xl p-6 space-y-3 bg-white border-slate-200 shadow-sm">
+              <span className="font-extrabold text-[10px] uppercase text-rose-800 tracking-wider block border-b pb-2">Kayıp Pareto'su</span>
+              {jipmPareto.length === 0 ? (
+                <p className="text-xs text-slate-400 italic">Fiyatlanmış kayıp yok — Kayıp Birim Maliyetleri'ni ve istasyon verilerini tamamlayın.</p>
+              ) : (() => {
+                const total = jipmPareto.reduce((acc, t) => acc + t.total, 0);
+                let cum = 0;
+                return (
+                  <div className="space-y-1.5">
+                    {jipmPareto.map(t => {
+                      cum += t.total;
+                      const pct = total > 0 ? (t.total / total) * 100 : 0;
+                      return (
+                        <div key={t.def.no} className="grid grid-cols-[14rem_1fr_6rem_4rem] items-center gap-2 text-[11px]">
+                          <span className="truncate font-bold text-slate-700">{t.def.no}. {t.def.name}</span>
+                          <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-rose-600 rounded-full" style={{ width: `${Math.max(1, pct)}%` }} />
+                          </div>
+                          <span className="text-right font-mono">{formatMoney(t.total)}</span>
+                          <span className="text-right font-mono text-slate-400">%{(total > 0 ? (cum / total) * 100 : 0).toFixed(0)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* INPUTS FOR LOSSES VSM DOES NOT MEASURE */}
+            <div className="border rounded-2xl p-6 space-y-3 bg-white border-slate-200 shadow-sm">
+              <div className="border-b pb-2">
+                <span className="font-extrabold text-[10px] uppercase text-rose-800 tracking-wider block">Ölçülmeyen kayıplar için giriş (istasyon başına, günlük)</span>
+                <p className="text-[10px] text-slate-400">Arıza, setup, küçük duruş, bekleme, hurda ve norm fazlası VSM / Loss verisinden gelir. Küçük duruşu buradan girerseniz VSM değerinin yerine geçer. Değişiklikler otomatik kaydedilir.</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-[11px]">
+                  <thead>
+                    <tr className="bg-slate-50 border-b text-[10px] font-extrabold uppercase text-slate-500">
+                      <th className="py-2 px-2">İstasyon</th>
+                      <th className="py-2 px-2 text-center">Takım değişimi (dk)</th>
+                      <th className="py-2 px-2 text-center">Başlangıç (dk)</th>
+                      <th className="py-2 px-2 text-center">Küçük duruş (dk)</th>
+                      <th className="py-2 px-2 text-center">Hareket (kişi-saat)</th>
+                      <th className="py-2 px-2 text-center">Lojistik (kişi-saat)</th>
+                      <th className="py-2 px-2 text-center">Ölçme / ayar (kişi-saat)</th>
+                      <th className="py-2 px-2 text-center">Enerji kaybı ({currencySymbol}/yıl)</th>
+                      <th className="py-2 px-2 text-center">Kalıp / takım ({currencySymbol}/yıl)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {calculatedProcesses.map(p => {
+                      const inp = jipmInputs[p.id] ?? {};
+                      const field = (key: keyof JipmStationInputs, placeholder = "girilmedi") => (
+                        <td className="py-1.5 px-2 text-center">
+                          <input
+                            type="number"
+                            min={0}
+                            value={inp[key] ?? ""}
+                            placeholder={placeholder}
+                            onChange={(e) => updateJipmInput(p.id, key, e.target.value)}
+                            className="w-20 text-center border rounded py-0.5 placeholder:italic placeholder:text-amber-600 placeholder:text-[10px]"
+                          />
+                        </td>
+                      );
+                      return (
+                        <tr key={p.id}>
+                          <td className="py-1.5 px-2 font-bold text-slate-700">{p.name}</td>
+                          {field("toolChangeMinutesPerDay")}
+                          {field("startupMinutesPerDay")}
+                          {field("minorStopsMinutesPerDay", p.minorStopsMinutesPerDay !== undefined ? `VSM: ${p.minorStopsMinutesPerDay}` : "girilmedi")}
+                          {field("motionPersonHoursPerDay")}
+                          {field("logisticsPersonHoursPerDay")}
+                          {field("measurementPersonHoursPerDay")}
+                          {field("energyLossPerYear")}
+                          {field("dieToolLossPerYear")}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {jipmScope.some(r => r.warnings.length > 0) && (
+              <div className="border rounded-2xl p-4 bg-amber-50/40 border-amber-200 text-[10px] text-amber-800 space-y-1">
+                {jipmScope.flatMap(r => r.warnings.map((w, i) => <div key={`${r.id}_${i}`}><strong>{r.name}:</strong> {w}</div>))}
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === "simulation" && (
           <div className="space-y-6 animate-in fade-in duration-200">
             
