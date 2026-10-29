@@ -337,3 +337,44 @@ export function workforceAnalysis(
     netSecondsPerShift
   };
 }
+
+// ---- takt and capacity checks (plan step V4) ----
+
+export interface VsmTaktRow {
+  id: string;
+  name: string;
+  cycleTime: number;
+  overTakt: boolean;          // C/T > takt: this station cannot meet demand at its current set-up
+  capacity: number;           // units per day (available time ÷ ideal C/T)
+  demandCoverPct: number;     // capacity ÷ daily demand × 100 (0 when no demand entered)
+}
+
+// Operator-balance view: every process's C/T against takt, and capacity against daily demand.
+// The constraint is the highest C/T; it is "over takt" when that C/T exceeds takt.
+export function taktCheck(processes: VsmProcess[], taktTime: number, dailyDemand: number) {
+  const rows: VsmTaktRow[] = processes.map(p => ({
+    id: p.id,
+    name: p.name,
+    cycleTime: p.cycleTime,
+    overTakt: taktTime > 0 && p.cycleTime > taktTime,
+    capacity: p.capacity,
+    demandCoverPct: dailyDemand > 0 ? Math.round((p.capacity / dailyDemand) * 1000) / 10 : 0
+  }));
+  const constraint = bottleneckOf(processes);
+  return {
+    rows,
+    overTaktCount: rows.filter(r => r.overTakt).length,
+    shortOfDemandCount: dailyDemand > 0 ? rows.filter(r => r.capacity < dailyDemand).length : 0,
+    constraintName: constraint?.name ?? "",
+    constraintCt: constraint?.cycleTime ?? 0,
+    constraintOverTakt: !!constraint && taktTime > 0 && constraint.cycleTime > taktTime
+  };
+}
+
+// Money figures are shown only when at least one unit cost was entered in Kurulum.
+export const costsEntered = (setup: Partial<Pick<VsmFactorySetup, "holdingCostPerWipYearly" | "scrapUnitCost" | "downtimeHourlyCost">>) =>
+  (setup.holdingCostPerWipYearly ?? 0) > 0 || (setup.scrapUnitCost ?? 0) > 0 || (setup.downtimeHourlyCost ?? 0) > 0;
+
+// "391.350 ₺" — the customer's currency after the number, Turkish grouping.
+export const formatMoney = (n: number, currency: string) =>
+  `${Math.round(n).toLocaleString("tr-TR")} ${currency}`;

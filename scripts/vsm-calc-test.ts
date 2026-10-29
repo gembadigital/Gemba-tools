@@ -124,3 +124,18 @@ assert.deepEqual(fams.map(f => f.productIds), [["x", "y"], ["z"]]);
 assert.equal(fams[0].sharePct, 80);
 assert.deepEqual(familyTotals(matrix, ["x", "y"]), { names: ["X", "Y"], weeklyVolume: 800, sharePct: 80 });
 console.log("vsm-calc-test: V2 checks passed");
+
+// --- V4: takt / capacity check, money
+import { costsEntered, formatMoney, taktCheck } from "../src/components/vsm/vsmCalc.js";
+const tc = taktCheck([{ ...proc("a", { cycleTime: 70 }), capacity: 380 }, { ...proc("b", { cycleTime: 50 }), capacity: 520 }], 66, 400);
+assert.deepEqual(tc.rows.map(r => r.overTakt), [true, false]);
+assert.equal(tc.overTaktCount, 1);
+assert.equal(tc.shortOfDemandCount, 1);
+assert.equal(tc.rows[1].demandCoverPct, 130);
+assert.equal(tc.constraintName, "A");
+assert.equal(tc.constraintOverTakt, true);
+assert.equal(taktCheck([proc("a", {})], 0, 0).overTaktCount, 0, "no takt → nothing flagged");
+assert.equal(costsEntered({}), false);
+assert.equal(costsEntered({ scrapUnitCost: 5 }), true);
+assert.equal(formatMoney(391350.4, "₺"), "391.350 ₺");
+console.log("vsm-calc-test: V4 checks passed");

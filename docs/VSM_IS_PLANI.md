@@ -306,6 +306,7 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 | V2 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V2) | 1b5d35a |
 | V8 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V8) | 39edc79 |
 | V3 | ✅ kod; yerel önizlemede (sahte API) masaüstü/telefon denendi, canlıda denenmedi (§V3) | 289bebb |
+| V4 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V4) | bkz. git log |
 
 ### V0 — yapılanlar
 - Sunucu: `src/server/vsm/vsmRoutes.ts` (uçlar `app.ts`'den taşındı), kurallar `src/utils/vsmAccess.ts` (istemci+sunucu
@@ -435,3 +436,17 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
   (Excel saha formuyla aynı alan listesi) alt sayfa formu; proses ekleme ve izinli silme. Sekme çubuğu yatay kayar.
   Tablet (≥768 px) masaüstü tablolarını ve harita düzenlemeyi kullanır.
 - Yerel önizlemede 1440 px ve 375 px görünümler kontrol edildi.
+
+### V4 — yapılanlar
+- **Dashboard sadeleşti** (`VsmIndicatorPanel.tsx`): 4 büyük kart + 2 ölçer + 4 ayrı grafik + 6 ek kart yerine
+  **8 gösterge** (lead time, PCE, toplam WIP + gün karşılığı, takt / pitch, darboğaz + takt'a göre durumu, ortalama OEE,
+  operatör / norm kadro, yıllık kayıp). Simülasyonda değişiklik varsa gelecek değer "→" ile yanında (iyileşme yeşil,
+  kötüleşme kırmızı) ve "simülasyondur" notu.
+- **Operatör dengesi grafiği:** proses C/T çubukları + kırmızı takt çizgisi; takt'ı aşan proses kırmızı, sayısı yazılır;
+  mevcut / gelecek arasında geçiş. Takt yoksa nedeni yazılır.
+- **Kapasite ↔ günlük talep tablosu:** proses başına kapasite ve talebi karşılama yüzdesi (%100 altı kırmızı).
+- **Proses karşılaştırma grafiği:** tek grafik, metrik seçimi (C/T, C/O, stok günü, OEE, hurda, hata oranı).
+- **Para:** yıllık kayıp yalnızca Kurulum'da en az bir birim maliyet girildiyse gösterilir; biçim "391.350 ₺"
+  (`formatMoney`). Yıllık gün = çalışma günü × 52 (V0).
+- Motor: `taktCheck` (takt'ı aşan / talebi karşılamayan proses sayısı, darboğaz), `costsEntered`, `formatMoney` — testli.
+- Dashboard'da norm kadro bölümü ve hesaplanan özet aynen duruyor (özet V12'de yapay zekâ analizine dönüşecek).

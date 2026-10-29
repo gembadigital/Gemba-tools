@@ -77,3 +77,13 @@ Görünüm değişmedi; aşağıdakiler hesap tutarlılığı ve düzeltilen hat
 | 3.7 | Telefonda Proses Tanımlama'yı açın, bir prosese dokunun, değer değiştirip Tamam → Kaydet. | Kart listesi; alt sayfada tüm alanlar; değer haritaya ve kayda yansır. |
 | 3.8 | Telefonda haritayı açın. | Harita yüksekliğe sığar, yatay kaydırılır, okunur. |
 | 3.9 | PDF / PNG alın. | Haritanın tamamı, önceki sürümden daha büyük ve kesilmeden. |
+
+## V4 — Göstergeler
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| 4.1 | Dolu bir projede Dashboard'u açın. | Üstte 8 gösterge; sahte/sabit değer yok. Harita altındaki lead time ve PCE ile aynı sayılar. |
+| 4.2 | Gelecek simülasyonda bir prosesin C/T ve WIP'ini düşürün, Dashboard'a dönün. | Göstergelerde "→ yeni değer" (yeşil); altında "simülasyondur" notu. |
+| 4.3 | Haftalık talebi, bir prosesin C/T'si takt'ı aşacak kadar artırın. | Operatör dengesi grafiğinde o proses kırmızı, takt çizgisi görünür, "1 proses takt'ın üstünde". Kapasite tablosunda %100 altı kırmızı. |
+| 4.4 | Kurulum'da tüm birim maliyetleri 0 yapın. | Yıllık kayıp "—", not: "birim maliyet girilmedi". |
+| 4.5 | Proses karşılaştırma grafiğinde metrikleri değiştirin. | Grafik seçilen metriği gösterir (birimiyle). |
