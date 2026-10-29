@@ -82,3 +82,45 @@ const wf = workforceAnalysis(current, "takt", 66, 400, setup);
 assert.deepEqual(wf.perProcess.map(p => p.gerekli), [2, 1]);
 
 console.log("vsm-calc-test: all checks passed");
+
+// --- V2: project-level shifts, pitch, raw / finished goods in lead time, VA time in PCE
+import { endStockDays, pitchOf, shiftsForTakt } from "../src/components/vsm/vsmCalc.js";
+import { normalizeVsmProject } from "../src/components/vsm/vsmNormalize.js";
+import { familyTotals, routingSimilarity, suggestFamilies } from "../src/components/vsm/vsmProductMatrix.js";
+
+assert.equal(shiftsForTakt({ shiftsPerDay: 2 }, [proc("a", { shifts: 3 })]), 2);
+assert.equal(shiftsForTakt({}, [proc("a", { shifts: 3 })]), 3, "older projects: first process's shifts");
+assert.equal(pitchOf(66, 20), 1320);
+assert.equal(pitchOf(66, undefined), 0);
+const ends = endStockDays({ rawMaterialQty: 1200, finishedGoodsQty: 400 }, 400);
+assert.deepEqual(ends, { rawDays: 3, fgDays: 1 });
+const withEnds = flowSummary(linear, ends);
+assert.equal(withEnds.leadTimeDays, 7);              // 3 raw + 3 WIP + 1 FG
+const va = flowSummary(withInventoryDays([proc("v", { cycleTime: 60, valueAddedTime: 20 })], 400));
+assert.equal(va.processingSeconds, 20, "entered VA time replaces C/T in PCE");
+
+// normalizer: legacy changeover + supermarket flag, shift fallback
+const n = normalizeVsmProject({ id: "x", name: "x", vsmProcesses: [proc("a", { shifts: 2, changeoverMinutes: 25, isSupermarket: true })] });
+assert.equal(n.processes[0].changeoverTime, 25);
+assert.equal(n.processes[0].changeoverMinutes, undefined);
+assert.equal(n.processes[0].inventoryType, "supermarket");
+assert.equal(n.setup.shiftsPerDay, 2);
+assert.equal(n.setup.scheduleMode, "each");
+assert.equal(n.setup.weeklyDemand, 0, "nothing invented");
+
+// product–process matrix
+assert.equal(routingSimilarity(["a", "b", "c", "d", "e"], ["a", "b", "c", "d"]), 0.8);
+const matrix = {
+  steps: [{ id: "a", name: "A" }, { id: "b", name: "B" }, { id: "c", name: "C" }, { id: "d", name: "D" }, { id: "e", name: "E" }],
+  products: [
+    { id: "x", name: "X", weeklyVolume: 500, stepIds: ["a", "b", "c", "d", "e"] },
+    { id: "y", name: "Y", weeklyVolume: 300, stepIds: ["a", "b", "c", "d"] },
+    { id: "z", name: "Z", weeklyVolume: 200, stepIds: ["a", "e"] }
+  ],
+  similarityPct: 80
+};
+const fams = suggestFamilies(matrix);
+assert.deepEqual(fams.map(f => f.productIds), [["x", "y"], ["z"]]);
+assert.equal(fams[0].sharePct, 80);
+assert.deepEqual(familyTotals(matrix, ["x", "y"]), { names: ["X", "Y"], weeklyVolume: 800, sharePct: 80 });
+console.log("vsm-calc-test: V2 checks passed");

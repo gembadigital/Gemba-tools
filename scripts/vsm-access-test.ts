@@ -43,3 +43,22 @@ if (ok.ok) {
 const tooMany = normalizeVsmProjectInput({ name: "x", vsmProcesses: Array.from({ length: 61 }, (_, i) => ({ id: "p" + i })) });
 assert.equal(tooMany.ok, false);
 console.log("vsm-access-test: all checks passed");
+
+// V2 fields
+const v2 = normalizeVsmProjectInput({
+  name: "Hat 2",
+  vsmProcesses: [{ id: "p1", name: "A", batchSize: "50", inventoryType: "fifo", fifoMax: 20, epei: "2 gün" }, { id: "p2", name: "B", inventoryType: "bogus" }],
+  team: [{ name: "Ayşe", role: "Planlama", extra: "x" }],
+  productMatrix: { steps: [{ id: "s1", name: "Kesme" }], products: [{ id: "x1", name: "Ürün", weeklyVolume: "120", stepIds: ["s1", "nope"] }], similarityPct: 500 }
+});
+assert.equal(v2.ok, true);
+if (v2.ok) {
+  assert.equal(v2.project.vsmProcesses[0].batchSize, 50);
+  assert.equal(v2.project.vsmProcesses[0].inventoryType, "fifo");
+  assert.equal(v2.project.vsmProcesses[1].inventoryType, undefined, "unknown stock type dropped");
+  assert.deepEqual(v2.project.team, [{ name: "Ayşe", role: "Planlama" }]);
+  assert.deepEqual(v2.project.productMatrix.products[0].stepIds, ["s1"], "routing only to known steps");
+  assert.equal(v2.project.productMatrix.products[0].weeklyVolume, 120);
+  assert.equal(v2.project.productMatrix.similarityPct, 100);
+}
+console.log("vsm-access-test: V2 checks passed");

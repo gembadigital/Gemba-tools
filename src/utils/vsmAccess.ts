@@ -53,8 +53,11 @@ const PROCESS_NUMBER_FIELDS = [
   "quality", "capacity", "downtimeMinutes", "inventoryBefore", "inventoryDays", "plannedQuantity", "actualQuantity",
   "idealCycleTime", "productionTime", "changeoverTime", "firstPieceApproval", "breakdownTime", "waitingTime",
   "minorStops", "goodParts", "scrap", "rework", "wipQuantity", "inventoryBetweenProcesses", "leadTimeContribution",
-  "changeoverMinutes"
+  "changeoverMinutes", "batchSize", "variantCount", "valueAddedTime", "transportTime", "fifoMax"
 ];
+const INVENTORY_TYPES = ["pile", "fifo", "supermarket"];
+export const VSM_MAX_PRODUCTS = 300;
+export const VSM_MAX_TEAM = 40;
 
 function cleanProcess(p: any): any {
   const out: any = { ...p };
@@ -68,6 +71,8 @@ function cleanProcess(p: any): any {
   }
   if (Array.isArray(out.shiftHours)) out.shiftHours = out.shiftHours.slice(0, 4).map((h: any) => cleanNumber(h) ?? 0);
   for (const k of ["notes", "kaizenOpp"]) if (typeof out[k] === "string") out[k] = out[k].slice(0, MAX_TEXT);
+  if (typeof out.epei === "string") out.epei = out.epei.slice(0, 60); else delete out.epei;
+  if (out.inventoryType !== undefined && !INVENTORY_TYPES.includes(out.inventoryType)) delete out.inventoryType;
   return out;
 }
 
@@ -86,6 +91,36 @@ export function normalizeVsmProjectInput(body: any): VsmInputResult {
     if (project.vsmProcesses.length > VSM_MAX_PROCESSES) return { ok: false, error: `En fazla ${VSM_MAX_PROCESSES} proses tanımlanabilir.` };
     project.vsmProcesses = project.vsmProcesses.map(cleanProcess);
     if (project.vsmProcesses.some((p: any) => !p.id)) return { ok: false, error: "Proses kimliği eksik." };
+  }
+  if (project.team !== undefined) {
+    if (!Array.isArray(project.team)) return { ok: false, error: "Ekip listesi geçersiz." };
+    project.team = project.team.slice(0, VSM_MAX_TEAM)
+      .filter((m: any) => m && typeof m === "object")
+      .map((m: any) => ({
+        name: String(m.name ?? "").slice(0, 100),
+        ...(m.role ? { role: String(m.role).slice(0, 100) } : {}),
+        ...(m.userId ? { userId: String(m.userId).slice(0, 80) } : {})
+      }));
+  }
+  if (project.productMatrix !== undefined) {
+    const pm = project.productMatrix;
+    if (!pm || typeof pm !== "object" || Array.isArray(pm)) return { ok: false, error: "Ürün matrisi geçersiz." };
+    const steps = Array.isArray(pm.steps) ? pm.steps.slice(0, VSM_MAX_PROCESSES) : [];
+    const products = Array.isArray(pm.products) ? pm.products : [];
+    if (products.length > VSM_MAX_PRODUCTS) return { ok: false, error: `Ürün matrisinde en fazla ${VSM_MAX_PRODUCTS} ürün olabilir.` };
+    const stepIds = new Set(steps.map((x: any) => String(x?.id ?? "")));
+    project.productMatrix = {
+      steps: steps.map((x: any) => ({ id: String(x?.id ?? "").slice(0, 80), name: String(x?.name ?? "").slice(0, 120) })).filter((x: any) => x.id),
+      products: products.map((x: any) => ({
+        id: String(x?.id ?? "").slice(0, 80),
+        name: String(x?.name ?? "").slice(0, 160),
+        ...(x?.code ? { code: String(x.code).slice(0, 60) } : {}),
+        ...(cleanNumber(x?.weeklyVolume) !== undefined ? { weeklyVolume: cleanNumber(x.weeklyVolume) } : {}),
+        stepIds: Array.isArray(x?.stepIds) ? x.stepIds.map(String).filter((id: string) => stepIds.has(id)) : []
+      })).filter((x: any) => x.id),
+      similarityPct: Math.min(100, Math.max(10, cleanNumber(pm.similarityPct) ?? 80)),
+      familyProductIds: Array.isArray(pm.familyProductIds) ? pm.familyProductIds.map(String).slice(0, VSM_MAX_PRODUCTS) : []
+    };
   }
   if (project.factorySetup && typeof project.factorySetup === "object") {
     const fs: any = { ...project.factorySetup };

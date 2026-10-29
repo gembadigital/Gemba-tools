@@ -39,6 +39,7 @@ import { domToCanvas } from "modern-screenshot";
 import { jsPDF } from "jspdf";
 
 import { useVsm } from "./VsmContext";
+import { VSM_INVENTORY_TYPES, VsmInventoryType } from "./vsmTypes";
 
 const optionalNumber = (raw: string): number | undefined => (raw.trim() === "" ? undefined : Number(raw));
 
@@ -64,7 +65,7 @@ export default function VsmQualityTab() {
                   <th className="p-4 text-center w-28">Ara Stok WIP (Adet)</th>
                   <th className="p-4 text-center w-28">Stok Bekleme Günü</th>
                   <th className="p-4 text-center w-28">Kanban Sinyali</th>
-                  <th className="p-4 text-center w-28">Süpermarket</th>
+                  <th className="p-4 text-center w-36">Stok Tipi (proses önü)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-sans">
@@ -132,16 +133,30 @@ export default function VsmQualityTab() {
                         </button>
                       </td>
                       <td className="p-4 text-center">
-                        <button 
-                          onClick={() => handleUpdateProcessField(p.id, "isSupermarket", !isSuper)}
-                          className={`px-3 py-1 rounded-full text-[10px] font-bold cursor-pointer transition ${
-                            isSuper 
-                              ? "bg-amber-100 text-amber-800 border border-amber-200" 
-                              : "bg-slate-100 text-slate-500 border border-slate-200"
-                          }`}
-                        >
-                          {isSuper ? "VAR" : "YOK"}
-                        </button>
+                        <div className="flex flex-col items-center gap-1">
+                          <select
+                            value={p.inventoryType ?? (isSuper ? "supermarket" : "pile")}
+                            onChange={e => {
+                              const type = e.target.value as VsmInventoryType;
+                              handleUpdateProcessField(p.id, "inventoryType", type);
+                              // The map's supermarket icon still reads the flag.
+                              handleUpdateProcessField(p.id, "isSupermarket", type === "supermarket");
+                            }}
+                            className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-800"
+                          >
+                            {VSM_INVENTORY_TYPES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                          </select>
+                          {p.inventoryType === "fifo" && (
+                            <input
+                              type="number"
+                              min={0}
+                              value={p.fifoMax ?? ""}
+                              placeholder="FIFO maks."
+                              onChange={e => handleUpdateProcessField(p.id, "fifoMax", optionalNumber(e.target.value))}
+                              className="w-24 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-center font-mono text-[11px]"
+                            />
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

@@ -73,8 +73,25 @@ export interface VsmProcess {
   wipQuantity?: number;
   inventoryBetweenProcesses?: number;
   leadTimeContribution?: number;
-  changeoverMinutes?: number;
+  changeoverMinutes?: number;   // legacy duplicate of changeoverTime — read once by normalizeVsmProject, never written
+
+  // Standard VSM data box (V2)
+  batchSize?: number;           // pieces per batch / lot
+  epei?: string;                // "every part every interval", as observed (e.g. "2 gün", "1 hafta")
+  variantCount?: number;        // number of product variants run on the process
+  valueAddedTime?: number;      // seconds; the value-adding part of C/T — PCE uses C/T when not entered
+  transportTime?: number;       // minutes of transport / handling to the next process (shown, not in lead time)
+  inventoryType?: VsmInventoryType;  // stock point before this process
+  fifoMax?: number;             // FIFO lane maximum (pieces), when inventoryType = "fifo"
 }
+
+export type VsmInventoryType = "pile" | "fifo" | "supermarket";
+
+export const VSM_INVENTORY_TYPES: { value: VsmInventoryType; label: string }[] = [
+  { value: "pile", label: "Serbest yığın (push)" },
+  { value: "fifo", label: "FIFO şeridi" },
+  { value: "supermarket", label: "Süpermarket (pull)" }
+];
 
 // Project-level parameters (Kurulum sekmesi). Text fields feed the map's customer / supplier /
 // production-control boxes; numbers left 0 mean "not entered".
@@ -102,6 +119,57 @@ export interface VsmFactorySetup {
   planningFrequency: string;
   planningSequencing: string;
   planningCalendar: string;
+
+  // V2 — scope, demand, information flow and the two end stock points. Text fields are free text as
+  // observed on the floor; numbers left 0 / undefined mean "not entered".
+  scopeStart?: string;            // first point of the value stream (e.g. "Hammadde girişi")
+  scopeEnd?: string;              // last point (e.g. "Sevkiyat")
+  observationDate?: string;       // ISO date the current state was walked
+  shiftsPerDay?: number;          // project-level shift count used for net available time / takt
+  orderType?: string;             // MTS / MTO / ATO
+  packSize?: number;              // pieces per customer pack → pitch = takt × pack size
+  customerShipmentBatch?: string; // e.g. "1 kamyon / 480 adet"
+  customerTransport?: string;     // e.g. "Kamyon"
+  customerOrderFrequency?: string;   // customer → production control
+  customerOrderChannel?: string;     // "Elektronik" | "Manuel"
+  supplierOrderFrequency?: string;   // production control → supplier
+  supplierOrderChannel?: string;
+  scheduleMode?: "each" | "pacemaker";  // where production control sends the schedule
+  pacemakerProcessId?: string;
+  rawMaterialQty?: number;        // raw material stock after the supplier (pieces)
+  rawMaterialType?: VsmInventoryType;
+  finishedGoodsQty?: number;      // finished goods stock before shipping (pieces)
+  finishedGoodsType?: VsmInventoryType;
+}
+
+export const VSM_ORDER_TYPES = ["MTS (stoğa üretim)", "MTO (siparişe üretim)", "ATO (siparişe montaj)"];
+export const VSM_INFO_CHANNELS = ["Elektronik", "Manuel"];
+
+export interface VsmTeamMember {
+  name: string;
+  role?: string;
+  userId?: string;
+}
+
+// Product–process (PQ/PR) matrix used to choose the product family the map is drawn for.
+export interface VsmMatrixStep {
+  id: string;
+  name: string;
+}
+
+export interface VsmMatrixProduct {
+  id: string;
+  name: string;
+  code?: string;
+  weeklyVolume?: number;
+  stepIds: string[];          // routing: steps this product passes through
+}
+
+export interface VsmProductMatrix {
+  steps: VsmMatrixStep[];
+  products: VsmMatrixProduct[];
+  similarityPct?: number;     // family grouping threshold (default 80)
+  familyProductIds?: string[];  // the products the project's map is drawn for
 }
 
 // Where a project's process figures come from (see dataSources/). Gemba Tools only uses "manual";
@@ -136,5 +204,7 @@ export interface VsmProject {
   simulationEdits?: Record<string, Partial<VsmProcess>>;
   simulationMode?: "current" | "future";
   dataSource?: VsmDataSourceRef;
+  team?: VsmTeamMember[];
+  productMatrix?: VsmProductMatrix;
   [key: string]: any;
 }

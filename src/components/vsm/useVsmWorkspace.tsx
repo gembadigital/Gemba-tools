@@ -29,12 +29,13 @@ import {
 } from "recharts";
 import { ProcessRecord, Customer } from "../../types";
 import { VsmUserLike, canDeleteVsmProcess, canDeleteVsmProject } from "../../utils/vsmAccess";
-import type { VsmConnectionType, VsmFactorySetup, VsmProcess } from "./vsmTypes";
+import type { VsmConnectionType, VsmFactorySetup, VsmProcess, VsmProductMatrix, VsmTeamMember } from "./vsmTypes";
+import { emptyFactorySetup, normalizeVsmProject } from "./vsmNormalize";
 import { getEffectiveSuccessorIds, isLinearFlow } from "./vsmGraph";
 import {
   annualWasteCost, applySimulation, bottleneckOf, compareStates, computeAll, demandOf, flowSummary, highestDowntimeOf,
   highestInventoryOf, leadTimeOf, lowestOeeOf, netAvailableSecondsPerDay as netSecondsPerDay, simulationDeltas,
-  taktTimeOf, withInventoryDays, workforceAnalysis as computeWorkforce
+  taktTimeOf, withInventoryDays, workforceAnalysis as computeWorkforce, endStockDays, pitchOf, shiftsForTakt, valueAddedSeconds
 } from "./vsmCalc";
 import { domToCanvas } from "modern-screenshot";
 import { jsPDF } from "jspdf";
@@ -76,37 +77,13 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
   
   // --- PRIMARY TABS STATE ---
   const [vsmProcesses, setVsmProcesses] = useState<VsmProcess[]>([]);
-  const [activeTab, setActiveTab] = useState<"setup" | "definition" | "production" | "quality" | "vsm" | "dashboard">("vsm");
+  const [activeTab, setActiveTab] = useState<"setup" | "family" | "definition" | "production" | "quality" | "vsm" | "dashboard">("vsm");
   
-  // A new project starts empty: no demand, cost or partner names are invented (they used to be
-  // pre-filled with a sample factory's figures and "çalışan sayısı × 12" as weekly demand).
-  const emptyFactorySetup = (): VsmFactorySetup => ({
-      workingDays: 5,
-      shiftStructure: "",
-      shiftDuration: 8,
-      breakTimes: 0,
-      plannedMaintenance: 0,
-      weeklyDemand: 0,
-      productFamily: "",
-      customerName: "",
-      shippingFrequency: "",
-      productVolumeShare: 0,
-      scrapUnitCost: 0,
-      holdingCostPerWipYearly: 0,
-      downtimeHourlyCost: 0,
-      // Map boxes (Tedarikçi / Üretim Planlama) — entered by the user, never pre-filled.
-      supplierName: "",
-      supplierMaterial: "",
-      supplierDelivery: "",
-      supplierBatch: "",
-      supplierLeadTime: "",
-      supplierLogistics: "",
-      planningSystem: "",
-      planningFrequency: "",
-      planningSequencing: "",
-      planningCalendar: ""
-    });
+  // A new project starts empty: no demand, cost or partner names are invented (see vsmNormalize.ts).
   const [factorySetup, setFactorySetup] = useState<VsmFactorySetup>(emptyFactorySetup);
+  // Project-level lists (V2): value-stream team and the product–process matrix.
+  const [team, setTeam] = useState<VsmTeamMember[]>([]);
+  const [productMatrix, setProductMatrix] = useState<VsmProductMatrix>({ steps: [], products: [], similarityPct: 80, familyProductIds: [] });
 
   // İş Gücü Analizi (Norm Kadro) — which method the dashboard's workforce section uses to
   // derive "Gerekli İş Gücü" per process from the existing VSM data (no new inputs required).
@@ -258,13 +235,14 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
   const handleSelectProject = (project: any) => {
     setSelectedProject(project);
     if (project) {
-      setFactorySetup({
-        ...emptyFactorySetup(),
+      const n = normalizeVsmProject(project, {
         customerName: selectedCustomer?.companyName || "",
-        productFamily: project.productGroup || "",
-        ...(project.factorySetup || {})
+        productFamily: project.productGroup || ""
       });
-      setVsmProcesses(Array.isArray(project.vsmProcesses) ? project.vsmProcesses : []);
+      setFactorySetup(n.setup);
+      setVsmProcesses(n.processes);
+      setTeam(n.team);
+      setProductMatrix(n.productMatrix);
 
       if (project.simulationEdits) {
         setSimulationEdits(project.simulationEdits);
@@ -357,7 +335,9 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
       factorySetup,
       vsmProcesses,
       simulationEdits,
-      simulationMode
+      simulationMode,
+      team,
+      productMatrix
     };
 
     fetch("/api/business/vsm-projects", {
@@ -466,7 +446,7 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
 
   // Net time uses the first process's shift count until the project-level shift model lands (V2).
   const netAvailableSecondsPerDay = useMemo(
-    () => netSecondsPerDay(factorySetup, activeProcesses[0]?.shifts ?? 0),
+    () => netSecondsPerDay(factorySetup, shiftsForTakt(factorySetup, activeProcesses)),
     [factorySetup, activeProcesses]
   );
   const taktTime = useMemo(() => taktTimeOf(netAvailableSecondsPerDay, dailyDemand), [netAvailableSecondsPerDay, dailyDemand]);
@@ -479,7 +459,10 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
   const vsmGraphLayout = vsmLeadTime.layout;
   const isFlowLinear = useMemo(() => isLinearFlow(processesWithTimeline, vsmGraphEdges), [processesWithTimeline, vsmGraphEdges]);
   const vsmCriticalPath = { totalDays: vsmLeadTime.totalDays, criticalPathIds: vsmLeadTime.criticalPathIds };
-  const flow = useMemo(() => flowSummary(processesWithTimeline), [processesWithTimeline]);
+  // Raw material / finished goods stocks (Kurulum) count in lead time as days of demand.
+  const endStocks = useMemo(() => endStockDays(factorySetup, dailyDemand), [factorySetup, dailyDemand]);
+  const pitchTime = pitchOf(taktTime, factorySetup.packSize);
+  const flow = useMemo(() => flowSummary(processesWithTimeline, endStocks), [processesWithTimeline, endStocks]);
 
   const totalWip = flow.totalWip;
   const totalLeadTimeDays = flow.leadTimeDays;
@@ -1023,6 +1006,13 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
 
 
   return {
+    team,
+    setTeam,
+    productMatrix,
+    setProductMatrix,
+    endStocks,
+    pitchTime,
+    valueAddedSeconds,
     selectedCustomerId,
     selectedCustomer,
     token,

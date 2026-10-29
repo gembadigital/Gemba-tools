@@ -95,6 +95,13 @@ export function netAvailableSecondsPerDay(setup: Pick<VsmFactorySetup, "shiftDur
 export const taktTimeOf = (netSecondsPerDay: number, dailyDemand: number) =>
   dailyDemand > 0 ? round1(netSecondsPerDay / dailyDemand) : 0;
 
+// Pitch = takt × pieces per customer pack (seconds); 0 when no pack size was entered.
+export const pitchOf = (taktTime: number, packSize?: number) => (packSize && packSize > 0 ? round1(taktTime * packSize) : 0);
+
+// Shift count for net available time: the project-level value, else the first process's (older projects).
+export const shiftsForTakt = (setup: Pick<VsmFactorySetup, "shiftsPerDay">, processes: VsmProcess[]) =>
+  setup.shiftsPerDay ?? processes[0]?.shifts ?? 0;
+
 // ---- inventory and lead time ----
 
 export type VsmTimelineProcess = VsmProcess & { inventoryDays: number };
@@ -121,21 +128,36 @@ export function leadTimeOf(processes: VsmTimelineProcess[]) {
   return { edges, layout, totalDays: critical.totalDays, criticalPathIds: critical.criticalPathIds };
 }
 
+// Raw material (after the supplier) and finished goods (before shipping) in days of demand.
+export interface VsmEndStocks {
+  rawDays: number;
+  fgDays: number;
+}
+
+export function endStockDays(setup: Pick<VsmFactorySetup, "rawMaterialQty" | "finishedGoodsQty">, dailyDemand: number): VsmEndStocks {
+  const days = (qty?: number) => (dailyDemand > 0 && qty ? round2(qty / dailyDemand) : 0);
+  return { rawDays: days(setup.rawMaterialQty), fgDays: days(setup.finishedGoodsQty) };
+}
+
+// Value-added seconds of a process: the entered VA time, else its C/T.
+export const valueAddedSeconds = (p: VsmProcess) => (p.valueAddedTime !== undefined ? p.valueAddedTime : p.cycleTime);
+
 export interface VsmFlowSummary {
-  totalWip: number;
-  leadTimeDays: number;
-  processingSeconds: number;      // Σ C/T — value-added time until a separate VA time exists (V2)
+  totalWip: number;               // WIP between processes (raw material / finished goods not included)
+  leadTimeDays: number;           // raw material + longest WIP path + finished goods
+  processingSeconds: number;      // Σ value-added time (C/T where no VA time was entered)
   pcePct: number;                 // process cycle efficiency = processing ÷ lead time × 100 (unrounded)
   criticalPathIds: Set<string>;
 }
 
-export function flowSummary(processes: VsmTimelineProcess[]): VsmFlowSummary {
+export function flowSummary(processes: VsmTimelineProcess[], ends: VsmEndStocks = { rawDays: 0, fgDays: 0 }): VsmFlowSummary {
   const lead = leadTimeOf(processes);
-  const processingSeconds = sum(processes, p => p.cycleTime);
-  const leadSeconds = lead.totalDays * 24 * 3600;
+  const processingSeconds = sum(processes, valueAddedSeconds);
+  const leadTimeDays = round2(ends.rawDays + lead.totalDays + ends.fgDays);
+  const leadSeconds = leadTimeDays * 24 * 3600;
   return {
     totalWip: sum(processes, p => p.inventoryBefore),
-    leadTimeDays: lead.totalDays,
+    leadTimeDays,
     processingSeconds,
     pcePct: leadSeconds > 0 ? (processingSeconds / leadSeconds) * 100 : 0,
     criticalPathIds: lead.criticalPathIds
@@ -187,8 +209,9 @@ export function compareStates(
   const demand = demandOf(setup);
   const currT = withInventoryDays(current, dailyDemand);
   const futT = withInventoryDays(future, dailyDemand);
-  const currFlow = flowSummary(currT);
-  const futFlow = flowSummary(futT);
+  const ends = endStockDays(setup, dailyDemand);
+  const currFlow = flowSummary(currT, ends);
+  const futFlow = flowSummary(futT, ends);
   const avg = (list: VsmProcess[], f: (p: VsmProcess) => number) => (list.length > 0 ? round1(sum(list, f) / list.length) : 0);
 
   const currBottleneck = bottleneckOf(current);

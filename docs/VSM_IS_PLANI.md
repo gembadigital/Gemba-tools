@@ -303,6 +303,7 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 | Plan | ✅ yazıldı, kararlar alındı (§5) | bef4074 |
 | V0 | ✅ kod; canlıda denenmedi ([VSM_CANLI_TEST.md](VSM_CANLI_TEST.md) §V0) | 42f5bc6 |
 | V1 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V1) | 01ae3d8 |
+| V2 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V2) | bkz. git log |
 
 ### V0 — yapılanlar
 - Sunucu: `src/server/vsm/vsmRoutes.ts` (uçlar `app.ts`'den taşındı), kurallar `src/utils/vsmAccess.ts` (istemci+sunucu
@@ -359,3 +360,31 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 - Yerel önizleme (Vite, tarayıcıda sahte API — veri kaydedilmez): portal, 6 sekme, harita (açık tema), çekmece,
   kaydetme, Customer User'ın başkasının prosesinde sil düğmesi görmemesi denendi; hesaplanan OEE/kapasite elle
   hesapla aynı.
+
+### V2 — yapılanlar
+- **Veri modeli** (`vsmTypes.ts`): proje düzeyinde kapsam (başlangıç/bitiş), gözlem tarihi, günlük vardiya sayısı,
+  sipariş tipi (MTS/MTO/ATO), paket miktarı (pitch), müşteri sevk partisi ve taşıma, bilgi akışı (müşteri→planlama ve
+  planlama→tedarikçi sıklık + kanal: elektronik/manuel), çizelge noktası (her proses / pacemaker + pacemaker proses),
+  hammadde ve mamul stoku (adet + tip). Ekip listesi (ad, görev). Proses: parti büyüklüğü, EPEI, çeşit sayısı, katma
+  değer süresi, taşıma süresi, stok tipi (serbest yığın / FIFO + maks. / süpermarket).
+- **Eski kayıtlar** (`vsmNormalize.ts`, okurken, geri yazmadan): `changeoverMinutes` → `changeoverTime`; süpermarket
+  bayrağı → stok tipi; günlük vardiya yoksa ilk prosesin vardiyası.
+- **Hesap motoru:** net süre proje vardiyasıyla (yoksa ilk proses); pitch = takt × paket; lead time = hammadde günü +
+  en uzun WIP yolu + mamul günü; PCE katma değer süresi girilen proseste onu, girilmeyende C/T'yi kullanır.
+- **Ürün Ailesi sekmesi** (`VsmProductMatrixTab.tsx`, `vsmProductMatrix.ts`): adımlar (haritadaki proseslerden ya da
+  elle), ürünler (kod, haftalık adet, pay), rota işaretleme; rota benzerliği (Jaccard, varsayılan %80, ayarlanabilir)
+  ile aile önerisi; seçilen aile "Kuruluma aktar" ile haftalık talep, aile adı ve hacim payını yazar (talep doluysa
+  onay sorar).
+- **Kurulum** (`VsmSetupDetails.tsx`): Kapsam & Gözlem, Ekip, Talep/Vardiya/Pitch, Müşteri, Bilgi Akışı,
+  Hammadde & Mamul Stoku bölümleri. **Üretim & Kapasite** altında veri kutusu tablosu; **Kalite & Envanter**'de stok tipi
+  seçimi (FIFO'da maksimum).
+- **Harita** (genel tasarım aynı): bilgi akışı oklarında sıklık · kanal etiketi; pacemaker seçiliyse çizelge oku
+  yalnızca o prosese; müşteri kutusunda sipariş tipi, sevk partisi, pitch; zaman çizgisinde baştaki hammadde ve
+  sondaki mamul günleri, VA girilen proseste VA süresi.
+- **Sunucu** (`vsmAccess.ts`): yeni proses sayıları, stok tipi beyaz listesi, ekip (≤40) ve matris (≤300 ürün, rota
+  yalnızca tanımlı adımlara) temizlenir.
+- Testler genişletildi (`vsm-calc-test.ts`, `vsm-access-test.ts`). Yerel önizlemede: aile önerisi (X+Y %80, Z ayrı) ve
+  Kuruluma aktarım (800 adet/hafta, %80), ok etiketleri, pacemaker oku, hammadde/mamul segmentleri, kayıt gövdesi
+  (matris, ekip, `changeoverTime`, stok tipi) denendi.
+- Kalanlar: birden fazla tedarikçi (tek tedarikçi kutusu korunuyor); elektronik bilgi akışı için şimşek ok sembolü,
+  FIFO şeridi / push oku çizimi ve kartta C/O–parti gösterimi V3'te; gelecek durumda hammadde/mamul değişimi V5'te.

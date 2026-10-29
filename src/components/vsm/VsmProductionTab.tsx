@@ -39,6 +39,7 @@ import { domToCanvas } from "modern-screenshot";
 import { jsPDF } from "jspdf";
 
 import { useVsm } from "./VsmContext";
+import VsmDataBoxTable from "./VsmDataBoxTable";
 
 const optionalNumber = (raw: string): number | undefined => (raw.trim() === "" ? undefined : Number(raw));
 
@@ -161,6 +162,7 @@ export default function VsmProductionTab() {
               </tbody>
             </table>
           </div>
+          <VsmDataBoxTable />
         </div>
   );
 }

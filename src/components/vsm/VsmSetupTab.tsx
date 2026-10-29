@@ -39,6 +39,7 @@ import { domToCanvas } from "modern-screenshot";
 import { jsPDF } from "jspdf";
 
 import { useVsm } from "./VsmContext";
+import VsmSetupDetails from "./VsmSetupDetails";
 
 const optionalNumber = (raw: string): number | undefined => (raw.trim() === "" ? undefined : Number(raw));
 
@@ -284,6 +285,8 @@ export default function VsmSetupTab() {
                 />
               </div>
             </div>
+
+            <VsmSetupDetails />
 
             {/* MAP BOXES — TEDARİKÇİ & ÜRETİM PLANLAMA (shown on the VSM map exactly as entered) */}
             <div className="pt-4 border-t border-slate-100 space-y-3">

@@ -36,3 +36,18 @@ Görünüm değişmedi; aşağıdakiler hesap tutarlılığı ve düzeltilen hat
 | 1.4 | Gelecek moda geçip bir prosesin WIP'ini azaltın; üst şerit ve Dashboard'u karşılaştırın. | Lead time azalışı, stok azalışı ve yıllık tasarruf iki yerde **aynı** sayılar. |
 | 1.5 | Üretim sekmesinde "Gerçekleşen" adedi silip kaydedin, sayfayı yenileyin. | Alan boş kalır (0 yazmaz); OEE performans girdisi yok sayılır. |
 | 1.6 | Yeni proje açın. | Kaydedilen projede veri kaynağı "manual" (ekranda henüz gösterilmiyor; V2). |
+
+## V2 — Standart VSM veri modeli ve ürün ailesi
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| 2.1 | Eski bir VSM projesini açın (V2'den önce kaydedilmiş). | Değerler aynı; Kurulum'da "Günlük vardiya sayısı" ilk prosesin vardiyasıyla dolu, C/O değerleri yerinde. |
+| 2.2 | Ürün Ailesi → "Haritadaki prosesleri ekle", 3 ürün girin (iki tanesi aynı rotada), adet/hafta yazın. | Pay sütunu hesaplanır; "Önerilen Aileler"de aynı rotalı ürünler tek aile. Benzerlik yüzdesini değiştirince öneriler değişir. |
+| 2.3 | Bir aileyi seçip "Kuruluma aktar". | Kurulum'da haftalık talep = ailenin haftalık adedi, ürün ailesi = ürün adları, hacim payı = ailenin payı. Talep doluysa önce onay sorar. |
+| 2.4 | Kurulum → Kapsam, Ekip (2 kişi), Talep/Vardiya/Pitch (paket 20), Müşteri, Bilgi Akışı, Hammadde & Mamul doldurun, Kaydet, sayfayı yenileyin. | Hepsi kalır. Pitch ipucunda "takt × paket" sonucu görünür. |
+| 2.5 | Haritaya bakın. | Müşteri→Planlama ve Planlama→Tedarikçi oklarında "sıklık · kanal" yazısı; müşteri kutusunda sipariş tipi, sevk partisi, pitch. |
+| 2.6 | Bilgi Akışı'nda "Tek noktaya — pacemaker" seçip bir proses seçin. | Planlamadan yalnızca o prosese kesikli ok iner. |
+| 2.7 | Hammadde ve mamul stok adedi girin. | Zaman çizgisinin başında "hammadde", sonunda "mamul" gün kutuları; toplam lead time bunları içerir. |
+| 2.8 | Üretim & Kapasite → Veri Kutusu: bir prosese katma değer süresi (C/T'den küçük) girin. | Zaman çizgisinde o proses "sn (VA)" gösterir; katma değer oranı (PCE) değişir. |
+| 2.9 | Kalite & Envanter → bir prosesin stok tipini FIFO yapıp maksimum girin; başka birini süpermarket yapın. | Seçim kalır; süpermarket seçilen proseste haritadaki süpermarket simgesi görünür. |
+| 2.10 | Customer User ile 2.2–2.4'ü yapın. | Kaydedilir (veri girişi serbest). |

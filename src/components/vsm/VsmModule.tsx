@@ -45,6 +45,8 @@ import { useVsmWorkspace } from "./useVsmWorkspace";
 import { VsmContext } from "./VsmContext";
 import VsmProjectPortal from "./VsmProjectPortal";
 import VsmSetupTab from "./VsmSetupTab";
+import VsmProductMatrixTab from "./VsmProductMatrixTab";
+import { Layers } from "lucide-react";
 import VsmDefinitionTab from "./VsmDefinitionTab";
 import VsmProductionTab from "./VsmProductionTab";
 import VsmQualityTab from "./VsmQualityTab";
@@ -206,6 +208,18 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
             <Building2 className="w-4 h-4" />
             <span>Fabrika Kurulumu</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab("family")}
+            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition border cursor-pointer ${
+              activeTab === "family"
+                ? "bg-slate-950 text-white border-slate-950 shadow-sm"
+                : "bg-white text-slate-600 hover:text-slate-900 border-slate-200"
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            <span>Ürün Ailesi</span>
+          </button>
           
           <button 
             onClick={() => setActiveTab("definition")}
@@ -279,6 +293,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
       </div>
       {/* TAB 1 — FABRİKA KURULUMU */}
       {activeTab === "setup" && <VsmSetupTab />}
+      {activeTab === "family" && <VsmProductMatrixTab />}
       {/* TAB 2 — PROSES TANIMLAMA */}
       {activeTab === "definition" && <VsmDefinitionTab />}
       {/* TAB 3 — ÜRETİM & KAPASİTE */}

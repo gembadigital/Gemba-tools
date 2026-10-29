@@ -42,8 +42,15 @@ import { useVsm } from "./VsmContext";
 
 const optionalNumber = (raw: string): number | undefined => (raw.trim() === "" ? undefined : Number(raw));
 
+// "Günlük · Elektronik" — label on an information-flow arrow; empty when nothing was entered.
+const infoLabel = (frequency?: string, channel?: string) => [frequency, channel].filter(Boolean).join(" · ");
+
 export default function VsmMapTab() {
-  const { selectedCustomer, factorySetup, simulationMode, zoom, pan, isPanning, isFullScreen, vsmBrightMode, setVsmBrightMode, canvasContainerRef, companyCurrency, weeklyDemand, dailyDemand, monthlyDemand, taktTime, processesWithTimeline, vsmGraphEdges, vsmGraphLayout, isFlowLinear, vsmCriticalPath, flow, totalLeadTimeDays, totalProcessingTimeSeconds, valueAddedRatio, vsmLaneSummaries, count, averageOee, averageCapacityUtilization, totalOperators, totalMachines, bottleneckProcess, highestDowntimeProcess, highestInventoryProcess, lowestOeeProcess, estimatedAnnualWasteCost, simulationComparison, handleSyncToCiProjects, handleZoomIn, handleZoomOut, handleZoomReset, handleMouseDown, handleMouseMove, handleMouseUp, handleOpenProcessDrawer } = useVsm();
+  const { endStocks, pitchTime, valueAddedSeconds, selectedCustomer, factorySetup, simulationMode, zoom, pan, isPanning, isFullScreen, vsmBrightMode, setVsmBrightMode, canvasContainerRef, companyCurrency, weeklyDemand, dailyDemand, monthlyDemand, taktTime, processesWithTimeline, vsmGraphEdges, vsmGraphLayout, isFlowLinear, vsmCriticalPath, flow, totalLeadTimeDays, totalProcessingTimeSeconds, valueAddedRatio, vsmLaneSummaries, count, averageOee, averageCapacityUtilization, totalOperators, totalMachines, bottleneckProcess, highestDowntimeProcess, highestInventoryProcess, lowestOeeProcess, estimatedAnnualWasteCost, simulationComparison, handleSyncToCiProjects, handleZoomIn, handleZoomOut, handleZoomReset, handleMouseDown, handleMouseMove, handleMouseUp, handleOpenProcessDrawer } = useVsm();
+  // Production control sends the schedule to every process (push) or only to the pacemaker.
+  const receivesSchedule = (processId: string) =>
+    factorySetup.scheduleMode !== "pacemaker" || !factorySetup.pacemakerProcessId || factorySetup.pacemakerProcessId === processId;
+
   return (
         <>
           {/* DETAILED COMPARATIVE METRIC STRIP (When Future mode is active) */}
@@ -198,10 +205,23 @@ export default function VsmMapTab() {
                 {/* Arrow from Customer to Production Control */}
                 <path d="M 1950,100 L 1950,75 L 1200,75" fill="none" stroke={vsmBrightMode ? "#b45309" : "#fbbf24"} strokeWidth="1.5" strokeDasharray="5,5" markerEnd="url(#dashed-arrow)" />
 
+                {/* Order / forecast labels on the two information arrows (Kurulum → Bilgi Akışı) */}
+                {infoLabel(factorySetup.customerOrderFrequency, factorySetup.customerOrderChannel) && (
+                  <text x={1575} y={66} textAnchor="middle" fontSize="12" fontWeight="700" fill={vsmBrightMode ? "#92400e" : "#fcd34d"} fontFamily="ui-monospace, monospace">
+                    {infoLabel(factorySetup.customerOrderFrequency, factorySetup.customerOrderChannel)}
+                  </text>
+                )}
+                {infoLabel(factorySetup.supplierOrderFrequency, factorySetup.supplierOrderChannel) && (
+                  <text x={595} y={66} textAnchor="middle" fontSize="12" fontWeight="700" fill={vsmBrightMode ? "#92400e" : "#fcd34d"} fontFamily="ui-monospace, monospace">
+                    {infoLabel(factorySetup.supplierOrderFrequency, factorySetup.supplierOrderChannel)}
+                  </text>
+                )}
+
                 {isFlowLinear && (
                   <>
                     {/* Information flow dashed arrows down to process boxes (extended down to 260px) */}
                     {processesWithTimeline.map((p, idx) => {
+                      if (!receivesSchedule(p.id)) return null;
                       const targetX = 310 + (idx * 280);
                       return (
                         <path
@@ -241,7 +261,7 @@ export default function VsmMapTab() {
                     {/* Information flow dashed arrows down to each process box's actual computed column */}
                     {processesWithTimeline.map((p) => {
                       const pos = vsmGraphLayout.positions.get(p.id);
-                      if (!pos) return null;
+                      if (!pos || !receivesSchedule(p.id)) return null;
                       const targetX = pos.x;
                       return (
                         <path
@@ -342,6 +362,24 @@ export default function VsmMapTab() {
                     <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Sevk Sıklığı:</span>
                     <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{factorySetup.shippingFrequency || "—"}</span>
                   </div>
+                  {factorySetup.orderType && (
+                    <div className="flex justify-between">
+                      <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Sipariş Tipi:</span>
+                      <span className={`font-bold ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{factorySetup.orderType.split(" ")[0]}</span>
+                    </div>
+                  )}
+                  {factorySetup.customerShipmentBatch && (
+                    <div className="flex justify-between">
+                      <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Sevk Partisi:</span>
+                      <span className={`font-bold truncate max-w-[130px] ${vsmBrightMode ? 'text-slate-800' : 'text-slate-200'}`}>{factorySetup.customerShipmentBatch}</span>
+                    </div>
+                  )}
+                  {pitchTime > 0 && (
+                    <div className="flex justify-between">
+                      <span className={vsmBrightMode ? 'text-slate-450' : 'text-slate-500'}>Pitch:</span>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400">{Math.round(pitchTime / 6) / 10} dk</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -662,6 +700,12 @@ export default function VsmMapTab() {
 
                   {/* Crenellated square wave timeline blocks */}
                   <div className="flex-1 flex items-stretch">
+                    {endStocks.rawDays > 0 && (
+                      <div className={`flex-1 flex flex-col justify-start border-l border-r border-t ${vsmBrightMode ? 'border-slate-200' : 'border-slate-800'} text-center relative h-[50px] bg-amber-500/10`}>
+                        <span className={`${vsmBrightMode ? 'text-amber-700' : 'text-amber-300'} font-extrabold pt-2 text-[10px]`}>{endStocks.rawDays} gün</span>
+                        <span className={`${vsmBrightMode ? 'text-slate-400' : 'text-slate-500'} text-[9px]`}>hammadde</span>
+                      </div>
+                    )}
                     {processesWithTimeline.map((p, idx) => {
                       return (
                         <React.Fragment key={`timeline-${p.id}`}>
@@ -677,13 +721,19 @@ export default function VsmMapTab() {
                           {/* VA Processing Segment (lower shelf) */}
                           <div className={`w-[110px] flex flex-col justify-end border-b border-l border-r ${vsmBrightMode ? 'border-slate-200' : 'border-slate-800'} text-center relative h-[50px] bg-sky-500/5`}>
                             <span className={`${vsmBrightMode ? 'text-sky-600' : 'text-sky-400'} font-extrabold pb-2 text-[10px]`}>
-                              {p.cycleTime} sn (CT)
+                              {valueAddedSeconds(p)} sn ({p.valueAddedTime !== undefined ? "VA" : "CT"})
                             </span>
                           </div>
 
                         </React.Fragment>
                       );
                     })}
+                    {endStocks.fgDays > 0 && (
+                      <div className={`flex-1 flex flex-col justify-start border-l border-r border-t ${vsmBrightMode ? 'border-slate-200' : 'border-slate-800'} text-center relative h-[50px] bg-amber-500/10`}>
+                        <span className={`${vsmBrightMode ? 'text-amber-700' : 'text-amber-300'} font-extrabold pt-2 text-[10px]`}>{endStocks.fgDays} gün</span>
+                        <span className={`${vsmBrightMode ? 'text-slate-400' : 'text-slate-500'} text-[9px]`}>mamul</span>
+                      </div>
+                    )}
                   </div>
 
                 </div>
