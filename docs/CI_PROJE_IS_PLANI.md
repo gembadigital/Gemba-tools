@@ -161,7 +161,7 @@ Boyut: S (≤ yarım gün) · M (1–2 gün) · L (3+ gün). Her adım ayrı com
 |---|---|
 | CI önce-sonra kaydını Kaizen önce-sonra galerisine gönder (Kaizen modülü açıksa); Kaizen önerisini CI projesine yükselt | Aynı iyileştirme iki yerde tekrar girilmez. |
 
-### C8b — A3 sunum kartı iyileştirmesi (kullanıcı notu, 2026-10-28) — yapılacak
+### C8b — A3 sunum kartı iyileştirmesi (kullanıcı notu, 2026-10-28) — ✅ kod 2026-10-29 (canlıda doğrulanmadı)
 | İş | Kabul ölçütü |
 |---|---|
 | Veriler grafiklerle: kayıp / kazanç, KPI trendi, aksiyon ilerlemesi, kazanç kırılımı görsel olarak (metin yerine) | Sunum kartı tablo/metin ağırlıklı değil, grafik ağırlıklı. |
@@ -169,6 +169,14 @@ Boyut: S (≤ yarım gün) · M (1–2 gün) · L (3+ gün). Her adım ayrı com
 | Uygulama takvimi formatı: aksiyonların zaman çizelgesi (Gantt) | Kartta başlangıç–termin çubukları ve durum. |
 | PDCA planı: 8 adımın PDCA'ya göre planlanan / gerçekleşen tarihleri | Kartta PDCA şeridi (Plan–Do–Check–Act) adım tarihleriyle. |
 Not: tek sayfa A4 sığması korunacak; gerekirse 2. sayfa (ek) seçeneği.
+
+**Yapılan (2026-10-29):** `CiA3Card.tsx` grafik ağırlıklı yeniden yazıldı: 8 adım şeridi (planlanan / tamamlanan
+tarih), mevcut durum "kalem: N birim" listesinden çubuk grafik, hedef sütun grafiği + hedef çizgisi + taralı
+"iyileştirme alanı (fark)", balık kılçığı SVG diyagramı (yoksa 5 Neden zinciri) + kök neden kutusu, mini Gantt
+(ilerleme %), sonuçlarda önce / sonra / takip kontrolü sütunları + iyileşme %, kazanç çubukları, 30/60/90 gün
+kontrolleri. Önce-sonra şeridi kart, pencere ve Excel'den kaldırıldı; pencere kartı genişlik ve yüksekliğe göre
+ölçekler. Kutu etiketleri Türkçe (Planla / Uygula / Kontrol et / Önlem al). Excel aynı yapıda. Doğrulama: tsc, build,
+örnek veriyle (CIP2606-06 benzeri kapalı + açık proje) sunucu tarafı render + Chrome ekran görüntüsü, taşma ölçümü.
 
 ### C11 — Ayırma / Opx Suite (L)
 Kaizen Faz 7 ile birlikte: tek "İyileştirme" programı (Kaizen öneri + CI proje) ya da ayrı modüller; ortak personel, ayar, bildirim, giriş adaptörleri.

@@ -121,10 +121,14 @@ Cihazlar: bilgisayar + telefon. Masaüstü testleri en az bir kez 1440 px geniş
 
 | # | Ne yapılır | Ne görülmeli |
 |---|---|---|
-| 8.1 | Kapanmış bir projede "A3 sunum kartı" → PDF. | Tek sayfa A4 yatay PDF; tüm bölümler, grafikler. |
-| 8.2 | Önce-sonra bölümünü açıp kaynak değiştirin, tekrar PDF. | Alt şeritte seçilen kayıt / fotoğraflar. |
-| 8.3 | Excel. | Aynı bölümler, ölçümler ve aksiyonlar tablo halinde. |
-| 8.4 | Uzun metinli bir projede A3. | Taşma yok (metin kısaltılır). |
+| 8.1 | ACME → CIP2606-06 (IMM-2 SMED, kapalı) → "A3 sunum kartı". | Kart pencereye tam sığar (kaydırma yok); üstte 8 adım şeridi tarihleriyle; "Önce-sonra bölümü" kutusu ve alt önce-sonra şeridi yok. |
+| 8.2 | Aynı kartta 2 Mevcut durum ve 3 Hedef. | Mevcut durum kalemleri (31 / 24 / 23 / 17 dk) çubuk grafik; Hedef: başlangıç + ölçümler sütun, hedef yeşil kesikli çizgi, hedefi aşan kısım kırmızı taralı ("Fark 50", son kalan farkta "Fark 6"); hedefe ulaşan sütunlar yeşil. |
+| 8.3 | 4 Kök neden. | Balık kılçığı diyagramı (kategoriler kemik, ★ kök nedenler kırmızı) ve sağda "KÖK NEDEN" kutusu. Balık kılçığı olmayan projede (ör. boya SMED) 5 Neden kutu zinciri. |
+| 8.4 | 5–6 Uygulama planı. | Mini Gantt: aksiyon başına başlangıç→termin çubuğu, ilerleme dolgusu ve %; gecikmiş aksiyon kırmızı; açık projede turuncu "Bugün" çizgisi; fazlası "+n aksiyon daha". |
+| 8.5 | 7 Sonuçlar ve 8 Standartlaştırma. | Önce / Sonra / 30. gün sütunları + hedef çizgisi, "İyileşme ↓%58", beklenen ve gerçekleşen kazanç çubukları (✔ teyitli); 8'de standart çipleri ve 30/60/90 gün kontrolleri. |
+| 8.6 | PDF. | Tek sayfa A4 yatay; ekrandaki kartın aynısı, taşma yok. |
+| 8.7 | Excel. | A3 adımları tarihleri, ölçümler + hedefe kalan fark, balık kılçığı kategorileri (★), aksiyonlar ilerleme %'siyle, önce/sonra/takip kontrolleri; önce-sonra bölümü yok. |
+| 8.8 | Açık projede (kai_acme_boya_smed, kai_acme_imm1_tpm) ve uzun metinli projede A3. | Ölçüm yoksa yalnızca başlangıç sütunu ve hedef farkı; taşma yok. Telefon / dar pencerede kart küçülerek tamamı görünür. |
 
 ## 9. C9 — E-posta, haftalık özet, sürdürülebilirlik
 
