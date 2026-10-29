@@ -39,18 +39,26 @@ import { domToCanvas } from "modern-screenshot";
 import { jsPDF } from "jspdf";
 
 import { useVsm } from "./VsmContext";
+import VsmSourcesModal from "./VsmSourcesModal";
 import VsmDataBoxTable from "./VsmDataBoxTable";
 
 const optionalNumber = (raw: string): number | undefined => (raw.trim() === "" ? undefined : Number(raw));
 
 export default function VsmProductionTab() {
   const { activeProcesses, handleUpdateProcessField } = useVsm();
+  const [sourcesOpen, setSourcesOpen] = React.useState(false);
   return (
         <div className="p-6 max-w-7xl mx-auto space-y-6 font-sans">
-          <div>
-            <h2 className="text-base font-extrabold text-slate-900 font-sans">Üretim &amp; Kapasite Veri Girişi ve Otomatik OEE Süzgeci</h2>
-            <p className="text-xs text-slate-500 mt-0.5 font-sans">Operasyon bazlı üretim verilerini, çevrim sürelerini ve duruşları girin. Formüller otomatik çalışır.</p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-extrabold text-slate-900 font-sans">Üretim &amp; Kapasite Veri Girişi ve Otomatik OEE Süzgeci</h2>
+              <p className="text-xs text-slate-500 mt-0.5 font-sans">Operasyon bazlı üretim verilerini, çevrim sürelerini ve duruşları girin. Formüller otomatik çalışır.</p>
+            </div>
+            <button onClick={() => setSourcesOpen(true)} className="flex items-center gap-1.5 bg-white border border-slate-300 text-slate-800 text-xs font-bold px-3 py-2 rounded-xl cursor-pointer">
+              Kaynaktan al (Yamazumi · SMED · Zaman etüdü)
+            </button>
           </div>
+          {sourcesOpen && <VsmSourcesModal onClose={() => setSourcesOpen(false)} />}
 
           <div className="bg-white border border-slate-200 rounded-2xl overflow-x-auto shadow-xs">
             <table className="w-full text-left text-xs min-w-[900px]">
@@ -78,7 +86,7 @@ export default function VsmProductionTab() {
                       <td className="p-4 text-center font-mono font-bold text-slate-400">
                         {idx + 1}
                       </td>
-                      <td className="p-4 font-bold text-slate-900">{p.name}</td>
+                      <td className="p-4 font-bold text-slate-900">{p.name}{p.measuredFrom && <div className="text-[10px] font-normal text-indigo-600 max-w-[220px] truncate" title={p.measuredFrom}>{p.measuredFrom}</div>}</td>
                       <td className="p-4 text-center">
                         <input
                           type="number"

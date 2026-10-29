@@ -190,3 +190,18 @@ vProcs[0].cycleTime = 999;
 assert.equal(ver.processes[0].cycleTime, 70, "snapshot is a copy");
 assert.equal(makeVersion("x", vSetup, vProcs, null).metrics.future, null);
 console.log("vsm-calc-test: V7 checks passed");
+
+// --- V9: "Kaynaktan al" candidates
+import { matchProcess, smedCandidates, timeStudyCandidates, yamazumiCandidates } from "../src/components/vsm/vsmSources.js";
+const tgt = [proc("k", { name: "KAYNAK" } as any), proc("m", { name: "MONTAJ HATTI" } as any)];
+assert.equal(matchProcess("kaynak", tgt), "k");
+assert.equal(matchProcess("Montaj", tgt), "m");
+const yz = yamazumiCandidates([{ id: "y1", studyTitle: "Hat A", elements: [
+  { processName: "Kaynak", standardCycleTime: 30, workClass: "VA" }, { processName: "Kaynak", standardCycleTime: 12.5, workClass: "NVA" },
+  { processName: "Montaj", standardCycleTime: 50, workClass: "W" }, { processName: "", standardCycleTime: 9 }] }], tgt);
+assert.deepEqual(yz.map(c => [c.cycleTime, c.valueAddedTime, c.suggestedProcessId]), [[42.5, 30, "k"], [50, undefined, "m"]]);
+const sm = smedCandidates([{ id: "s1", name: "Pres SMED", currentSetupTime: 45, linkedProcessId: "m" }, { id: "s2", currentSetupTime: 0 }], tgt);
+assert.deepEqual(sm.map(c => [c.changeoverTime, c.suggestedProcessId]), [[45, "m"]]);
+const ts = timeStudyCandidates([{ id: "t1", lineName: "Hat", linkedVsmProcessId: "k", processes: [{ id: 1, name: "OP", cy: [40, 44, null] }] }], tgt);
+assert.deepEqual(ts.map(c => [c.cycleTime, c.suggestedProcessId]), [[42, "k"]]);
+console.log("vsm-calc-test: V9 checks passed");

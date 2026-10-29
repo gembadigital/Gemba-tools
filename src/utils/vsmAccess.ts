@@ -98,6 +98,7 @@ function cleanProcess(p: any): any {
   if (Array.isArray(out.shiftHours)) out.shiftHours = out.shiftHours.slice(0, 4).map((h: any) => cleanNumber(h) ?? 0);
   for (const k of ["notes", "kaizenOpp"]) if (typeof out[k] === "string") out[k] = out[k].slice(0, MAX_TEXT);
   if (typeof out.epei === "string") out.epei = out.epei.slice(0, 60); else delete out.epei;
+  if (typeof out.measuredFrom === "string") out.measuredFrom = out.measuredFrom.slice(0, 200); else delete out.measuredFrom;
   if (out.inventoryType !== undefined && !INVENTORY_TYPES.includes(out.inventoryType)) delete out.inventoryType;
   return out;
 }

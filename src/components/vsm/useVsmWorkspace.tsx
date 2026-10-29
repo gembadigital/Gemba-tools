@@ -215,8 +215,11 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
   const handleDeleteProject = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!window.confirm("Bu VSM projesini silmek istediğinize emin misiniz? Bu işlem geri alınamaz.")) return;
+    // The project's rows in the cost table (Loss Capacity) are removed only when the user says so.
+    const linkedRows = dbProcesses.filter(p => p.vsmProjectId === id).length;
+    const withRows = linkedRows > 0 && window.confirm(`Maliyet tablosunda (Loss Capacity) bu projeye bağlı ${linkedRows} proses satırı var. Onlar da silinsin mi?\n\nTamam = sil, İptal = maliyet tablosunda kalsın.`);
 
-    fetch(`/api/business/vsm-projects/${id}`, {
+    fetch(`/api/business/vsm-projects/${id}${withRows ? "?withProcesses=1" : ""}`, {
       method: "DELETE",
       headers: {
         "Authorization": `Bearer ${token}`
@@ -274,73 +277,22 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
     }
   };
 
-  // Push VSM process data into the cost-table `processes` collection (Loss Capacity Analizi's
-  // real data source) — both the operational fields the two screens genuinely share (cycleTime,
-  // oee, capacity, headcount, shifts, working hours, utilization) AND, for rows this VSM project
-  // itself owns (tagged via vsmProjectId), derived cost fields (scrapCost/reworkCost/downtimeCost/
-  // waitingLoss) computed from this project's own Tab 4 quantities (scrap/rework) and Fabrika
-  // Kurulum Parametreleri unit costs (scrapUnitCost/downtimeHourlyCost/holdingCostPerWipYearly) —
-  // the same rates estimatedAnnualWasteCost/simulationComparison already use elsewhere in this
-  // file, so this stays consistent with what VSM's own dashboard already tells the user its
-  // losses are worth. Previously this only ever UPDATED a pre-existing cost-table row with a
-  // matching id and silently did nothing otherwise — meaning a brand-new VSM process (or any
-  // project saved while the cost table was still empty, the removed `dbProcesses.length === 0`
-  // guard) never made it into Loss Capacity at all. Now creates the row when no match exists.
-  const syncVsmProcessesToCostTable = (processesToSync: VsmProcess[], vsmProjectId: string) => {
-    const dbById = new Map((dbProcesses || []).map(p => [p.id, p]));
-    const su = factorySetup.scrapUnitCost;
-    const dh = factorySetup.downtimeHourlyCost;
-    const hc = factorySetup.holdingCostPerWipYearly;
-
-    processesToSync.forEach((vp) => {
-      const matched = dbById.get(vp.id);
-      const perShiftHours = vp.shifts > 0 ? Math.round(vp.workingHours / vp.shifts) : (matched?.workingHours ?? vp.workingHours);
-
-      // Only recompute cost fields for rows this VSM project owns — a matched row belonging to a
-      // different origin (untagged legacy process, or another project's own manual cost-table
-      // edit) keeps its existing cost figures untouched, exactly as before.
-      const ownsCostFields = !matched || matched.vsmProjectId === vsmProjectId;
-      // Cost fields only from quantities and unit costs the user actually entered; a missing one is left
-      // out (the row keeps whatever it had) instead of being invented.
-      const costFields: Record<string, number> = {};
-      if (ownsCostFields) {
-        if (su > 0 && vp.scrap !== undefined) costFields.scrapCost = vp.scrap * su * workDaysPerYear;
-        // 40% of item cost for rework matches the ratio calculateFinancialImpact assumes (helpers.ts).
-        if (su > 0 && vp.rework !== undefined) costFields.reworkCost = vp.rework * su * 0.4 * workDaysPerYear;
-        if (dh > 0) costFields.downtimeCost = (vp.downtimeMinutes / 60) * dh * workDaysPerYear;
-        if (hc > 0) costFields.waitingLoss = vp.inventoryBefore * hc;
+  // Cost-table sync (Loss Capacity's data source) runs on the server from the saved project — measured
+  // fields only (vsmRoutes.ts). Rows of processes removed from the project are offered for deletion.
+  const syncCostTable = async (vsmProjectId: string) => {
+    try {
+      const headers = { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "x-factory-id": selectedCustomerId || "" };
+      const res = await fetch(`/api/business/vsm-projects/${vsmProjectId}/sync-cost-table`, { method: "POST", headers }).then(r => r.json());
+      if (!res?.success) { console.warn("VSM cost-table sync failed", res?.error); return; }
+      const orphans: { id: string; name: string }[] = res.data?.orphans || [];
+      if (orphans.length && window.confirm(`Projeden çıkarılan ${orphans.length} prosesin maliyet tablosundaki satırı duruyor (${orphans.map(o => o.name).join(", ")}). Silinsin mi?`)) {
+        for (const o of orphans) await fetch(`/api/business/processes/${o.id}`, { method: "DELETE", headers });
       }
-
-      const updatedProcess = {
-        ...(matched || {}),
-        id: vp.id,
-        name: vp.name,
-        vsmProjectId,
-        cycleTime: vp.cycleTime,
-        oee: vp.oee,
-        capacity: vp.capacity,
-        operatorCount: vp.operatorCount,
-        machineCount: vp.machineCount,
-        shiftCount: vp.shifts,
-        workingHours: perShiftHours,
-        utilizationRate: vp.availability,
-        ...costFields
-      };
-
-      fetch("/api/business/processes", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
-          "x-factory-id": selectedCustomerId || ""
-        },
-        body: JSON.stringify(updatedProcess)
-      }).catch(err => console.error("Failed to sync VSM process into cost table", err));
-    });
-
-    // Tell App.tsx to re-fetch processes so Loss Capacity / CI Proje Yönetimi / Executive
-    // Dashboard pick up these updated cycle-time/OEE/capacity figures without a factory switch.
-    window.dispatchEvent(new CustomEvent("gemba:refresh-factory-data"));
+      fetchProcesses();
+      window.dispatchEvent(new CustomEvent("gemba:refresh-factory-data"));
+    } catch (err) {
+      console.error("VSM cost-table sync failed", err);
+    }
   };
 
   const handlePersistWorkspaceState = () => {
@@ -381,7 +333,7 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
         // async, so `selectedProject` in this closure is still the pre-save value here (a real
         // stale-closure bug: a brand-new project's very first save would otherwise sync with an
         // undefined/wrong project id).
-        syncVsmProcessesToCostTable(vsmProcesses, data.data.id);
+        syncCostTable(data.data.id);
         if (Array.isArray(data.data.versions)) setVersions(data.data.versions);
         setBaselinePending(true);
         try { localStorage.removeItem(draftKey(data.data.id)); } catch { /* storage unavailable */ }
@@ -1258,7 +1210,7 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
     handleSaveProjectForm,
     handleDeleteProject,
     handleSelectProject,
-    syncVsmProcessesToCostTable,
+    syncCostTable,
     handlePersistWorkspaceState,
     simulationMode,
     setSimulationMode,

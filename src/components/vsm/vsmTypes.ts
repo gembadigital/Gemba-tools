@@ -84,6 +84,7 @@ export interface VsmProcess {
   inventoryType?: VsmInventoryType;  // stock point before this process
   fifoMax?: number;             // FIFO lane maximum (pieces), when inventoryType = "fifo"
   mergedFrom?: string[];        // future state: ids of the current-state processes combined into this one
+  measuredFrom?: string;        // origin of values taken from another module ("Yamazumi: Hat A · Kaynak (C/T, 29.10.2026)")
 }
 
 export type VsmInventoryType = "pile" | "fifo" | "supermarket";

@@ -312,6 +312,7 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 | V6 | ✅ kod; canlıda denenmedi (§V6) | 88538db |
 | V12 | ✅ kod; yerelde gerçek Gemini ile denendi (örnek proje, kayıt yok), canlıda denenmedi (§V12) | 170dd73 |
 | V7 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V7) | 7407261 |
+| V9 | ✅ kod; canlıda denenmedi (§V9) | bkz. git log |
 
 ### V0 — yapılanlar
 - Sunucu: `src/server/vsm/vsmRoutes.ts` (uçlar `app.ts`'den taşındı), kurallar `src/utils/vsmAccess.ts` (istemci+sunucu
@@ -530,3 +531,18 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 - **Otomatik taslak:** kaydedilmemiş değişiklikler 1,5 sn sonra bu tarayıcıda taslak olarak tutulur; proje yeniden
   açıldığında taslak kayıttan yeniyse geri yükleme sorulur; Kaydet taslağı siler. (Taslak cihaza özeldir.)
 - V6 ekran kontrolü de yapıldı (plan satırında CI proje no, Master Plan satırlarının haftaları).
+
+### V9 — yapılanlar
+- **Loss Capacity senkronu sunucuya taşındı** (`POST /api/business/vsm-projects/:id/sync-cost-table`): Kaydet'ten sonra
+  kayıtlı projeden, ölçülen alanlar (C/T, OEE, kapasite, operatör, makine, vardiya, saat, kullanılabilirlik, C/O)
+  maliyet tablosuna tek istekle yazılır. **Maliyet alanlarına (hurda / rework / duruş / bekleme maliyeti) dokunulmaz** —
+  Loss ekranına aittir. Başka bir VSM projesine ait satır değiştirilmez. Projeden çıkarılan proseslerin satırları
+  "silinsin mi?" diye sorulur. Eski istemci tarafı, proses başına ateşle-unut isteklerle çalışan senkron kaldırıldı.
+- **Proje silinirken** maliyet tablosundaki bağlı satırların da silinip silinmeyeceği sorulur (`?withProcesses=1`).
+- **Kaynaktan al** (`vsmSources.ts`, `VsmSourcesModal.tsx`, Üretim & Kapasite başlığında): Yamazumi (istasyon C/T =
+  standart süreler toplamı, VA = VA sınıflı elemanlar), SMED (mevcut setup süresi → C/O, bağlı proses), Zaman etüdü
+  (ölçülen çevrimlerin ortalaması → C/T, bağlı VSM prosesi). Hedef proses kayıtlı bağlantıdan ya da ad eşleşmesinden
+  önerilir; kullanıcı satır ve alan seçip uygular. Değerin kaynağı prosese not edilir (`measuredFrom`, tabloda adın altında).
+- Loss ekranı, VSM'den gelen C/O'yu setup süresi olarak kullanır (yoksa eski varsayılan). **Loss ekranının kendi sabit
+  varsayılanları** (mola 30, bakım 15, adet ×1,1, 0 maliyetten adet tahmini vb.) VSM kapsamı dışında — ayrı iş olarak önerildi.
+- Testler: aday çıkarma (istasyon toplamı, VA, SMED bağlantısı, etüt ortalaması, ad eşleşmesi).

@@ -138,3 +138,12 @@ Görünüm değişmedi; aşağıdakiler hesap tutarlılığı ve düzeltilen hat
 | 7.4 | Versiyonlar → "Mevcut v1 – …" ekleyin, Kaydet. Sonra mevcut durumda değişiklik yapıp "Ekrandaki mevcut" ile v1'i karşılaştırın. | Fark sütunu değişen göstergeleri renkli gösterir. |
 | 7.5 | Versiyonu geri yükleyin. | Ekrandaki haritalar versiyondaki hâle döner; Kaydet'e basınca kalıcı. |
 | 7.6 | U2, U1'in versiyonunu silmeyi denesin. | Sil düğmesi yok. |
+
+## V9 — Bağlı modüller
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| 9.1 | Bir VSM projesinde Kaydet; Loss Capacity → ürün grubu filtresinde bu projeyi seçin. | Prosesler C/T, OEE, kapasite ve C/O ile gelir; Loss'ta daha önce girilmiş maliyet değerleri değişmez. |
+| 9.2 | VSM'den bir prosesi silip Kaydet. | "… prosesin maliyet tablosundaki satırı duruyor. Silinsin mi?" sorusu; Evet → Loss'ta kaybolur. |
+| 9.3 | Projeyi silin. | Bağlı satırlar varsa "onlar da silinsin mi?" sorusu; İptal → Loss'ta kalır. |
+| 9.4 | Üretim & Kapasite → "Kaynaktan al": Yamazumi / SMED / Zaman etüdü sekmeleri. | Müşterinin kayıtları; önerilen hedef proses; işaretlenen değerler uygulanınca tabloda değer ve adın altında kaynak notu. Kaydet ile kalıcı. |

@@ -4,6 +4,8 @@
 import type express from "express";
 import { db } from "../db.js";
 import { generateVsmAnalysis, VsmOtherModules } from "./vsmAnalysis.js";
+import { computeAll } from "../../components/vsm/vsmCalc.js";
+import { normalizeVsmProject } from "../../components/vsm/vsmNormalize.js";
 import {
   canDeleteVsmProject, forbiddenBurstRemovals, forbiddenOwnedRemovals, forbiddenProcessRemovals, isVsmBlockedSession,
   normalizeVsmProjectInput, stampBurstOwners, stampOwnedItems, stampProcessOwners
@@ -92,8 +94,14 @@ export function registerVsmRoutes(app: express.Express, deps: VsmRouteDeps) {
     if (!existing) return deny(res, 404, "VSM projesi bulunamadı.");
     if (!canAccessFactory(req, factoryOf(existing))) return deny(res);
     if (!canDeleteVsmProject(user, existing)) return deny(res, 403, "Yalnızca kendi açtığınız VSM projesini silebilirsiniz.");
+    // ?withProcesses=1 also removes the cost-table rows this project created (Loss Capacity), after the user agreed.
+    let removedRows = 0;
+    if (req.query.withProcesses === "1") {
+      const rows = (await db.getProcesses(user.organization_id, factoryOf(existing))).filter((r: any) => r.vsmProjectId === existing.id);
+      for (const r of rows) { await db.deleteProcess(user.organization_id, r.id); removedRows++; }
+    }
     await db.deleteVsmProject(user.organization_id, req.params.id);
-    res.json({ success: true });
+    res.json({ success: true, removedRows });
   });
 
   // AI analysis (plan step V12): computed from the SAVED project (unsaved screen edits are not included),
@@ -125,5 +133,48 @@ export function registerVsmRoutes(app: express.Express, deps: VsmRouteDeps) {
       console.warn("[vsm-ai] analysis failed:", e?.message);
       res.status(502).json({ success: false, error: `Analiz üretilemedi: ${e?.message || "bilinmeyen hata"}` });
     }
+  });
+
+  // Cost-table sync (plan step V9): writes the SAVED project's measured process figures into the
+  // `processes` collection that Loss Capacity reads (one row per VSM process, tagged vsmProjectId).
+  // Only measured fields are written — scrap / downtime / waiting costs belong to the Loss screen and are
+  // never touched. Rows of another VSM project are left alone. Returns tagged rows whose process no
+  // longer exists in the project, so the user can decide to delete them.
+  app.post("/api/business/vsm-projects/:id/sync-cost-table", authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    if (isVsmBlockedSession(user)) return deny(res);
+    const existing = await findProject(user.organization_id, req.params.id);
+    if (!existing) return deny(res, 404, "VSM projesi bulunamadı.");
+    const fid = factoryOf(existing);
+    if (!canAccessFactory(req, fid)) return deny(res);
+    const org = user.organization_id;
+    const processes = computeAll(normalizeVsmProject(existing).processes);
+    const rows = await db.getProcesses(org, fid);
+    const byId = new Map(rows.map((r: any) => [r.id, r]));
+    let written = 0, skipped = 0;
+    for (const vp of processes) {
+      const old: any = byId.get(vp.id);
+      if (old && old.vsmProjectId && old.vsmProjectId !== existing.id) { skipped++; continue; }
+      await db.saveProcess(org, {
+        ...(old || {}),
+        id: vp.id,
+        name: vp.name,
+        factory_id: fid,
+        vsmProjectId: existing.id,
+        cycleTime: vp.cycleTime,
+        oee: vp.oee,
+        capacity: vp.capacity,
+        operatorCount: vp.operatorCount,
+        machineCount: vp.machineCount,
+        shiftCount: vp.shifts,
+        workingHours: vp.shifts > 0 ? Math.round((vp.workingHours / vp.shifts) * 10) / 10 : vp.workingHours,
+        utilizationRate: vp.availability,
+        ...(vp.changeoverTime !== undefined ? { changeoverTime: vp.changeoverTime } : {})
+      }, user.id);
+      written++;
+    }
+    const ids = new Set(processes.map(p => p.id));
+    const orphans = rows.filter((r: any) => r.vsmProjectId === existing.id && !ids.has(r.id)).map((r: any) => ({ id: r.id, name: r.name }));
+    res.json({ success: true, data: { written, skipped, orphans } });
   });
 }

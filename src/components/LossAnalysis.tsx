@@ -481,7 +481,8 @@ export default function LossAnalysis() {
             plannedQtyPerDay: p.capacity ? Math.round(p.capacity * 1.1) : 1000,
             producedQtyPerDay: p.capacity || 950,
             totalProdTimePerDayMinutes: (p.shiftCount || 2) * (p.workingHours || 8) * 60,
-            setupTimeMinutes: idx === 3 ? 90 : (idx === 1 ? 60 : 30), // standard defaults matching VSM layout
+            // Measured C/O from the VSM sync when present; otherwise the old per-position default.
+            setupTimeMinutes: typeof p.changeoverTime === "number" ? p.changeoverTime : (idx === 3 ? 90 : (idx === 1 ? 60 : 30)),
             setupFrequencyPerWeek: 3,
             machineAdjustmentMinutes: 15,
             breakdownMinutesPerShift: p.downtimeCost > 0 ? Math.min(60, Math.round(p.downtimeCost / 2500)) : 20,
