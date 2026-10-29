@@ -1,146 +1,5 @@
 import { ProcessItem, CalculatedProcess, IndustryBenchmark, IndustryType } from "./types";
 
-export const DEFAULT_PROCESS_PRESETS: ProcessItem[] = [
-  {
-    id: "proc-1",
-    name: "Machining (Talaşlı İmalat)",
-    isCollapsed: true,
-    shiftsPerDay: 2,
-    workingHoursPerShift: 8,
-    breakTimeMinutes: 30,
-    plannedMaintenanceMinutes: 15,
-    workingDaysPerWeek: 5,
-    plannedQtyPerDay: 1200,
-    producedQtyPerDay: 1150,
-    totalProdTimePerDayMinutes: 960,
-    setupTimeMinutes: 40,
-    setupFrequencyPerWeek: 3,
-    machineAdjustmentMinutes: 15,
-    breakdownMinutesPerShift: 20,
-    defectiveParts: 15,
-    reworkQty: 10,
-    scrapQty: 5,
-    operatorsPerShift: 3,
-    interProcessInventory: 450,
-    theoreticalCycleTime: 35
-  },
-  {
-    id: "proc-2",
-    name: "Press Shop / Metal Şekillendirme",
-    isCollapsed: true,
-    shiftsPerDay: 2,
-    workingHoursPerShift: 8,
-    breakTimeMinutes: 30,
-    plannedMaintenanceMinutes: 15,
-    workingDaysPerWeek: 5,
-    plannedQtyPerDay: 1400,
-    producedQtyPerDay: 1350,
-    totalProdTimePerDayMinutes: 960,
-    setupTimeMinutes: 60,
-    setupFrequencyPerWeek: 4,
-    machineAdjustmentMinutes: 20,
-    breakdownMinutesPerShift: 25,
-    defectiveParts: 28,
-    reworkQty: 18,
-    scrapQty: 10,
-    operatorsPerShift: 2,
-    interProcessInventory: 650,
-    theoreticalCycleTime: 22
-  },
-  {
-    id: "proc-3",
-    name: "Coil Winding (Bobinaj)",
-    isCollapsed: true,
-    shiftsPerDay: 2,
-    workingHoursPerShift: 8,
-    breakTimeMinutes: 30,
-    plannedMaintenanceMinutes: 15,
-    workingDaysPerWeek: 5,
-    plannedQtyPerDay: 1100,
-    producedQtyPerDay: 1050,
-    totalProdTimePerDayMinutes: 960,
-    setupTimeMinutes: 30,
-    setupFrequencyPerWeek: 2,
-    machineAdjustmentMinutes: 10,
-    breakdownMinutesPerShift: 15,
-    defectiveParts: 12,
-    reworkQty: 8,
-    scrapQty: 4,
-    operatorsPerShift: 4,
-    interProcessInventory: 300,
-    theoreticalCycleTime: 40
-  },
-  {
-    id: "proc-4",
-    name: "Varnishing (Vernikleme/Yüzey Kaplama)",
-    isCollapsed: false,
-    shiftsPerDay: 2,
-    workingHoursPerShift: 8,
-    breakTimeMinutes: 30,
-    plannedMaintenanceMinutes: 15,
-    workingDaysPerWeek: 5,
-    plannedQtyPerDay: 1000,
-    producedQtyPerDay: 940,
-    totalProdTimePerDayMinutes: 960,
-    setupTimeMinutes: 90,
-    setupFrequencyPerWeek: 5,
-    machineAdjustmentMinutes: 30,
-    breakdownMinutesPerShift: 45,
-    defectiveParts: 42,
-    reworkQty: 25,
-    scrapQty: 17,
-    operatorsPerShift: 2,
-    interProcessInventory: 850,
-    theoreticalCycleTime: 55
-  },
-  {
-    id: "proc-5",
-    name: "Grinding & Lapping (Taşlama)",
-    isCollapsed: true,
-    shiftsPerDay: 2,
-    workingHoursPerShift: 8,
-    breakTimeMinutes: 30,
-    plannedMaintenanceMinutes: 15,
-    workingDaysPerWeek: 5,
-    plannedQtyPerDay: 1150,
-    producedQtyPerDay: 1120,
-    totalProdTimePerDayMinutes: 960,
-    setupTimeMinutes: 45,
-    setupFrequencyPerWeek: 3,
-    machineAdjustmentMinutes: 15,
-    breakdownMinutesPerShift: 15,
-    defectiveParts: 8,
-    reworkQty: 5,
-    scrapQty: 3,
-    operatorsPerShift: 3,
-    interProcessInventory: 200,
-    theoreticalCycleTime: 30
-  },
-  {
-    id: "proc-6",
-    name: "Assembly & Packing (Montaj/Paket)",
-    isCollapsed: true,
-    shiftsPerDay: 2,
-    workingHoursPerShift: 8,
-    breakTimeMinutes: 30,
-    plannedMaintenanceMinutes: 15,
-    workingDaysPerWeek: 5,
-    plannedQtyPerDay: 1000,
-    producedQtyPerDay: 990,
-    totalProdTimePerDayMinutes: 960,
-    setupTimeMinutes: 15,
-    setupFrequencyPerWeek: 2,
-    machineAdjustmentMinutes: 5,
-    breakdownMinutesPerShift: 10,
-    defectiveParts: 5,
-    reworkQty: 4,
-    scrapQty: 1,
-    operatorsPerShift: 4,
-    interProcessInventory: 150,
-    theoreticalCycleTime: 45
-  }
-];
-
 export const INDUSTRY_BENCHMARKS: Record<IndustryType, IndustryBenchmark> = {
   "Automotive": {
     industry: "Automotive", oee: 85, scrap: 0.8, setup: 12, inventoryTurns: 24, leadTime: 1.5, laborProductivity: 95, copq: 1.8, onTimeDelivery: 99.2
@@ -207,11 +66,12 @@ export function calculateProcessesData(processes: ProcessItem[], dailyDemand: nu
     const actualCycleTimeSeconds = proc.producedQtyPerDay > 0 ? parseFloat(((dailyActualNetWorkingTime * 60) / proc.producedQtyPerDay).toFixed(1)) : 0;
     const plannedCycleTimeSeconds = proc.plannedQtyPerDay > 0 ? parseFloat(((dailyPlannedTimeMinutes * 60) / proc.plannedQtyPerDay).toFixed(1)) : 0;
 
-    const theoreticalIdealCycle = proc.theoreticalCycleTime || 30;
-    const plannedCapacityPerDay = Math.round((dailyNetWorkingTimeAvailable * 60) / theoreticalIdealCycle);
+    // No assumed cycle time: a missing C/T (0) yields 0 capacity/performance instead of a made-up 30 s.
+    const theoreticalIdealCycle = proc.theoreticalCycleTime ?? 0;
+    const plannedCapacityPerDay = theoreticalIdealCycle > 0 ? Math.round((dailyNetWorkingTimeAvailable * 60) / theoreticalIdealCycle) : 0;
     const plannedCapacityPerWeek = plannedCapacityPerDay * proc.workingDaysPerWeek;
     
-    const machineOccupancyRate = (proc.producedQtyPerDay * actualCycleTimeSeconds) / (dailyPlannedTimeMinutes * 60);
+    const machineOccupancyRate = dailyPlannedTimeMinutes > 0 ? (proc.producedQtyPerDay * actualCycleTimeSeconds) / (dailyPlannedTimeMinutes * 60) : 0;
     const capacityUtilization = plannedCapacityPerDay > 0 ? (proc.producedQtyPerDay / plannedCapacityPerDay) : 0;
 
     // 4. Productivity & Labor
@@ -219,7 +79,7 @@ export function calculateProcessesData(processes: ProcessItem[], dailyDemand: nu
     const laborProductivityPerDay = totalOperatorsPerDay > 0 ? (proc.producedQtyPerDay / totalOperatorsPerDay) : 0;
     const laborProductivityPerWeek = laborProductivityPerDay * proc.workingDaysPerWeek;
 
-    const targetWorkforce = actualCycleTimeSeconds > 0 ? parseFloat(((proc.producedQtyPerDay * actualCycleTimeSeconds) / (dailyPlannedTimeMinutes * 60) * totalOperatorsPerDay).toFixed(1)) : 0;
+    const targetWorkforce = actualCycleTimeSeconds > 0 && dailyPlannedTimeMinutes > 0 ? parseFloat(((proc.producedQtyPerDay * actualCycleTimeSeconds) / (dailyPlannedTimeMinutes * 60) * totalOperatorsPerDay).toFixed(1)) : 0;
     const targetWorkforceTakt = computedTaktTime > 0 ? parseFloat(((proc.producedQtyPerDay * actualCycleTimeSeconds) / computedTaktTime).toFixed(1)) : 0;
     const excessLaborHeadcount = Math.max(0, totalOperatorsPerDay - targetWorkforce);
     const extraLaborHoursPerDay = excessLaborHeadcount * proc.workingHoursPerShift;

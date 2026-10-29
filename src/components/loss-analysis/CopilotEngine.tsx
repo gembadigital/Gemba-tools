@@ -51,15 +51,15 @@ export default function CopilotEngine({
     const q = input.toLowerCase();
     
     // Compute data points dynamically for realistic comparisons
-    const totalLoss = copq?.totalCOPQ_TL || 5200000;
-    const totalRecovery = recoveryData ? recoveryData.reduce((sum, item) => sum + (item.avgGain || 0), 0) : 1800000;
-    const recoveryRate = totalLoss > 0 ? (totalRecovery / totalLoss) * 100 : 35;
+    const totalLoss = copq?.totalCOPQ_TL ?? 0;
+    const totalRecovery = recoveryData ? recoveryData.reduce((sum, item) => sum + (item.avgGain ?? 0), 0) : 0;
+    const recoveryRate = totalLoss > 0 ? (totalRecovery / totalLoss) * 100 : 0;
     
     // Sort opportunities
     const sortedOpp = recoveryData ? [...recoveryData].sort((a, b) => b.avgGain - a.avgGain) : [];
-    const top1 = sortedOpp[0] || { subject: "Setup Süreleri (SMED)", avgGain: 450000, avgLoss: 1200000, area: "Kapasite Yaratma" };
-    const top2 = sortedOpp[1] || { subject: "Hurda Maliyeti", avgGain: 350000, avgLoss: 900000, area: "Doğrudan Maliyet Azaltma" };
-    const top3 = sortedOpp[2] || { subject: "Plansız Duruşların Önlenmesi", avgGain: 280000, avgLoss: 800000, area: "Kapasite Yaratma" };
+    const top1 = sortedOpp[0] || { subject: "Setup Süreleri (SMED)", avgGain: 0, avgLoss: 0, area: "Kapasite Yaratma" };
+    const top2 = sortedOpp[1] || { subject: "Hurda Maliyeti", avgGain: 0, avgLoss: 0, area: "Doğrudan Maliyet Azaltma" };
+    const top3 = sortedOpp[2] || { subject: "Plansız Duruşların Önlenmesi", avgGain: 0, avgLoss: 0, area: "Kapasite Yaratma" };
 
     const currentEbitda = revenue * (financialImpact?.operatingProfit?.percent / 100 || 0.10);
     const newEbitda = currentEbitda + totalRecovery;
@@ -129,14 +129,14 @@ Yalın dönüşüm ve sürekli iyileştirme faaliyetlerinin fabrikanın kâr-zar
 OpEx Direktörü olarak, en hızlı ve en yüksek finansal geri dönüşü (ROI) sağlayacak, yatırım bütçesi gerektirmeyen (Low-Cost / No-Cost) öncelikli 3 Kaizen projesini aşağıda detaylandırdım:
 
 #### 🚀 PROJE 1: SMED ile Setup Sürelerinin %50 Azaltılması
-* **İlgili İstasyon**: Kalıp değişim süresi en uzun olan darboğaz istasyonu (Örn: *Varnishing / Press Shop*).
+* **İlgili İstasyon**: Kalıp değişim süresi en uzun olan darboğaz istasyonu.
 * **Finansal Kazanım**: Yıllık **${formatMoney(top1.avgGain)}** doğrudan kâr artışı.
 * **Proje Maliyeti**: Yaklaşık 45,000 TL (Görsel hazırlık panoları, hızlı kilitleme aparatları, el aletleri standardizasyonu).
 * **Payback Süresi (Geri Ödeme)**: **Sadece 12 Gün!**
 * **CI Metodolojisi**: İçsel setup adımları dışsal setup adımlarına dönüştürülecek, 5S kuralları uygulanacak.
 
 #### 🚀 PROJE 2: SPC & Poka-Yoke ile Günlük Hurda Adetlerinin Azaltılması
-* **İlgili İstasyon**: En yüksek ıskarta oranına sahip istasyonlar (Örn: *Press Shop / Assembly*).
+* **İlgili İstasyon**: En yüksek ıskarta oranına sahip istasyonlar.
 * **Finansal Kazanım**: Yıllık **${formatMoney(top2.avgGain)}** malzeme ve kalite geri kazanımı.
 * **Proje Maliyeti**: Yaklaşık 25,000 TL (Basit limit switch sensörleri, mekanik kılavuzlar, hata önleyici fikstürler).
 * **Payback Süresi (Geri Ödeme)**: **Sadece 8 Gün!**
@@ -155,16 +155,16 @@ OpEx Direktörü olarak, en hızlı ve en yüksek finansal geri dönüşü (ROI)
 Fabrikanızın içinde, sadece hurdaları temizlemek, hatalı ürünleri yeniden işlemek (Rework), ekstra kalite kontrolleri yapmak ve malzemeleri gereksiz yere taşımak için çalışan görünmez bir **"Gizli Fabrika"** bulunmaktadır. 
 
 #### 💸 Gizli Fabrika İsraflarının Finansal Dökümü:
-1. **Hata & Yeniden İşleme (Rework) Maliyeti**: Yıllık **${formatMoney(copq?.reworkCostYear || 480000)}** işçilik ve tekrar işleme kaybı.
-2. **Hurda ve Malzeme Sızıntısı**: Yıllık **${formatMoney(copq?.scrapCostYear || 850000)}** çöpe atılan hammadde değeri.
-3. **Fazla Mesai Yükü (Overtime Burden)**: Operasyonel verimsizlikleri telafi etmek için yapılan fazla mesailerin yıllık maliyeti **${formatMoney(financialImpact?.overtime?.year || 350000)}**.
-4. **Envanter Bekleme Maliyeti (WIP Holding Cost)**: İstasyonlar arasında biriken yarı mamullerin finansal taşıma maliyeti yıllık **${formatMoney(financialImpact?.inventory?.year || 150000)}**.
+1. **Hata & Yeniden İşleme (Rework) Maliyeti**: Yıllık **${formatMoney(copq?.reworkCost ?? 0)}** işçilik ve tekrar işleme kaybı.
+2. **Hurda ve Malzeme Sızıntısı**: Yıllık **${formatMoney(copq?.scrapCost ?? 0)}** çöpe atılan hammadde değeri.
+3. **Fazla Mesai Yükü (Overtime Burden)**: Operasyonel verimsizlikleri telafi etmek için yapılan fazla mesailerin yıllık maliyeti **${formatMoney(financialImpact?.overtime?.year ?? 0)}**.
+4. **Envanter Bekleme Maliyeti (WIP Holding Cost)**: İstasyonlar arasında biriken yarı mamullerin finansal taşıma maliyeti yıllık **${formatMoney(financialImpact?.inventory?.year ?? 0)}**.
 
-* **Toplam Yıllık Gizli Fabrika Maliyeti**: **${formatMoney(hiddenFactory?.hiddenCostYear || 1830000)} / Yıl**
+* **Toplam Yıllık Gizli Fabrika Maliyeti**: **${formatMoney(hiddenFactory?.hiddenCostYear ?? 0)} / Yıl**
 
 #### 👷 Eşlenik Kayıplar:
-* **Kayıp İş Gücü**: **${hiddenFactory?.equivalentOperators || 3} tam zamanlı operatör** sadece kalitesizlik ve israfları düzeltmek için çalışıyor.
-* **Kayıp Makine Gücü**: Toplam kurulu gücün **%${(hiddenFactory?.equivalentMachineCapacityPercent || 15).toFixed(1)}**'i israf parça üretmekle meşgul ediliyor.
+* **Kayıp İş Gücü**: **${hiddenFactory?.equivalentOperators ?? 0} tam zamanlı operatör** sadece kalitesizlik ve israfları düzeltmek için çalışıyor.
+* **Kayıp Makine Gücü**: Toplam kurulu gücün **%${(hiddenFactory?.equivalentMachineCapacityPercent ?? 0).toFixed(1)}**'i israf parça üretmekle meşgul ediliyor.
 
 **CI Tavsiyesi**: Proses kalitesini güvence altına almadan hızı artırmak gizli fabrikayı büyütür. İlk olarak "Single-Piece Flow" (Tek Parça Akışı) ilkelerini devreye alarak ara stokları (WIP) eritmeli ve kalitesizliği kaynağında yakalamalıyız.`;
 
@@ -173,7 +173,7 @@ Fabrikanızın içinde, sadece hurdaları temizlemek, hatalı ürünleri yeniden
 
 Kalıp ve model değişimlerinden kaynaklanan setup süreleri fabrikanıza her yıl çok ciddi boyutta kâr kaybı yaşatmaktadır. Bu kayıp sadece zaman kaybı değil, aynı zamanda fırsat maliyetidir:
 
-* **Yıllık Setup Kayıp Maliyeti**: **${formatMoney(financialImpact?.setup?.year || 1200000)} / Yıl**
+* **Yıllık Setup Kayıp Maliyeti**: **${formatMoney(financialImpact?.setup?.year ?? 0)} / Yıl**
 * **Setup Geri Kazanım Hedefi (%50 Tasarruf)**: **${formatMoney(top1.avgGain)} / Yıl**
 * **Kapasiteye Etkisi**: Setup süreleri yarıya indirildiğinde, makinelerin fiili çalışma süresi yılda **+240 saat** artacak ve bu süre ek ekipman almadan **+18,500 adet ek kaliteli ürün** üretilmesini sağlayacaktır.
 

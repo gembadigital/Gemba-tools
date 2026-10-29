@@ -1,9 +1,6 @@
-import React, { useState } from "react";
+import React from "react";
 import { CalculatedProcess, IndustryType } from "./types";
-import { 
-  DollarSign, Activity, AlertCircle, Percent, Anchor, 
-  HelpCircle, ChevronRight, TrendingUp, BarChart2 
-} from "lucide-react";
+import { Activity, ChevronRight } from "lucide-react";
 
 interface AnalysisViewsProps {
   calculated: CalculatedProcess[];
@@ -24,52 +21,6 @@ export default function AnalysisViews({
   currency,
   isDarkMode
 }: AnalysisViewsProps) {
-  const [selectedWhyStation, setSelectedWhyStation] = useState<string>("proc-4"); // default Varnishing
-  const [fiveWhyLevel, setFiveWhyLevel] = useState<number>(5);
-
-  // 5 Why Preset Database built on current table values
-  const fiveWhyPresets: Record<string, {
-    problem: string;
-    whys: string[];
-    rootCause: string;
-  }> = {
-    "proc-1": {
-      problem: "Talaşlı İmalat (Machining) istasyonunda düşük OEE ve arıza duruşları",
-      whys: [
-        `İstasyon OEE değeri %${(calculated.find(p => p.id === "proc-1")?.oee || 78).toFixed(1)} ile hedefin oldukça altında.`,
-        "Haftalık plansız makine arızaları sıklığı yüksek (Duruş: Vardiya başına 20 dâkika).",
-        "Rulman yataklarında aşırı ısınma ve mil aşınması meydana geliyor.",
-        "Zamanında yağlama yapılmadığı ve otonom yağ saati takvimi uygulanmadığı için rulmanlar aşınıyor.",
-        "Yağ seviye kontrolleri operatörün inisiyatifine bırakılmış, tanımlı standart bir TPM kontrol kontrol prosedürü yok."
-      ],
-      rootCause: "TPM (Toplam Verimli Bakım) / Otonom Bakım Standart Eksikliği"
-    },
-    "proc-2": {
-      problem: "Pres Şekillendirme istasyonunda yüksek setup/kalıp parça değişim kayıpları",
-      whys: [
-        "Hattaki kalıp kurulum ve değişim süresi ortalama 60 dakika sürüyor.",
-        "Kalıp değişimi sırasında çok sayıda cıvata elle sökülüp takılıyor ve sık sık kayboluyor.",
-        "Hızlı kalıp kilitleme (quick-clamping) standart cıvatasız mekanizmaları hatta tanımlanmamış.",
-        "Pres kalıp arabaları ve kaldırma ekipmanları değişim anında hazır tutulmuyor, operatör o sırada vinç bekliyor.",
-        "Önceden planlanmış bir SMED (Single Minute Exchange of Die) metodolojisi ve dışsal-içsel adım ayrımı yok."
-      ],
-      rootCause: "SMED Standardizasyon Eksikliği"
-    },
-    "proc-4": {
-      problem: `Vernikleme (Varnishing) hattında yüksek duruş süresi (${calculated.find(p => p.id === "proc-4")?.setupTimeMinutes || 90} dk) ve düşük OEE`,
-      whys: [
-        "Sıvı vernik ve renk geçişlerinde yüksek yıkama ve setup süresi harcanıyor.",
-        "Renk değişimlerinde nozül ve hortum temizliği makine durdurulduktan sonra el ile yapılıyor.",
-        "Yedek püskürtme tabancaları ve temizlenecek hortumlar önceden hazırlanıp hattın yanına getirilmiyor.",
-        "SMED metodolojisine göre içsel (makine dururken) ve dışsal (makine çalışırken) hazırlıklar ayrıştırılmamış.",
-        "Alet, temizlik tinerleri ve yeni renk kartuşları ancak makine durduktan sonra aranmaya başlanıyor."
-      ],
-      rootCause: "SMED Yönetim Eksikliği ve Dışsal Kurulum Adımlarının Uygulanmaması"
-    }
-  };
-
-  const activeWhy = fiveWhyPresets[selectedWhyStation] || fiveWhyPresets["proc-4"];
-
   // COPQ Trend list formatting
   const formatMoney = (val: number) => {
     return new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 0 }).format(val) + " " + currency;

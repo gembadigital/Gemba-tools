@@ -16,7 +16,7 @@ import autoTable from "jspdf-autotable";
 import { domToCanvas } from "modern-screenshot";
 
 import { useFactory } from "../context/FactoryContext";
-import { ProcessItem, CalculatedProcess, IndustryType } from "./loss-analysis/types";
+import { ProcessItem, CalculatedProcess, IndustryType, LossInputField, LOSS_INPUT_FIELDS } from "./loss-analysis/types";
 import {
   INDUSTRY_BENCHMARKS,
   calculateProcessesData,
@@ -465,37 +465,36 @@ export default function LossAnalysis() {
     .then(data => {
       if (data.success && data.data && data.data.length > 0) {
         // Map ProcessRecord[] to ProcessItem[]
-        const mapped = data.data.map((p: any, idx: number) => {
-          const reworkQty = p.reworkCost > 0 ? Math.min(100, Math.round(p.reworkCost / 350)) : 10;
-          const scrapQty = p.scrapCost > 0 ? Math.min(100, Math.round(p.scrapCost / 800)) : 5;
+        const mapped = data.data.map((p: any): ProcessItem => {
+          const num = (v: any): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+          const saved = (p.lossInputs && typeof p.lossInputs === "object") ? p.lossInputs : {};
+          // Fields the VSM sync writes (and this screen's save mirrors back) live on the record itself;
+          // everything else only comes from what was entered here (`lossInputs`). No stand-in values:
+          // a field with neither stays 0 and is listed in `missingFields` so the editor shows "girilmedi".
+          const recordValue: Partial<Record<LossInputField, number | undefined>> = {
+            shiftsPerDay: num(p.shiftCount),
+            workingHoursPerShift: num(p.workingHours),
+            producedQtyPerDay: num(p.capacity),
+            setupTimeMinutes: num(p.changeoverTime),
+            operatorsPerShift: num(p.operatorCount),
+            theoreticalCycleTime: num(p.cycleTime)
+          };
+          const missingFields: LossInputField[] = [];
+          const inputs = {} as Record<LossInputField, number>;
+          for (const f of LOSS_INPUT_FIELDS) {
+            const v = recordValue[f] ?? num(saved[f]);
+            if (v === undefined) missingFields.push(f);
+            inputs[f] = v ?? 0;
+          }
           return {
             id: p.id,
             name: p.name,
             vsmProjectId: p.vsmProjectId,
             isCollapsed: true,
-            shiftsPerDay: p.shiftCount || 2,
-            workingHoursPerShift: p.workingHours || 8,
-            breakTimeMinutes: 30,
-            plannedMaintenanceMinutes: 15,
-            workingDaysPerWeek: 5,
-            plannedQtyPerDay: p.capacity ? Math.round(p.capacity * 1.1) : 1000,
-            producedQtyPerDay: p.capacity || 950,
-            totalProdTimePerDayMinutes: (p.shiftCount || 2) * (p.workingHours || 8) * 60,
-            // Measured C/O from the VSM sync when present; otherwise the old per-position default.
-            setupTimeMinutes: typeof p.changeoverTime === "number" ? p.changeoverTime : (idx === 3 ? 90 : (idx === 1 ? 60 : 30)),
-            setupFrequencyPerWeek: 3,
-            machineAdjustmentMinutes: 15,
-            breakdownMinutesPerShift: p.downtimeCost > 0 ? Math.min(60, Math.round(p.downtimeCost / 2500)) : 20,
-            reworkQty,
-            scrapQty,
-            // Total defective units found = scrapped + reworked — matches the relationship already
-            // used in DEFAULT_PROCESS_PRESETS (helpers.ts). Previously this was derived independently
-            // from scrapCost with a third, unrelated unit-cost assumption (÷500) that didn't reconcile
-            // with scrapQty (÷800) or reworkQty (÷350) at all.
-            defectiveParts: scrapQty + reworkQty,
-            operatorsPerShift: p.operatorCount || 3,
-            interProcessInventory: p.waitingLoss > 0 ? Math.round(p.waitingLoss / 50) : 450,
-            theoreticalCycleTime: p.cycleTime || 35
+            ...inputs,
+            totalProdTimePerDayMinutes: inputs.shiftsPerDay * inputs.workingHoursPerShift * 60,
+            defectiveParts: inputs.scrapQty + inputs.reworkQty,
+            missingFields
           };
         });
         setProcesses(mapped);
@@ -623,29 +622,34 @@ export default function LossAnalysis() {
       // displays — previously this recomputed a different, cruder produced/planned ratio here and
       // silently overwrote whatever real OEE VsmPage had calculated for the same process record.
       for (const p of calculatedProcesses) {
-        const payload = {
-          id: p.id,
-          name: p.name,
-          operatorCount: p.operatorsPerShift,
-          machineCount: 1,
-          cycleTime: p.theoreticalCycleTime,
-          shiftCount: p.shiftsPerDay,
-          workingHours: p.workingHoursPerShift,
-          capacity: p.producedQtyPerDay,
-          oee: Math.round(p.oee),
-          utilizationRate: Math.round(p.availability),
-          overtimeRatio: 0,
-          excessLabor: 0,
-          scrapCost: p.scrapQty * 800,
-          reworkCost: p.reworkQty * 350,
-          downtimeCost: p.breakdownMinutesPerShift * 2500,
-          laborCost: p.operatorsPerShift * p.shiftsPerDay * hourlyLaborRate * 8,
-          indirectLaborCost: 0,
-          waitingLoss: p.interProcessInventory * 50,
-          transportationLoss: p.interProcessInventory * 10,
-          motionLoss: 0,
-          overproductionLoss: 0
-        };
+        const missing = new Set(p.missingFields ?? []);
+        const has = (f: LossInputField) => !missing.has(f);
+        const lossInputs: Partial<Record<LossInputField, number>> = {};
+        for (const f of LOSS_INPUT_FIELDS) if (has(f)) lossInputs[f] = p[f];
+        // The record is merged server-side, so only fields with a real value are sent — a field
+        // shown as "girilmedi" must not overwrite what VSM measured with a 0. OEE/availability are
+        // only written when every input behind them has been entered.
+        const payload: Record<string, any> = { id: p.id, name: p.name, lossInputs };
+        if (has("operatorsPerShift")) payload.operatorCount = p.operatorsPerShift;
+        if (has("theoreticalCycleTime")) payload.cycleTime = p.theoreticalCycleTime;
+        if (has("shiftsPerDay")) payload.shiftCount = p.shiftsPerDay;
+        if (has("workingHoursPerShift")) payload.workingHours = p.workingHoursPerShift;
+        if (has("producedQtyPerDay")) payload.capacity = p.producedQtyPerDay;
+        if (has("setupTimeMinutes")) payload.changeoverTime = p.setupTimeMinutes;
+        if (missing.size === 0) {
+          payload.oee = Math.round(p.oee);
+          payload.utilizationRate = Math.round(p.availability * 100);
+        }
+        if (has("scrapQty")) payload.scrapCost = p.scrapQty * 800;
+        if (has("reworkQty")) payload.reworkCost = p.reworkQty * 350;
+        if (has("breakdownMinutesPerShift")) payload.downtimeCost = p.breakdownMinutesPerShift * 2500;
+        if (has("operatorsPerShift") && has("shiftsPerDay") && has("workingHoursPerShift")) {
+          payload.laborCost = p.operatorsPerShift * p.shiftsPerDay * hourlyLaborRate * p.workingHoursPerShift;
+        }
+        if (has("interProcessInventory")) {
+          payload.waitingLoss = p.interProcessInventory * 50;
+          payload.transportationLoss = p.interProcessInventory * 10;
+        }
 
         await fetch("/api/business/processes", {
           method: "POST",
@@ -672,8 +676,37 @@ export default function LossAnalysis() {
     }
   };
 
-  const handleUpdateProcessValue = (id: string, field: keyof ProcessItem, value: any) => {
-    setProcesses(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
+  const LOSS_EDITOR_COLUMNS: { field: LossInputField; label: string; min?: number }[] = [
+    { field: "operatorsPerShift", label: "Operatör Sayısı", min: 1 },
+    { field: "theoreticalCycleTime", label: "İdeal Çevrim Süresi (sn)", min: 1 },
+    { field: "shiftsPerDay", label: "Vardiya / Gün" },
+    { field: "workingHoursPerShift", label: "Saat / Vardiya" },
+    { field: "workingDaysPerWeek", label: "Çalışma Günü / Hafta" },
+    { field: "breakTimeMinutes", label: "Mola (dk/vardiya)" },
+    { field: "plannedMaintenanceMinutes", label: "Planlı Bakım (dk/vardiya)" },
+    { field: "plannedQtyPerDay", label: "Planlanan Adet / Gün" },
+    { field: "producedQtyPerDay", label: "Üretilen Adet / Gün" },
+    { field: "breakdownMinutesPerShift", label: "Arıza Duruşu (dk/vardiya)" },
+    { field: "setupTimeMinutes", label: "Setup Süresi (dk)" },
+    { field: "setupFrequencyPerWeek", label: "Setup Sıklığı / Hafta" },
+    { field: "machineAdjustmentMinutes", label: "Makine Ayarı (dk/setup)" },
+    { field: "scrapQty", label: "Günlük Hurda Adedi" },
+    { field: "reworkQty", label: "Günlük Rework Adedi" },
+    { field: "interProcessInventory", label: "WIP Stok (Adet)" }
+  ];
+
+  // Clearing an input marks it "girilmedi" again (0 in the formulas) instead of forcing a minimum.
+  const handleUpdateProcessInput = (id: string, field: LossInputField, raw: string, min = 0) => {
+    setProcesses(prev => prev.map(p => {
+      if (p.id !== id) return p;
+      const missing = (p.missingFields ?? []).filter(f => f !== field);
+      const updated: ProcessItem = raw.trim() === ""
+        ? { ...p, [field]: 0, missingFields: [...missing, field] }
+        : { ...p, [field]: Math.max(min, parseFloat(raw) || 0), missingFields: missing };
+      updated.totalProdTimePerDayMinutes = updated.shiftsPerDay * updated.workingHoursPerShift * 60;
+      updated.defectiveParts = updated.scrapQty + updated.reworkQty;
+      return updated;
+    }));
   };
 
   // "product_group" scope filters down to just the selected VSM project's own real stations
@@ -691,7 +724,7 @@ export default function LossAnalysis() {
 
   // Run analytical models & algorithms
   const defaultDemand = 1100;
-  const repProcess = activeProcesses[0] || { shiftsPerDay: 2, workingHoursPerShift: 8, breakTimeMinutes: 30, plannedMaintenanceMinutes: 15 };
+  const repProcess = activeProcesses[0] ?? { shiftsPerDay: 0, workingHoursPerShift: 0, breakTimeMinutes: 0, plannedMaintenanceMinutes: 0 };
   const dailyNetAvailableSeconds = (repProcess.workingHoursPerShift * 60 - repProcess.breakTimeMinutes - repProcess.plannedMaintenanceMinutes) * repProcess.shiftsPerDay * 60;
   const computedTaktTime = defaultDemand > 0 ? parseFloat((dailyNetAvailableSeconds / defaultDemand).toFixed(1)) : 45;
 
@@ -2167,6 +2200,11 @@ export default function LossAnalysis() {
               <p className="text-[10px] text-slate-400">
                 Aşağıdaki alanları düzenleyerek VSM verilerini anında değiştirebilirsiniz. Değişiklikler finansal formüllere gerçek zamanlı yansır.
               </p>
+              {activeProcesses.some(p => (p.missingFields?.length ?? 0) > 0) && (
+                <p className="text-[10px] font-bold text-amber-700">
+                  "girilmedi" görünen alanlar için gerçek veri yok; hesaplarda 0 kabul edilir ve kayıp tutarları eksik çıkar. Değeri girip kaydedin.
+                </p>
+              )}
             </div>
             <div className="flex items-center space-x-2">
               {saveStatus === "saving" && (
@@ -2203,75 +2241,30 @@ export default function LossAnalysis() {
               <thead>
                 <tr className="bg-slate-50 border-b text-slate-450 font-extrabold uppercase text-[9.5px]">
                   <th className="py-2 px-3">İstasyon Adı (VSM Node)</th>
-                  <th className="py-2 px-3 text-center">Operatör Sayısı</th>
-                  <th className="py-2 px-3 text-center">İdeal Çevrim Süresi (sn)</th>
-                  <th className="py-2 px-3 text-center">Arıza Duruşu (dk/vardiya)</th>
-                  <th className="py-2 px-3 text-center">Setup Süresi (dk)</th>
-                  <th className="py-2 px-3 text-center font-bold text-rose-700">Günlük Hurda Adedi</th>
-                  <th className="py-2 px-3 text-center">Günlük Rework Adedi</th>
-                  <th className="py-2 px-3 text-center">WIP Stok (Adet)</th>
+                  {LOSS_EDITOR_COLUMNS.map(c => (
+                    <th key={c.field} className={`py-2 px-3 text-center ${c.field === "scrapQty" ? "font-bold text-rose-700" : ""}`}>{c.label}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {activeProcesses.map((p) => (
                   <tr key={p.id} className="hover:bg-slate-50 transition-all font-mono">
                     <td className="py-2 px-3 font-sans font-bold text-slate-800">{p.name}</td>
-                    <td className="py-2 px-3 text-center">
-                      <input 
-                        type="number"
-                        value={p.operatorsPerShift}
-                        onChange={(e) => handleUpdateProcessValue(p.id, "operatorsPerShift", Math.max(1, parseInt(e.target.value) || 0))}
-                        className="w-16 text-center border rounded py-0.5"
-                      />
-                    </td>
-                    <td className="py-2 px-3 text-center">
-                      <input 
-                        type="number"
-                        value={p.theoreticalCycleTime}
-                        onChange={(e) => handleUpdateProcessValue(p.id, "theoreticalCycleTime", Math.max(1, parseInt(e.target.value) || 0))}
-                        className="w-16 text-center border rounded py-0.5"
-                      />
-                    </td>
-                    <td className="py-2 px-3 text-center">
-                      <input 
-                        type="number"
-                        value={p.breakdownMinutesPerShift}
-                        onChange={(e) => handleUpdateProcessValue(p.id, "breakdownMinutesPerShift", Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-16 text-center border rounded py-0.5"
-                      />
-                    </td>
-                    <td className="py-2 px-3 text-center">
-                      <input 
-                        type="number"
-                        value={p.setupTimeMinutes}
-                        onChange={(e) => handleUpdateProcessValue(p.id, "setupTimeMinutes", Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-16 text-center border rounded py-0.5"
-                      />
-                    </td>
-                    <td className="py-2 px-3 text-center">
-                      <input 
-                        type="number"
-                        value={p.scrapQty}
-                        onChange={(e) => handleUpdateProcessValue(p.id, "scrapQty", Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-16 text-center border rounded py-0.5 text-rose-700 font-extrabold"
-                      />
-                    </td>
-                    <td className="py-2 px-3 text-center">
-                      <input 
-                        type="number"
-                        value={p.reworkQty}
-                        onChange={(e) => handleUpdateProcessValue(p.id, "reworkQty", Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-16 text-center border rounded py-0.5"
-                      />
-                    </td>
-                    <td className="py-2 px-3 text-center">
-                      <input 
-                        type="number"
-                        value={p.interProcessInventory}
-                        onChange={(e) => handleUpdateProcessValue(p.id, "interProcessInventory", Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-16 text-center border rounded py-0.5"
-                      />
-                    </td>
+                    {LOSS_EDITOR_COLUMNS.map(c => {
+                      const isMissing = p.missingFields?.includes(c.field) ?? false;
+                      return (
+                        <td key={c.field} className="py-2 px-3 text-center">
+                          <input
+                            type="number"
+                            min={c.min ?? 0}
+                            value={isMissing ? "" : p[c.field]}
+                            placeholder="girilmedi"
+                            onChange={(e) => handleUpdateProcessInput(p.id, c.field, e.target.value, c.min ?? 0)}
+                            className={`w-20 text-center border rounded py-0.5 placeholder:italic placeholder:text-amber-600 placeholder:font-sans placeholder:text-[10px] ${isMissing ? "border-amber-300 bg-amber-50/50" : ""} ${c.field === "scrapQty" ? "text-rose-700 font-extrabold" : ""}`}
+                          />
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>

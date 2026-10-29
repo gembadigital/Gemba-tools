@@ -24,7 +24,32 @@ export interface ProcessItem {
   operatorsPerShift: number;
   interProcessInventory: number;
   theoreticalCycleTime: number; // in seconds
+  // Input fields with no real value yet (neither entered on this screen nor synced from VSM). They
+  // hold 0 for the formulas and render as "girilmedi" — never a made-up stand-in value.
+  missingFields?: LossInputField[];
 }
+
+// Per-station inputs this screen owns. Persisted as-is under `lossInputs` on the process record.
+export const LOSS_INPUT_FIELDS = [
+  "shiftsPerDay",
+  "workingHoursPerShift",
+  "breakTimeMinutes",
+  "plannedMaintenanceMinutes",
+  "workingDaysPerWeek",
+  "plannedQtyPerDay",
+  "producedQtyPerDay",
+  "setupTimeMinutes",
+  "setupFrequencyPerWeek",
+  "machineAdjustmentMinutes",
+  "breakdownMinutesPerShift",
+  "reworkQty",
+  "scrapQty",
+  "operatorsPerShift",
+  "interProcessInventory",
+  "theoreticalCycleTime"
+] as const;
+
+export type LossInputField = typeof LOSS_INPUT_FIELDS[number];
 
 export interface CalculatedProcess extends ProcessItem {
   netWorkingTimePerShift: number;
