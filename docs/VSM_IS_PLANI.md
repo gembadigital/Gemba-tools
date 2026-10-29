@@ -307,7 +307,7 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 | V8 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V8) | 39edc79 |
 | V3 | ✅ kod; yerel önizlemede (sahte API) masaüstü/telefon denendi, canlıda denenmedi (§V3) | 289bebb |
 | V4 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V4) | 1a3335a |
-| V5 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V5) | bkz. git log |
+| V5 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V5) | f7abf84 |
 
 ### V0 — yapılanlar
 - Sunucu: `src/server/vsm/vsmRoutes.ts` (uçlar `app.ts`'den taşındı), kurallar `src/utils/vsmAccess.ts` (istemci+sunucu
