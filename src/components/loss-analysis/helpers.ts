@@ -305,11 +305,11 @@ export function calculateCOPQ(calculated: CalculatedProcess[], revenue: number, 
 
   const copqPercentOfRevenue = revenue > 0 ? (totalCOPQ_TL / revenue) * 100 : 0;
 
-  let benchmarkStatus: "World Class (<2%)" | "Typical Factory (4%-8%)" | "Critical (>10%)" = "Typical Factory (4%-8%)";
+  let benchmarkStatus: "Dünya klası (<%2)" | "Tipik fabrika (%4–8)" | "Kritik (>%10)" = "Tipik fabrika (%4–8)";
   if (copqPercentOfRevenue < 2) {
-    benchmarkStatus = "World Class (<2%)";
+    benchmarkStatus = "Dünya klası (<%2)";
   } else if (copqPercentOfRevenue > 10) {
-    benchmarkStatus = "Critical (>10%)";
+    benchmarkStatus = "Kritik (>%10)";
   }
 
   return {

@@ -11,8 +11,6 @@ import {
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Legend, LineChart, AreaChart, Area, BarChart, Treemap } from "recharts";
 import ExcelJS from "exceljs";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
 import { domToCanvas } from "modern-screenshot";
 
 import { useFactory } from "../context/FactoryContext";
@@ -39,6 +37,7 @@ import {
   calculateLossCosts
 } from "./loss-analysis/lossCosting";
 import { JIPM_LOSSES, JipmStationInputs, JipmLine, computeJipmStation, stationOeeOf } from "./loss-analysis/jipmLossCost";
+import type { LossReportModel, LossReportStation, LossReportLine, LossReportRecoveryRow } from "../utils/lossReportModel";
 
 import AnalysisViews from "./loss-analysis/AnalysisViews";
 import CopilotEngine from "./loss-analysis/CopilotEngine";
@@ -58,7 +57,7 @@ export const INDUSTRY_OPTIONS: { id: IndustryType; labelTr: string; labelEn: str
 ];
 
 export default function LossAnalysis() {
-  const { selectedCustomerId, selectedCustomer } = useFactory();
+  const { selectedCustomerId, selectedCustomer, globalState } = useFactory();
   const token = localStorage.getItem("gemba_token") || sessionStorage.getItem("gemba_token") || "";
 
   const isDarkMode = false; // Dark mode completely disabled per request
@@ -984,8 +983,8 @@ export default function LossAnalysis() {
       row("Doğrudan Maliyet Azaltma", "Operasyonel Verimsizlik", "Direkt İşçilik & Hat Dengeleme", financialImpact.laborLoss.year, "Norm fazlası kişi × saat × işçilik saati"),
       row("Kapasite Yaratma", "Setup Süreleri (SMED)", "Makine Zamanı", financialImpact.setup.year, "Setup + ayar saati × (makine + işçilik saati)"),
       row("Kapasite Yaratma", "Plansız Duruşların Önlenmesi", "Bakım & Makine Zamanı", financialImpact.downtime.year, "Arıza saati × (makine + işçilik saati)"),
-      row("Kapasite Yaratma", "OEE İyileştirmesi", "Makine Zamanı (performans)", jipmSum([5, 6]) + jipmUnexplainedCost, "JIPM 5 küçük duruş + 6 hız kaybı + dağıtılamayan OEE kaybı"),
-      row("Kapasite Yaratma", "Operatör Verimliliği", "Direkt İşçilik (OLE)", jipmSum([9, 10, 12, 13]), "JIPM 9 yönetim + 10 hareket + 12 lojistik + 13 ölçme kayıpları"),
+      row("Kapasite Yaratma", "OEE İyileştirmesi", "Makine Zamanı (performans)", jipmSum([5, 6]) + jipmUnexplainedCost, "Loss Cost 5 küçük duruş + 6 hız kaybı + dağıtılamayan OEE kaybı"),
+      row("Kapasite Yaratma", "Operatör Verimliliği", "Direkt İşçilik (OLE)", jipmSum([9, 10, 12, 13]), "Loss Cost 9 yönetim + 10 hareket + 12 lojistik + 13 ölçme kayıpları"),
       row("Stratejik Operasyonel Kazanç", "Lead Time (Sipariş Çevrimi)", "Stok Finansmanı / Çalışma Sermayesi", 0, "WIP satırında (aynı stok)"),
       row("Stratejik Operasyonel Kazanç", "WIP (Yarı Mamul) Azaltımı", "Stok Finansmanı / Yarı Mamul", financialImpact.inventory.year, "Ara stok × yıllık taşıma maliyeti"),
       row("Stratejik Operasyonel Kazanç", "Sevkiyat Performansı", "Lojistik & Müşteri", financialImpact.lateDelivery.year, "Yalnızca girilen gerçek geç teslimat tutarı")
@@ -1218,7 +1217,7 @@ export default function LossAnalysis() {
   // same modern-screenshot/domToCanvas technique already used by VsmPage/OpexProjectDashboard.
   // "wide" charts span the full grid width instead of one of the 3 columns.
   const CHART_CAPTURE_LIST: { id: string; title: string; wide?: boolean }[] = [
-    { id: "lc-chart-waterfall", title: "1. Toplam Finansal Geri Kazanım (Waterfall)" },
+    { id: "lc-chart-waterfall", title: "1. Toplam Finansal Geri Kazanım (Şelale)" },
     { id: "lc-chart-area-earnings", title: "2. Fırsat Alanlarına Göre Kazanç" },
     { id: "lc-chart-direct-donut", title: "3. Doğrudan Maliyet Azaltma Dağılımı" },
     { id: "lc-chart-capacity-donut", title: "4. Kapasite Kazanım Dağılımı" },
@@ -1325,7 +1324,7 @@ export default function LossAnalysis() {
       const wsSummary = wb.addWorksheet("Ozet", { views: [{ state: "frozen", ySplit: 1 }] });
       wsSummary.getColumn(1).width = 34;
       wsSummary.getColumn(2).width = 30;
-      addTitleRow(wsSummary, `LOSS CAPACITY ANALİZİ RAPORU — ${companyNameExport}`, 2);
+      addTitleRow(wsSummary, `KAYIP MALİYET ANALİZİ — ${companyNameExport}`, 2);
       wsSummary.addRow(["Maliyet Modeli Kapsamı", scopeLabelExport]);
       wsSummary.addRow(["Rapor Tarihi", new Date().toLocaleDateString("tr-TR")]);
       wsSummary.addRow(["Model Cirosu", `${currencySymbol}${effectiveRevenue.toLocaleString()}`]);
@@ -1342,11 +1341,48 @@ export default function LossAnalysis() {
 
       // 2. COPQ Matrisi sheet
       const wsCopq = wb.addWorksheet("COPQ_Matrisi", { views: [{ state: "frozen", ySplit: 2 }] });
-      const copqHeaders = ["Maliyet Konusu", "Fırsat Alanı", "Maliyet Bütçe Grubu", `Min (${currencySymbol})`, `Max (${currencySymbol})`];
-      wsCopq.columns = [{ width: 32 }, { width: 26 }, { width: 26 }, { width: 18 }, { width: 18 }];
-      addTitleRow(wsCopq, "COPQ FİNANSAL KAYIP MATRİSİ (Maliyet Ağacı Kırılımı)", copqHeaders.length);
+      const copqHeaders = ["Maliyet Konusu", "Fırsat Alanı", "Maliyet Grubu", "Kaynak / formül", `Min (${currencySymbol})`, `Max (${currencySymbol})`];
+      wsCopq.columns = [{ width: 32 }, { width: 26 }, { width: 26 }, { width: 46 }, { width: 18 }, { width: 18 }];
+      addTitleRow(wsCopq, "COPQ FİNANSAL KAYIP MATRİSİ (ölçülen kayıp, ±%20 bant)", copqHeaders.length);
       addHeaderRow(wsCopq, copqHeaders);
-      copqMatrixRows.forEach((r, i) => addDataRow(wsCopq, [r.subject, r.area, r.costGroup, Math.round(r.min), Math.round(r.max)], i));
+      copqMatrixRows.forEach((r, i) => addDataRow(wsCopq, [r.subject, r.area, r.costGroup, r.basis, Math.round(r.min), Math.round(r.max)], i));
+
+      // Same model as the executive PDF, so the workbook and the report agree line by line.
+      const rm = buildLossReportModel();
+      const srcLabel = (v: string | null) => (v === "birim" ? "Girilen" : v === "vsm" ? "VSM" : v === "kart" ? "Şirket kartı" : "Yok");
+
+      const wsPool = wb.addWorksheet("Kayip_Havuzu", { views: [{ state: "frozen", ySplit: 2 }] });
+      const poolHeaders = ["Kayıp kalemi", `Günlük (${currencySymbol})`, `Aylık (${currencySymbol})`, `Yıllık (${currencySymbol})`, "Gerçek veri", "Hesaplanamayan istasyonlar"];
+      wsPool.columns = [{ width: 30 }, { width: 16 }, { width: 16 }, { width: 18 }, { width: 12 }, { width: 50 }];
+      addTitleRow(wsPool, "KAYIP HAVUZU (ölçülen kayıp × birim maliyet)", poolHeaders.length);
+      addHeaderRow(wsPool, poolHeaders);
+      rm.lossLines.forEach((l, i) => addDataRow(wsPool, [l.label, Math.round(l.year / 260), Math.round(l.year * 22 / 260), Math.round(l.year), l.real ? "Evet" : "", l.unresolved.join(", ")], i));
+
+      const wsSt = wb.addWorksheet("Istasyonlar", { views: [{ state: "frozen", ySplit: 2, xSplit: 1 }] });
+      const stHeaders = ["İstasyon", "Hat / VSM", "OEE (%)", "OEE kaynağı", "Hurda adet/gün", "Rework adet/gün", "Arıza dk/gün", "Setup dk/gün", "WIP",
+        "Hurda", "Rework", "Arıza", "Setup", "Norm fazlası", "Stok", "Eksik girdi", "Hurda birim kaynağı", "Rework birim kaynağı", "İşçilik saat kaynağı", "Makine saat kaynağı", "Stok kaynağı"];
+      wsSt.columns = stHeaders.map((_, i) => ({ width: i === 0 || i === 1 ? 26 : 14 }));
+      addTitleRow(wsSt, `İSTASYON BAZINDA KAYIPLAR (tutarlar yıllık, ${currencySymbol})`, stHeaders.length);
+      addHeaderRow(wsSt, stHeaders);
+      rm.stations.forEach((st, i) => addDataRow(wsSt, [
+        st.name, st.line, st.oee !== null ? Number(st.oee.toFixed(1)) : "-", st.oeeSource ?? "-", st.scrapQty, st.reworkQty, Math.round(st.breakdownMinPerDay), Math.round(st.setupMinPerDay), st.wip,
+        ...(["scrap", "rework", "downtime", "setup", "laborLoss", "inventory"] as const).map(k => st.costs[k] !== undefined ? Math.round(st.costs[k] as number) : "-"),
+        st.missingInputs, srcLabel(st.rates.scrap), srcLabel(st.rates.rework), srcLabel(st.rates.labor), srcLabel(st.rates.machine), srcLabel(st.rates.wip)
+      ], i));
+
+      const wsTpm = wb.addWorksheet("Loss_Cost_16_Kayip", { views: [{ state: "frozen", ySplit: 2 }] });
+      const tpmHeaders = ["No", "Kayıp", "Grup", "Dk/gün", "Kişi-saat/gün", "Kaynak", `İşçilik (${currencySymbol})`, `Makine (${currencySymbol})`, `Malzeme (${currencySymbol})`, `Enerji/Takım (${currencySymbol})`, `Toplam (${currencySymbol})`, `Kayıp katkı payı (${currencySymbol})`, "Fiyatlanamayan istasyonlar", "Yalın / TPM aracı"];
+      wsTpm.columns = [{ width: 6 }, { width: 34 }, { width: 10 }, { width: 10 }, { width: 12 }, { width: 18 }, { width: 14 }, { width: 14 }, { width: 14 }, { width: 14 }, { width: 16 }, { width: 18 }, { width: 30 }, { width: 30 }];
+      addTitleRow(wsTpm, "LOSS COST ANALİZİ — 16 BÜYÜK KAYIP (yıllık)", tpmHeaders.length);
+      addHeaderRow(wsTpm, tpmHeaders);
+      rm.jipm.lines.forEach((l, i) => addDataRow(wsTpm, [l.no, l.name, l.group, Number(l.minutesPerDay.toFixed(1)), Number(l.personHoursPerDay.toFixed(1)), l.sources.join(", "),
+        Math.round(l.labor), Math.round(l.machine), Math.round(l.material), Math.round(l.direct), Math.round(l.total), Math.round(l.contribution), l.unpricedAt.join(", "), l.tool], i));
+      if (rm.jipm.unexplained.minutes > 0.05) addDataRow(wsTpm, ["", "Dağıtılamayan OEE kaybı", "Ekipman", Number(rm.jipm.unexplained.minutes.toFixed(1)), "", "OEE − ölçülen", "", "", "", "", Math.round(rm.jipm.unexplained.cost), "", "", ""], rm.jipm.lines.length);
+
+      const wsGaps = wb.addWorksheet("Veri_Bosluklari");
+      wsGaps.getColumn(1).width = 120;
+      addTitleRow(wsGaps, "TAMAMLANMASI GEREKEN VERİLER", 1);
+      (rm.warnings.length ? rm.warnings : ["Kritik veri boşluğu yok."]).forEach((w, i) => addDataRow(wsGaps, [w], i));
 
       // 3. Geri Kazanım Matrisi sheet — severity column gets a real traffic-light fill/font
       const wsRecovery = wb.addWorksheet("Geri_Kazanim_Matrisi", { views: [{ state: "frozen", ySplit: 2, xSplit: 2 }] });
@@ -1387,7 +1423,7 @@ export default function LossAnalysis() {
       };
       embedChart(trend, "Tarihsel COPQ Trend Analizi");
       embedChart(charts["lc-chart-profit-curve"], "İyileştirmelerin Faaliyet Kâr Marjına Etki Eğrisi");
-      embedChart(charts["lc-chart-waterfall"], "Toplam Finansal Geri Kazanım (Waterfall)");
+      embedChart(charts["lc-chart-waterfall"], "Toplam Finansal Geri Kazanım (Şelale)");
       embedChart(charts["lc-chart-pareto"], "En Büyük İlk 5 Fırsat (Pareto)");
       if (chartRowCursor === 3) {
         wsCharts.getRow(3).getCell(2).value = "Grafikler yakalanamadı — dışa aktarmadan önce Dashboard sekmesini ziyaret etmeyi deneyin.";
@@ -1409,177 +1445,195 @@ export default function LossAnalysis() {
     }
   };
 
-  // jsPDF's standard "Helvetica" font only supports WinAnsi/Latin-1 — İ, ı, Ş, ş, Ğ, ğ aren't in
-  // that set and render as garbled digits/symbols (Ç/ç/Ö/ö/Ü/ü are fine, they're valid Latin-1).
-  // Transliterate just those five letters rather than embedding a custom Unicode font.
-  const pdfSafe = (s: unknown): string => String(s ?? "")
-    .replace(/İ/g, "I").replace(/ı/g, "i")
-    .replace(/Ş/g, "S").replace(/ş/g, "s")
-    .replace(/Ğ/g, "G").replace(/ğ/g, "g");
+  // Executive report ("Kayıp Maliyet Analizi — Yönetici Raporu", L7): the figures this screen shows
+  // are collected into one model (src/utils/lossReportModel.ts) and printed server-side by the same
+  // Chromium pipeline and design as the OpEx executive report (src/server/lossReport). Always for
+  // the whole selected scope — the JIPM station filter on tab 6 does not narrow the report.
+  const buildLossReportModel = (): LossReportModel => {
+    const today = new Date();
+    const p2 = (n: number) => String(n).padStart(2, "0");
+    const lineName = (id?: string) => {
+      if (!id) return "";
+      const vp: any = vsmProjects.find((x: any) => x.id === id);
+      return vp ? [vp.productionLine, vp.productGroup || vp.name].filter(Boolean).join(" · ") : "";
+    };
+    const rateCount = { birim: 0, vsm: 0, kart: 0, none: 0 };
+    const stations: LossReportStation[] = calculatedProcesses.map(p => {
+      const r = ratesById[p.id];
+      const so = stationOeeOf(p);
+      const rates = { scrap: r?.scrapUnit.source ?? null, rework: r?.reworkUnit.source ?? null, labor: r?.laborHour.source ?? null, machine: r?.machineHour.source ?? null, wip: r?.wipHolding.source ?? null };
+      Object.values(rates).forEach(v => { rateCount[v ?? "none"] += 1; });
+      return {
+        name: p.name,
+        line: lineName(p.vsmProjectId),
+        oee: so?.oee ?? null,
+        oeeSource: so?.source ?? null,
+        scrapQty: p.scrapQty,
+        reworkQty: p.reworkQty,
+        breakdownMinPerDay: p.breakdownMinutesPerShift * p.shiftsPerDay,
+        setupMinPerDay: p.workingDaysPerWeek > 0 ? (p.setupTimeMinutes + p.machineAdjustmentMinutes) * p.setupFrequencyPerWeek / p.workingDaysPerWeek : 0,
+        wip: p.interProcessInventory,
+        costs: lossCosts.byStation[p.id] ?? {},
+        missingInputs: p.missingFields?.length ?? 0,
+        rates
+      };
+    });
+    const lossKeys = ["scrap", "rework", "downtime", "setup", "laborLoss", "inventory", "overtime", "lateDelivery", "energy", "maintenance"] as const;
+    const lossLines: LossReportLine[] = lossKeys
+      .map(key => ({
+        key,
+        label: COST_OVERRIDE_CATEGORIES.find(c => c.key === key)?.label ?? key,
+        year: (financialImpact as any)[key]?.year ?? 0,
+        real: !!actualCostOverrides[key]?.enabled,
+        unresolved: (lossCosts as any)[key]?.unresolved ?? []
+      }))
+      .filter(l => ["scrap", "rework", "downtime", "setup", "laborLoss", "inventory"].includes(l.key) || l.real || l.year > 0);
+    const jipmLines = JIPM_LOSSES.map(def => {
+      const ls = jipmResults.map(r => ({ r, l: r.lines.find(x => x.def.no === def.no)! }));
+      const sum = (f: (l: JipmLine) => number) => ls.reduce((acc, x) => acc + f(x.l), 0);
+      return {
+        no: def.no, name: def.name, group: def.group, tool: def.tool,
+        minutesPerDay: sum(l => l.minutesPerDay), personHoursPerDay: sum(l => l.personHoursPerDay),
+        sources: Array.from(new Set(ls.map(x => x.l.source).filter(Boolean))) as string[],
+        labor: sum(l => l.labor), machine: sum(l => l.machine), material: sum(l => l.material), direct: sum(l => l.direct),
+        total: sum(l => l.total), contribution: sum(l => l.contribution),
+        unpricedAt: ls.filter(x => !x.l.priced).map(x => x.r.name)
+      };
+    });
+    const jipmUnexplainedAll = { minutes: jipmResults.reduce((a2, r) => a2 + r.unexplainedMinutesPerDay, 0), cost: jipmResults.reduce((a2, r) => a2 + r.unexplainedCost, 0) };
+    const jipmTotalAll = jipmLines.reduce((a2, l) => a2 + l.total, 0) + jipmUnexplainedAll.cost;
+    const minutesOf = (r: typeof jipmResults[number], nos: number[]) => r.lines.filter(l => nos.includes(l.def.no)).reduce((a2, l) => a2 + l.minutesPerDay, 0);
+    const entered = (k: CopqEnteredKey) => (copqEntered[k] ?? 0) > 0;
+    const copq: LossReportModel["copq"] = [
+      { label: "Hurda", group: "İç hata", year: copqData.scrapCost, entered: false },
+      { label: "Yeniden işleme (rework)", group: "İç hata", year: copqData.reworkCost, entered: false },
+      { label: "Müşteri iadeleri", group: "Dış hata", year: copqData.customerReturns, entered: entered("customerReturns") },
+      { label: "Garanti giderleri", group: "Dış hata", year: copqData.warrantyCost, entered: entered("warranty") },
+      { label: "Müşteri şikâyeti işleme", group: "Dış hata", year: copqData.customerComplaints, entered: entered("customerComplaints") },
+      { label: "Ek / acil nakliye", group: "Dış hata", year: copqData.extraFreight, entered: entered("extraFreight") },
+      { label: "Acil sevkiyat / hızlandırma", group: "Dış hata", year: copqData.expeditingCost, entered: entered("expediting") },
+      { label: "Kayıp satış (katkı payı)", group: "Dış hata", year: copqData.lostSalesCost, entered: entered("lostSales") },
+      { label: "Muayene / kontrol", group: "Muayene", year: copqData.inspectionCost, entered: entered("inspection") },
+      { label: "Kalite personeli", group: "Muayene", year: copqData.qualityPersonnelCost, entered: entered("qualityPersonnel") },
+      { label: "Ayıklama / sınıflama", group: "Muayene", year: copqData.sortingCost, entered: entered("sorting") },
+      { label: "Kayıp kapasite (arıza + setup)", group: "Kapasite & akış", year: copqData.lostCapacityCost, entered: false },
+      { label: "Fazla stok (WIP taşıma)", group: "Kapasite & akış", year: copqData.excessInventoryCost, entered: false },
+      { label: "Geç teslimat", group: "Kapasite & akış", year: copqData.lateDeliveryCost, entered: !!actualCostOverrides.lateDelivery?.enabled },
+      { label: "Acil fazla mesai", group: "Kapasite & akış", year: copqData.emergencyOvertimeCost, entered: !!actualCostOverrides.overtime?.enabled }
+    ];
+    const recovery: LossReportRecoveryRow[] = recoveryMatrixDataWithRealized.map((r: any) => {
+      const mrow: any = copqMatrixRows.find(x => x.subject === r.subject);
+      return {
+        area: r.area, subject: r.subject, costGroup: r.costGroup, leanTool: r.leanTool, basis: mrow?.basis ?? "",
+        lossMin: mrow?.min ?? 0, lossMax: mrow?.max ?? 0, avgLoss: r.avgLoss,
+        improvementMin: r.improvementMin, improvementMax: r.improvementMax,
+        gainMin: r.potentialGainMin, gainMax: r.potentialGainMax, avgGain: r.avgGain,
+        investment: r.investmentCost, paybackMonths: r.paybackMonths, roiPercent: r.roiPercent,
+        severity: r.severity, realizedSavings: r.realizedSavings, projects: kaizenCountBySubject[r.subject] || 0
+      };
+    });
+    const warnings: string[] = [];
+    if (effectiveRevenue <= 0) warnings.push("Yıllık ciro girilmedi (şirket kartı) — ciroya oranlar ve karttan türetilen birim maliyetler hesaplanamıyor.");
+    if (cardBasis.annualVolume <= 0) warnings.push("Yıllık üretim adedi girilmedi (şirket kartı → Operasyon) — karttan birim malzeme/hurda maliyeti türetilemiyor.");
+    if (directMaterialPercent + directLaborPercent + energyPercent + maintenancePercent <= 0) warnings.push("Maliyet yapısı (%) girilmedi (Ürün Maliyet Modeli).");
+    if (cardWorkspace.blueCollar <= 0) warnings.push("Mavi yaka sayısı / vardiya saati girilmedi (şirket kartı → İş Gücü) — işçilik saat maliyeti karttan türetilemiyor.");
+    if (defaultDemand <= 0) warnings.push("Günlük talep yok (VSM Kurulum'da haftalık talep ve çalışma günü) — takt ve stok günü hesaplanamıyor.");
+    const missingTotal = activeProcesses.reduce((a2, p) => a2 + (p.missingFields?.length ?? 0), 0);
+    if (missingTotal > 0) warnings.push(`${activeProcesses.filter(p => (p.missingFields?.length ?? 0) > 0).length} istasyonda toplam ${missingTotal} girdi "girilmedi" — bu girdiler hesapta 0 sayıldı.`);
+    lossCostUnresolved.forEach(([key, l]) => warnings.push(`${COST_OVERRIDE_CATEGORIES.find(c => c.key === key)?.label ?? key}: birim maliyet bulunamadı — ${l.unresolved.join(", ")}.`));
+    const noOee = jipmResults.filter(r => r.oee === null).length;
+    if (noOee > 0) warnings.push(`${noOee} istasyonda OEE yok — bu istasyonlarda OEE kaybı 16 kayba dağıtılamadı.`);
+    const totalLossYear = financialImpact.totalOperationalLosses.year;
+    return {
+      firm: companyNameExport,
+      reportDate: today.toISOString(),
+      reportNo: `LC-${String(today.getFullYear()).slice(-2)}${p2(today.getMonth() + 1)}${p2(today.getDate())}`,
+      preparedBy: globalState?.CurrentUser?.name || globalState?.CurrentUser?.fullName || globalState?.CurrentUser?.email || "",
+      currency: currencySymbol,
+      scopeLabel: scopeLabelExport,
+      industry: INDUSTRY_OPTIONS.find(o => o.id === selectedIndustry)?.labelTr || customIndustryName || "",
+      revenue: effectiveRevenue,
+      annualRevenue,
+      annualVolume: cardBasis.annualVolume,
+      costStructure: { material: directMaterialPercent, labor: directLaborPercent, overtimeBurden: overtimeBurdenPercent, energy: energyPercent, maintenance: maintenancePercent, overhead: overheadPercent, operatingProfit: operatingProfitPercent },
+      dailyDemand: defaultDemand,
+      totals: {
+        lossYear: totalLossYear,
+        lossPctOfRevenue: lossToRevenuePercent,
+        copqYear: copqData.totalCOPQ_TL,
+        copqPctOfRevenue: copqData.copqPercentOfRevenue,
+        benchmarkStatus: copqData.benchmarkStatus,
+        recoveryAvg: recoveryMatrixDataWithRealized.reduce((a2: number, r: any) => a2 + r.avgGain, 0),
+        recoveryMin: recoveryMatrixDataWithRealized.reduce((a2: number, r: any) => a2 + r.potentialGainMin, 0),
+        recoveryMax: recoveryMatrixDataWithRealized.reduce((a2: number, r: any) => a2 + r.potentialGainMax, 0),
+        investment: recoveryMatrixDataWithRealized.reduce((a2: number, r: any) => a2 + r.investmentCost, 0),
+        realizedSavings: totalRealizedSavingsExport,
+        hiddenCostYear: hiddenFactoryData.hiddenCostYear,
+        equivalentOperators: hiddenFactoryData.equivalentOperators,
+        oeeLossSharePct,
+        avgOee: oeeStations.length > 0 ? oeeStations.reduce((a2, r) => a2 + (r.oee ?? 0), 0) / oeeStations.length : null,
+        stationCount: calculatedProcesses.length,
+        stationsWithOee: oeeStations.length,
+        jipmTotal: jipmTotalAll,
+        jipmContribution: jipmLines.reduce((a2, l) => a2 + l.contribution, 0)
+      },
+      lossLines,
+      stations,
+      rateSourceCounts: rateCount,
+      cardBasis: {
+        scrapUnit: cardDerived.scrapUnit.source ? `${formatMoney(cardDerived.scrapUnit.value)} — ${cardDerived.scrapUnit.note}` : cardDerived.scrapUnit.note,
+        reworkUnit: cardDerived.reworkUnit.source ? `${formatMoney(cardDerived.reworkUnit.value)} — ${cardDerived.reworkUnit.note}` : cardDerived.reworkUnit.note,
+        laborHour: cardDerived.laborHour.source ? `${formatMoney(cardDerived.laborHour.value)} — ${cardDerived.laborHour.note}` : cardDerived.laborHour.note,
+        machineHour: cardDerived.machineHour.source ? `${formatMoney(cardDerived.machineHour.value)} — ${cardDerived.machineHour.note}` : cardDerived.machineHour.note,
+        wipHolding: cardDerived.wipHolding.source ? `${formatMoney(cardDerived.wipHolding.value)} — ${cardDerived.wipHolding.note}` : cardDerived.wipHolding.note,
+        holdingRatePct,
+        blueCollar: cardWorkspace.blueCollar,
+        hoursPerPersonYear: cardBasis.hoursPerPersonYear
+      },
+      jipm: {
+        lines: jipmLines,
+        unexplained: jipmUnexplainedAll,
+        stations: jipmResults.map(r => ({
+          name: r.name, oee: r.oee, oeeSource: r.oeeSource, loadingMinutesPerDay: r.loadingMinutesPerDay, oeeLossMinutesPerDay: r.oeeLossMinutesPerDay,
+          availabilityLoss: minutesOf(r, [1, 2, 3, 4]), performanceLoss: minutesOf(r, [5, 6]), qualityLoss: minutesOf(r, [7]),
+          unexplainedMinutesPerDay: r.unexplainedMinutesPerDay
+        }))
+      },
+      copq,
+      recovery,
+      profitCurve: operatingProfitCurve.map((x: any) => ({ stage: x.stage, margin: x["Faaliyet Kâr Marjı %"] })),
+      warnings
+    };
+  };
 
-  // Real landscape "Power BI style" PDF report — colored KPI cards plus the actual live Recharts
-  // dashboard captured as images (via modern-screenshot's domToCanvas, see captureDashboardCharts
-  // above), instead of the previous portrait, tables-only layout.
   const handleExportPdf = async () => {
+    if (!selectedCustomerId) return;
     setIsExportingPdf(true);
     try {
-      const { trend, charts } = await captureDashboardCharts();
-
-      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-      doc.setFont("Helvetica");
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const marginX = 12;
-      const footerMargin = 12;
-
-      const drawHeaderBanner = () => {
-        doc.setFillColor(15, 23, 42);
-        doc.rect(0, 0, pageWidth, 28, "F");
-        doc.setTextColor(255, 255, 255);
-        doc.setFont("Helvetica", "bold");
-        doc.setFontSize(16);
-        doc.text(pdfSafe("LOSS CAPACITY ANALİZİ RAPORU"), marginX, 12);
-        doc.setFont("Helvetica", "normal");
-        doc.setFontSize(9);
-        doc.text(pdfSafe(`${companyNameExport} | ${scopeLabelExport}`), marginX, 20);
-        doc.setFontSize(8);
-        doc.text(pdfSafe(`Oluşturma Tarihi: ${new Date().toLocaleDateString("tr-TR")}`), pageWidth - marginX, 12, { align: "right" });
-        doc.setTextColor(15, 23, 42);
-      };
-
-      drawHeaderBanner();
-      let y = 36;
-
-      // KPI color cards row
-      const kpis: { label: string; value: string; color: [number, number, number] }[] = [
-        { label: "TOPLAM COPQ KAYBI", value: `${currencySymbol} ${copqData.totalCOPQ_TL.toLocaleString()}`, color: [190, 18, 60] },
-        { label: "COPQ / CİRO ORANI", value: `%${copqData.copqPercentOfRevenue.toFixed(2)}`, color: [51, 65, 85] },
-        { label: "ORT. BEKLENEN KAZANÇ", value: `${currencySymbol} ${totalAverageRecoveryExport.toLocaleString()}`, color: [79, 70, 229] },
-        { label: "GERÇEKLEŞEN TASARRUF", value: `${currencySymbol} ${totalRealizedSavingsExport.toLocaleString()}`, color: [5, 150, 105] },
-        { label: "BENCHMARK DURUMU", value: pdfSafe(copqData.benchmarkStatus), color: [217, 119, 6] },
-        { label: "MODEL CİROSU", value: `${currencySymbol} ${effectiveRevenue.toLocaleString()}`, color: [30, 41, 59] }
-      ];
-      const kpiGap = 4;
-      const kpiWidth = (pageWidth - marginX * 2 - kpiGap * (kpis.length - 1)) / kpis.length;
-      const kpiHeight = 22;
-      kpis.forEach((kpi, i) => {
-        const x = marginX + i * (kpiWidth + kpiGap);
-        doc.setFillColor(kpi.color[0], kpi.color[1], kpi.color[2]);
-        doc.roundedRect(x, y, kpiWidth, kpiHeight, 2, 2, "F");
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(6.5);
-        doc.setFont("Helvetica", "bold");
-        doc.text(pdfSafe(kpi.label), x + 3, y + 7, { maxWidth: kpiWidth - 6 });
-        doc.setFontSize(11.5);
-        doc.text(pdfSafe(kpi.value), x + 3, y + 16, { maxWidth: kpiWidth - 6 });
+      const res = await fetch("/api/opex-report/loss-capacity?format=pdf", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "x-factory-id": selectedCustomerId },
+        body: JSON.stringify(buildLossReportModel())
       });
-      y += kpiHeight + 8;
-      doc.setTextColor(15, 23, 42);
-
-      // Historical COPQ trend chart (real capture) fills the rest of page 1, if available
-      if (trend) {
-        doc.setFont("Helvetica", "bold");
-        doc.setFontSize(10);
-        doc.text(pdfSafe("TARİHSEL COPQ TREND ANALİZİ"), marginX, y);
-        const availW = pageWidth - marginX * 2;
-        const availH = pageHeight - footerMargin - (y + 4);
-        const h = Math.min(availH, availW / trend.aspectRatio);
-        const w = h * trend.aspectRatio;
-        doc.addImage(trend.dataUrl, "PNG", marginX, y + 4, w, h);
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || `Sunucu yanıtı ${res.status}`);
       }
-
-      // Chart grid pages — the "10 Power BI Charts" from the Dashboard tab, captured live
-      doc.addPage();
-      drawHeaderBanner();
-      y = 36;
-      doc.setFont("Helvetica", "bold");
-      doc.setFontSize(11);
-      doc.text(pdfSafe("GELİŞMİŞ YALIN FİNANSAL DASHBOARD (POWER BI MODELİ)"), marginX, y);
-      y += 8;
-
-      const cols = 3;
-      const gap = 6;
-      const colW = (pageWidth - marginX * 2 - gap * (cols - 1)) / cols;
-      const rowH = 58;
-      let colIndex = 0;
-
-      const drawChartCell = (x: number, cellY: number, w: number, title: string, chart: { dataUrl: string; aspectRatio: number } | null) => {
-        doc.setFont("Helvetica", "bold");
-        doc.setFontSize(7.5);
-        doc.setTextColor(51, 65, 85);
-        doc.text(pdfSafe(title), x, cellY, { maxWidth: w });
-        const availH = rowH - 6;
-        if (chart) {
-          const h = Math.min(availH, w / chart.aspectRatio);
-          const imgW = h * chart.aspectRatio;
-          doc.addImage(chart.dataUrl, "PNG", x, cellY + 3, imgW, h);
-        } else {
-          doc.setDrawColor(226, 232, 240);
-          doc.setFillColor(248, 250, 252);
-          doc.roundedRect(x, cellY + 3, w, availH, 2, 2, "FD");
-          doc.setFontSize(7);
-          doc.setTextColor(148, 163, 184);
-          doc.text(pdfSafe("Grafik yakalanamadı"), x + w / 2, cellY + 3 + availH / 2, { align: "center" });
-        }
-        doc.setTextColor(15, 23, 42);
-      };
-
-      CHART_CAPTURE_LIST.forEach(c => {
-        const isWide = !!c.wide;
-        if (isWide && colIndex !== 0) { y += rowH + 8; colIndex = 0; }
-        if (y + rowH + 8 > pageHeight - footerMargin) {
-          doc.addPage();
-          drawHeaderBanner();
-          y = 36;
-          colIndex = 0;
-        }
-        const x = marginX + colIndex * (colW + gap);
-        const w = isWide ? pageWidth - marginX * 2 : colW;
-        drawChartCell(x, y, w, c.title, charts[c.id]);
-        if (isWide) {
-          y += rowH + 8;
-          colIndex = 0;
-        } else {
-          colIndex++;
-          if (colIndex >= cols) { colIndex = 0; y += rowH + 8; }
-        }
-      });
-
-      // COPQ Financial Loss Matrix
-      doc.addPage();
-      drawHeaderBanner();
-      doc.setFont("Helvetica", "bold");
-      doc.setFontSize(12);
-      doc.text(pdfSafe("COPQ FİNANSAL KAYIP MATRİSİ"), marginX, 36);
-      autoTable(doc, {
-        head: [[pdfSafe("Maliyet Konusu"), pdfSafe("Fırsat Alanı"), pdfSafe("Maliyet Bütçe Grubu"), pdfSafe(`Min (${currencySymbol})`), pdfSafe(`Max (${currencySymbol})`)]],
-        body: copqMatrixRows.map(r => [pdfSafe(r.subject), pdfSafe(r.area), pdfSafe(r.costGroup), `${Math.round(r.min).toLocaleString()}`, `${Math.round(r.max).toLocaleString()}`]),
-        startY: 40,
-        margin: { left: marginX, right: marginX },
-        theme: "striped",
-        headStyles: { fillColor: [159, 18, 57] },
-        styles: { fontSize: 8.5 }
-      });
-
-      // Financial Recovery Matrix
-      doc.addPage();
-      drawHeaderBanner();
-      doc.setFont("Helvetica", "bold");
-      doc.setFontSize(12);
-      doc.text(pdfSafe("FİNANSAL GERİ KAZANIM VE İYİLEŞTİRME FIRSATLARI MATRİSİ"), marginX, 36);
-      autoTable(doc, {
-        head: [[pdfSafe("Maliyet Konusu"), pdfSafe("Yalın/WCM Aracı"), pdfSafe(`Ort. Kayıp (${currencySymbol})`), pdfSafe(`Ort. Tasarruf (${currencySymbol})`), pdfSafe(`Yatırım (${currencySymbol})`), pdfSafe("Geri Ödeme"), pdfSafe("ROI"), pdfSafe(`Gerçekleşen (${currencySymbol})`), pdfSafe("Önem")]],
-        body: recoveryMatrixDataWithRealized.map(r => [
-          pdfSafe(r.subject), pdfSafe(r.leanTool), `${Math.round(r.avgLoss).toLocaleString()}`, `${Math.round(r.avgGain).toLocaleString()}`, `${Math.round(r.investmentCost).toLocaleString()}`, r.paybackMonths !== null ? `${r.paybackMonths.toFixed(1)} Ay` : "-", `${r.roiPercent >= 0 ? "+" : ""}${r.roiPercent.toFixed(0)}%`, `${Math.round(r.realizedSavings).toLocaleString()}`, pdfSafe(r.severity)
-        ]),
-        startY: 40,
-        margin: { left: marginX, right: marginX },
-        theme: "striped",
-        headStyles: { fillColor: [159, 18, 57] },
-        styles: { fontSize: 8.5 }
-      });
-
-      doc.save(`Loss_Capacity_Analizi_${companyNameExport.replace(/\s+/g, "_")}.pdf`);
+      const blob = await res.blob();
+      const cd = res.headers.get("Content-Disposition") || "";
+      const m = /filename="([^"]+)"/.exec(cd);
+      const name = m ? decodeURIComponent(m[1]) : `Kayip-Maliyet-Raporu.pdf`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      console.error("Loss executive report failed", e);
+      alert(`Yönetici raporu oluşturulamadı: ${e?.message || "bilinmeyen hata"}`);
     } finally {
       setIsExportingPdf(false);
     }
@@ -1910,7 +1964,7 @@ export default function LossAnalysis() {
   ];
 
   // 10 POWER BI STYLE CHART DATA MODELS
-  // 1. Toplam Finansal Geri Kazanım (Waterfall)
+  // 1. Toplam Finansal Geri Kazanım (Şelale)
   const waterfallChartData = React.useMemo(() => {
     const totalLoss = copqData.totalCOPQ_TL;
     const directGain = recoveryMatrixData.filter(r => r.area === "Doğrudan Maliyet Azaltma").reduce((sum, item) => sum + item.avgGain, 0);
@@ -1927,7 +1981,7 @@ export default function LossAnalysis() {
     ];
   }, [copqData.totalCOPQ_TL, recoveryMatrixData]);
 
-  // 2. Fırsat Alanlarına Göre Kazanç (Horizontal Bar)
+  // 2. Fırsat Alanlarına Göre Kazanç (Yatay Çubuk)
   const areaEarningsData = React.useMemo(() => {
     const directGain = recoveryMatrixData.filter(r => r.area === "Doğdan Maliyet Azaltma" || r.area === "Doğrudan Maliyet Azaltma").reduce((sum, item) => sum + item.avgGain, 0);
     const capacityGain = recoveryMatrixData.filter(r => r.area === "Kapasite Yaratma").reduce((sum, item) => sum + item.avgGain, 0);
@@ -1940,7 +1994,7 @@ export default function LossAnalysis() {
     ];
   }, [recoveryMatrixData, currencySymbol]);
 
-  // 3. Doğrudan Maliyet Azaltma Dağılımı (Donut)
+  // 3. Doğrudan Maliyet Azaltma Dağılımı (Halka)
   const directMaliyetDonut = React.useMemo(() => {
     return recoveryMatrixData
       .filter(r => (r.area === "Doğdan Maliyet Azaltma" || r.area === "Doğrudan Maliyet Azaltma") && r.avgGain > 0)
@@ -1950,7 +2004,7 @@ export default function LossAnalysis() {
       }));
   }, [recoveryMatrixData]);
 
-  // 4. Kapasite Kazanım Dağılımı (Donut)
+  // 4. Kapasite Kazanım Dağılımı (Halka)
   const kapasiteDonut = React.useMemo(() => {
     return recoveryMatrixData
       .filter(r => r.area === "Kapasite Yaratma" && r.avgGain > 0)
@@ -1970,7 +2024,7 @@ export default function LossAnalysis() {
       }));
   }, [recoveryMatrixData]);
 
-  // 6. Minimum / Maksimum Kazanç Karşılaştırması (Grouped Column)
+  // 6. Minimum / Maksimum Kazanç Karşılaştırması (Gruplu Sütun)
   const minMaxComparison = React.useMemo(() => {
     return recoveryMatrixData.map(r => ({
       name: r.subject,
@@ -1979,7 +2033,7 @@ export default function LossAnalysis() {
     }));
   }, [recoveryMatrixData, currencySymbol]);
 
-  // 7. Faaliyet Karı Öncesi / Sonrası (Waterfall veya Column)
+  // 7. Faaliyet Karı Öncesi / Sonrası (Şelale / Sütun)
   const operatingProfitBeforeAfter = React.useMemo(() => {
     const currentProfit = effectiveRevenue * (operatingProfitPercent / 100);
     const totalAverageRecovery = recoveryMatrixData.reduce((sum, item) => sum + item.avgGain, 0);
@@ -2100,7 +2154,7 @@ export default function LossAnalysis() {
             className="flex items-center space-x-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-all bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100 disabled:opacity-60 disabled:cursor-wait"
           >
             {isExportingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-            <span>{isExportingPdf ? "Rapor Hazırlanıyor..." : "PDF Raporu"}</span>
+            <span>{isExportingPdf ? "Rapor Hazırlanıyor..." : "Yönetici Raporu (PDF)"}</span>
           </button>
 
           <button
@@ -2116,7 +2170,7 @@ export default function LossAnalysis() {
           </button>
 
           <div className="flex flex-wrap items-center space-x-1.5 border rounded-xl bg-slate-100 border-slate-200 px-3 py-1.5 text-xs">
-            <span className="text-[10px] text-slate-500 font-extrabold uppercase">Sektör Benchmark:</span>
+            <span className="text-[10px] text-slate-500 font-extrabold uppercase">Sektör ölçütü:</span>
             <select
               value={selectedIndustry}
               onChange={(e) => setSelectedIndustry(e.target.value as IndustryType)}
@@ -2248,7 +2302,7 @@ export default function LossAnalysis() {
           { id: "opportunity_matrix", label: "3. COPQ Finansal Matrisi", icon: BarChart2 },
           { id: "recovery_matrix", label: "4. Geri Kazanım Matrisi", icon: Award },
           { id: "simulation", label: "5. What-if Simülasyonu", icon: Zap },
-          { id: "tpm_loss", label: "6. TPM Kayıp Maliyeti (JIPM)", icon: Wrench }
+          { id: "tpm_loss", label: "6. Loss Cost Analizi", icon: Wrench }
         ].map((t) => {
           const Icon = t.icon;
           return (
@@ -2298,7 +2352,7 @@ export default function LossAnalysis() {
 
               <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-xs flex flex-col justify-between h-32">
                 <div className="flex justify-between items-center text-[10px] opacity-70 font-black uppercase tracking-wider">
-                  <span>Toplam Kârlılık Sızıntısı (EBITDA Leakage)</span>
+                  <span>Toplam Kârlılık Sızıntısı (FAVÖK kaybı)</span>
                   <AlertTriangle className="w-4 h-4 text-rose-500" />
                 </div>
                 <div className="text-xl font-black font-mono tracking-tight text-rose-400">{formatMoney(financialImpact.totalOperationalLosses.year)}</div>
@@ -2376,7 +2430,7 @@ export default function LossAnalysis() {
                 
                 <div className="p-4 bg-slate-50 rounded-xl space-y-2 border">
                   <div className="flex justify-between text-xs text-slate-500">
-                    <span className="font-bold">Overall Equipment Effectiveness (OEE)</span>
+                    <span className="font-bold">Toplam Ekipman Etkinliği (OEE)</span>
                     <span className="font-black text-slate-800 font-mono">%{avgOee.toFixed(1)}</span>
                   </div>
                   <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
@@ -2387,7 +2441,7 @@ export default function LossAnalysis() {
 
                 <div className="p-4 bg-slate-50 rounded-xl space-y-2 border">
                   <div className="flex justify-between text-xs text-slate-500">
-                    <span className="font-bold">Overall Labor Effectiveness (OLE)</span>
+                    <span className="font-bold">Toplam İşgücü Etkinliği (OLE)</span>
                     <span className="font-black text-slate-800 font-mono">%{overallOLE.toFixed(1)}</span>
                   </div>
                   <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
@@ -2398,7 +2452,7 @@ export default function LossAnalysis() {
 
                 <div className="p-4 bg-slate-50 rounded-xl space-y-2 border">
                   <div className="flex justify-between text-xs text-slate-500">
-                    <span className="font-bold">Overall Value Stream Efficiency (OVSE)</span>
+                    <span className="font-bold">Değer Akışı Verimliliği (OVSE)</span>
                     <span className="font-black text-slate-800 font-mono">%{overallOVSE.toFixed(2)}</span>
                   </div>
                   <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
@@ -2481,45 +2535,29 @@ export default function LossAnalysis() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="p-4 border rounded-lg bg-slate-50">
-                  <span className="text-[11px] text-slate-400 font-extrabold uppercase">OEE GAP</span>
-                  <div className="text-base font-black font-mono mt-1 text-slate-800">
-                    Current: %{avgOee.toFixed(1)} / BM: %{benchmark.oee}
-                  </div>
-                  <span className="text-[10px] text-rose-600 font-bold block mt-1">
-                    Gap: %{(benchmark.oee - avgOee).toFixed(1)} puan geride
-                  </span>
-                </div>
-
-                <div className="p-4 border rounded-lg bg-slate-50">
-                  <span className="text-[11px] text-slate-400 font-extrabold uppercase">SETUP GAP</span>
-                  <div className="text-base font-black font-mono mt-1 text-slate-800">
-                    Current: {Math.round(calculatedProcesses.reduce((sum, p) => sum + p.setupTimeMinutes, 0) / calculatedProcesses.length)} dk / BM: {benchmark.setup} dk
-                  </div>
-                  <span className="text-[10px] text-rose-600 font-bold block mt-1">
-                    Gap: {Math.max(0, Math.round(calculatedProcesses.reduce((sum, p) => sum + p.setupTimeMinutes, 0) / calculatedProcesses.length) - benchmark.setup)} dk iyileştirme hedefi
-                  </span>
-                </div>
-
-                <div className="p-4 border rounded-lg bg-slate-50">
-                  <span className="text-[11px] text-slate-400 font-extrabold uppercase">COPQ GAP</span>
-                  <div className="text-base font-black font-mono mt-1 text-slate-800">
-                    Current: %{copqData.copqPercentOfRevenue.toFixed(1)} / BM: %{benchmark.copq}
-                  </div>
-                  <span className="text-[10px] text-rose-600 font-bold block mt-1">
-                    Yıllık Kayıp: {formatMoney(Math.max(0, copqData.totalCOPQ_TL - (effectiveRevenue * (benchmark.copq / 100))))}
-                  </span>
-                </div>
-
-                <div className="p-4 border rounded-lg bg-slate-50">
-                  <span className="text-[11px] text-slate-400 font-extrabold uppercase">STOK TUR GAP</span>
-                  <div className="text-base font-black font-mono mt-1 text-slate-800">
-                    Current: 12 Devir / BM: {benchmark.inventoryTurns} Devir
-                  </div>
-                  <span className="text-[10px] text-rose-600 font-bold block mt-1">
-                    Aşınma: {benchmark.inventoryTurns - 12} devir verimsizlik
-                  </span>
-                </div>
+                {(() => {
+                  const n = calculatedProcesses.length;
+                  const avgSetup = n > 0 ? Math.round(calculatedProcesses.reduce((sum, p) => sum + p.setupTimeMinutes, 0) / n) : 0;
+                  const box = (title: string, value: string, note: string) => (
+                    <div className="p-4 border rounded-lg bg-slate-50">
+                      <span className="text-[11px] text-slate-400 font-extrabold uppercase">{title}</span>
+                      <div className="text-base font-black font-mono mt-1 text-slate-800">{value}</div>
+                      <span className="text-[10px] text-rose-600 font-bold block mt-1">{note}</span>
+                    </div>
+                  );
+                  return (
+                    <>
+                      {box("OEE farkı", n > 0 ? `Mevcut: %${avgOee.toFixed(1)} / Sektör: %${benchmark.oee}` : `Mevcut: — / Sektör: %${benchmark.oee}`,
+                        n > 0 ? `Fark: ${(benchmark.oee - avgOee).toFixed(1)} puan geride` : "İstasyon verisi yok")}
+                      {box("Setup süresi farkı", n > 0 ? `Mevcut: ${avgSetup} dk / Sektör: ${benchmark.setup} dk` : `Mevcut: — / Sektör: ${benchmark.setup} dk`,
+                        n > 0 ? `Fark: ${Math.max(0, avgSetup - benchmark.setup)} dk iyileştirme hedefi` : "İstasyon verisi yok")}
+                      {box("Kalitesizlik maliyeti farkı", `Mevcut: %${copqData.copqPercentOfRevenue.toFixed(1)} / Sektör: %${benchmark.copq}`,
+                        `Sektör üstü yıllık kayıp: ${formatMoney(Math.max(0, copqData.totalCOPQ_TL - (effectiveRevenue * (benchmark.copq / 100))))}`)}
+                      {/* Inventory turns need cost of goods sold / stock value, which the screen does not have (was a fixed "12"). */}
+                      {box("Stok devir hızı", `Mevcut: — / Sektör: ${benchmark.inventoryTurns} devir`, "Ölçülmedi (stok değeri ve satılan malın maliyeti gerekir)")}
+                    </>
+                  );
+                })()}
               </div>
             </div>
 
@@ -2529,7 +2567,7 @@ export default function LossAnalysis() {
                 <div>
                   <h3 className="text-sm font-black tracking-tight text-rose-800 uppercase flex items-center gap-1.5">
                     <TrendingUp className="w-4 h-4 text-rose-700" />
-                    Gelişmiş Yalın Finansal Dashboard (Power BI Modeli)
+                    Gelişmiş Yalın Finansal Gösterge Paneli
                   </h3>
                   <p className="text-[10px] text-slate-400">
                     OEE ve VSM kayıplarının geri kazanım süreçleriyle birleştiğinde fabrikanın mali tablolarına ve kâr marjlarına olan kümülatif etkisini gösteren dinamik analitik paneli.
@@ -2543,9 +2581,9 @@ export default function LossAnalysis() {
               {/* Grid of 10 Power BI Charts */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
-                {/* 1. Toplam Finansal Geri Kazanım (Waterfall) */}
+                {/* 1. Toplam Finansal Geri Kazanım (Şelale) */}
                 <div id="lc-chart-waterfall" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
-                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">1. Toplam Finansal Geri Kazanım (Waterfall)</span>
+                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">1. Toplam Finansal Geri Kazanım (Şelale)</span>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={waterfallChartData} margin={{ top: 15, right: 10, left: 10, bottom: 10 }}>
@@ -2563,9 +2601,9 @@ export default function LossAnalysis() {
                   </div>
                 </div>
 
-                {/* 2. Fırsat Alanlarına Göre Kazanç (Horizontal Bar) */}
+                {/* 2. Fırsat Alanlarına Göre Kazanç (Yatay Çubuk) */}
                 <div id="lc-chart-area-earnings" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
-                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">2. Fırsat Alanlarına Göre Kazanç (Horizontal Bar)</span>
+                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">2. Fırsat Alanlarına Göre Kazanç (Yatay Çubuk)</span>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart layout="vertical" data={areaEarningsData} margin={{ top: 10, right: 15, left: 15, bottom: 10 }}>
@@ -2582,9 +2620,9 @@ export default function LossAnalysis() {
                   </div>
                 </div>
 
-                {/* 3. Doğrudan Maliyet Azaltma Dağılımı (Donut) */}
+                {/* 3. Doğrudan Maliyet Azaltma Dağılımı (Halka) */}
                 <div id="lc-chart-direct-donut" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
-                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">3. Doğrudan Maliyet Azaltma Dağılımı (Donut)</span>
+                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">3. Doğrudan Maliyet Azaltma Dağılımı (Halka)</span>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
@@ -2600,9 +2638,9 @@ export default function LossAnalysis() {
                   </div>
                 </div>
 
-                {/* 4. Kapasite Kazanım Dağılımı (Donut) */}
+                {/* 4. Kapasite Kazanım Dağılımı (Halka) */}
                 <div id="lc-chart-capacity-donut" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
-                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">4. Kapasite Kazanım Dağılımı (Donut)</span>
+                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">4. Kapasite Kazanım Dağılımı (Halka)</span>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
@@ -2618,9 +2656,9 @@ export default function LossAnalysis() {
                   </div>
                 </div>
 
-                {/* 5. Stratejik Kazanç Dağılımı (Treemap) */}
+                {/* 5. Stratejik Kazanç Dağılımı (Ağaç Haritası) */}
                 <div id="lc-chart-treemap" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
-                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">5. Stratejik Kazanç Dağılımı (Treemap)</span>
+                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">5. Stratejik Kazanç Dağılımı (Ağaç Haritası)</span>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
                       <Treemap
@@ -2635,9 +2673,9 @@ export default function LossAnalysis() {
                   </div>
                 </div>
 
-                {/* 6. Minimum / Maksimum Kazanç Karşılaştırması (Grouped Column) */}
+                {/* 6. Minimum / Maksimum Kazanç Karşılaştırması (Gruplu Sütun) */}
                 <div id="lc-chart-minmax" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
-                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">6. Min / Max Kazanç Karşılaştırması (Grouped Column)</span>
+                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">6. Min / Max Kazanç Karşılaştırması (Gruplu Sütun)</span>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={minMaxComparison} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
@@ -2652,9 +2690,9 @@ export default function LossAnalysis() {
                   </div>
                 </div>
 
-                {/* 7. Faaliyet Karı Öncesi / Sonrası (Waterfall veya Column) */}
+                {/* 7. Faaliyet Karı Öncesi / Sonrası (Şelale / Sütun) */}
                 <div id="lc-chart-profit-before-after" className="border border-slate-150 rounded-xl p-4 bg-slate-50/40">
-                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">7. Faaliyet Karı Öncesi / Sonrası (Waterfall/Column)</span>
+                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-2">7. Faaliyet Karı Öncesi / Sonrası (Şelale / Sütun)</span>
                   <div className="h-44">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={operatingProfitBeforeAfter} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
@@ -2830,7 +2868,7 @@ export default function LossAnalysis() {
 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs font-mono">
                   <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60 space-y-1">
-                    <span className="text-[10px] text-slate-400 font-extrabold uppercase font-sans block">Model Baz Ciro Target</span>
+                    <span className="text-[10px] text-slate-400 font-extrabold uppercase font-sans block">Model Baz Ciro Hedefi</span>
                     <span className="text-sm font-black text-white block">{formatMoney(effectiveRevenue)}</span>
                     <span className="text-[9.5px] text-slate-400 block font-sans">
                       {costModelScope === "product_group" ? `Top. Ciromuzun %${productVolumeShare}'i` : "Fabrika Toplam Ciro"}
@@ -4317,7 +4355,7 @@ export default function LossAnalysis() {
                 <div className="space-y-1 max-w-4xl">
                   <h3 className="text-base font-black uppercase tracking-tight text-rose-900 flex items-center">
                     <Wrench className="w-5 h-5 mr-2" />
-                    TPM Kayıp Maliyet Analizi (JIPM 16 Büyük Kayıp)
+                    Loss Cost Analizi (16 Büyük Kayıp)
                   </h3>
                   <p className="text-xs text-slate-500 leading-relaxed">
                     İstasyonun OEE'si varsa (VSM ölçümü ya da tüm girdileri tamam olan Loss hesabı) OEE kaybı yükleme süresi × (1 − OEE) olarak alınır ve dağıtılır: kullanılabilirlik kaybı → arıza, setup ve ayar, takım değişimi, başlangıç; performans kaybı → küçük duruş, kalanı hız kaybı; kalite kaybı → hata ve yeniden işleme. Ölçülen süreler kaybı aşarsa oranlanır, açıklanamayan kalan "dağıtılamayan OEE kaybı" olarak ayrı görünür. İnsan ve kaynak kayıpları ölçüm ya da aşağıdaki girişlerden gelir. Ekipman süresi makine saati × makine sayısı + işçilik saati × operatörle, insan kaybı işçilik saatiyle, verim kaybı birim malzemeyle fiyatlanır (Kayıp Birim Maliyetleri). Fiyatlanamayan kayıp toplama girmez.

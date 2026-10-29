@@ -31,7 +31,7 @@ export default function AnalysisViews({
   // double count. (Earlier: material = 45 % and hidden factory = 8 % of revenue, quality = 40 % of COPQ.)
   const pctOf = (v: number) => (revenue > 0 ? (v / revenue) * 100 : 0);
   const stepLosses = [
-    { name: "Yıllık Ciro (Revenue)", value: revenue, pct: 100, color: "bg-slate-900 border-slate-950 text-white" },
+    { name: "Yıllık Ciro", value: revenue, pct: 100, color: "bg-slate-900 border-slate-950 text-white" },
     { name: "İç Hata: Hurda + Rework", value: copq.internalFailure, pct: pctOf(copq.internalFailure), color: "bg-rose-500 border-rose-600 text-white" },
     { name: "Setup / Kalıp Ayar Kayıpları", value: financialImpact.setup.year, pct: pctOf(financialImpact.setup.year), color: "bg-indigo-500 border-indigo-600 text-white" },
     { name: "Makine Arıza Duruş Kayıpları", value: financialImpact.downtime.year, pct: pctOf(financialImpact.downtime.year), color: "bg-sky-500 border-sky-600 text-white" },
@@ -51,7 +51,7 @@ export default function AnalysisViews({
           <div>
             <h3 className="text-sm font-black tracking-tight text-indigo-700 uppercase flex items-center">
               <Activity className="w-4 h-4 mr-1.5" />
-              Economic Loss Tree & Waterfall Analyzer
+              Ekonomik Kayıp Ağacı ve Şelale Analizi
             </h3>
             <p className="text-[10px] text-slate-450">
               Yıllık cirodan başlayarak tüm israf ve sızıntıların kademeli kâr daralmasına (Leakage) etkisini gösteren dinamik şelale grafik.

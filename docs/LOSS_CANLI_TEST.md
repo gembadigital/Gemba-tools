@@ -80,7 +80,18 @@ hurda/rework/arıza maliyetin 800/350/2.500'e bölünmesiyle). Artık gerçek ve
 | L5.7 | VSM filtre penceresinde ürün grubu payı girilmemiş bir proje. | Model cirosu 0 (eskiden %30 varsayılırdı). |
 | L5.8 | Faaliyet kârı eğrisi (Dashboard). | Aşamalar "Mevcut → + en büyük fırsat → + ilk 3 fırsat → Hedef"; 5S/SMED/TPM fazları yok. |
 
+## L7 — Yönetici raporu ve terminoloji
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| L7.1 | Loss ekranında **Yönetici Raporu (PDF)**. | Birkaç saniyede `Firma-LC-YYAAGG-Kayip-Maliyet-Raporu.pdf` iner. A4 yatay, OpEx Yönetici Raporu ile aynı kapak/logo/altbilgi; ~15–17 sayfa. |
+| L7.2 | PDF'teki tutarları ekranla karşılaştırın (yıllık kayıp, COPQ, geri kazanım, Loss Cost toplamı, istasyon tutarları). | Hepsi ekrandakiyle aynı (rapor ekranın kendi rakamlarından kurulur). |
+| L7.3 | Birim maliyeti ya da şirket kartı eksik bir müşteride raporu alın. | "Varsayımlar ve veri boşlukları" sayfasında eksikler listelenir; tutarsız sayfa yerine "—" / "hesaplanamadı" görünür, sayfa taşması yok. |
+| L7.4 | Customer User ile başka bir müşterinin raporunu istemek (x-factory-id). | 403 "Bu müşterinin raporuna erişiminiz yok." |
+| L7.5 | Excel (XLS). | Yeni sayfalar: Kayip_Havuzu, Istasyonlar, Loss_Cost_16_Kayip, Veri_Bosluklari; COPQ_Matrisi'nde "Kaynak / formül" sütunu. |
+| L7.6 | Sekme ve başlıklar. | Sekme "6. Loss Cost Analizi"; içeride ve raporda "TPM / JIPM" başlığı yok. KPI kutuları Türkçe: "OEE farkı", "Setup süresi farkı", "Kalitesizlik maliyeti farkı", "Stok devir hızı" (ölçülmedi), "Toplam Ekipman Etkinliği (OEE)", COPQ kategorisi "Tipik fabrika (%4–8)" vb.; "Current / BM / Gap" ve sabit "12 devir" yok. |
+
 ## Bilinen, bu adımda değiştirilmeyenler
 
 - Geri Kazanım Matrisi iyileştirme oranları (projeksiyon varsayımı, düzenlenebilir) — QLA kalibrasyonuyla hizalama kararı bekliyor.
-- OpEx Suite bağlantısı (L6) ve PDF/Excel raporunun yeni yapıya uyarlanması (L7).
+- OpEx Suite bağlantısı (L6, VSM V11'e bağlı).

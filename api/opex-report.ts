@@ -4,8 +4,10 @@
 import express from "express";
 import { authenticateToken } from "../src/server/app.js";
 import { executiveReportRouter } from "../src/server/opexReport/route.js";
+import { lossReportRouter } from "../src/server/lossReport/route.js";
 
 const app = express();
 app.use(executiveReportRouter(authenticateToken));
+app.use(lossReportRouter(authenticateToken));
 
 export default app;

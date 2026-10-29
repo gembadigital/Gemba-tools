@@ -10,6 +10,7 @@ dotenv.config();
 // entry point is api/index.ts, which mounts the same app as a serverless function instead.
 import app, { authenticateToken } from "./src/server/app";
 import { executiveReportRouter } from "./src/server/opexReport/route";
+import { lossReportRouter } from "./src/server/lossReport/route";
 
 const PORT = 3000;
 
@@ -17,6 +18,7 @@ const PORT = 3000;
 async function setupServer() {
   // Executive report PDF (on Vercel this is the separate api/opex-report.ts function).
   app.use(executiveReportRouter(authenticateToken));
+  app.use(lossReportRouter(authenticateToken));
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

@@ -137,7 +137,7 @@ Yalın dönüşüm ve sürekli iyileştirme faaliyetlerinin fabrikanın kâr-zar
 
 #### 💸 Okuma notu:
 1. Gider kalemleri Ürün Maliyet Modeli'ndeki maliyet yapısı %'lerinden gelir (girilmediyse 0). Kazancın kalemlere dağılımı ölçülmediği için gösterilmez; toplam geri kazanım EBITDA'ya eklenir.
-2. Kapasite etkisi (talep varsa kayıp katkı payı) için **6. TPM Kayıp Maliyeti** sekmesindeki katkı payı sütununa bakın.`;
+2. Kapasite etkisi (talep varsa kayıp katkı payı) için **6. Loss Cost Analizi** sekmesindeki katkı payı sütununa bakın.`;
 
     } else if (q.includes("kaizen") || q.includes("ci") || q.includes("proje") || q.includes("amortisman")) {
       answer = `### 💎 YÜKSEK KAZANÇLI KAIZEN & CI PROJE REÇETELERİ
