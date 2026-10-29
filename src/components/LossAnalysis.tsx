@@ -777,7 +777,8 @@ export default function LossAnalysis() {
     ...(processes.some(p => !p.vsmProjectId) ? [{ key: FACTORY_LINE_KEY, label: "VSM dışı istasyonlar" }] : [])
   ];
   const sourceLabel: Record<RateSource, string> = { birim: "Girilen", vsm: "VSM", kart: "Şirket kartı" };
-  const lossCostUnresolved = (Object.entries(lossCosts) as [string, { year: number; unresolved: string[] }][])
+  const lossCostUnresolved = (["scrap", "rework", "downtime", "setup", "laborLoss", "inventory"] as const)
+    .map(key => [key, lossCosts[key]] as const)
     .filter(([, l]) => l.unresolved.length > 0);
   const avgShiftHours = activeProcesses.length > 0 ? activeProcesses.reduce((s2, p) => s2 + p.workingHoursPerShift, 0) / activeProcesses.length : 0;
   const financialImpactBase = calculateFinancialImpact(calculatedProcesses, effectiveRevenue, lossCosts, factoryLaborRate.source ? factoryLaborRate.value * avgShiftHours : 0, energyRateKwh);
