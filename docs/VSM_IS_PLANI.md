@@ -310,6 +310,7 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 | V5 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V5) | f7abf84 |
 | Örnek | ✅ canlıya yazıldı (ACME demo, kullanıcı onayıyla) | bkz. git log |
 | V6 | ✅ kod; canlıda denenmedi (§V6) | 88538db |
+| V12 | ✅ kod; yerelde gerçek Gemini ile denendi (örnek proje, kayıt yok), canlıda denenmedi (§V12) | bkz. git log |
 
 ### V0 — yapılanlar
 - Sunucu: `src/server/vsm/vsmRoutes.ts` (uçlar `app.ts`'den taşındı), kurallar `src/utils/vsmAccess.ts` (istemci+sunucu
@@ -500,3 +501,18 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
   hafta, ilerleme, durum, öncelik); tekrar aktarmada Master Plan'da elle değiştirilen alanlar (adam-gün, notlar, kategori,
   öncelik, danışman) korunur. Aktarmadan önce onay sorulur.
 - Testler: plan satırı (hafta, durum, korunan alanlar), döngü gruplama, havuz kaydı.
+
+### V12 — yapılanlar
+- **Sunucu** (`src/server/vsm/vsmAnalysis.ts`, uç `POST /api/business/vsm-projects/:id/ai-analysis`): kayıtlı projeden
+  ekranlarla aynı motorla veri özeti çıkarılır (talep, takt, pitch, bilgi akışı, uç stoklar, proses tablosu, darboğaz,
+  takt'ı aşan / talebi karşılamayan adım sayısı, gelecek durum, tasarım cevapları, kaizen patlamaları) + müşterinin diğer
+  modülleri (Loss Capacity ilk 5 kayıp konusu, son OpEx genel puanı, açık CI proje sayısı). Gemini (`gemini-3.5-flash`,
+  OpEx ile aynı yardımcı) **yalnızca bu sayıları** kullanması istenerek çağrılır; çıktı: özet, bulgular, VSM yönlendirmesi
+  (darboğaz, sürekli akış, süpermarket, FIFO, pacemaker, harmanlama, pitch, bilgi akışı, stok), kaizen öncelikleri (K no),
+  sahada doğrulanacak sorular, eksik veriler. Sonuç temizlenip projeye `aiAnalysis` olarak kaydedilir (herkes aynı metni
+  görür; "yenile" ile yeniden üretilir). `aiAnalysis` istemciden yazılamaz (sunucu alanı).
+- **Ekran:** Dashboard'daki "Hesaplanan Özet" yerine **Yapay Zekâ VSM Analizi** paneli (üret / yenile, tarih, kim, "yapay
+  zekâ önerisidir" notu, kaydedilmemiş değişikliklerin dahil olmadığı uyarısı). PDF'e analiz sayfası eklendi.
+- Paylaşılan VSM modüllerinin göreli importları `.js` uzantılı yapıldı (sunucu native ESM kuralı); sunucu zinciri tarandı.
+- Test: `npx tsx scripts/vsm-ai-test.ts` (veri özeti, yanıt temizleme). Yerelde örnek projeyle gerçek çağrı ~27 sn, beklenen
+  biçimde yanıt (Vercel fonksiyon süresi 60 sn).

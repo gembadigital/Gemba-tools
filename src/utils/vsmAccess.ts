@@ -52,7 +52,7 @@ export const VSM_MAX_PROCESSES = 60;
 const MAX_TEXT = 2000;
 
 // Fields the server owns; a client copy of them is ignored.
-const SERVER_OWNED = ["organization_id", "factory_id", "created_by", "created_at", "updated_by", "updated_at"];
+const SERVER_OWNED = ["organization_id", "factory_id", "created_by", "created_at", "updated_by", "updated_at", "aiAnalysis"];
 
 const cleanNumber = (v: any): number | undefined => {
   if (v === null || v === undefined || v === "") return undefined;

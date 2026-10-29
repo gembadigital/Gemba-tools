@@ -1,6 +1,6 @@
 // Reads a stored VSM project into the current data model (V2) without writing anything back: older
 // projects simply get the new fields derived from what they already had. Pure function.
-import type { VsmFactorySetup, VsmProcess, VsmProductMatrix, VsmProject, VsmTeamMember } from "./vsmTypes";
+import type { VsmFactorySetup, VsmProcess, VsmProductMatrix, VsmProject, VsmTeamMember } from "./vsmTypes.js";
 
 export function emptyFactorySetup(): VsmFactorySetup {
   return {

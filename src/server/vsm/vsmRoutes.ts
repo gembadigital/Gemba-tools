@@ -3,6 +3,7 @@
 // Access rules: src/utils/vsmAccess.ts.
 import type express from "express";
 import { db } from "../db.js";
+import { generateVsmAnalysis, VsmOtherModules } from "./vsmAnalysis.js";
 import {
   canDeleteVsmProject, forbiddenBurstRemovals, forbiddenProcessRemovals, isVsmBlockedSession, normalizeVsmProjectInput,
   stampBurstOwners, stampProcessOwners
@@ -87,5 +88,36 @@ export function registerVsmRoutes(app: express.Express, deps: VsmRouteDeps) {
     if (!canDeleteVsmProject(user, existing)) return deny(res, 403, "Yalnızca kendi açtığınız VSM projesini silebilirsiniz.");
     await db.deleteVsmProject(user.organization_id, req.params.id);
     res.json({ success: true });
+  });
+
+  // AI analysis (plan step V12): computed from the SAVED project (unsaved screen edits are not included),
+  // stored on the project so every viewer sees the same text until it is regenerated.
+  app.post("/api/business/vsm-projects/:id/ai-analysis", authenticateToken, async (req, res) => {
+    const user = (req as any).user;
+    if (isVsmBlockedSession(user)) return deny(res);
+    const existing = await findProject(user.organization_id, req.params.id);
+    if (!existing) return deny(res, 404, "VSM projesi bulunamadı.");
+    const fid = factoryOf(existing);
+    if (!canAccessFactory(req, fid)) return deny(res);
+    try {
+      const org = user.organization_id;
+      const [customerName, loss, assessments, kaizens] = await Promise.all([
+        db.getCustomerName(org, fid).catch(() => ""), db.getCiLossSnapshot(org, fid).catch(() => null),
+        db.getOpexAssessments(org, fid).catch(() => []), db.getKaizens(org, fid).catch(() => [])
+      ]);
+      const latestOpex = [...(assessments || [])].sort((a: any, b: any) => String(b.updated_at || b.date || "").localeCompare(String(a.updated_at || a.date || "")))[0];
+      const other: VsmOtherModules = {
+        lossTop: (loss?.recoveryMatrixData || []).slice().sort((a: any, b: any) => (b.avgLoss || 0) - (a.avgLoss || 0)).slice(0, 5)
+          .map((r: any) => ({ subject: r.subject, avgLoss: Math.round(r.avgLoss || 0) })),
+        opexOverall: typeof latestOpex?.overallScore === "number" ? Math.round(latestOpex.overallScore * 10) / 10 : null,
+        openCiProjects: (kaizens || []).filter((k: any) => k.status !== "Kapatıldı" && k.holdState !== "cancelled").length
+      };
+      const analysis = await generateVsmAnalysis(existing, customerName || "", other, user.full_name || user.email);
+      const saved = await db.saveVsmProject(user.organization_id, { id: existing.id, factory_id: fid, aiAnalysis: analysis }, user.id);
+      res.json({ success: true, data: saved.aiAnalysis });
+    } catch (e: any) {
+      console.warn("[vsm-ai] analysis failed:", e?.message);
+      res.status(502).json({ success: false, error: `Analiz üretilemedi: ${e?.message || "bilinmeyen hata"}` });
+    }
   });
 }

@@ -3,9 +3,9 @@
 // screen (map, tabs, dashboard, exports) reads these results; nothing here invents a value: a figure
 // that was not entered counts as 0 and the derived metric follows from that.
 // Pure functions, no React — tested by scripts/vsm-calc-test.ts.
-import type { VsmFactorySetup, VsmProcess } from "./vsmTypes";
-import { buildProcessGraph, computeCriticalPath, computeGraphLayout } from "./vsmGraph";
-import { futureCounterpart } from "./vsmFuture";
+import type { VsmFactorySetup, VsmProcess } from "./vsmTypes.js";
+import { buildProcessGraph, computeCriticalPath, computeGraphLayout } from "./vsmGraph.js";
+import { futureCounterpart } from "./vsmFuture.js";
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const round2 = (n: number) => Math.round(n * 100) / 100;

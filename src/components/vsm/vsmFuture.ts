@@ -1,5 +1,5 @@
 // Future state helpers (plan step V5). Pure functions.
-import type { VsmFactorySetup, VsmProcess } from "./vsmTypes";
+import type { VsmFactorySetup, VsmProcess } from "./vsmTypes.js";
 
 // The future map starts as a copy of the current processes (same ids, so each future process can be
 // traced back), with any legacy simulation overlay applied.

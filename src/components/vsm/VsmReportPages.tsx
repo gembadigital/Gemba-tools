@@ -224,6 +224,31 @@ export default function VsmReportPages() {
     });
   }
 
+  const ai = selectedProject.aiAnalysis;
+  if (ai) {
+    pages.push({
+      title: "Yapay Zekâ VSM Analizi",
+      subtitle: `${new Date(ai.generatedAt).toLocaleString("tr-TR")} · yapay zekâ önerisidir, sahada doğrulanmalıdır`,
+      body: (
+        <div className="space-y-3 text-[11px]">
+          <p className="text-[12px]">{ai.summary}</p>
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <div className="text-xs font-black">Bulgular</div>
+              {(ai.findings || []).map((f: any, i: number) => <div key={i}><b>{f.title}</b> — {f.detail}</div>)}
+              <div className="text-xs font-black pt-1">Kaizen öncelikleri</div>
+              {(ai.kaizenPriorities || []).map((k: any, i: number) => <div key={i}>{i + 1}. <b>{k.burst ? `${k.burst} · ` : ""}{k.title}</b> — {k.why}</div>)}
+            </div>
+            <div className="space-y-2">
+              <div className="text-xs font-black">VSM yönlendirmesi</div>
+              {(ai.flowGuidance || []).map((g: any, i: number) => <div key={i}><b>{g.area}:</b> {g.recommendation}{g.why ? ` (${g.why})` : ""}</div>)}
+            </div>
+          </div>
+        </div>
+      )
+    });
+  }
+
   if (productMatrix.products.length > 0) {
     const chosen = new Set(productMatrix.familyProductIds || []);
     pages.push({

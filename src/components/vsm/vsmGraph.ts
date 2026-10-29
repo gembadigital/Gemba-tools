@@ -1,7 +1,7 @@
 // VSM flow graph: turns the flat process list into a directed graph (branching / parallel flows),
 // lays it out in lanes and finds the critical (longest lead-time) path. Pure functions.
-import type { VsmConnectionType, VsmProcess } from "./vsmTypes";
-import { GRAPH_LANE_HEIGHT, MAP, PITCH } from "./vsmMapLayout";
+import type { VsmConnectionType, VsmProcess } from "./vsmTypes.js";
+import { GRAPH_LANE_HEIGHT, MAP, PITCH } from "./vsmMapLayout.js";
 
 // --- GRAPH-BASED PROCESS FLOW HELPERS ---
 // Pure functions turning the flat `vsmProcesses` array into a directed graph, so the drawing

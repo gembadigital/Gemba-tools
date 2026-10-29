@@ -4,7 +4,7 @@
 // Family rule (common practice): products whose routings share at least `similarityPct` of their steps
 // (Jaccard similarity of the step sets) belong together. Products are taken in descending volume order;
 // each joins the first family whose leading product is similar enough, otherwise starts a new family.
-import type { VsmMatrixProduct, VsmProductMatrix } from "./vsmTypes";
+import type { VsmMatrixProduct, VsmProductMatrix } from "./vsmTypes.js";
 
 export interface VsmFamily {
   key: string;                 // leading product id

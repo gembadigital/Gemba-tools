@@ -117,3 +117,13 @@ Görünüm değişmedi; aşağıdakiler hesap tutarlılığı ve düzeltilen hat
 | 6.3 | Bir VSM fırsatından CI projesi açın, VSM planına dönün. | O satırda "CI projesi" sütununda proje numarası; fırsat havuzunda "projeye çevrildi". |
 | 6.4 | "Master Plan'a aktar" → onay. | Master Plan'da "[VSM K1] …" satırları doğru haftalarda; tekrar aktarınca çoğalmaz, Master Plan'da değiştirdiğiniz adam-gün/not korunur. |
 | 6.5 | Bir patlamayı "Tamamlandı" yapıp Kaydet. | CI fırsat havuzundan düşer; Master Plan'a yeniden aktarınca %100 / Completed. |
+
+## V12 — Yapay zekâ VSM analizi
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| 12.1 | Örnek projede Kaydet → Dashboard → "Analiz üret". | 20–40 sn içinde özet, bulgular, VSM yönlendirmesi (pacemaker, süpermarket, FIFO, hücre…), kaizen öncelikleri (K no), sorular / eksik veriler. Sayılar ekrandakilerle aynı; uydurma tutar yok. |
+| 12.2 | Sayfayı yenileyin, başka kullanıcıyla açın. | Aynı analiz, tarih ve üreten kişiyle görünür. |
+| 12.3 | Prosesleri olmayan yeni projede deneyin. | "Analiz için önce prosesleri girin ve kaydedin." |
+| 12.4 | PDF raporu. | "Yapay Zekâ VSM Analizi" sayfası. |
+| 12.5 | Vercel → Environment Variables'da `GEMINI_API_KEY` tanımlı mı? | Tanımlı (OpEx ile ortak). Yoksa analiz "GEMINI_API_KEY tanımlı değil" hatası verir. |

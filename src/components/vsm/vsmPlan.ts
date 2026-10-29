@@ -2,8 +2,8 @@
 // grouped by loop (pacemaker, additional, supplier, customer). Each can be sent to the Master Plan as
 // one activity row (id vsm_plan_<project>_<burst>, related module "VSM Projects"); fields edited in the
 // Master Plan itself are kept on re-send. Pure functions.
-import { isoWeekOf } from "../../utils/ciPlan";
-import type { VsmKaizenBurst } from "./vsmTypes";
+import { isoWeekOf } from "../../utils/ciPlan.js";
+import type { VsmKaizenBurst } from "./vsmTypes.js";
 
 export const vsmPlanRowId = (projectId: string, burstId: string) => `vsm_plan_${projectId}_${burstId}`;
 

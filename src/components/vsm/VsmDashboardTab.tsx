@@ -40,6 +40,7 @@ import { jsPDF } from "jspdf";
 
 import { useVsm } from "./VsmContext";
 import VsmIndicatorPanel from "./VsmIndicatorPanel";
+import VsmAiAnalysisPanel from "./VsmAiAnalysisPanel";
 
 const optionalNumber = (raw: string): number | undefined => (raw.trim() === "" ? undefined : Number(raw));
 
@@ -229,49 +230,7 @@ export default function VsmDashboardTab() {
 
         </div>
 
-        {/* AI EXECUTIVE SUMMARY BOTTOM PANEL */}
-        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-6 md:p-8 shadow-xl border border-indigo-500/20 relative overflow-hidden" id="ai_executive_summary_panel">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
-          
-          <div className="flex items-center space-x-2.5 mb-5 border-b border-white/10 pb-4">
-            <div className="w-8 h-8 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-300">
-              <Sparkles className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-sm font-black uppercase tracking-wider font-mono text-indigo-300">Hesaplanan Özet (Mevcut ↔ Gelecek Simülasyonu)</h3>
-              <p className="text-[10px] text-slate-400">Girilen verilerden kural tabanlı üretilir; yapay zekâ analizi değildir. Gelecek durum bir simülasyondur, gerçekleşmiş sonuç değildir.</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 text-xs font-medium leading-relaxed text-slate-200">
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-indigo-400 font-mono block">En Büyük İyileşme Potansiyeli</span>
-                <p className="text-slate-300">{dynamicAiSummary.biggestImprovement}</p>
-              </div>
-              <div className="space-y-1">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-amber-400 font-mono block">Termin Süresi ve Envanter Analizi</span>
-                <p className="text-slate-300">{dynamicAiSummary.leadTimeReduction}</p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 font-mono block">Kalite Güvence ve Pokayoke Etkisi</span>
-                <p className="text-slate-300">{dynamicAiSummary.qualityImpact}</p>
-              </div>
-              <div className="space-y-1">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-indigo-400 font-mono block">Tahmini Yıllık Finansal Kazanç</span>
-                <p className="text-slate-100 font-semibold">{dynamicAiSummary.annualSavingsDesc}</p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="mt-6 pt-4 border-t border-white/5 text-[10px] text-slate-500 flex items-center justify-between font-mono">
-            <span>{selectedProject?.name}</span>
-            <span>Hesaplanan özet</span>
-          </div>
-        </div>
+        <VsmAiAnalysisPanel />
 
       </div>
   );
