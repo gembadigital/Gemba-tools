@@ -313,7 +313,7 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 | V12 | ✅ kod; yerelde gerçek Gemini ile denendi (örnek proje, kayıt yok), canlıda denenmedi (§V12) | 170dd73 |
 | V7 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V7) | 7407261 |
 | V9 | ✅ kod; canlıda denenmedi (§V9) | d4dd1af |
-| V10 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V10) | bkz. git log |
+| V10 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V10) | 8d55b3c |
 | V11 | ⏸ modül ayırma — kullanıcı kararıyla en sonda, diğer modüllerle birlikte | — |
 
 ### V0 — yapılanlar
