@@ -5,8 +5,8 @@ import type express from "express";
 import { db } from "../db.js";
 import { generateVsmAnalysis, VsmOtherModules } from "./vsmAnalysis.js";
 import {
-  canDeleteVsmProject, forbiddenBurstRemovals, forbiddenProcessRemovals, isVsmBlockedSession, normalizeVsmProjectInput,
-  stampBurstOwners, stampProcessOwners
+  canDeleteVsmProject, forbiddenBurstRemovals, forbiddenOwnedRemovals, forbiddenProcessRemovals, isVsmBlockedSession,
+  normalizeVsmProjectInput, stampBurstOwners, stampOwnedItems, stampProcessOwners
 } from "../../utils/vsmAccess.js";
 
 export interface VsmRouteDeps {
@@ -68,11 +68,17 @@ export function registerVsmRoutes(app: express.Express, deps: VsmRouteDeps) {
         }
         project.kaizenBursts = stampBurstOwners(existing.kaizenBursts || [], project.kaizenBursts, user.id);
       }
+      if (project.versions !== undefined) {
+        const blocked = forbiddenOwnedRemovals(user, existing.versions || [], project.versions);
+        if (blocked.length) return deny(res, 403, `Yalnızca kendi kaydettiğiniz versiyonları silebilirsiniz: ${blocked.join(", ")}`);
+        project.versions = stampOwnedItems(existing.versions || [], project.versions, user.id);
+      }
     } else {
       if (!scope.factoryId) return deny(res, 400, "Müşteri seçilmedi.");
       project.factory_id = scope.factoryId;
       project.vsmProcesses = stampProcessOwners([], project.vsmProcesses || [], user.id);
       project.kaizenBursts = stampBurstOwners([], project.kaizenBursts || [], user.id);
+      project.versions = stampOwnedItems([], project.versions || [], user.id);
     }
 
     const saved = await db.saveVsmProject(user.organization_id, project, user.id);

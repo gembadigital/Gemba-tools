@@ -311,6 +311,7 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 | Örnek | ✅ canlıya yazıldı (ACME demo, kullanıcı onayıyla) | bkz. git log |
 | V6 | ✅ kod; canlıda denenmedi (§V6) | 88538db |
 | V12 | ✅ kod; yerelde gerçek Gemini ile denendi (örnek proje, kayıt yok), canlıda denenmedi (§V12) | 170dd73 |
+| V7 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V7) | bkz. git log |
 
 ### V0 — yapılanlar
 - Sunucu: `src/server/vsm/vsmRoutes.ts` (uçlar `app.ts`'den taşındı), kurallar `src/utils/vsmAccess.ts` (istemci+sunucu
@@ -516,3 +517,16 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 - Paylaşılan VSM modüllerinin göreli importları `.js` uzantılı yapıldı (sunucu native ESM kuralı); sunucu zinciri tarandı.
 - Test: `npx tsx scripts/vsm-ai-test.ts` (veri özeti, yanıt temizleme). Yerelde örnek projeyle gerçek çağrı ~27 sn, beklenen
   biçimde yanıt (Vercel fonksiyon süresi 60 sn).
+
+### V7 — yapılanlar
+- **Versiyonlar** (`vsmVersions.ts`, `VsmVersionsModal.tsx`, başlıkta "Versiyonlar" düğmesi): ekrandaki mevcut (ve varsa
+  gelecek) durum adlandırılmış, salt okunur kopya olarak eklenir (göstergeleriyle: lead time, WIP, PCE, OEE, operatör,
+  adım, takt, darboğaz, yıllık kayıp); en fazla 12, projeyle birlikte Kaydet'te saklanır. İki seçenek (versiyonların
+  mevcut/gelecek haritaları ya da ekrandaki durum) yan yana karşılaştırılır; fark iyileşmeyse yeşil, kötüleşmeyse kırmızı.
+  Bir versiyon ekrana geri yüklenebilir (Kaydet'e basınca kalıcı). Customer User yalnızca kendi kaydettiği versiyonu
+  silebilir (sunucuda zorlanır); sunucu versiyon içeriğini de temizler.
+- **Kaydedilmemiş değişiklik:** Kaydet'in yanında "Kaydedilmemiş değişiklik" etiketi ve "Kaydet •"; sayfadan çıkarken
+  tarayıcı uyarısı; proje listesine dönerken ya da başka projeye geçerken onay.
+- **Otomatik taslak:** kaydedilmemiş değişiklikler 1,5 sn sonra bu tarayıcıda taslak olarak tutulur; proje yeniden
+  açıldığında taslak kayıttan yeniyse geri yükleme sorulur; Kaydet taslağı siler. (Taslak cihaza özeldir.)
+- V6 ekran kontrolü de yapıldı (plan satırında CI proje no, Master Plan satırlarının haftaları).

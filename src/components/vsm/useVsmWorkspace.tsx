@@ -28,13 +28,14 @@ import {
   Cell as RechartsCell
 } from "recharts";
 import { ProcessRecord, Customer } from "../../types";
-import { VsmUserLike, canDeleteVsmBurst, canDeleteVsmProcess, canDeleteVsmProject } from "../../utils/vsmAccess";
+import { VsmUserLike, canDeleteVsmBurst, canDeleteVsmOwned, canDeleteVsmProcess, canDeleteVsmProject } from "../../utils/vsmAccess";
 import type { VsmConnectionType, VsmFactorySetup, VsmKaizenBurst, VsmProcess, VsmProductMatrix, VsmTeamMember } from "./vsmTypes";
 import { emptyFactorySetup, normalizeVsmProcess, normalizeVsmProject } from "./vsmNormalize";
 import { copyForFuture, effectiveFutureSetup, mergeProcesses } from "./vsmFuture";
 import { buildFieldForm, buildVsmWorkbook, downloadBlob, readFieldForm, safeFileName, VsmWorkbookInput } from "./vsmExport";
 import { mergeImportedRows, setupPatchFromRows } from "./vsmExcel";
 import { suggestFamilies } from "./vsmProductMatrix";
+import { makeVersion, savableKey, VSM_MAX_VERSIONS, VsmVersion } from "./vsmVersions";
 import { getEffectiveSuccessorIds, isLinearFlow } from "./vsmGraph";
 import { computeMapLayout } from "./vsmMapLayout";
 import {
@@ -238,8 +239,12 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
   };
 
   const handleSelectProject = (project: any) => {
+    if (selectedProject && isDirty && project?.id !== selectedProject.id &&
+        !window.confirm("Kaydedilmemiş değişiklikler var. Kaydetmeden devam edilsin mi?")) return;
     setSelectedProject(project);
     if (project) {
+      setVersions(Array.isArray(project.versions) ? project.versions : []);
+      setBaselinePending(true);
       const n = normalizeVsmProject(project, {
         customerName: selectedCustomer?.companyName || "",
         productFamily: project.productGroup || ""
@@ -352,7 +357,8 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
       futureState: futureProcesses
         ? { processes: futureProcesses, setup: futureSetup, designAnswers, createdAt: selectedProject.futureState?.createdAt || new Date().toISOString() }
         : null,
-      kaizenBursts
+      kaizenBursts,
+      versions
     };
 
     fetch("/api/business/vsm-projects", {
@@ -376,6 +382,9 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
         // stale-closure bug: a brand-new project's very first save would otherwise sync with an
         // undefined/wrong project id).
         syncVsmProcessesToCostTable(vsmProcesses, data.data.id);
+        if (Array.isArray(data.data.versions)) setVersions(data.data.versions);
+        setBaselinePending(true);
+        try { localStorage.removeItem(draftKey(data.data.id)); } catch { /* storage unavailable */ }
         setJustSavedProject(true);
         setTimeout(() => setJustSavedProject(false), 2000);
       } else {
@@ -398,6 +407,91 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
   const [futureSetup, setFutureSetup] = useState<Partial<VsmFactorySetup>>({});
   const [designAnswers, setDesignAnswers] = useState<Record<string, string>>({});
   const [kaizenBursts, setKaizenBursts] = useState<VsmKaizenBurst[]>([]);
+
+  // ---- Versions, unsaved-change tracking and local draft (plan step V7) ----
+  const [versions, setVersions] = useState<VsmVersion[]>([]);
+  const [savedKey, setSavedKey] = useState<string>("");
+  const [baselinePending, setBaselinePending] = useState(false);
+  const draftKey = (id: string) => `vsm_draft_${id}`;
+  const savableState = { factorySetup, vsmProcesses, team, productMatrix, futureProcesses, futureSetup, designAnswers, kaizenBursts, versions };
+  const currentKey = savableKey(savableState);
+  const isDirty = !!selectedProject && !baselinePending && savedKey !== "" && currentKey !== savedKey;
+
+  // After a project is opened or saved, the state on screen becomes the "saved" baseline.
+  useEffect(() => {
+    if (!baselinePending) return;
+    setSavedKey(currentKey);
+    setBaselinePending(false);
+    // A newer local draft of this project (left unsaved earlier on this device) can be restored.
+    if (!selectedProject?.id) return;
+    try {
+      const raw = localStorage.getItem(draftKey(selectedProject.id));
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      const savedAt = selectedProject.updated_at || selectedProject.created_at || "";
+      if (draft?.savedAt > savedAt && draft.key !== currentKey &&
+          window.confirm(`Bu cihazda ${new Date(draft.savedAt).toLocaleString("tr-TR")} tarihli kaydedilmemiş bir taslak var. Geri yüklensin mi?`)) {
+        applyState(draft.state);
+      } else if (draft?.savedAt <= savedAt) {
+        localStorage.removeItem(draftKey(selectedProject.id));
+      }
+    } catch { /* storage unavailable */ }
+  }, [baselinePending]);
+
+  // Unsaved changes are kept as a local draft (this browser only) a moment after each edit.
+  useEffect(() => {
+    if (!isDirty || !selectedProject?.id) return;
+    const t = setTimeout(() => {
+      try { localStorage.setItem(draftKey(selectedProject.id), JSON.stringify({ savedAt: new Date().toISOString(), key: currentKey, state: savableState })); } catch { /* full / blocked */ }
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [currentKey, isDirty]);
+
+  // Leaving the page with unsaved changes asks first.
+  useEffect(() => {
+    if (!isDirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [isDirty]);
+
+  const applyState = (st: any) => {
+    if (!st) return;
+    if (st.factorySetup) setFactorySetup(st.factorySetup);
+    if (Array.isArray(st.vsmProcesses)) setVsmProcesses(st.vsmProcesses);
+    if (Array.isArray(st.team)) setTeam(st.team);
+    if (st.productMatrix) setProductMatrix(st.productMatrix);
+    setFutureProcesses(Array.isArray(st.futureProcesses) ? st.futureProcesses : null);
+    setFutureSetup(st.futureSetup || {});
+    setDesignAnswers(st.designAnswers || {});
+    if (Array.isArray(st.kaizenBursts)) setKaizenBursts(st.kaizenBursts);
+    if (Array.isArray(st.versions)) setVersions(st.versions);
+  };
+
+  const handleCloseProject = () => {
+    if (isDirty && !window.confirm("Kaydedilmemiş değişiklikler var. Kaydetmeden çıkılsın mı?")) return;
+    setSelectedProject(null);
+  };
+
+  const handleSaveVersion = (label: string) => {
+    const v = makeVersion(label, factorySetup, vsmProcesses, futureProcesses ? { processes: futureProcesses, setup: futureSetup } : null, currentUser as any);
+    setVersions(prev => [v, ...prev].slice(0, VSM_MAX_VERSIONS));
+  };
+  const handleDeleteVersion = (id: string) => {
+    const v = versions.find(x => x.id === id);
+    if (!canDeleteVsmOwned(currentUser, v)) { alert("Yalnızca kendi kaydettiğiniz versiyonu silebilirsiniz."); return; }
+    setVersions(prev => prev.filter(x => x.id !== id));
+  };
+  // Brings a version's maps back as the working state (saved only when the user presses Kaydet).
+  const handleRestoreVersion = (id: string) => {
+    const v = versions.find(x => x.id === id);
+    if (!v || !window.confirm(`"${v.label}" ekrandaki mevcut${v.future ? " ve gelecek" : ""} durumun yerine yüklensin mi? (Kaydedince kalıcı olur.)`)) return;
+    setFactorySetup(v.setup);
+    setVsmProcesses(v.processes);
+    setFutureProcesses(v.future ? v.future.processes : null);
+    setFutureSetup(v.future?.setup || {});
+  };
+
 
   // Canvas View Controls
   const [zoom, setZoom] = useState<number>(1);
@@ -1086,6 +1180,12 @@ export function useVsmWorkspace(currentUser: VsmUserLike | null) {
 
 
   return {
+    versions,
+    isDirty,
+    handleCloseProject,
+    handleSaveVersion,
+    handleDeleteVersion,
+    handleRestoreVersion,
     handleUpdateFutureProcessField,
     handleAddFutureProcess,
     handleDeleteFutureProcess,

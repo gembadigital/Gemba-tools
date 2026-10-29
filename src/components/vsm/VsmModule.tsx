@@ -47,6 +47,8 @@ import VsmProjectPortal from "./VsmProjectPortal";
 import VsmSetupTab from "./VsmSetupTab";
 import VsmProductMatrixTab from "./VsmProductMatrixTab";
 import VsmFutureTab from "./VsmFutureTab";
+import VsmVersionsModal from "./VsmVersionsModal";
+import { History } from "lucide-react";
 import VsmReportPages from "./VsmReportPages";
 import VsmMobileProcessList from "./VsmMobileProcessList";
 import { Layers } from "lucide-react";
@@ -60,7 +62,8 @@ import VsmExportModal from "./VsmExportModal";
 
 export default function VsmModule({ currentUser = null }: { currentUser?: VsmUserLike | null }) {
   const vsm = useVsmWorkspace(currentUser);
-  const { isDrawerOpen, activeProcess, exportModalOpen, projects, selectedProject, setSelectedProject, isSavingProject, justSavedProject, vsmProcesses, activeTab, setActiveTab, handleSelectProject, handlePersistWorkspaceState, simulationMode, setSimulationMode, isFullScreen, setIsFullScreen, setExportModalOpen, handleZoomReset } = vsm;
+  const [versionsOpen, setVersionsOpen] = React.useState(false);
+  const { handleCloseProject, isDirty, versions, isDrawerOpen, activeProcess, exportModalOpen, projects, selectedProject, setSelectedProject, isSavingProject, justSavedProject, vsmProcesses, activeTab, setActiveTab, handleSelectProject, handlePersistWorkspaceState, simulationMode, setSimulationMode, isFullScreen, setIsFullScreen, setExportModalOpen, handleZoomReset } = vsm;
 
   if (!selectedProject) {
     return (
@@ -148,6 +151,16 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
 
         {/* WORKSPACE ACTION BUTTONS — Kaydet + Export, right-aligned */}
         <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => setVersionsOpen(true)}
+            className="flex items-center space-x-1.5 bg-white border border-slate-300 text-slate-800 hover:bg-slate-50 text-xs font-bold px-3.5 py-2 rounded-xl transition cursor-pointer shadow-sm h-9"
+            title="Versiyonlar ve karşılaştırma"
+          >
+            <History className="w-4 h-4" />
+            <span>Versiyonlar{versions.length ? ` (${versions.length})` : ""}</span>
+          </button>
+          {isDirty && <span className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">Kaydedilmemiş değişiklik</span>}
+
           {/* PERSIST PROJECT STATE BUTTON */}
           <button
             id="save_project_btn"
@@ -163,7 +176,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
               <Save className="w-4 h-4 text-indigo-100" />
             )}
             <span className={justSavedProject ? "text-emerald-400" : ""}>
-              {justSavedProject ? "Kaydedildi!" : "Kaydet"}
+              {justSavedProject ? "Kaydedildi!" : isDirty ? "Kaydet •" : "Kaydet"}
             </span>
           </button>
 
@@ -192,7 +205,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
         <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0">
           {/* RETURN TO PROJECT LIST — compact home-icon button */}
           <button
-            onClick={() => setSelectedProject(null)}
+            onClick={handleCloseProject}
             className="flex items-center justify-center bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 hover:text-slate-950 rounded-xl p-2 transition cursor-pointer shadow-xs w-9 h-9 shrink-0"
             id="btn_back_to_projects"
             title="Proje Listesine Dön"
@@ -331,6 +344,7 @@ export default function VsmModule({ currentUser = null }: { currentUser?: VsmUse
       {/* ========================================== */}
       {exportModalOpen && <VsmExportModal />}
       <VsmReportPages />
+      {versionsOpen && <VsmVersionsModal onClose={() => setVersionsOpen(false)} />}
 
     </div>
     </VsmContext.Provider>

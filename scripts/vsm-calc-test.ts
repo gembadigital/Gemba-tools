@@ -176,3 +176,17 @@ assert.equal(opp.length, 1);
 assert.deepEqual([opp[0].id, opp[0].source, opp[0].leanTool, opp[0].expectedGain], ["opp_vsm_vp1_k1", "vsm", "SMED", undefined]);
 assert.ok(opp[0].detail.includes("PRES"));
 console.log("vsm-calc-test: V6 checks passed");
+
+// --- V7: versions
+import { makeVersion } from "../src/components/vsm/vsmVersions.js";
+const vSetup = { workingDays: 5, weeklyDemand: 2000, shiftsPerDay: 1, shiftDuration: 8, breakTimes: 30, plannedMaintenance: 10 } as any;
+const vProcs = [proc("a", { cycleTime: 70, inventoryBefore: 800 }), proc("b", { cycleTime: 50, inventoryBefore: 400 })];
+const ver = makeVersion("Mevcut v1", vSetup, vProcs, { processes: [proc("a", { cycleTime: 55, inventoryBefore: 400 }), proc("b", { cycleTime: 50, inventoryBefore: 400 })] }, { id: "u1", full_name: "Ayşe" });
+assert.equal(ver.label, "Mevcut v1");
+assert.equal(ver.metrics.current.leadTimeDays, 3);
+assert.equal(ver.metrics.future?.leadTimeDays, 2);
+assert.equal(ver.metrics.current.taktSec, 66);
+vProcs[0].cycleTime = 999;
+assert.equal(ver.processes[0].cycleTime, 70, "snapshot is a copy");
+assert.equal(makeVersion("x", vSetup, vProcs, null).metrics.future, null);
+console.log("vsm-calc-test: V7 checks passed");

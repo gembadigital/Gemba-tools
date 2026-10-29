@@ -85,3 +85,17 @@ assert.deepEqual(forbiddenBurstRemovals(cu, bursts, [bursts[0]]), []);
 const sb = stampBurstOwners(bursts, [{ id: "k1", title: "SMED", createdBy: "u1" }, { id: "k3", title: "Yeni" }], "u1");
 assert.deepEqual(sb.map(b => b.createdBy), ["u2", "u1"]);
 console.log("vsm-access-test: V5 checks passed");
+
+// V7: versions
+import { canDeleteVsmOwned, forbiddenOwnedRemovals } from "../src/utils/vsmAccess.js";
+const v7 = normalizeVsmProjectInput({ name: "x", versions: [{ id: "v1", label: "Mevcut v1", processes: [{ id: "p1", name: "A", cycleTime: "40" }], setup: { weeklyDemand: 100, x: { y: 1 } }, metrics: { current: { leadTimeDays: 3, bottleneck: "A" } } }] });
+assert.equal(v7.ok, true);
+if (v7.ok) {
+  assert.equal(v7.project.versions[0].processes[0].cycleTime, 40);
+  assert.equal(v7.project.versions[0].setup.x, undefined);
+  assert.equal(v7.project.versions[0].metrics.current.leadTimeDays, 3);
+}
+assert.equal(normalizeVsmProjectInput({ name: "x", versions: Array.from({ length: 13 }, (_, i) => ({ id: "v" + i, processes: [] })) }).ok, false);
+assert.equal(canDeleteVsmOwned(cu, { createdBy: "u2" }), false);
+assert.deepEqual(forbiddenOwnedRemovals(cu, [{ id: "v1", label: "V1", createdBy: "u2" }], []), ["V1"]);
+console.log("vsm-access-test: V7 checks passed");

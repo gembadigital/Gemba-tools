@@ -127,3 +127,14 @@ Görünüm değişmedi; aşağıdakiler hesap tutarlılığı ve düzeltilen hat
 | 12.3 | Prosesleri olmayan yeni projede deneyin. | "Analiz için önce prosesleri girin ve kaydedin." |
 | 12.4 | PDF raporu. | "Yapay Zekâ VSM Analizi" sayfası. |
 | 12.5 | Vercel → Environment Variables'da `GEMINI_API_KEY` tanımlı mı? | Tanımlı (OpEx ile ortak). Yoksa analiz "GEMINI_API_KEY tanımlı değil" hatası verir. |
+
+## V7 — Versiyonlar, kaydedilmemiş değişiklik, taslak
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| 7.1 | Projeyi açın. | "Kaydedilmemiş değişiklik" etiketi yok. |
+| 7.2 | Bir değer değiştirin. | Etiket ve "Kaydet •" görünür; proje listesine dönmeye çalışınca onay sorulur; sekmeyi kapatınca tarayıcı uyarır. |
+| 7.3 | Kaydetmeden sekmeyi kapatıp projeyi yeniden açın. | "… tarihli kaydedilmemiş taslak var. Geri yüklensin mi?" — Evet ile değişiklik geri gelir. |
+| 7.4 | Versiyonlar → "Mevcut v1 – …" ekleyin, Kaydet. Sonra mevcut durumda değişiklik yapıp "Ekrandaki mevcut" ile v1'i karşılaştırın. | Fark sütunu değişen göstergeleri renkli gösterir. |
+| 7.5 | Versiyonu geri yükleyin. | Ekrandaki haritalar versiyondaki hâle döner; Kaydet'e basınca kalıcı. |
+| 7.6 | U2, U1'in versiyonunu silmeyi denesin. | Sil düğmesi yok. |

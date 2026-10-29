@@ -28,6 +28,18 @@ export function canDeleteVsmProcess(u: VsmUserLike | null | undefined, process: 
   return !!process && !!u.id && process.createdBy === u.id;
 }
 
+// Generic rule for owned list items (versions): staff, or the user who created it.
+export function canDeleteVsmOwned(u: VsmUserLike | null | undefined, item: any): boolean {
+  if (!u) return false;
+  if (isVsmStaff(u)) return true;
+  return !!item && !!u.id && item.createdBy === u.id;
+}
+
+export function forbiddenOwnedRemovals(u: VsmUserLike | null | undefined, before: any[], after: any[]): string[] {
+  const kept = new Set((after || []).map(x => x?.id));
+  return (before || []).filter(x => x?.id && !kept.has(x.id) && !canDeleteVsmOwned(u, x)).map(x => String(x.label || x.title || x.id));
+}
+
 export function canDeleteVsmBurst(u: VsmUserLike | null | undefined, burst: any): boolean {
   if (!u) return false;
   if (isVsmStaff(u)) return true;
@@ -71,6 +83,7 @@ const INVENTORY_TYPES = ["pile", "fifo", "supermarket"];
 export const VSM_MAX_PRODUCTS = 300;
 export const VSM_MAX_TEAM = 40;
 export const VSM_MAX_BURSTS = 100;
+export const VSM_MAX_VERSIONS = 12;
 
 function cleanProcess(p: any): any {
   const out: any = { ...p };
@@ -149,6 +162,39 @@ export function normalizeVsmProjectInput(body: any): VsmInputResult {
         return out;
       });
   }
+  if (project.versions !== undefined) {
+    if (!Array.isArray(project.versions)) return { ok: false, error: "Versiyon listesi geçersiz." };
+    if (project.versions.length > VSM_MAX_VERSIONS) return { ok: false, error: `En fazla ${VSM_MAX_VERSIONS} versiyon saklanabilir.` };
+    const cleanSetup = (o: any) => {
+      const out: Record<string, any> = {};
+      Object.entries(o || {}).slice(0, 60).forEach(([k, v]) => {
+        if (typeof v === "number") { const n = cleanNumber(v); if (n !== undefined) out[k] = n; }
+        else if (typeof v === "string") out[k] = v.slice(0, 200);
+      });
+      return out;
+    };
+    const cleanMetrics = (m: any) => {
+      if (!m || typeof m !== "object") return null;
+      const out: Record<string, any> = {};
+      for (const [k, v] of Object.entries(m)) out[k] = typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" ? v.slice(0, 120) : null;
+      return out;
+    };
+    for (const v of project.versions) {
+      if (!v?.id || !Array.isArray(v.processes) || v.processes.length > VSM_MAX_PROCESSES) return { ok: false, error: "Versiyon geçersiz." };
+      if (v.future && (!Array.isArray(v.future.processes) || v.future.processes.length > VSM_MAX_PROCESSES)) return { ok: false, error: "Versiyon geçersiz." };
+    }
+    project.versions = project.versions.map((v: any) => ({
+      id: String(v.id).slice(0, 80),
+      label: String(v.label ?? "").slice(0, 80),
+      createdAt: String(v.createdAt ?? "").slice(0, 40),
+      ...(v.createdBy ? { createdBy: String(v.createdBy).slice(0, 80) } : {}),
+      ...(v.createdByName ? { createdByName: String(v.createdByName).slice(0, 100) } : {}),
+      setup: cleanSetup(v.setup),
+      processes: v.processes.map(cleanProcess),
+      future: v.future ? { processes: v.future.processes.map(cleanProcess), setup: cleanSetup(v.future.setup) } : null,
+      metrics: { current: cleanMetrics(v.metrics?.current), future: cleanMetrics(v.metrics?.future) }
+    }));
+  }
   if (project.team !== undefined) {
     if (!Array.isArray(project.team)) return { ok: false, error: "Ekip listesi geçersiz." };
     project.team = project.team.slice(0, VSM_MAX_TEAM)
@@ -217,4 +263,8 @@ export function stampBurstOwners(before: any[], after: any[], userId: string): a
     if (old) return old.createdBy ? { ...rest, createdBy: old.createdBy } : rest;
     return { ...rest, createdBy: userId };
   });
+}
+
+export function stampOwnedItems(before: any[], after: any[], userId: string): any[] {
+  return stampBurstOwners(before, after, userId);
 }
