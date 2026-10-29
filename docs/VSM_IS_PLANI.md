@@ -312,7 +312,7 @@ arayüzüyle birlikte boş iskelet olarak yazılır ve Opx Suite'e ayırma (V11)
 | V6 | ✅ kod; canlıda denenmedi (§V6) | 88538db |
 | V12 | ✅ kod; yerelde gerçek Gemini ile denendi (örnek proje, kayıt yok), canlıda denenmedi (§V12) | 170dd73 |
 | V7 | ✅ kod; yerel önizlemede (sahte API) denendi, canlıda denenmedi (§V7) | 7407261 |
-| V9 | ✅ kod; canlıda denenmedi (§V9) | bkz. git log |
+| V9 | ✅ kod; canlıda denenmedi (§V9) | d4dd1af |
 
 ### V0 — yapılanlar
 - Sunucu: `src/server/vsm/vsmRoutes.ts` (uçlar `app.ts`'den taşındı), kurallar `src/utils/vsmAccess.ts` (istemci+sunucu
