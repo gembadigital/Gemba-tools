@@ -216,9 +216,13 @@ export function computeJipmStation(
     } else if (def.key === "yield") {
       if (p.scrapQty > 0) {
         source = "ölçüm";
-        if (ctx.unitMaterial === null) priced = false;
-        material = ctx.unitMaterial !== null ? p.scrapQty * ctx.unitMaterial * daysYear : 0;
-        note = `Hurda ${p.scrapQty} adet/gün × birim malzeme${ctx.unitMaterial === null ? " (şirket kartından türetilemedi)" : ""} × ${daysYear} gün`;
+        // Material lost per scrapped piece: the card's average material cost, but never more than this
+        // station's own resolved scrap unit cost (a small plastic part is not an average product).
+        const unitMat = ctx.unitMaterial !== null && rates.scrapUnit.source ? Math.min(ctx.unitMaterial, rates.scrapUnit.value)
+          : ctx.unitMaterial !== null ? ctx.unitMaterial : rates.scrapUnit.source ? rates.scrapUnit.value : null;
+        if (unitMat === null) priced = false;
+        material = unitMat !== null ? p.scrapQty * unitMat * daysYear : 0;
+        note = `Hurda ${p.scrapQty} adet/gün × birim malzeme${unitMat === null ? " (bulunamadı)" : ""} × ${daysYear} gün`;
       }
     } else {
       const v = def.key === "energy" ? n(inputs.energyLossPerYear) : n(inputs.dieToolLossPerYear);

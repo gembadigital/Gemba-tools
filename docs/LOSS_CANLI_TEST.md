@@ -91,6 +91,19 @@ hurda/rework/arıza maliyetin 800/350/2.500'e bölünmesiyle). Artık gerçek ve
 | L7.5 | Excel (XLS). | Yeni sayfalar: Kayip_Havuzu, Istasyonlar, Loss_Cost_16_Kayip, Veri_Bosluklari; COPQ_Matrisi'nde "Kaynak / formül" sütunu. |
 | L7.6 | Sekme ve başlıklar. | Sekme "6. Loss Cost Analizi"; içeride ve raporda "TPM / JIPM" başlığı yok. KPI kutuları Türkçe: "OEE farkı", "Setup süresi farkı", "Kalitesizlik maliyeti farkı", "Stok devir hızı" (ölçülmedi), "Toplam Ekipman Etkinliği (OEE)", COPQ kategorisi "Tipik fabrika (%4–8)" vb.; "Current / BM / Gap" ve sabit "12 devir" yok. |
 
+## Panel tasarımı ve ACME demo verisi (2026-10-29)
+
+**ACME (cust_acmedemo1) tanıtım müşterisidir; verileri simülasyondur.** Yedek: `5SAudit/yedek/acme_2026-10-29_2034.json` (3.738 kayıt, değişiklik öncesi). Tohumlama betikleri: `5SAudit/yedek/acme_seed_scripts/`.
+
+| # | Ne yapılır | Ne görülmeli |
+|---|---|---|
+| D.1 | Loss → 1. Dashboard. | Üstte 4 kart (yıllık kayıp, COPQ, geri kazanım potansiyeli, ortalama OEE), "Kayıp nereden geliyor?" çubukları ve "En büyük 3 fırsat"; Ek göstergeler / Finansal grafikler / Gemba AI kapalı bölümler. Excel'de grafikler yine gelir. |
+| D.2 | ACME seçiliyken şirket kartı. | Ciro 1.494.000.000 TL (30 milyon USD), 300 çalışan, 2×8 vardiya; fabrika, iletişim, OpEx bilgileri, KPI geçmişi, varlıklar, proje portföyü ve zaman çizelgesi dolu. |
+| D.3 | VSM. | İki hat: Panel Hattı (8 adım) ve Enjeksiyon Hattı (5 adım); OEE %50–84 arası, kullanılabilirlik / performans / kalite dolu. |
+| D.4 | Loss (ACME). | 13 istasyon VSM'den gelir; yıllık ölçülen kayıp ≈ 36 milyon TL, COPQ ≈ 47 milyon TL (%3,1 · "İyi (%2–4)"), Loss Cost ≈ 52 milyon TL; hat bazında makine saati (Panel 1.650, Enjeksiyon 2.350 TL), işçilik 465 TL/saat; COPQ müşteri verileri ve gerçek fazla mesai / geç teslimat dolu. |
+| D.5 | CI Proje Yönetimi (ACME). | 2 kapanmış proje (IMM-2 SMED ₺690.000, kaynak poka-yoke ₺1.080.000 teyitli kazanç) ve 4 açık proje (boya SMED, IMM-1 hurda, montaj hız kaybı, IMM-1 TPM); Loss geri kazanım matrisinde "CI proje" sayıları ve gerçekleşen tasarruf görünür. |
+| D.6 | Kaizen öneri sistemi (ACME). | 6 yeni kabul edilmiş öneri (Amir + Kurul onaylı) önce/sonra metni ve görseliyle; 4'ünün uygulaması tamamlanmış ve doğrulanmış, 1'i sürüyor, 1'i planlandı. |
+
 ## Bilinen, bu adımda değiştirilmeyenler
 
 - Geri Kazanım Matrisi iyileştirme oranları (projeksiyon varsayımı, düzenlenebilir) — QLA kalibrasyonuyla hizalama kararı bekliyor.
