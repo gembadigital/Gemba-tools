@@ -937,8 +937,13 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
     handleAddNewRecord();
   };
 
+  // `records.id` is the primary key of the whole shared table, not per customer — a small
+  // per-customer counter (1, 2, 3…) lands on another customer's PTR row and the upsert merges
+  // over it. Timestamp-based ids (as the gap notes above use) stay unique across customers.
+  const newRecordIdBase = () => Math.max(Date.now(), ...records.map(r => Number(r.id) + 1).filter(n => !isNaN(n)));
+
   const handleAddNewRecord = (extraRecords: ProjectRecord[] = []) => {
-    const nextId = records.length > 0 ? Math.max(...records.map(r => r.id)) + 1 : 1;
+    const nextId = newRecordIdBase();
     const finalRecord: ProjectRecord = {
       id: nextId,
       orderNo: nextId,
@@ -1004,6 +1009,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
       const lines = importText.trim().split("\n");
       const importedList: ProjectRecord[] = [];
       let successCount = 0;
+      const idBase = newRecordIdBase();
 
       lines.forEach((line) => {
         // Skip header if matches text
@@ -1027,7 +1033,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
 
           const orderNo = records.length + successCount + 1;
           importedList.push({
-            id: orderNo,
+            id: idBase + successCount,
             orderNo: orderNo,
             visitedWeek: calculatedWeek,
             workDate: rawDate,
@@ -1126,6 +1132,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
 
         const rows = XLSX.utils.sheet_to_json<any>(ws, { range: headerRowIndex });
         const importedList: ProjectRecord[] = [];
+        const idBase = newRecordIdBase();
 
         rows.forEach((row) => {
           const activitySubject = String(row["Faaliyet Konusu"] ?? "").trim();
@@ -1144,7 +1151,7 @@ export default function PtrTimeStudy({ activities, onAddActivity, onUpdateActivi
 
           const orderNo = records.length + importedList.length + 1;
           importedList.push({
-            id: orderNo,
+            id: idBase + importedList.length,
             orderNo,
             visitedWeek: calculatedWeek,
             workDate: rawDate,
